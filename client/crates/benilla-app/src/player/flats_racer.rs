@@ -8,7 +8,9 @@ use bevy::prelude::*;
 use super::Player;
 
 mod collision;
+mod input;
 mod probe;
+mod tuning;
 pub(crate) use probe::{probe_done, probe_ready};
 
 pub(crate) const DISPLAY_ID: u32 = 10318;
@@ -37,6 +39,9 @@ pub(crate) struct FlatsRacer {
     pub(super) status: &'static str,
     pub(super) speed: f32,
     pub(super) boost: f32,
+    tuning: flats_racer_physics::Tuning,
+    tuning_open: bool,
+    controls: input::Controls,
     dynamics: Option<flats_racer_physics::State>,
     accumulator: f64,
     waiting_since: Option<f32>,
@@ -129,6 +134,9 @@ impl Default for FlatsRacer {
             status: "F8 to request mount (Shimmering Flats only)",
             speed: 0.0,
             boost: 1.0,
+            tuning: Default::default(),
+            tuning_open: false,
+            controls: Default::default(),
             dynamics: None,
             accumulator: 0.0,
             waiting_since: None,
@@ -183,6 +191,26 @@ fn advance(
     world: &benilla_world::collision::WorldCollision,
     progress: &benilla_world::terrain_stream::WorldLoadProgress,
 ) -> Result<bool, flats_racer_physics::StepError> {
+    advance_tuned(
+        state,
+        accumulator,
+        input,
+        dt,
+        world,
+        progress,
+        &Default::default(),
+    )
+}
+
+fn advance_tuned(
+    state: &mut flats_racer_physics::State,
+    accumulator: &mut f64,
+    input: flats_racer_physics::Input,
+    dt: f32,
+    world: &benilla_world::collision::WorldCollision,
+    progress: &benilla_world::terrain_stream::WorldLoadProgress,
+    tuning: &flats_racer_physics::Tuning,
+) -> Result<bool, flats_racer_physics::StepError> {
     let fixed = flats_racer_physics::FIXED_DT;
     let clock_step = 1.0 / 120.0;
     *accumulator += f64::from(dt.clamp(0.0, 0.1));
@@ -211,7 +239,7 @@ fn advance(
             break;
         }
         let old_yaw = state.yaw;
-        state.step(input, supports, fixed)?;
+        state.step_with_tuning(input, supports, fixed, tuning)?;
         if !collision::clear_turn(world, position, old_yaw, state.yaw) {
             state.yaw = old_yaw;
             state.yaw_rate = 0.0;
@@ -252,7 +280,11 @@ pub(super) fn control(
     if !racer.enabled {
         return false;
     }
-    if accepts_input && player.active && keys.just_pressed(KeyCode::F8) {
+    if player.active && racer.controls.tuning && (accepts_input || racer.tuning_open) {
+        racer.tuning_open = !racer.tuning_open;
+    }
+    let accepts_input = accepts_input && !racer.tuning_open;
+    if accepts_input && player.active && (keys.just_pressed(KeyCode::F8) || racer.controls.mount) {
         let action = if racer.authorized { "off" } else { "on" };
         if request(net, action) {
             racer.status = "Waiting for server";
@@ -298,7 +330,7 @@ pub(super) fn control(
         return false;
     }
     racer.waiting_since = None;
-    if accepts_input && keys.just_pressed(KeyCode::F9) {
+    if accepts_input && (keys.just_pressed(KeyCode::F9) || racer.controls.reset) {
         if request(net, "reset") {
             racer.status = "Waiting for safe reset";
             racer.waiting_reset = Some(now);
@@ -343,19 +375,18 @@ pub(super) fn control(
         player.vel_y = 0.0;
         player.autorun = false;
     }
-    let held = |key| accepts_input && keys.pressed(key);
-    let input = flats_racer_physics::Input {
-        throttle: if held(KeyCode::KeyW) { 1.0 } else { 0.0 },
-        steer: if held(KeyCode::KeyA) { 1.0 } else { 0.0 }
-            - if held(KeyCode::KeyD) { 1.0 } else { 0.0 },
-        brake: !accepts_input || held(KeyCode::KeyS),
-        boost: held(KeyCode::ShiftLeft) || held(KeyCode::ShiftRight),
-        drift: held(KeyCode::ControlLeft) || held(KeyCode::ControlRight),
-        jump: held(KeyCode::Space),
-    };
+    let input = input::driving(keys, &racer.controls, accepts_input);
     let state = racer.dynamics.as_mut().expect("initialized racer state");
     let was_grounded = state.grounded;
-    match advance(state, &mut racer.accumulator, input, dt, world, progress) {
+    match advance_tuned(
+        state,
+        &mut racer.accumulator,
+        input,
+        dt,
+        world,
+        progress,
+        &racer.tuning,
+    ) {
         Ok(held) => {
             racer.status = if held {
                 "Waiting for streamed collision"
@@ -463,9 +494,17 @@ pub(super) fn plugin(app: &mut App) {
         .add_systems(Update, hud.in_set(crate::ui_script::UiFeed))
         .add_systems(
             Update,
+            input::sample
+                .after(crate::ui_script::UiInput)
+                .after(crate::video::apply_present_mode)
+                .after(crate::video::apply_window_mode)
+                .before(super::PlayerControlSet),
+        )
+        .add_systems(
+            PostUpdate,
             bank_mount
-                .after(super::PlayerControlSet)
-                .after(probe::drive),
+                .in_set(CosmeticBank)
+                .before(bevy::app::AnimationSystems),
         );
     if std::env::var("WOW_CAPTURE").as_deref() == Ok("flats-racer") {
         app.add_systems(
@@ -480,16 +519,22 @@ pub(super) fn plugin(app: &mut App) {
 #[derive(Component)]
 struct Banked;
 
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct CosmeticBank;
+
 fn bank_mount(
     mut commands: Commands,
     racer: Res<FlatsRacer>,
     riders: Query<(Has<crate::net::Embodied>, Option<&probe::ProbeBank>)>,
-    mut mounts: Query<(
-        Entity,
-        &crate::entities::mount::MountBody,
-        &mut Transform,
-        Has<Banked>,
-    )>,
+    mut mounts: Query<
+        (
+            Entity,
+            &crate::entities::mount::MountBody,
+            &mut Transform,
+            Has<Banked>,
+        ),
+        Without<benilla_world::view::WorldCamera>,
+    >,
 ) {
     for (entity, mount, mut transform, banked) in &mut mounts {
         let bank = riders.get(mount.host).ok().and_then(|(embodied, probe)| {
@@ -511,37 +556,48 @@ fn bank_mount(
 }
 
 fn hud(
-    racer: Res<FlatsRacer>,
+    mut racer: ResMut<FlatsRacer>,
     player: Res<Player>,
     time: Res<Time>,
     script: Option<NonSend<UiScript>>,
-    mut next: Local<f32>,
+    mut next: Local<crate::ui_script::VmMemo<f32>>,
 ) {
     let Some(script) = script else { return };
+    let next = next.get(&script);
     if time.elapsed_secs() < *next {
         return;
     }
     *next = time.elapsed_secs() + 0.1;
     if !racer.enabled || !player.active {
-        crate::ui_script::run_or_warn(&script, "if FlatsRacerHUD then FlatsRacerHUD:Hide() end");
+        racer.tuning_open = false;
+        crate::ui_script::run_or_warn(&script, "if FlatsRacerHUD then FlatsRacerHUD:Hide() end if FlatsRacerTuning then for i=1,17 do getglobal('FlatsRacerTuneBox'..i):ClearFocus() end FlatsRacerTuning:Hide() end");
         return;
     }
+    tuning::update(&script, &mut racer);
     crate::ui_script::run_or_warn(
         &script,
         &format!(
             r#"
 if not FlatsRacerHUD then
     local f = CreateFrame("Frame", "FlatsRacerHUD", UIParent)
-    f:SetWidth(600) f:SetHeight(62) f:SetPoint("TOP", UIParent, "TOP", 0, -58)
+    f:SetWidth(660) f:SetHeight(82) f:SetPoint("TOP", UIParent, "TOP", 0, -58)
     local t = f:CreateFontString("FlatsRacerHUDText", "OVERLAY", "GameFontNormal")
     t:SetAllPoints(f)
+    local b=CreateFrame("Button","FlatsRacerTuneToggle",f)
+    b:SetWidth(90) b:SetHeight(25)
+    b:SetPoint("TOPRIGHT",f,"TOPRIGHT",95,0)
+    local caption=b:CreateFontString(nil,"OVERLAY","GameFontNormal")
+    caption:SetPoint("CENTER",b,"CENTER",0,0)
+    caption:SetText("[Tuning]")
+    b:SetScript("OnClick",function() FlatsRacerTuneCommand="toggle" end)
 end
 FlatsRacerHUD:Show()
-FlatsRacerHUDText:SetText("FLATS RACER | {status} | {speed:.1} yd/s | boost {boost:.0}%\nF8 mount/off   F9 safe reset   W thrust   S brake\nA/D steer   Shift boost   Ctrl drift   Space hop")
+FlatsRacerHUDText:SetText("FLATS RACER | {status} | {speed:.1} yd/s | boost {boost:.0}%\n{tutorial}")
 "#,
             status = racer.status,
             speed = racer.speed,
             boost = racer.boost * 100.0,
+            tutorial = racer.controls.device.tutorial(),
         ),
     );
 }

@@ -36,7 +36,7 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 - [benilla-protocol](#benilla-protocol): 21
 - [benilla-srp](#benilla-srp): 2
 - [benilla-ui](#benilla-ui): 110
-- [benilla-world](#benilla-world): 46
+- [benilla-world](#benilla-world): 47
 - [flats-racer-physics](#flats-racer-physics): 1
 
 ### benilla-app
@@ -202,7 +202,7 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 - Unattended instrumentation never steals focus or admits physical background input. ([`src/player/controller.rs:326`](../crates/benilla-app/src/player/controller.rs#L326))
 - No drunk field-of-view lane, because the reference's is invisible in play: its target `(179° − 90°)·fraction` (camera `+0x10c`, setter `0x511250`) eases at `cameraFoVSmoothSpeed`, 0.5°/s, and restarts on every drunk-byte change, so it creeps under 1°. ([`src/player/drunk.rs:46`](../crates/benilla-app/src/player/drunk.rs#L46))
 - Opt-in local hover-racer controls, authorized explicitly by the custom server. ([`src/player/flats_racer.rs:1`](../crates/benilla-app/src/player/flats_racer.rs#L1))
-- Physical hops remain local; only this server-authorized mode uses grounded wire poses. ([`src/player/flats_racer.rs:412`](../crates/benilla-app/src/player/flats_racer.rs#L412))
+- Physical hops remain local; only this server-authorized mode uses grounded wire poses. ([`src/player/flats_racer.rs:443`](../crates/benilla-app/src/player/flats_racer.rs#L443))
 - Conservative rocket-car envelope over the existing Avian world queries. ([`src/player/flats_racer/collision.rs:1`](../crates/benilla-app/src/player/flats_racer/collision.rs#L1))
 - Server-less integration instrument; real rider/mount, terrain, resolver and camera. ([`src/player/flats_racer/probe.rs:1`](../crates/benilla-app/src/player/flats_racer/probe.rs#L1))
 - A hold is summed and sent once on release, without the send's `[mgr+0x130] += lag` heartbeat push, because ours lasts seconds where the reference's lasts a substep. ([`src/player/movement_net.rs:299`](../crates/benilla-app/src/player/movement_net.rs#L299))
@@ -731,6 +731,10 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 - Levels pack contiguously, because the reference's resuming cursor (`0x764fd3`/`0x764fd8`) leaves a hole past a wide gap ({0, 4, 6} at bound 7 gives {0, 1, 3} at bound 4). ([`src/widget/propagation.rs:180`](../crates/benilla-ui/src/widget/propagation.rs#L180))
 - The frame is still in the old parent's child list during `OnHide`, unlike the reference (`0x76ab34` unlinks first), because a handler that itself reparents must not find the lists half-spliced. ([`src/widget/propagation.rs:280`](../crates/benilla-ui/src/widget/propagation.rs#L280))
 ### benilla-world
+
+#### boot
+
+- Only the explicitly enabled custom racer admits controller input. ([`src/boot.rs:70`](../crates/benilla-world/src/boot.rs#L70))
 
 #### clouds
 

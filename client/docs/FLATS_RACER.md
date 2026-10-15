@@ -35,6 +35,48 @@ display 10318 must arrive before the local controller takes ownership.
 | Space | One hop per press, then brief airborne steering; no flight |
 | F9 | Server-authorized safe reset; motion waits for the reset acknowledgement/pose |
 | F8 | Unmount and return to normal walking |
+| F10 / HUD Tuning button | Open/close numeric tuning panel; brakes held while open |
+
+The tuning panel has 17 text boxes: speed/boost caps, thrust/boost thrust, braking,
+drag, turn rate/response, grip/drift grip/drift turn multiplier, hover height,
+spring/damping, gravity, hop speed and airborne steering fraction. **Apply**
+validates the entire set atomically; an invalid field leaves the current handling
+unchanged and displays its reason. **Restore defaults** applies the original MVP
+handling. Values last only until this client exits (not saved to the account).
+Tab advances through fields, Enter applies, and Escape in a field closes.
+
+Speed caps are limited to 1–50 yd/s (boost cap must be at least the normal cap),
+thrust/boost thrust to 0–60, braking to 0–100, drag to 0.01–5, turn rate to
+0.1–6 rad/s, turn response to 1–30, grip/drift grip to 0.1–30, drift turn to
+0.1–3, hover height to 0.5–1.5 yd, spring to 10–150, damping to 1–35,
+gravity to 10–40, hop speed to 2–8, and air steering to 0–0.5.
+Collision, streaming holds and server authorization/region/speed guards are
+unchanged. Tuning is bounded experimentation, not a promise that every extreme
+combination will feel good.
+
+### Controller
+
+Controller support is enabled only with `WOW_FLATS_RACER=1`, using Bevy's existing
+gamepad backend. Xbox / PlayStation names below refer to the same physical buttons:
+
+| Control | Action |
+| --- | --- |
+| Left stick X | Steer (18% deadzone, remaining travel rescaled) |
+| RT / R2 | Analog thrust (8% deadzone) |
+| LT / L2 | Brake (on/off above 12%, not proportional braking) |
+| RB / R1 | Boost |
+| LB / L1 | Drift |
+| A / Cross | Hop |
+| Start / Menu | Mount/unmount |
+| Y / Triangle | Safe reset |
+| Back / View / Share | Toggle tuning panel |
+
+HUD tutorial text follows the latest keyboard or controller press; significant
+stick/trigger movement also selects the controller. Held buttons and stick noise
+do not keep stealing the tutorial back from the keyboard. In a same-frame tie the
+controller wins. Keyboard/mouse still edit the tuning boxes; this is not general
+controller navigation for the stock client UI. Unfocused, typing and loading gates
+apply to both driving devices.
 
 Reset returns to the grounded position where the server granted this mount, not
 to a client-selected coordinate. Mount on a clear, level part of the track.
@@ -101,6 +143,11 @@ $env:WOW_RACER_PROBE_OUT = "$env:TEMP\flats-racer.json"
 & .\target-racer\play\benilla.exe
 ```
 
+To include the actual tuning dialog in this same offline terrain/model capture,
+also set `WOW_CAPTURE_UI=1`, `WOW_FLATS_RACER=1` and
+`WOW_RACER_TUNING_CAPTURE=1`. This instrumentation neither logs in nor authorizes
+a live vehicle. Clear those capture variables before interactive play.
+
 The scenario waits for the installed rider, mounted attachment hierarchy and
 streamed world collision before releasing its deterministic clock. It exercises
 the same resolver and camera as live play: settle, thrust/boost, drift turn,
@@ -157,6 +204,28 @@ streaming-frontier holds have automated coverage, but were not exercised at
 their limits in this live drive. Live obstacle impact and frontier recovery
 still require the human acceptance pass below.
 
+### Tuning/controller validation
+
+The tuning update passes 17 app racer tests (including real EditBox entry,
+atomic Apply/defaults, controller mappings, device switching, disconnect and
+normal-mode exclusion), 17 numerical physics tests and the schedule-order audit.
+Cosmetic banking now runs in PostUpdate before animation and terrain conforming;
+the camera is explicitly excluded from its mutable transform query.
+The full Windows app run reports 4,846 passed, 12 ignored and three failures:
+`cvars::deviations_doc::the_deviates_rows_read_back_as_the_generator_reads_them`
+(CRLF string parsing), `ui_script::fire_scan::every_relay_has_its_origin_in_view`
+(Windows path tracing), and
+`ui_session::tests::every_npc_session_is_portrait_bound_or_explicitly_excluded`
+(source-structure parsing). These unrelated source-audit failures remain
+unresolved; the full suite is not claimed green.
+
+The installed-data tuning-panel capture retains the 480-frame measurements
+above, and all 17 fields plus Apply/defaults/Close were visually inspected.
+Synthetic gamepad tests do not establish physical controller mapping or handling
+feel. For the human pass, apply a lower speed cap and turn rate, close the panel
+and compare handling; restore defaults, then alternate keyboard presses with pad
+buttons/axes and check tutorial changes, deadzones, focus loss and disconnect.
+
 ### Current Windows isolated-instance handoff
 
 The prepared workspace is
@@ -195,9 +264,9 @@ Client terrain/Avian collision is used by the racer, not server MMaps.
 The test therefore does not validate NPC navigation or the full-pathfinding
 configuration of the original runtime.
 
-The already-started auth/world driver has a 40-minute lifetime from startup;
-it may have expired by the time these instructions are read. Inspect only these
-ports and use the ownership-aware DB status helper:
+The isolated auth/world driver is stopped after the recorded probes; the DB may
+still be running. A newly started driver has a 40-minute lifetime. Inspect only
+these ports and use the ownership-aware DB status helper:
 
 ```powershell
 Get-NetTCPConnection -State Listen -LocalPort 3308,3725,8086 -ErrorAction SilentlyContinue

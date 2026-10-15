@@ -51,6 +51,7 @@ pub(super) fn drive(
         (With<WorldCamera>, Without<ProbeRider>),
     >,
     mut rig: ResMut<super::super::camera::CameraControl>,
+    mut racer: ResMut<FlatsRacer>,
 ) {
     let origin = benilla_assets::coords::wow_to_bevy([-6235.0, -3945.0, -57.65]);
     let root =
@@ -108,6 +109,9 @@ pub(super) fn drive(
         READY.store(true, Ordering::Relaxed);
     }
     let t = probe.elapsed;
+    if t >= 7.0 && std::env::var("WOW_RACER_TUNING_CAPTURE").as_deref() == Ok("1") {
+        racer.tuning_open = true;
+    }
     if t >= 6.0 && !probe.reset {
         probe
             .dynamics

@@ -8,7 +8,7 @@ use crate::thread_qos;
 
 /// `DefaultPlugins` with benilla's engine tuning applied, around the caller's primary window.
 pub fn tuned_default_plugins(primary_window: Window) -> PluginGroupBuilder {
-    DefaultPlugins
+    let plugins = DefaultPlugins
         .set(WindowPlugin {
             primary_window: Some(primary_window),
             ..default()
@@ -66,7 +66,11 @@ pub fn tuned_default_plugins(primary_window: Window) -> PluginGroupBuilder {
         // M2/WMO/ADT load through our own `mpq://` loaders; there is no glTF.
         .disable::<bevy::gltf::GltfPlugin>()
         // No bevy AA: no Fxaa/TAA/SMAA/CAS component anywhere (MSAA is core render, unaffected).
-        .disable::<bevy::anti_alias::AntiAliasPlugin>()
-        // No gamepad input; 1.12's bindings are keyboard/mouse.
-        .disable::<bevy::gilrs::GilrsPlugin>()
+        .disable::<bevy::anti_alias::AntiAliasPlugin>();
+    // Deviation: only the explicitly enabled custom racer admits controller input.
+    if std::env::var("WOW_FLATS_RACER").as_deref() == Ok("1") {
+        plugins
+    } else {
+        plugins.disable::<bevy::gilrs::GilrsPlugin>()
+    }
 }

@@ -235,7 +235,7 @@
 - `WOW_FEED_GATE_CHECK` — benilla-app/src/ui_script/gate.rs, benilla-world/src/bgwin.rs
 - `WOW_FEED_GATE_TRACE` — benilla-app/src/ui_script/gate.rs, benilla-world/src/bgwin.rs
 - `WOW_FIXED_DT` — benilla-world/src/frame_pace.rs
-- `WOW_FLATS_RACER` — benilla-app/src/player/flats_racer.rs
+- `WOW_FLATS_RACER` — benilla-app/src/player/flats_racer.rs, benilla-world/src/boot.rs
 - `WOW_FOG_DUMP` — benilla-world/src/lighting/resolve.rs, benilla-world/src/liquid/query.rs
 - `WOW_FOLLOW_TRACE` — benilla-app/src/player/follow.rs
 - `WOW_FORCE_SUB` — benilla-world/src/liquid/mod.rs
@@ -447,6 +447,7 @@
 - `WOW_PROBE_VENDOR_SWAP` — benilla-app/src/dev.rs
 - `WOW_PROBE_VSYNC` — benilla-app/src/capture/mod.rs
 - `WOW_RACER_PROBE_OUT` — benilla-app/src/player/flats_racer/probe.rs
+- `WOW_RACER_TUNING_CAPTURE` — benilla-app/src/player/flats_racer/probe.rs
 - `WOW_REALM` — benilla-app/src/realm_select/mod.rs
 - `WOW_REALM_SMOKE` — benilla-app/src/realm_select/smoke.rs
 - `WOW_REFUSE_LOGIN` — benilla-app/src/net/io.rs
