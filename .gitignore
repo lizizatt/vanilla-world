@@ -1,0 +1,20 @@
+# Keep local game installations, extracted data, and runtime state out of Git.
+**/[Ww][Oo][Ww]/
+**/[Dd]ata/
+**/dbc/
+**/maps/
+**/vmaps/
+**/mmaps/
+*.[mM][pP][qQ]
+*.[dD][bB][cC]
+*.[vV][mM][aA][pP]
+*.[mM][mM][aA][pP]
+**/benilla-config/
+/runtime/
+/build/
+/_install/
+
+# Credentials belong outside the checkout; these are additional guardrails.
+.env
+.env.*
+!.env.example
