@@ -29,7 +29,7 @@ A setting boots at the reference's default unless it is listed here (`docs/METHO
 
 Each entry is the first sentence of a `Deviation:` comment, linking to where it lives.
 
-- [benilla-app](#benilla-app): 228
+- [benilla-app](#benilla-app): 234
 - [benilla-assets](#benilla-assets): 6
 - [benilla-blp](#benilla-blp): 1
 - [benilla-formats](#benilla-formats): 16
@@ -37,6 +37,7 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 - [benilla-srp](#benilla-srp): 2
 - [benilla-ui](#benilla-ui): 110
 - [benilla-world](#benilla-world): 46
+- [flats-racer-physics](#flats-racer-physics): 1
 
 ### benilla-app
 
@@ -85,6 +86,10 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 #### blob_shadow
 
 - The shadow is gated on `InheritedVisibility`, though the reference draws one under an undrawn body (`0x48161d`), because benilla's exterior-scene election hides units the reference never loads, and their shadows would stay on the floor below. ([`src/blob_shadow.rs:27`](../crates/benilla-app/src/blob_shadow.rs#L27))
+
+#### capture
+
+- The integrated racer probe owns its collision-aware chase camera. ([`src/capture/mod.rs:729`](../crates/benilla-app/src/capture/mod.rs#L729))
 
 #### char_select
 
@@ -194,7 +199,12 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 - Both values clamp to the rig's range, because a hand-edited file should not land a pose play cannot reach; the reference stores them unbounded, the pitch until a mouse-look re-clamps it. ([`src/player/camera_saved.rs:64`](../crates/benilla-app/src/player/camera_saved.rs#L64))
 - `ResetView` writes the CVars back to their defaults, because the CVar store is our persistence; the reference (`0x50fae0`) touches no CVar, so its reset reverts at next launch. ([`src/player/camera_view.rs:15`](../crates/benilla-app/src/player/camera_view.rs#L15))
 - The starting zoom, `CAM_DIST_DEFAULT`, is 15 yd where the reference's `cameraDistance` is 5.55 (`0x84f488`), for a wider view. ([`src/player/camera_zoom.rs:9`](../crates/benilla-app/src/player/camera_zoom.rs#L9))
+- Unattended instrumentation never steals focus or admits physical background input. ([`src/player/controller.rs:326`](../crates/benilla-app/src/player/controller.rs#L326))
 - No drunk field-of-view lane, because the reference's is invisible in play: its target `(179° − 90°)·fraction` (camera `+0x10c`, setter `0x511250`) eases at `cameraFoVSmoothSpeed`, 0.5°/s, and restarts on every drunk-byte change, so it creeps under 1°. ([`src/player/drunk.rs:46`](../crates/benilla-app/src/player/drunk.rs#L46))
+- Opt-in local hover-racer controls, authorized explicitly by the custom server. ([`src/player/flats_racer.rs:1`](../crates/benilla-app/src/player/flats_racer.rs#L1))
+- Physical hops remain local; only this server-authorized mode uses grounded wire poses. ([`src/player/flats_racer.rs:412`](../crates/benilla-app/src/player/flats_racer.rs#L412))
+- Conservative rocket-car envelope over the existing Avian world queries. ([`src/player/flats_racer/collision.rs:1`](../crates/benilla-app/src/player/flats_racer/collision.rs#L1))
+- Server-less integration instrument; real rider/mount, terrain, resolver and camera. ([`src/player/flats_racer/probe.rs:1`](../crates/benilla-app/src/player/flats_racer/probe.rs#L1))
 - A hold is summed and sent once on release, without the send's `[mgr+0x130] += lag` heartbeat push, because ours lasts seconds where the reference's lasts a substep. ([`src/player/movement_net.rs:299`](../crates/benilla-app/src/player/movement_net.rs#L299))
 - Root is not merged, because a bare pose unrooting us while the server still roots us streams motion into `CHEAT_TYPE_ROOT_MOVE`; vmangos keeps a rooted mover's root bit (`MovementHandler.cpp:1064`), so the reference's merge of it is a no-op anyway. ([`src/player/state.rs:198`](../crates/benilla-app/src/player/state.rs#L198))
 - Applied at arrival, because our own avatar has no motion to de-jitter; the reference routes it through the replay chain remotes use, which paces to the sender's cadence and can hold an early packet (up to 1000 ms in `net::motion`). ([`src/player/wire_in.rs:413`](../crates/benilla-app/src/player/wire_in.rs#L413))
@@ -833,4 +843,9 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 
 - The reference twins every translucent command, authored-blend glass included; here twins exist only during an instance alpha episode, so every steady-state look is untouched. ([`src/zfill.rs:9`](../crates/benilla-world/src/zfill.rs#L9))
 - Bevy sorts per entity, so twins lead by a fixed −8 yd sort bias (`crate::model_render::ZFILL_SORT_BIAS`) instead of by the instance's sort-key tie; transparent content within that window behind a fading body is depth-clipped where the body covers it, for the episode. ([`src/zfill.rs:12`](../crates/benilla-world/src/zfill.rs#L12))
+### flats-racer-physics
+
+#### (crate root)
+
+- This opt-in fork uses custom spring-supported racer physics, not stock 1.12 walking. ([`src/lib.rs:3`](../crates/flats-racer-physics/src/lib.rs#L3))
 

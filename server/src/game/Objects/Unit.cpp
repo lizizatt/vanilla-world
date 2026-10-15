@@ -5927,6 +5927,9 @@ void Unit::SetInCombatState(uint32 combatTimer, Unit* pEnemy)
     bool creatureNotInCombat = IsCreature() && !wasInCombat;
 
     SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IN_COMBAT);
+    if (Player* player = ToPlayer())
+        if (player->IsFlatsRacerActive())
+            player->StopFlatsRacer();
 
     if (IsCharmed() || (IsCreature() && ((Creature*)this)->IsPet()))
         SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PET_IN_COMBAT);

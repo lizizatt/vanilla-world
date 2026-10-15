@@ -34,6 +34,35 @@
 #include "MapManager.h"
 #include "BattleGroundMgr.h"
 
+bool ChatHandler::HandleFlatsRacerCommand(char* args)
+{
+    if (!m_session || !m_session->GetPlayer())
+    {
+        SendSysMessage("Flats racer requires an in-game player session.");
+        SetSentErrorMessage(true);
+        return false;
+    }
+
+    Player* player = m_session->GetPlayer();
+    std::string const action = args ? args : "";
+    bool success = false;
+    if (action == "off")
+        success = player->StopFlatsRacer();
+    else if (action == "on")
+        success = player->StartFlatsRacer();
+    else if (action == "reset")
+        success = player->ResetFlatsRacer();
+    else
+        SendSysMessage("Usage: .flatsracer on|off|reset");
+
+    if (!success)
+    {
+        SendSysMessage("Flats racer command rejected: enable the local config and use an alive, freely moving, noncombat loopback player at the bounded Flats track. On requires no existing mount; reset/off require an active grant.");
+        SetSentErrorMessage(true);
+    }
+    return success;
+}
+
 bool ChatHandler::HandleHelpCommand(char* args)
 {
     if (!*args)

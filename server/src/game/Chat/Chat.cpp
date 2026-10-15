@@ -1250,6 +1250,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { "gps",            SEC_MODERATOR,      false, &ChatHandler::HandleGPSCommand,                 "", nullptr },
         { "guid",           SEC_MODERATOR,      false, &ChatHandler::HandleGUIDCommand,                "", nullptr },
         { "help",           SEC_PLAYER,         true,  &ChatHandler::HandleHelpCommand,                "", nullptr },
+        { "flatsracer",     SEC_PLAYER,         false, &ChatHandler::HandleFlatsRacerCommand, ".flatsracer on|off|reset (local opt-in track only)", nullptr },
         { "itemmove",       SEC_GAMEMASTER,     false, &ChatHandler::HandleItemMoveCommand,            "", nullptr },
         { "cooldown",       SEC_GAMEMASTER,     false, nullptr,                                        "", cooldownCommandTable },
         { "unlearn",        SEC_GAMEMASTER,     false, nullptr,                                        "", unlearnCommandTable },
@@ -2038,7 +2039,15 @@ ParseCommandResult ChatHandler::ParseCommands(char const* text)
             return ParseCommandResult::WasNotHandled;
 
         if (m_session->GetSecurity() == SEC_PLAYER && !sWorld.getConfig(CONFIG_BOOL_PLAYER_COMMANDS))
-            return ParseCommandResult::WasNotHandled;
+        {
+            bool const racerCommand = strncmp(text + 1, "flatsracer", 10) == 0 &&
+                (text[11] == '\0' || text[11] == ' ') &&
+                FlatsRacer::Authorized(sWorld.getConfig(CONFIG_BOOL_CUSTOM_FLATS_RACER) ||
+                    (m_session->GetPlayer() && m_session->GetPlayer()->IsFlatsRacerActive()),
+                    m_session->GetRemoteAddress());
+            if (!racerCommand)
+                return ParseCommandResult::WasNotHandled;
+        }
     }
 
     // ignore messages staring from many dots.

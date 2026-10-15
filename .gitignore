@@ -13,6 +13,7 @@
 /runtime/
 /build/
 /_install/
+/target-racer/
 
 # Credentials belong outside the checkout; these are additional guardrails.
 .env

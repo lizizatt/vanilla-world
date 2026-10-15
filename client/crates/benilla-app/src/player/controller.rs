@@ -49,7 +49,7 @@ pub(super) fn control(
         // `SMSG_STANDSTATE_UPDATE`, applied locally and ungated, with nothing sent back.
         MessageReader<super::ServerStandState>,
     ),
-    speed_capsule: (
+    mut speed_capsule: (
         Res<MoveSpeed>,
         Res<PlayerCapsule>,
         Res<InspectMode>,
@@ -64,6 +64,10 @@ pub(super) fn control(
         Res<scoped_view::ScopedView>,
         // The loading cover blanks input at the source; a gesture in flight is unwound below.
         Res<crate::loading_screen::LoadingScreen>,
+        ResMut<flats_racer::FlatsRacer>,
+        Res<benilla_world::world_map::CurrentMap>,
+        Res<benilla_world::terrain_stream::WorldLoadProgress>,
+        Res<benilla_world::modkeys::SyntheticHold>,
     ),
     mut commands: Commands,
     mut player: ResMut<Player>,
@@ -296,6 +300,54 @@ pub(super) fn control(
             .ok()
             .map(|(_, t, ..)| (t.translation, server_ride::yaw_of(t.rotation))),
     );
+
+    let (mounted, in_combat) = body
+        .single()
+        .ok()
+        .and_then(|(_, _, _, _, _, store, ..)| store)
+        .map_or((false, false), |s| {
+            (
+                s.0.unit_mount_display_id() == flats_racer::DISPLAY_ID,
+                s.0.unit_flags() & UNIT_FLAG_IN_COMBAT != 0,
+            )
+        });
+    let eligible = player.active
+        && !player.detached
+        && player.foreign_mover.is_none()
+        && !player.reseat
+        && !player.control_lost
+        && !player.server_riding
+        && !player.modes.rooted
+        && player.knockback.is_none()
+        && !dead
+        && !stunned
+        && !in_combat
+        && speed_capsule.11 .0 == 1;
+    // Deviation: unattended instrumentation never steals focus or admits physical background input.
+    let synthetic = (!focused && std::env::var("WOW_UNATTENDED").as_deref() == Ok("1"))
+        .then(|| flats_racer::synthetic_input(&keys, &speed_capsule.13));
+    let racer_keys = synthetic.as_ref().unwrap_or(&keys);
+    if flats_racer::control(
+        &mut speed_capsule.10,
+        &mut player,
+        racer_keys,
+        (focused || synthetic.is_some()) && !typing && !covered && !inspect.enabled,
+        eligible,
+        mounted,
+        dt,
+        time.elapsed_secs(),
+        &net.0,
+        &speed_capsule.12,
+        &collide,
+        &mut cam_t,
+        &mut cam,
+        &mut rig,
+        &mut body,
+        &mut net.6,
+        &speed_acks,
+    ) {
+        return;
+    }
 
     let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z).normalize_or_zero();
 

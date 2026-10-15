@@ -725,6 +725,9 @@ fn pin_scene(
     };
     debug.lighting.follow_server_time = false;
     debug.lighting.manual_minute = scenario.minute;
+    if scenario.name == "flats-racer" {
+        return; // Deviation: the integrated racer probe owns its collision-aware chase camera.
+    }
 
     // `WOW_MM_PROBE=x,y,z` (raw WoW coords) places an active player there, so the interior
     // minimap renders server-less, with the camera above so the WMO streams in around it.
@@ -871,7 +874,9 @@ fn drive_capture(
                     }
                 }
             }
-            if watch.stable < stable_frames() && !capped {
+            if (ctx.name == "flats-racer" && !crate::player::flats_racer::probe_ready())
+                || (watch.stable < stable_frames() && !capped)
+            {
                 Phase::Building(n + 1)
             } else if let Some((rw, rh)) = resize_request().filter(|_| !ctx.resized) {
                 // `$WOW_RESIZE`: resize after the UI was built and measured at the boot size, the
@@ -920,7 +925,9 @@ fn drive_capture(
         }
         Phase::Aging(n) => {
             // No restart on late arrivals: the image already stopped changing before release.
-            if n + 1 < age_frames() {
+            if n + 1 < age_frames()
+                || (ctx.name == "flats-racer" && !crate::player::flats_racer::probe_done())
+            {
                 Phase::Aging(n + 1)
             } else if ctx.probe_frames > 0 {
                 // Hand the clock back to real time before the first sample, or `Probing` would

@@ -291,6 +291,13 @@ void WorldSession::HandleMovementOpcodes(WorldPackets::Movement::MovementPacket 
 {
     uint32 opcode = packet.GetOpcode();
 
+    bool const racerMovement = _player->IsFlatsRacerActive();
+    if (racerMovement && !_player->CanUseFlatsRacer())
+    {
+        _player->StopFlatsRacer();
+        return;
+    }
+
     // Do not accept packets sent before this time.
     if (packet.movementInfo.stime <= m_moveRejectTime)
         return;
@@ -312,10 +319,17 @@ void WorldSession::HandleMovementOpcodes(WorldPackets::Movement::MovementPacket 
     if (pPlayerMover && pPlayerMover->IsBeingTeleported())
         return;
 
+    if (racerMovement && !_player->ValidateFlatsRacerMovement(packet.movementInfo))
+    {
+        _player->SendSysMessage("Flats racer movement rejected; returning to safe ground.");
+        _player->StopFlatsRacer();
+        return;
+    }
+
     if (!VerifyMovementInfo(packet.movementInfo))
         return;
 
-    if (pPlayerMover)
+    if (pPlayerMover && !racerMovement)
     {
         if ((m_moveRejectTime = _player->GetCheatData()->HandleFlagTests(pPlayerMover, const_cast<MovementInfo&>(packet.movementInfo), opcode)) ||
             (m_moveRejectTime = _player->GetCheatData()->HandlePositionTests(pPlayerMover, const_cast<MovementInfo&>(packet.movementInfo), opcode)))
@@ -325,18 +339,18 @@ void WorldSession::HandleMovementOpcodes(WorldPackets::Movement::MovementPacket 
     }
 
     // This is required for proper movement extrapolation
-    if (opcode == MSG_MOVE_JUMP)
+    if (opcode == MSG_MOVE_JUMP && !racerMovement)
         pMover->SetJumpInitialSpeed(7.95797334f);
-    else if (opcode == MSG_MOVE_FALL_LAND)
+    else if (opcode == MSG_MOVE_FALL_LAND && !racerMovement)
         pMover->SetJumpInitialSpeed(-9.645f);
 
     // fall damage generation (ignore in flight case that can be triggered also at lags in moment teleportation to another map).
-    if (opcode == MSG_MOVE_FALL_LAND && pPlayerMover && !pPlayerMover->IsTaxiFlying())
+    if (opcode == MSG_MOVE_FALL_LAND && pPlayerMover && !racerMovement && !pPlayerMover->IsTaxiFlying())
         pPlayerMover->HandleFall(packet.movementInfo);
 
     // TODO: remove it
     // reset knockback state when fall to ground or water
-    if (pPlayerMover)
+    if (pPlayerMover && !racerMovement)
     {
         if (IsFallEndOpcode(opcode) && pPlayerMover->IsLaunched())
             pPlayerMover->SetLaunched(false);
@@ -414,6 +428,10 @@ CMSG_FORCE_TURN_RATE_CHANGE_ACK
 */
 void WorldSession::HandleForceSpeedChangeAckOpcodes(WorldPackets::Movement::MoveSpeedAck const& packet)
 {
+    bool const racerAck = _player->IsFlatsRacerActive();
+    if (racerAck)
+        _player->StopFlatsRacer();
+
     uint32 opcode = packet.GetOpcode();
 
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_4_2
@@ -486,7 +504,7 @@ void WorldSession::HandleForceSpeedChangeAckOpcodes(WorldPackets::Movement::Move
     Player* const pPlayerMover = pMover->ToPlayer();
 
     // Check if position and movement flags are fine before speed update.
-    bool canRelocate = packet.movementInfo.stime > m_moveRejectTime && !pMover->HasPendingSplineDone() && VerifyMovementInfo(packet.movementInfo);
+    bool canRelocate = !racerAck && packet.movementInfo.stime > m_moveRejectTime && !pMover->HasPendingSplineDone() && VerifyMovementInfo(packet.movementInfo);
     if (canRelocate && pPlayerMover)
     {
         if ((m_moveRejectTime = _player->GetCheatData()->HandleFlagTests(pPlayerMover, const_cast<MovementInfo&>(packet.movementInfo), opcode)) ||
@@ -535,6 +553,10 @@ CMSG_MOVE_FEATHER_FALL_ACK
 */
 void WorldSession::HandleMovementFlagChangeToggleAck(WorldPackets::Movement::MoveFlagChangeAck const& packet)
 {
+    bool const racerAck = _player->IsFlatsRacerActive();
+    if (racerAck)
+        _player->StopFlatsRacer();
+
     uint32 opcode = packet.GetOpcode();
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_9_4
     uint32 movementCounter = packet.movementCounter;
@@ -580,12 +602,15 @@ void WorldSession::HandleMovementFlagChangeToggleAck(WorldPackets::Movement::Mov
         return;
     }
 
-    if (opcode == CMSG_MOVE_FEATHER_FALL_ACK)
+    if (opcode == CMSG_MOVE_FEATHER_FALL_ACK && !racerAck)
         pMover->SetJumpInitialSpeed(std::max(pMover->GetJumpInitialSpeed(), 7.0f));
 
     // Use fake loop here to handle movement position checks separately from change ACK.
     do
     {
+        if (racerAck)
+            break;
+
         if (pMover->HasPendingSplineDone())
             break;
 
@@ -645,6 +670,10 @@ CMSG_FORCE_MOVE_UNROOT_ACK
 */
 void WorldSession::HandleMoveRootAck(WorldPackets::Movement::MoveRootAck const& packet)
 {
+    bool const racerAck = _player->IsFlatsRacerActive();
+    if (racerAck)
+        _player->StopFlatsRacer();
+
     uint32 opcode = packet.GetOpcode();
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_9_4
     uint32 movementCounter = packet.movementCounter;
@@ -680,6 +709,9 @@ void WorldSession::HandleMoveRootAck(WorldPackets::Movement::MoveRootAck const& 
     // Use fake loop here to handle movement position checks separately from change ACK.
     do
     {
+        if (racerAck)
+            break;
+
         if (pMover->HasPendingSplineDone())
             break;
 
@@ -746,6 +778,10 @@ void WorldSession::HandleMoveRootAck(WorldPackets::Movement::MoveRootAck const& 
 
 void WorldSession::HandleMoveKnockBackAck(WorldPackets::Movement::MoveKnockBackAck const& packet)
 {
+    bool const racerAck = _player->IsFlatsRacerActive();
+    if (racerAck)
+        _player->StopFlatsRacer();
+
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_9_4
     uint32 movementCounter = packet.movementCounter;
 #else
@@ -775,7 +811,7 @@ void WorldSession::HandleMoveKnockBackAck(WorldPackets::Movement::MoveKnockBackA
         return;
     }
 
-    if (pMover->HasPendingSplineDone())
+    if (racerAck || pMover->HasPendingSplineDone())
         return;
 
     if (!VerifyMovementInfo(packet.movementInfo))
@@ -803,6 +839,12 @@ void WorldSession::HandleMoveKnockBackAck(WorldPackets::Movement::MoveKnockBackA
 
 void WorldSession::HandleMoveSplineDoneOpcode(WorldPackets::Movement::MoveSplineDone const& packet)
 {
+    if (_player->IsFlatsRacerActive())
+    {
+        _player->StopFlatsRacer();
+        return;
+    }
+
     if (!VerifyMovementInfo(packet.movementInfo))
         return;
 
@@ -892,6 +934,12 @@ void WorldSession::HandleSetActiveMoverOpcode(WorldPackets::Misc::SetActiveMover
 
 void WorldSession::HandleMoveNotActiveMoverOpcode(WorldPackets::Movement::MoveNotActiveMover const& packet)
 {
+    if (_player->IsFlatsRacerActive())
+    {
+        _player->StopFlatsRacer();
+        return;
+    }
+
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_9_4
     ObjectGuid oldMoverGuid = packet.oldMoverGuid;
 
@@ -988,6 +1036,9 @@ void WorldSession::HandleSummonResponseOpcode(WorldPackets::Misc::SummonResponse
 
 void WorldSession::HandleMoveTimeSkippedOpcode(WorldPackets::Movement::MoveTimeSkipped const& packet)
 {
+    if (_player->IsFlatsRacerActive())
+        return;
+
     Unit* pMover = GetMoverFromGuid(packet.guid);
     if (!pMover)
         return;

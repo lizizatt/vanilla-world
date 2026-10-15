@@ -307,6 +307,14 @@ pub(super) const SUBJECT_INDOOR: [f32; 3] = [-9469.4, 31.9, 57.9];
 
 /// Every other named viewpoint, capturable by name (`WOW_CAPTURE=<name>`) but not in the sweep.
 pub(super) const ON_DEMAND: &[Scenario] = &[
+    Scenario {
+        name: "flats-racer",
+        map: Some(1),
+        eye: [-6251.0, -3945.0, -52.0],
+        look: [-6235.0, -3945.0, -56.0],
+        minute: 720,
+        ui: None,
+    },
     // ---- The Deeprun Tram's undersea tube (map 369) ----
     // The one shipped map with no `Light.dbc` row, not even the falloff-0 global maps 0 and 1
     // carry, so its atmosphere is the WMO's own MFOG (record 2: RGB(30,53,100), end 236.1 yd,

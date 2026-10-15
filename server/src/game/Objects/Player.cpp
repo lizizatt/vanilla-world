@@ -70,6 +70,7 @@
 #include "GMTicketMgr.h"
 #include "MasterPlayer.h"
 #include "MovementPacketSender.h"
+#include "MoveSpline.h"
 #include "ZoneScript.h"
 #include "ZoneScriptMgr.h"
 #include "PlayerBotMgr.h"
@@ -1109,10 +1110,160 @@ AutoAttackCheckResult Player::CanAutoAttackTarget(Unit const* pVictim) const
     return Unit::CanAutoAttackTarget(pVictim);
 }
 
+bool Player::CanUseFlatsRacer() const
+{
+    return FlatsRacer::Authorized(sWorld.getConfig(CONFIG_BOOL_CUSTOM_FLATS_RACER),
+        GetSession()->GetRemoteAddress()) &&
+        IsInWorld() && IsAlive() && !IsInCombat() && !IsTaxiFlying() && !GetTransport() &&
+        (!IsMounted() || (m_flatsRacerActive && m_flatsRacerMountDisplayId &&
+            GetUInt32Value(UNIT_FIELD_MOUNTDISPLAYID) == m_flatsRacerMountDisplayId)) &&
+        (!m_flatsRacerActive || IsMounted()) &&
+        !IsLaunched() && CanFreeMove() && !HasPendingSplineDone() &&
+        movespline->Finalized() && IsSelfMover() && GetConfirmedMover() == this &&
+        !HasUnitMovementFlag(MOVEFLAG_ROOT | MOVEFLAG_ONTRANSPORT | MOVEFLAG_FLYING |
+            MOVEFLAG_HOVER | MOVEFLAG_LEVITATING | MOVEFLAG_SWIMMING) &&
+        FlatsRacer::InBounds(GetMapId(), GetPositionX(), GetPositionY(), GetPositionZ(), GetOrientation());
+}
+
+bool Player::StartFlatsRacer()
+{
+    if (m_flatsRacerActive || IsMounted() || IsBeingTeleported() || !CanUseFlatsRacer() ||
+        !FlatsRacer::PlainMovement(uint32(m_movementInfo.GetMovementFlags()), {}))
+    {
+        PSendSysMessage("Flats racer start state: enabled=%u loopback=%u active=%u mounted=%u teleport=%u world=%u alive=%u combat=%u taxi=%u transport=%u launched=%u free=%u pendingSpline=%u splineFinal=%u selfMover=%u confirmedMover=%u bounds=%u plainMovement=%u blockedUnitFlags=%u flags=0x%x",
+            unsigned(sWorld.getConfig(CONFIG_BOOL_CUSTOM_FLATS_RACER)),
+            unsigned(FlatsRacer::Authorized(true, GetSession()->GetRemoteAddress())),
+            unsigned(m_flatsRacerActive), unsigned(IsMounted()), unsigned(IsBeingTeleported()),
+            unsigned(IsInWorld()), unsigned(IsAlive()), unsigned(IsInCombat()), unsigned(IsTaxiFlying()),
+            unsigned(GetTransport() != nullptr), unsigned(IsLaunched()), unsigned(CanFreeMove()),
+            unsigned(HasPendingSplineDone()), unsigned(movespline->Finalized()), unsigned(IsSelfMover()),
+            unsigned(GetConfirmedMover() == this),
+            unsigned(FlatsRacer::InBounds(GetMapId(), GetPositionX(), GetPositionY(), GetPositionZ(), GetOrientation())),
+            unsigned(FlatsRacer::PlainMovement(uint32(m_movementInfo.GetMovementFlags()), {})),
+            unsigned(HasUnitMovementFlag(MOVEFLAG_ROOT | MOVEFLAG_ONTRANSPORT | MOVEFLAG_FLYING |
+                MOVEFLAG_HOVER | MOVEFLAG_LEVITATING | MOVEFLAG_SWIMMING)),
+            unsigned(m_movementInfo.GetMovementFlags()));
+        return false;
+    }
+    float const ground = GetMap()->GetHeight(GetPositionX(), GetPositionY(), GetPositionZ(), true);
+    uint32 const area = GetMap()->GetTerrain()->GetAreaId(GetPositionX(), GetPositionY(), GetPositionZ());
+    if (!FlatsRacer::OnTrack(area, GetPositionZ(), ground) || std::fabs(GetPositionZ() - ground) > 0.75f)
+    {
+        PSendSysMessage("Flats racer start terrain: map=%u area=%u z=%.4f ground=%.4f delta=%.4f; requires area 439/2240, ground [-65,-45], abs(delta)<=0.75",
+            unsigned(GetMapId()), unsigned(area), GetPositionZ(), ground, GetPositionZ() - ground);
+        return false;
+    }
+    float const safeZ = ground + FlatsRacer::ResetGroundClearance;
+    if (!FlatsRacer::InBounds(GetMapId(), GetPositionX(), GetPositionY(), safeZ, GetOrientation()))
+    {
+        PSendSysMessage("Flats racer start anchor rejected: ground=%.4f safeZ=%.4f", ground, safeZ);
+        return false;
+    }
+    uint32 const displayId = FlatsRacer::MountDisplayId;
+    if (!sCreatureDisplayInfoStore.LookupEntry(displayId))
+    {
+        SendSysMessage("Flats racer display 10318 is missing from server CreatureDisplayInfo.");
+        return false;
+    }
+    if (Mount(displayId) != MOUNTRESULT_OK ||
+        GetUInt32Value(UNIT_FIELD_MOUNTDISPLAYID) != displayId)
+    {
+        SendSysMessage("Flats racer mount failed; mode was not enabled.");
+        return false;
+    }
+    m_flatsRacerMountDisplayId = displayId;
+    m_flatsRacerStart.x = GetPositionX();
+    m_flatsRacerStart.y = GetPositionY();
+    m_flatsRacerStart.z = safeZ;
+    m_flatsRacerStart.o = GetOrientation();
+    m_flatsRacerBudget.Reset(WorldTimer::getMSTime());
+    m_flatsRacerActive = true;
+    SendSysMessage("FLATS_RACER ON");
+    return true;
+}
+
+bool Player::ReturnToFlatsRacerStart()
+{
+    DisableSpline();
+    m_movementInfo.SetMovementFlags(MOVEFLAG_NONE);
+    m_movementInfo.ClearTransportData();
+    m_movementInfo.jump = MovementInfo::JumpInfo();
+    m_movementInfo.s_pitch = 0;
+    m_movementInfo.splineElevation = 0;
+    m_movementInfo.fallTime = 0;
+    SetFallInformation(0);
+    SetLaunched(false);
+    // Preserve combat; the local mode must never act as an evade command.
+    bool const couldDelayTeleport = m_bCanDelayTeleport;
+    SetCanDelayTeleport(false);
+    bool const corrected = TeleportTo(1, m_flatsRacerStart.x, m_flatsRacerStart.y, m_flatsRacerStart.z,
+        m_flatsRacerStart.o, TELE_TO_NOT_LEAVE_COMBAT);
+    SetCanDelayTeleport(couldDelayTeleport);
+    if (!corrected)
+    {
+        SendSysMessage("Flats racer safe-ground correction failed; disconnecting.");
+        GetSession()->KickPlayer();
+        return false;
+    }
+    return true;
+}
+
+bool Player::StopFlatsRacer(bool correctPosition)
+{
+    if (!m_flatsRacerActive)
+        return false;
+    m_flatsRacerActive = false;
+    if (m_flatsRacerMountDisplayId &&
+        GetUInt32Value(UNIT_FIELD_MOUNTDISPLAYID) == m_flatsRacerMountDisplayId)
+        Unmount();
+    m_flatsRacerMountDisplayId = 0;
+    bool const corrected = !correctPosition || ReturnToFlatsRacerStart();
+    SendSysMessage("FLATS_RACER OFF");
+    return corrected;
+}
+
+bool Player::ResetFlatsRacer()
+{
+    if (!m_flatsRacerActive || IsBeingTeleported() || !CanUseFlatsRacer())
+        return false;
+    // Only this internal correction may preserve a grant across a teleport.
+    m_flatsRacerActive = false;
+    if (!ReturnToFlatsRacerStart())
+    {
+        m_flatsRacerActive = true;
+        StopFlatsRacer(false);
+        return false;
+    }
+    m_flatsRacerBudget.Reset(WorldTimer::getMSTime());
+    m_flatsRacerActive = true;
+    SendSysMessage("FLATS_RACER RESET");
+    return true;
+}
+
+bool Player::ValidateFlatsRacerMovement(MovementInfo const& movement)
+{
+    Position const& p = movement.GetPos();
+    auto const& jump = movement.GetJumpInfo();
+    Position const& transport = movement.GetTransportPos();
+    if (!CanUseFlatsRacer() || !FlatsRacer::InBounds(GetMapId(), p.x, p.y, p.z, p.o) ||
+        !FlatsRacer::PlainMovement(movement.moveFlags, {movement.s_pitch, movement.splineElevation,
+            jump.zspeed, jump.xyspeed, jump.sinAngle, jump.cosAngle,
+            transport.x, transport.y, transport.z, transport.o}))
+        return false;
+    float const ground = GetMap()->GetHeight(p.x, p.y, p.z, true);
+    uint32 const area = GetMap()->GetTerrain()->GetAreaId(p.x, p.y, p.z);
+    return FlatsRacer::OnTrack(area, p.z, ground) &&
+        m_flatsRacerBudget.Consume(WorldTimer::getMSTime(),
+            p.x - GetPositionX(), p.y - GetPositionY(), p.z - GetPositionZ());
+}
+
 void Player::Update(uint32 update_diff, uint32 p_time)
 {
     if (!IsInWorld())
         return;
+
+    if (m_flatsRacerActive && !CanUseFlatsRacer())
+        StopFlatsRacer();
 
     UpdateMirrorTimers(update_diff);
 
@@ -1506,6 +1657,9 @@ void Player::Heartbeat()
 
 void Player::SetDeathState(DeathState s)
 {
+    if (s != ALIVE && m_flatsRacerActive)
+        StopFlatsRacer();
+
     uint32 ressSpellId = 0;
 
     bool cur = IsAlive();
@@ -1850,6 +2004,9 @@ bool Player::SwitchInstance(uint32 newInstanceId)
 
 bool Player::TeleportTo(uint32 mapId, float x, float y, float z, float orientation, uint32 options, std::function<void()> recover)
 {
+    if (m_flatsRacerActive)
+        StopFlatsRacer(false);
+
     if (!MapManager::IsValidMapCoord(mapId, x, y, z, orientation))
     {
         sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "TeleportTo: invalid map %d or absent instance template.", mapId);
@@ -2204,6 +2361,9 @@ void Player::AddToWorld()
 
 void Player::RemoveFromWorld()
 {
+    if (m_flatsRacerActive)
+        StopFlatsRacer(false);
+
     if (m_transport)
         SendDestroyGroupMembers(true);
 
@@ -18251,6 +18411,8 @@ UnitDismountResult Player::Unmount(bool from_aura)
         ResummonPetTemporaryUnSummonedIfAny();
 
     SendDismountResult(DISMOUNTRESULT_OK);
+    if (m_flatsRacerActive)
+        StopFlatsRacer();
     return DISMOUNTRESULT_OK;
 }
 

@@ -36,8 +36,10 @@ fn on_chat(
     social: Res<SocialState>,
     commands: Res<NetCommands>,
     mut server_said: MessageWriter<ServerSaidMessage>,
+    mut racer: ResMut<crate::player::flats_racer::FlatsRacer>,
 ) {
     if let SessionEvent::Chat(m) = ev {
+        racer.server_chat(&m);
         chat(m, &mut chat_log, &social, &commands, &mut server_said);
     }
 }
@@ -118,8 +120,13 @@ fn on_random_roll(In(ev): In<SessionEvent>, mut chat_log: ResMut<ChatLog>) {
 }
 
 /// Clear the chat log's session state when the session ends.
-fn on_session_end(In(_): In<SessionEvent>, mut chat_log: ResMut<ChatLog>) {
+fn on_session_end(
+    In(_): In<SessionEvent>,
+    mut chat_log: ResMut<ChatLog>,
+    mut racer: ResMut<crate::player::flats_racer::FlatsRacer>,
+) {
     chat_log.clear_session();
+    racer.revoke();
 }
 
 /// A spoken line (`SMSG_MESSAGECHAT`). System lines (`0x0A`), the server's answers to GM
