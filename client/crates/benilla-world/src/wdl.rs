@@ -6,16 +6,17 @@
 use std::collections::HashMap;
 
 use bevy::asset::RenderAssetUsages;
+use bevy::camera::visibility::NoFrustumCulling;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::pbr::ExtendedMaterial;
 use bevy::prelude::*;
 
 use crate::view::WorldCamera;
 use crate::world_map::CurrentMap;
-use benilla_assets::coords::{bevy_to_wow, wow_to_bevy};
-use benilla_assets::materials::{WdlExt, WdlMaterial};
 use benilla_assets::LockRecover;
 use benilla_assets::MapCatalogRes;
+use benilla_assets::coords::{bevy_to_wow, wow_to_bevy};
+use benilla_assets::materials::{WdlExt, WdlMaterial};
 use benilla_assets::{AssetSet, RenderConfig, WorldAssets};
 use benilla_formats::WdlFile;
 
@@ -28,12 +29,54 @@ const WDL_RADIUS: u32 = 5;
 /// New WDL tiles built per frame (545 vertices each), so a whole ring does not hitch a zone load.
 const WDL_LOADS_PER_FRAME: usize = 8;
 
+/// Custom-fork deviation: insert only while an authorized racer owns the view; remove on release.
+/// This extends visual WDL only, never ADT furnishing, collision or the normal view-distance CVar.
+/// The same 545-vertex/1024-triangle fan is used at every distance (no invented terrain data).
+#[derive(Resource, Default)]
+pub struct RacerWdl;
+
+impl RacerWdl {
+    /// At most 25×25 tiles, including the camera tile.
+    pub const RADIUS: u32 = 12;
+    /// Maximum fresh tile meshes per frame, independent of speed and distance.
+    pub const LOADS_PER_FRAME: usize = 4;
+    /// Radial visual limit in yards, inside the fully resident square's nearest edge.
+    pub const FAR: f32 = 6000.0;
+
+    fn shader_params() -> Vec4 {
+        Vec4::new(3500.0, 5500.0, Self::FAR, 0.0)
+    }
+}
+
+/// Current WDL streaming sample for probe/HUD readouts, including stock mode.
+/// Counts describe retained visual patches, not visible draw calls or collision coverage.
+#[derive(Resource, Default, Debug, Clone, Copy)]
+pub struct WdlTelemetry {
+    pub racer_active: bool,
+    pub resident_tiles: usize,
+    pub desired_tiles: usize,
+    pub built_this_frame: usize,
+    pub evicted_this_frame: usize,
+    /// Raw position/normal/UV/index bytes per CPU or GPU copy; excludes overhead and source WDL.
+    pub resident_mesh_bytes: usize,
+}
+
+impl WdlTelemetry {
+    const BYTES_PER_TILE: usize = 545 * 32 + 3072 * 4;
+
+    fn set_resident(&mut self, count: usize) {
+        self.resident_tiles = count;
+        self.resident_mesh_bytes = count * Self::BYTES_PER_TILE;
+    }
+}
+
 /// Loads the map's `.wdl` and a shared material at startup, then streams the ring around the view.
 pub(crate) struct WdlPlugin;
 
 impl Plugin for WdlPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(MaterialPlugin::<WdlMaterial>::default())
+            .init_resource::<WdlTelemetry>()
             .add_systems(Startup, setup_wdl.after(AssetSet::Open))
             // The ring follows the world's lifecycle: it spawns only while a world is live.
             .add_systems(Update, stream_wdl.run_if(crate::schedule::world_is_live))
@@ -55,7 +98,9 @@ pub(crate) struct WdlStreamer {
     /// The `mapId` of the loaded `wdl`; a cross-map teleport reloads it.
     map_id: u32,
     material: Handle<WdlMaterial>,
-    loaded: HashMap<(u32, u32), Entity>,
+    loaded: HashMap<(u32, u32), (Entity, Handle<Mesh>)>,
+    map_available: bool,
+    racer: bool,
 }
 
 impl WdlStreamer {
@@ -63,6 +108,9 @@ impl WdlStreamer {
     /// leg of the flare occlusion march (`sun::follow::FlareGate`). `None` off the map or over
     /// unauthored ocean.
     pub(crate) fn height_under(&self, bevy_pos: Vec3) -> Option<f32> {
+        if !self.map_available {
+            return None;
+        }
         let wow = bevy_to_wow(bevy_pos);
         self.wdl.height_at(wow[0], wow[1])
     }
@@ -106,6 +154,7 @@ fn setup_wdl(
         },
         extension: WdlExt {
             light_buf: world_assets.shared_light.clone(),
+            racer_horizon: Vec4::ZERO,
         },
     });
     commands.insert_resource(WdlStreamer {
@@ -113,6 +162,8 @@ fn setup_wdl(
         map_id: 0,
         material,
         loaded: HashMap::new(),
+        map_available: true,
+        racer: false,
     });
 }
 
@@ -125,7 +176,14 @@ fn stream_wdl(
     current_map: Option<Res<CurrentMap>>,
     map_catalog: Option<Res<MapCatalogRes>>,
     mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<WdlMaterial>>,
+    racer: Option<Res<RacerWdl>>,
+    mut telemetry: ResMut<WdlTelemetry>,
 ) {
+    *telemetry = WdlTelemetry {
+        racer_active: racer.is_some(),
+        ..default()
+    };
     // All four are absent without client data. `Option`, not `Res`: a missing `Res` fails
     // validation, which panics the client, and a build run from the wrong folder gets here.
     let (Some(mut streamer), Some(assets), Some(current_map), Some(map_catalog)) =
@@ -136,34 +194,59 @@ fn stream_wdl(
     // The focus's map: the picked character's during world entry, so the ring is never built for
     // the map being left.
     let map_id = focus.map(Some(current_map.0));
+    telemetry.set_resident(streamer.loaded.len());
+    let racer = racer.is_some();
+    if racer != streamer.racer {
+        if let Some(material) = materials.get_mut(&streamer.material) {
+            material.extension.racer_horizon = if racer {
+                RacerWdl::shader_params()
+            } else {
+                Vec4::ZERO
+            };
+        }
+        for (entity, _) in streamer.loaded.values() {
+            if racer {
+                commands.entity(*entity).insert(NoFrustumCulling);
+            } else {
+                commands.entity(*entity).remove::<NoFrustumCulling>();
+            }
+        }
+        streamer.racer = racer;
+    }
 
     // Cross-map teleport: reload the new map's `.wdl` and drop the old ring.
     if map_id != streamer.map_id {
+        telemetry.evicted_this_frame = streamer.loaded.len();
+        release_tiles(&mut commands, &mut meshes, &mut streamer.loaded);
+        telemetry.set_resident(0);
+        streamer.map_available = false;
+        streamer.map_id = map_id;
         if let Some(dir) = map_catalog.0.directory(map_id) {
             match WdlFile::load(&mut assets.chain.lock_recover(), dir) {
                 Ok(wdl) => {
-                    for (_, e) in streamer.loaded.drain() {
-                        commands.entity(e).despawn();
-                    }
                     streamer.wdl = wdl;
-                    streamer.map_id = map_id;
+                    streamer.map_available = true;
                 }
-                // No `.wdl` for this map (instances often lack one): clear the ring.
-                Err(_) => {
-                    for (_, e) in streamer.loaded.drain() {
-                        commands.entity(e).despawn();
-                    }
-                    streamer.map_id = map_id;
-                }
+                Err(e) => warn!("WDL unavailable for map {map_id} ({dir}): {e:#}"),
             }
+        } else {
+            warn!("WDL unavailable: no directory for map {map_id}");
         }
+    }
+    if !streamer.map_available {
+        return;
     }
 
     // The detailed streamer's own view focus.
     let center = focus.resolve(camera.single().ok().map(|c| c.translation));
     // The full window, the camera's own tile included (at a low view distance it is the near
     // horizon); the shader's near plane bounds the band, never the streamed set.
-    let desired = streamer.wdl.tiles_in_ring(center[0], center[1], WDL_RADIUS);
+    let radius = if racer { RacerWdl::RADIUS } else { WDL_RADIUS };
+    let mut desired = streamer.wdl.tiles_in_ring(center[0], center[1], radius);
+    if racer {
+        prioritize_tiles(&mut desired, center);
+    }
+    telemetry.desired_tiles = desired.len();
 
     let stale: Vec<(u32, u32)> = streamer
         .loaded
@@ -172,16 +255,22 @@ fn stream_wdl(
         .copied()
         .collect();
     for coords in stale {
-        if let Some(e) = streamer.loaded.remove(&coords) {
+        if let Some((e, mesh)) = streamer.loaded.remove(&coords) {
+            telemetry.evicted_this_frame += 1;
             commands.entity(e).despawn();
+            meshes.remove(mesh.id());
         }
     }
 
-    let missing: Vec<(u32, u32)> = desired
-        .into_iter()
-        .filter(|c| !streamer.loaded.contains_key(c))
-        .take(WDL_LOADS_PER_FRAME)
-        .collect();
+    let missing = missing_tiles(
+        desired,
+        &streamer.loaded,
+        if racer {
+            RacerWdl::LOADS_PER_FRAME
+        } else {
+            WDL_LOADS_PER_FRAME
+        },
+    );
     for coords in missing {
         let Some(tile) = streamer.wdl.tile_mesh(coords.0, coords.1) else {
             continue;
@@ -202,27 +291,164 @@ fn stream_wdl(
         mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 1.0, 0.0]; n]);
         mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0, 0.0]; n]);
         mesh.insert_indices(Indices::U32(tile.indices));
-        let e = commands
-            .spawn((
-                Mesh3d(meshes.add(mesh)),
-                MeshMaterial3d(streamer.material.clone()),
-                Transform::IDENTITY,
-                WdlTile,
-                // Exterior scene: the reference's far walk `0x683040` shares the per-window
-                // populate `0x682fa0`, so a sealed room hides the horizon (`crate::exterior_cull`).
-                // One ring tile is one object, the reference's far-tier granularity.
-                crate::exterior_cull::ExteriorScene,
-            ))
-            .id();
-        streamer.loaded.insert(coords, e);
+        let mesh = meshes.add(mesh);
+        let mut entity = commands.spawn((
+            Mesh3d(mesh.clone()),
+            MeshMaterial3d(streamer.material.clone()),
+            Transform::IDENTITY,
+            WdlTile,
+            // Exterior scene: the reference's far walk `0x683040` shares the per-window
+            // populate `0x682fa0`, so a sealed room hides the horizon (`crate::exterior_cull`).
+            // One ring tile is one object, the reference's far-tier granularity.
+            crate::exterior_cull::ExteriorScene,
+        ));
+        // Only racer WDL bypasses the camera's stock CPU far-plane culling. Geometry remains
+        // bounded by residency and the shader's radial cutoff; projection/CVars stay untouched.
+        if racer {
+            entity.insert(NoFrustumCulling);
+        }
+        let e = entity.id();
+        streamer.loaded.insert(coords, (e, mesh));
+        telemetry.built_this_frame += 1;
     }
+    telemetry.set_resident(streamer.loaded.len());
 }
 
 /// Leaving the world drops the ring; the parsed `.wdl` stays for `height_under`.
-fn release_wdl_ring(mut commands: Commands, streamer: Option<ResMut<WdlStreamer>>) {
+fn release_wdl_ring(
+    mut commands: Commands,
+    streamer: Option<ResMut<WdlStreamer>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut telemetry: ResMut<WdlTelemetry>,
+) {
+    *telemetry = WdlTelemetry::default();
     let Some(mut streamer) = streamer else { return };
-    for (_, e) in streamer.loaded.drain() {
-        commands.entity(e).despawn();
+    telemetry.evicted_this_frame = streamer.loaded.len();
+    release_tiles(&mut commands, &mut meshes, &mut streamer.loaded);
+}
+
+fn release_tiles(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    loaded: &mut HashMap<(u32, u32), (Entity, Handle<Mesh>)>,
+) {
+    for (_, (entity, mesh)) in loaded.drain() {
+        commands.entity(entity).despawn();
+        meshes.remove(mesh.id());
+    }
+}
+
+fn prioritize_tiles(tiles: &mut [(u32, u32)], center: [f32; 3]) {
+    let (cx, cy) = benilla_formats::world_to_tile(center[0], center[1]);
+    tiles.sort_unstable_by_key(|&(x, y)| {
+        let (dx, dy) = (x.abs_diff(cx), y.abs_diff(cy));
+        (dx * dx + dy * dy, y, x)
+    });
+}
+
+fn missing_tiles(
+    desired: Vec<(u32, u32)>,
+    loaded: &HashMap<(u32, u32), (Entity, Handle<Mesh>)>,
+    budget: usize,
+) -> Vec<(u32, u32)> {
+    desired
+        .into_iter()
+        .filter(|c| !loaded.contains_key(c))
+        .take(budget)
+        .collect()
+}
+
+#[cfg(test)]
+mod racer_tests {
+    use super::*;
+
+    #[test]
+    fn telemetry_tracks_residency_memory_and_reset() {
+        let mut sample = WdlTelemetry::default();
+        sample.set_resident(625);
+        assert_eq!(sample.resident_tiles, 625);
+        assert_eq!(sample.resident_mesh_bytes, 18_580_000);
+        sample.set_resident(121);
+        assert_eq!(sample.resident_mesh_bytes, 3_597_088);
+        sample.set_resident(0);
+        assert_eq!(sample.resident_mesh_bytes, 0);
+        assert_eq!(sample.built_this_frame, 0);
+        assert!(!sample.racer_active);
+    }
+
+    #[test]
+    fn racer_horizon_fits_the_resident_lod_window() {
+        let tile_size = benilla_formats::TILE_SIZE;
+        assert!(RacerWdl::FAR < RacerWdl::RADIUS as f32 * tile_size);
+        assert!(RacerWdl::FAR > WDL_RADIUS as f32 * tile_size * 2.0);
+        let params = RacerWdl::shader_params();
+        assert!(0.0 < params.x && params.x < params.y && params.y < params.z);
+        assert_eq!((2 * RacerWdl::RADIUS + 1).pow(2), 625);
+        // Existing fan: 545 positions/normals/UVs and 3072 u32 indices; no ADT data.
+        assert_eq!(625 * (545 * 32 + 3072 * 4), 18_580_000);
+    }
+
+    #[test]
+    fn racer_lod_work_is_bounded_and_near_tiles_load_first() {
+        let mut desired: Vec<_> = (20..=44)
+            .flat_map(|y| (20..=44).map(move |x| (x, y)))
+            .collect();
+        prioritize_tiles(&mut desired, [-1.0, -1.0, 0.0]);
+        assert_eq!(desired[0], (32, 32));
+        let loaded = HashMap::from([((32, 32), (Entity::PLACEHOLDER, Handle::default()))]);
+        let missing = missing_tiles(desired, &loaded, RacerWdl::LOADS_PER_FRAME);
+        assert_eq!(missing.len(), 4);
+        assert!(
+            missing
+                .iter()
+                .all(|&(x, y)| x.abs_diff(32) + y.abs_diff(32) == 1)
+        );
+    }
+
+    #[test]
+    fn stock_lod_budget_and_order_remain_unchanged() {
+        assert_eq!(WDL_RADIUS, 5);
+        assert_eq!(WDL_LOADS_PER_FRAME, 8);
+        let desired: Vec<_> = (0..121).map(|x| (x, 0)).collect();
+        assert_eq!(
+            missing_tiles(desired, &HashMap::new(), WDL_LOADS_PER_FRAME),
+            (0..8).map(|x| (x, 0)).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            Vec4::ZERO.z,
+            0.0,
+            "stock material disables the racer shader branch"
+        );
+    }
+
+    #[test]
+    fn released_lod_mesh_assets_do_not_accumulate() {
+        let mut meshes = Assets::<Mesh>::default();
+        let mut world = World::new();
+        let mut loaded = HashMap::new();
+        for _ in 0..1000 {
+            let handle = meshes.add(Mesh::new(
+                PrimitiveTopology::TriangleList,
+                RenderAssetUsages::default(),
+            ));
+            let entity = world.spawn_empty().id();
+            loaded.insert((32, 32), (entity, handle));
+            assert_eq!(meshes.len(), 1);
+            release_tiles(&mut world.commands(), &mut meshes, &mut loaded);
+            world.flush();
+            assert!(meshes.is_empty());
+            assert!(loaded.is_empty());
+            assert!(world.get_entity(entity).is_err());
+        }
+    }
+
+    #[test]
+    fn racer_shader_limits_geometry_and_fades_after_fog() {
+        let src = benilla_assets::materials::WDL_WGSL;
+        assert!(src.contains("if (racer_horizon.z > 0.0)"));
+        assert!(src.contains("distance >= racer_horizon.z"));
+        assert!(src.contains("smoothstep(racer_horizon.y, racer_horizon.z, distance)"));
+        assert!(src.contains("smoothstep(racer_horizon.x, racer_horizon.y, distance)"));
     }
 }
 

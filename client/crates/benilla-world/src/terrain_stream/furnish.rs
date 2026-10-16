@@ -44,12 +44,11 @@ pub(super) fn furnish_tile_cells(
     // loading screen converges.
     let ablated = tile_cells_disabled();
 
-    let focus = state.focus;
-    let mut pending: Vec<(i32, (i32, i32))> = state
+    let mut pending: Vec<(usize, (i32, i32))> = state
         .tiles
         .iter()
         .filter(|(_, t)| t.entity.is_some() && !t.furnished)
-        .map(|(&(tx, ty), _)| ((tx - focus.0).abs().max((ty - focus.1).abs()), (tx, ty)))
+        .map(|(&tile, _)| (state.priority(tile), tile))
         .collect();
     if pending.is_empty() {
         return;

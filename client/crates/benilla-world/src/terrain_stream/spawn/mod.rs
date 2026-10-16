@@ -149,7 +149,12 @@ pub(super) fn spawn_loaded_placements(
     // follows the work, so every frame spawns at least one.
     let deadline = Instant::now() + SPAWN_BUDGET;
 
-    'placements: for (&unique_id, p) in by_id.iter_mut() {
+    let mut order: Vec<_> = by_id.keys().copied().collect();
+    if !streamer.racer_priority.is_empty() {
+        order.sort_unstable_by_key(|id| (streamer.priority(by_id[id].owner), *id));
+    }
+    'placements: for unique_id in order {
+        let p = by_id.get_mut(&unique_id).expect("existing placement");
         // 1. The model's own geometry, once; a WMO also resolves its doodad props for step 2.
         if !p.spawned {
             let entities = match &p.model {

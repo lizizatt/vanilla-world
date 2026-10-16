@@ -487,6 +487,176 @@ The build succeeds; no C++ changed in this suspension update. The three
 previous Windows source-audit failures remain baseline and the broad suite
 was not repeated.
 
+## Collision-safe racer streaming
+
+The original high-speed Avian integration regression reproduced a full reset:
+an airborne state with velocity `[0, 7, 250]` became `[0, 0, 0]` on a streaming
+hold. This is a demonstrated hold-path defect, not proof that every stop reported
+during human play had the same cause. The old global queue gate could also hold
+locally safe motion because of unrelated distant work. Tile-owned welded
+doodad hulls additionally require ownership handoff when their original tile
+unloads, even with render merging disabled.
+
+Streaming holds retain the entire last valid simulation state, including airborne
+horizontal/vertical velocity and yaw rate. The fixed-step clock drops held wall time;
+resume advances normally rather than teleporting to catch up. The wire reports a
+stationary pose while held. A server correction or loss of authorization still
+yields control; it is not treated as a harmless streaming pause.
+
+Traversal requires a per-tile collision completion proof for every tile crossed by
+the swept body envelope (5.6 yd in either horizontal direction). Loaded terrain
+alone is insufficient: model/prop spawning, welded hulls and pending descendant
+colliders must also finish. Every attached collider must resolve to its own entity
+in Avian's query tree. The proof checks actual registration rather than inferring
+it from shape presence or an elapsed physics tick. Avian registers static colliders
+through insertion observers, including frames with no fixed tick; that case is
+covered by a translated-collider raycast regression. Unrelated distant
+render-merge/collider backlog does not stop a proven local corridor. Missing
+collision still holds the racer, never disables collision. Ordinary walking
+retains its original streaming path.
+
+While authorized, the existing ADT streamer requests a 3x3 body ring and a
+velocity-directed corridor of overlapping rings. Lookahead is two seconds,
+capped at two ADT widths (about 1,067 yd); the desired union is at most 21 ADTs,
+with new admissions limited to 40 resident/in-flight tiles and two new requests
+per paced frame. Tiles inherited from walking can temporarily exceed that
+admission limit while the existing paced unloader retires them.
+The existing furnishing, placement, collider and unload budgets still apply.
+These are safety/resource bounds, not a guarantee of stall-free 500 yd/s travel:
+cold loads that outlast the available corridor still hold safely. Higher tuning
+does not remove the residency bound. Distant art is not collision.
+
+The authorized racer also opts into an extended ring in the existing WDL
+renderer, not a second terrain engine. It builds at most four coarse patches per
+frame and retains at most 625 (a 25x25 window). The shader shows coarse relief,
+fogs from 3,500 to 5,500 yd and fades out by 6,000 yd; missing WDL remains missing,
+not invented geometry. This is a visual horizon only, not detailed terrain,
+objects or playable collision. Its raw mesh payload ceiling is 18,580,000 bytes
+per CPU or GPU copy, excluding asset/driver overhead and the source heightmap.
+Leaving racer mode restores the stock ring, material and frustum behavior;
+map changes and world exit release patch entities and mesh assets.
+
+The optimized regression run passes 33 app racer tests, 11 world racer/WDL tests
+and all 50 terrain-stream tests (including five racer-specific cases),
+plus 12 ordinary world-focus and
+19 movement-wire tests. The standalone numeric physics suite passes all 30.
+The new Avian cases cover ground and air at 250/500 yd/s and 30/60/144 Hz,
+unrelated queue backlog, an intermediate missing tile, newly accelerated
+frontier crossings, momentum-preserving holds/resume, and a 400 ms frame without
+catch-up displacement. These are deterministic integration checks, not human
+handling feedback or a reproduction of the player's exact live location.
+
+Rebuild and run the affected suites in the VS2022 developer environment, using
+this worktree's absolute target directory and one compiler job:
+
+```powershell
+$env:CARGO_TARGET_DIR = Join-Path (Get-Location) 'target-racer'
+Push-Location client
+cargo test --profile play -j 1 -p benilla-app -p benilla-world `
+    -p flats-racer-physics --lib --no-fail-fast racer
+cargo test --profile play -j 1 -p benilla-app -p benilla-world `
+    -p flats-racer-physics --lib --no-fail-fast terrain_stream
+cargo build --profile play -j 1 -p benilla
+Pop-Location
+New-Item -ItemType Directory -Force target-racer\streaming | Out-Null
+Copy-Item target-racer\play\benilla.exe target-racer\streaming\benilla.exe
+```
+
+`WOW_MOVE_TRACE=<path> WOW_MOVE_TRACE_TAGS=racer` records actual motion,
+stream holds with proposed/actual velocity and queue state, swept collision
+normals, discarded long-frame time, authority changes and received server
+corrections/control. Add `racer-support` only for detailed support-ray traces;
+it is high-volume. Correlate the last motion/hold/collision/correction records
+before attributing a stop to streaming.
+
+The manual streaming launcher is isolated from previous racer worktrees:
+
+```powershell
+& .\client\scripts\Start-Racer-Streaming.ps1 `
+    -DataPath 'C:\Users\liz\Downloads\Stonetavern-Classic-1.12.1-v1.8\Data' `
+    -AuthAddress '127.0.0.1:3725' -Trace
+```
+
+It requires this worktree's `target-racer\streaming\benilla.exe`, sets
+`BENILLA_HOME=target-racer\streaming-state`, clears inherited `WOW_*` switches
+(including credentials, synthetic input and timed exits), disables sound and
+requires manual login. It restores the calling process environment on exit.
+Optionally supply `-TuningFrom <existing-racer-tuning.txt>` once; it refuses to
+overwrite the destination. It never starts or updates a server. Confirm the
+isolated server is available and compatible before logging in; the previously
+documented fixture may have expired.
+
+### Offline installed-data streaming instrument
+
+From a clean PowerShell process (no inherited `WOW_*` switches), after the build
+and copy above:
+
+```powershell
+$env:WOW_DATA = 'C:\Users\liz\Downloads\Stonetavern-Classic-1.12.1-v1.8\Data'
+$env:BENILLA_HOME = Join-Path (Get-Location) 'target-racer\streaming-state'
+$env:WOW_UNATTENDED = '1'
+$env:WOW_NOSOUND = '1'
+$env:WOW_CAPTURE = 'flats-racer'
+$env:WOW_RACER_STREAM_PROBE = '1'
+$env:WOW_RACER_PROBE_OUT = Join-Path (Get-Location) 'target-racer\streaming\probe.json'
+$env:WOW_CAPTURE_OUT = Join-Path (Get-Location) 'target-racer\streaming\probe.png'
+& .\target-racer\streaming\benilla.exe
+```
+
+This never logs in or starts a server. It requires actual terrain collision,
+four support hits, a mount rig and a seated rider before advancing. Preflight
+has a finite 135-second deadline and reports missing prerequisites every ten
+seconds; a timeout is failure, not a successful screenshot.
+Four reset segments impose 250/500 yd/s on ground and in air, using real frame
+delta and the production fixed-step resolver, with acceleration/drag disabled
+to isolate velocity preservation. Each attempts five seconds, capped at thirty
+seconds wall time. JSON reports collision continuity, tile crossings, holds
+and before/after velocities, support, body/camera positions and WDL residency.
+`max_frame_ms` measures only probe-system work; `max_frame_delta_ms` includes
+the whole frame interval. The WDL byte count is raw mesh payload per CPU or
+GPU copy, not measured total RAM or VRAM. Neither this offline instrument nor
+the unit suite exercises live server corrections or establishes human feel.
+
+### Installed-data measurements
+
+The final `probe-survey` run on RTX 3060/Vulkan completed all four segments and
+exited with code 0. It used `Instant` wall-clock intervals, not the capture
+system's synthetic Bevy clock. Initial readiness took 656.865 ms; the measured
+probe window was 21.093 seconds.
+
+| Imposed segment | Tile changes | Holds | Total held ms | Longest hold ms | Largest whole-frame interval ms |
+|---|---:|---:|---:|---:|---:|
+| 250 yd/s ground | 1 | 0 | 0 | 0 | 17.814 |
+| 500 yd/s ground | 1 | 0 | 0 | 0 | 37.091 |
+| 250 yd/s air | 2 | 1 | 248.757 | 248.757 | 45.448 |
+| 500 yd/s air | 4 | 2 | 488.167 | 250.771 | 28.775 |
+
+Every measured hold preserved velocity exactly (maximum delta 0.000000).
+Fifteen frames in the last segment lacked current body-tile completion proof:
+each immediately asserted a hold with identical position and velocity.
+All resets and segment starts/ends had collision proof. No long-frame time
+was discarded in this run; deterministic tests separately cover backlog and
+no-catch-up behavior. Missing proof never authorizes movement.
+
+Peak residency was 15 ADTs, 17 requested tiles and 451 WDL patches
+(13,407,328 raw mesh bytes per CPU/GPU copy). A preceding passing traversal
+sampled approximately 1.27 GB working set and 2.06 GB private process memory;
+these are total process measurements, not incremental horizon cost or VRAM.
+The final screenshot switches only the offline probe to a downward survey
+camera after traversal assertions, visibly showing coarse distant relief.
+It does not validate the normal driving camera's appearance or handling.
+
+Ground runs encounter real terrain and launch/redirect; they do not establish
+sustained flat-ground cruise at the imposed speeds. The 250 yd/s airborne run
+retained its horizontal speed, while the 500 yd/s run hit geometry and changed
+direction legitimately. Cold loads can still pause motion for about 0.25 s on
+this machine. The roughly 1,067 yd collision lookahead is bounded independently
+of the 6,000 yd visual horizon; neither makes unloaded land driveable.
+The exact live player's stop and any server contribution remain unverified.
+Local JSON, screenshots and logs stay ignored under `target-racer\streaming`;
+reproduce them with the command above rather than treating a screenshot alone
+as a collision-safety result.
+
 ## Human acceptance and world-exploration checks
 
 For the suspension refinement, drive the same moderate hill in both directions

@@ -66,6 +66,14 @@ pub struct HullWelds {
 }
 
 impl HullWelds {
+    pub(super) fn tile_pending(&self, tile: (i32, i32)) -> bool {
+        self.tiles.contains_key(&tile)
+    }
+
+    pub(super) fn prop_pending(&self, uid: u32) -> bool {
+        self.props.contains_key(&uid)
+    }
+
     pub(super) fn add_tile(&mut self, tile: (i32, i32), verts: Vec<Vec3>, tris: Vec<[u32; 3]>) {
         let frame = self.frame;
         self.tiles
