@@ -130,6 +130,33 @@ this external folder with the same care as `runtime`: it contains the same
 private credentials and user-supplied game-derived data, must stay out of any
 git checkout, and must never be committed or redistributed.
 
+#### Caching compiled objects with sccache
+
+Caching the whole `runtime` folder avoids rerunning setup, but a required
+rebuild (for example after a `server/` source change) still recompiles from
+scratch. Installing [sccache](https://github.com/mozilla/sccache) (for example
+`winget install Mozilla.sccache`) lets both builds skip recompiling unchanged
+source, independent of `runtime`'s location: `Setup-LocalServer.ps1`'s `Build`
+step detects sccache on `PATH` automatically and, if present, passes it to
+CMake as the C/C++ compiler launcher, with its cache under `runtime\sccache`.
+No flag or config is needed, and the build behaves exactly as before when
+sccache is absent.
+
+The Rust client (`client/`) is a separate Cargo workspace; nothing here
+changes its build. Cache it the same way by setting `RUSTC_WRAPPER=sccache`
+and `SCCACHE_DIR` to a persistent folder before running `cargo build`/`cargo
+play`, for example:
+
+```powershell
+$env:RUSTC_WRAPPER = 'sccache'
+$env:SCCACHE_DIR = 'C:\path\to\persistent\sccache'
+cargo build --manifest-path client\Cargo.toml -p benilla --release
+```
+
+`sccache --show-stats` reports cache hit rates. This is intentionally not
+committed into `client/.cargo/config.toml`, since that subtree builds for
+contributors who may not have sccache installed.
+
 Point a separately built Benilla at your existing `Data` directory using
 `WOW_DATA`, and at `127.0.0.1:3724` using `WOW_HOST`. Read upstream's account
 guard and unattended-run guidance before scripted login. This bootstrap is

@@ -53,14 +53,21 @@ if ($Step -in 'Build', 'All') {
         Write-LocalFile "$Runtime\source-tree.txt" $revision
     }
     $cmake = "$Runtime\tools\cmake-3.31.12-windows-x86_64\bin\cmake.exe"
+    # If sccache is on PATH, cache compiled objects by content hash so a rebuild of
+    # unchanged source (even from a fresh runtime/worktree) reuses them instead of
+    # recompiling. Purely additive: builds proceed unchanged when sccache is absent.
+    $sccache = Get-Command sccache -ErrorAction SilentlyContinue
+    $launcherArgs = if ($sccache) { '-DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache' } else { '' }
     # Upstream Windows CMake writes into its source directory, so build an ignored copy.
-    $command = "call `"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul && `"$cmake`" -S `"$source`" -B `"$Runtime\build`" -G `"Visual Studio 17 2022`" -A x64 -DBUILD_EXTRACTORS=ON -DENABLE_MAILSENDER=OFF -DSUPPORTED_CLIENT_BUILD=CLIENT_BUILD_1_12_1 -DCMAKE_INSTALL_PREFIX=`"$Runtime\server`" && `"$cmake`" --build `"$Runtime\build`" --config Release --target install --parallel $Jobs"
+    $command = "call `"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul && `"$cmake`" -S `"$source`" -B `"$Runtime\build`" -G `"Visual Studio 17 2022`" -A x64 -DBUILD_EXTRACTORS=ON -DENABLE_MAILSENDER=OFF -DSUPPORTED_CLIENT_BUILD=CLIENT_BUILD_1_12_1 -DCMAKE_INSTALL_PREFIX=`"$Runtime\server`" $launcherArgs && `"$cmake`" --build `"$Runtime\build`" --config Release --target install --parallel $Jobs"
     $savedPath = $env:PATH
+    $savedSccacheDir = $env:SCCACHE_DIR
     try {
         $env:PATH = (Split-Path $vswhere) + ';' + $env:PATH
+        if ($sccache) { $env:SCCACHE_DIR = "$Runtime\sccache" }
         & $env:ComSpec /d /c "$command > `"$Runtime\logs\build.log`" 2>&1"
         if ($LASTEXITCODE) { throw 'Build failed; inspect runtime\logs\build.log.' }
-    } finally { $env:PATH = $savedPath }
+    } finally { $env:PATH = $savedPath; $env:SCCACHE_DIR = $savedSccacheDir }
 }
 
 if ($Step -in 'Database', 'All') {
