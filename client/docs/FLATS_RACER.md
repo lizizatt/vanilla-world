@@ -526,8 +526,19 @@ These are safety/resource bounds, not a guarantee of stall-free 500 yd/s travel:
 cold loads that outlast the available corridor still hold safely. Higher tuning
 does not remove the residency bound. Distant art is not collision.
 
-The optimized regression run passes 32 app racer tests and all 50 terrain-stream
-tests (including five racer-specific cases), plus 11 ordinary world-focus and
+The authorized racer also opts into an extended ring in the existing WDL
+renderer, not a second terrain engine. It builds at most four coarse patches per
+frame and retains at most 625 (a 25x25 window). The shader shows coarse relief,
+fogs from 3,500 to 5,500 yd and fades out by 6,000 yd; missing WDL remains missing,
+not invented geometry. This is a visual horizon only, not detailed terrain,
+objects or playable collision. Its raw mesh payload ceiling is 18,580,000 bytes
+per CPU or GPU copy, excluding asset/driver overhead and the source heightmap.
+Leaving racer mode restores the stock ring, material and frustum behavior;
+map changes and world exit release patch entities and mesh assets.
+
+The optimized regression run passes 33 app racer tests, 11 world racer/WDL tests
+and all 50 terrain-stream tests (including five racer-specific cases),
+plus 12 ordinary world-focus and
 19 movement-wire tests. The standalone numeric physics suite passes all 30.
 The new Avian cases cover ground and air at 250/500 yd/s and 30/60/144 Hz,
 unrelated queue backlog, an intermediate missing tile, newly accelerated
@@ -574,6 +585,77 @@ Optionally supply `-TuningFrom <existing-racer-tuning.txt>` once; it refuses to
 overwrite the destination. It never starts or updates a server. Confirm the
 isolated server is available and compatible before logging in; the previously
 documented fixture may have expired.
+
+### Offline installed-data streaming instrument
+
+From a clean PowerShell process (no inherited `WOW_*` switches), after the build
+and copy above:
+
+```powershell
+$env:WOW_DATA = 'C:\Users\liz\Downloads\Stonetavern-Classic-1.12.1-v1.8\Data'
+$env:BENILLA_HOME = Join-Path (Get-Location) 'target-racer\streaming-state'
+$env:WOW_UNATTENDED = '1'
+$env:WOW_NOSOUND = '1'
+$env:WOW_CAPTURE = 'flats-racer'
+$env:WOW_RACER_STREAM_PROBE = '1'
+$env:WOW_RACER_PROBE_OUT = Join-Path (Get-Location) 'target-racer\streaming\probe.json'
+$env:WOW_CAPTURE_OUT = Join-Path (Get-Location) 'target-racer\streaming\probe.png'
+& .\target-racer\streaming\benilla.exe
+```
+
+This never logs in or starts a server. It requires actual terrain collision,
+four support hits, a mount rig and a seated rider before advancing. Preflight
+has a finite 135-second deadline and reports missing prerequisites every ten
+seconds; a timeout is failure, not a successful screenshot.
+Four reset segments impose 250/500 yd/s on ground and in air, using real frame
+delta and the production fixed-step resolver, with acceleration/drag disabled
+to isolate velocity preservation. Each attempts five seconds, capped at thirty
+seconds wall time. JSON reports collision continuity, tile crossings, holds
+and before/after velocities, support, body/camera positions and WDL residency.
+`max_frame_ms` measures only probe-system work; `max_frame_delta_ms` includes
+the whole frame interval. The WDL byte count is raw mesh payload per CPU or
+GPU copy, not measured total RAM or VRAM. Neither this offline instrument nor
+the unit suite exercises live server corrections or establishes human feel.
+
+### Installed-data measurements
+
+The final `probe-survey` run on RTX 3060/Vulkan completed all four segments and
+exited with code 0. It used `Instant` wall-clock intervals, not the capture
+system's synthetic Bevy clock. Initial readiness took 656.865 ms; the measured
+probe window was 21.093 seconds.
+
+| Imposed segment | Tile changes | Holds | Total held ms | Longest hold ms | Largest whole-frame interval ms |
+|---|---:|---:|---:|---:|---:|
+| 250 yd/s ground | 1 | 0 | 0 | 0 | 17.814 |
+| 500 yd/s ground | 1 | 0 | 0 | 0 | 37.091 |
+| 250 yd/s air | 2 | 1 | 248.757 | 248.757 | 45.448 |
+| 500 yd/s air | 4 | 2 | 488.167 | 250.771 | 28.775 |
+
+Every measured hold preserved velocity exactly (maximum delta 0.000000).
+Fifteen frames in the last segment lacked current body-tile completion proof:
+each immediately asserted a hold with identical position and velocity.
+All resets and segment starts/ends had collision proof. No long-frame time
+was discarded in this run; deterministic tests separately cover backlog and
+no-catch-up behavior. Missing proof never authorizes movement.
+
+Peak residency was 15 ADTs, 17 requested tiles and 451 WDL patches
+(13,407,328 raw mesh bytes per CPU/GPU copy). A preceding passing traversal
+sampled approximately 1.27 GB working set and 2.06 GB private process memory;
+these are total process measurements, not incremental horizon cost or VRAM.
+The final screenshot switches only the offline probe to a downward survey
+camera after traversal assertions, visibly showing coarse distant relief.
+It does not validate the normal driving camera's appearance or handling.
+
+Ground runs encounter real terrain and launch/redirect; they do not establish
+sustained flat-ground cruise at the imposed speeds. The 250 yd/s airborne run
+retained its horizontal speed, while the 500 yd/s run hit geometry and changed
+direction legitimately. Cold loads can still pause motion for about 0.25 s on
+this machine. The roughly 1,067 yd collision lookahead is bounded independently
+of the 6,000 yd visual horizon; neither makes unloaded land driveable.
+The exact live player's stop and any server contribution remain unverified.
+Local JSON, screenshots and logs stay ignored under `target-racer\streaming`;
+reproduce them with the command above rather than treating a screenshot alone
+as a collision-safety result.
 
 ## Human acceptance and world-exploration checks
 
