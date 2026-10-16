@@ -150,6 +150,8 @@ fn probe_key_by_name(name: &str) -> Option<KeyCode> {
         // Free-fly is the dev chord (`Ctrl`+`Shift`) + `F` (`player.rs`); a held `Ctrl` is its ×5
         // speed boost (`camera.rs`).
         "F" => KeyCode::KeyF,
+        "F8" => KeyCode::F8,
+        "F9" => KeyCode::F9,
         "Ctrl" => KeyCode::ControlLeft,
         "Shift" => KeyCode::ShiftLeft,
         // The cost pill's toggle, dev chord + `P` (`perf::hud::toggle_hud`); it starts hidden.

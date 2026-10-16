@@ -126,6 +126,9 @@ pub(super) fn apply_server_moves(
     // (`MovementHandler.cpp:291-293`, `Player.cpp:20257-20272`).
     for c in control_msgs.read() {
         let verdict = control_verdict(c.mover, c.allow_move, self_guid);
+        if benilla_assets::trace::enabled_for("racer") {
+            benilla_assets::trace::line("racer", &format!("server-control={verdict:?}"));
+        }
         track_control(player, verdict);
         match verdict {
             // Park, which stops the server extrapolating a run, and say nothing else: the mover has
@@ -168,6 +171,15 @@ pub(super) fn apply_server_moves(
     }
     // Cross-map worldport: snap, bump `CurrentMap` for the terrain streamer, ack if required.
     for w in worldports.read() {
+        if benilla_assets::trace::enabled_for("racer") {
+            benilla_assets::trace::line(
+                "racer",
+                &format!(
+                    "server-worldport map={} wow={:?} previous={:?}",
+                    w.map_id, w.position, player.pos
+                ),
+            );
+        }
         let riding = w.transport_entry.is_some() && player.ride.is_some();
         if riding {
             // Riding through: the pose is deck-local (`Player.cpp:2114`) and the boat survived the
@@ -230,7 +242,14 @@ pub(super) fn apply_server_moves(
     }
     // Same-map teleport: snap and echo the ack, without which the server freezes our movement.
     for t in teleports.read() {
+        let previous = player.pos;
         snap_near_teleport(player, &mut cam.yaw, t, time.elapsed_secs());
+        if benilla_assets::trace::enabled_for("racer") {
+            benilla_assets::trace::line(
+                "racer",
+                &format!("server-teleport from={previous:?} to={:?}", player.pos),
+            );
+        }
         // The echo is the whole handshake: the reference echoes on its next movement tick
         // (`0x60e0a0`) and sends nothing else, and vmangos relocates us only when it lands
         // (`ExecuteTeleportNear`, `MovementHandler.cpp:237`).
@@ -243,7 +262,14 @@ pub(super) fn apply_server_moves(
     // Bare self-addressed moves, after the teleports so a same-frame teleport wins the pose.
     for m in self_moves.read() {
         if player.active {
+            let previous = player.pos;
             apply_self_move(m, player, cam, time, transports);
+            if benilla_assets::trace::enabled_for("racer") {
+                benilla_assets::trace::line(
+                    "racer",
+                    &format!("server-self-move from={previous:?} to={:?}", player.pos),
+                );
+            }
         }
     }
 

@@ -36,6 +36,8 @@ struct WowLight {
     fog_params: vec4<f32>,     // 5 xy = scene fog start/end (unread); w = farclip wall (0 = off)
 };
 @group(#{MATERIAL_BIND_GROUP}) @binding(90) var<storage, read> w: WowLight;
+// Custom-fork opt-in only: zero keeps the reference fog hull unchanged.
+@group(#{MATERIAL_BIND_GROUP}) @binding(91) var<uniform> racer_horizon: vec4<f32>;
 
 struct WdlVsOut {
     @builtin(position) clip_position: vec4<f32>,
@@ -62,6 +64,7 @@ fn fragment(in: WdlVsOut) -> WdlFsOut {
     // Planar eye-z, not radial: the band's near plane is a projection plane.
     let eye_z = -(view.view_from_world * vec4<f32>(in.world_position.xyz, 1.0)).z;
     let farclip = w.fog_params.w;
+    let normal = normalize(cross(dpdx(in.world_position.xyz), dpdy(in.world_position.xyz)));
 
     // The near plane is `farclip - 33`, not the wall: the overlap closes the coarse-vs-fine seam.
     if (farclip > 0.0 && eye_z < farclip - WDL_OVERLAP) {
@@ -73,6 +76,27 @@ fn fragment(in: WdlVsOut) -> WdlFsOut {
     var rgb = vec3<f32>(1.0);
     if (w.fog_color.w > 0.5) {
         rgb = w.fog_color.xyz;
+    }
+
+    if (racer_horizon.z > 0.0) {
+        let distance = length(in.world_position.xz - view.world_position.xz);
+        if (distance >= racer_horizon.z) {
+            discard;
+        }
+        // Screen-door fade removes the finite residency edge without enabling transparent depth.
+        let fade = smoothstep(racer_horizon.y, racer_horizon.z, distance);
+        let pixel = floor(in.clip_position.xy);
+        let threshold = fract(sin(dot(pixel, vec2<f32>(12.9898, 78.233))) * 43758.5453);
+        if (threshold < fade) {
+            discard;
+        }
+        let shade = 0.55 + 0.45 * abs(dot(normal, normalize(vec3<f32>(0.4, 0.8, 0.3))));
+        let surface = rgb * shade * vec3<f32>(0.72, 0.78, 0.68);
+        // Remain a fog hull at the detailed overlap; show coarse relief farther out, then fog
+        // completely before the outer fade. This is visual terrain, not collision or ADT detail.
+        let reveal = smoothstep(max(farclip, 0.0), max(farclip, 0.0) + 200.0, eye_z);
+        let fog = smoothstep(racer_horizon.x, racer_horizon.y, distance);
+        rgb = mix(rgb, surface, reveal * (1.0 - fog));
     }
 
     var out: WdlFsOut;

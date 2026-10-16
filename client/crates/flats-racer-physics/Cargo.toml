@@ -1,0 +1,9 @@
+[package]
+name = "flats-racer-physics"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Engine-independent fixed-step numerical hover-racer simulation"
+
+[lints]
+workspace = true

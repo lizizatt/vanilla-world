@@ -39,6 +39,7 @@
 #include "HonorMgr.h"
 #include "PlayerTaxi.h"
 #include "MirrorTimer.h"
+#include "FlatsRacer.h"
 
 #include <string>
 #include <utility>
@@ -1629,6 +1630,12 @@ class Player final: public Unit
                 m_delayedOperations |= operation;
         }
 
+        bool m_flatsRacerActive = false;
+        uint32 m_flatsRacerMountDisplayId = 0;
+        uint32 m_flatsRacerStartMap = 0;
+        Position m_flatsRacerStart;
+        bool ReturnToFlatsRacerStart();
+
         Unit* m_mover;
         GridReference<Player> m_gridRef;
         MapReference m_mapRef;
@@ -1731,6 +1738,12 @@ class Player final: public Unit
         Unit* GetMover() const { return m_mover; } // can never be null
         Unit* GetConfirmedMover() const; // only returns mover confirmed by client, can be null
         bool IsSelfMover() const { return m_mover == this; } // normal case for player not controlling other unit
+        bool IsFlatsRacerActive() const { return m_flatsRacerActive; }
+        bool CanUseFlatsRacer() const;
+        bool StartFlatsRacer();
+        bool StopFlatsRacer(bool correctPosition = true);
+        bool ResetFlatsRacer();
+        bool ValidateFlatsRacerMovement(MovementInfo const& movement);
         bool IsOutdoorOnTransport() const;
 
         ObjectGuid const& GetFarSightGuid() const { return GetGuidValue(PLAYER_FARSIGHT); }

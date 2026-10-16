@@ -735,7 +735,9 @@ impl Plugin for EntitiesPlugin {
         // frame's tilt.
         .add_systems(
             PostUpdate,
-            conform::conform_units.before(bevy::transform::TransformSystems::Propagate),
+            conform::conform_units
+                .after(crate::player::flats_racer::CosmeticBank)
+                .before(bevy::transform::TransformSystems::Propagate),
         )
         // After every steady-state writer of the render-alpha field, before the self-avatar
         // feather that overrides it.

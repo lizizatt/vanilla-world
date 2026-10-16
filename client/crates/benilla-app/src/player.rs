@@ -42,6 +42,7 @@ pub(crate) mod camera_view;
 mod drunk;
 mod embody;
 mod flags;
+pub(crate) mod flats_racer;
 mod follow;
 
 mod gait;
@@ -215,6 +216,7 @@ pub(crate) struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
+        flats_racer::plugin(app);
         net::register(app);
         follow::plugin(app);
         approach::plugin(app);

@@ -315,12 +315,15 @@ impl MaterialExtension for WowModelExt {
 /// geometry under the scene fog colour at the hull pass's own start 0 and end 1.0.
 pub type WdlMaterial = ExtendedMaterial<StandardMaterial, WdlExt>;
 
-/// WDL has no per-material input: its whole colour is the scene fog, off the shared global light.
+/// WDL normally uses the scene fog; the custom racer can opt into a bounded distant surface.
 #[derive(Asset, AsBindGroup, Clone, TypePath)]
 pub struct WdlExt {
     /// The shared global light, rows 4/5 only (scene fog colour, farclip wall).
     #[storage(90, read_only, buffer)]
     pub light_buf: Buffer,
+    /// Zero preserves the stock hull. Racer: x = fog start, y = fog end, z = visual limit.
+    #[uniform(91)]
+    pub racer_horizon: Vec4,
 }
 
 impl MaterialExtension for WdlExt {
