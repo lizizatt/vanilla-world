@@ -37,22 +37,39 @@ display 10318 must arrive before the local controller takes ownership.
 | F8 | Unmount and return to normal walking |
 | F10 / HUD Tuning button | Open/close numeric tuning panel; brakes held while open |
 
-The tuning panel has 17 text boxes: speed/boost caps, thrust/boost thrust, braking,
+The tuning panel has 18 text boxes: speed/boost limits, thrust/boost thrust, braking,
 drag, turn rate/response, grip/drift grip/drift turn multiplier, hover height,
-spring/damping, gravity, hop speed and airborne steering fraction. **Apply**
+spring/damping, gravity, hop speed, airborne steering multiplier and camera-position
+filter seconds. **Apply**
 validates the entire set atomically; an invalid field leaves the current handling
 unchanged and displays its reason. **Restore defaults** applies the original MVP
 handling. Values last only until this client exits (not saved to the account).
 Tab advances through fields, Enter applies, and Escape in a field closes.
 
-Speed caps are limited to 1–50 yd/s (boost cap must be at least the normal cap),
-thrust/boost thrust to 0–60, braking to 0–100, drag to 0.01–5, turn rate to
-0.1–6 rad/s, turn response to 1–30, grip/drift grip to 0.1–30, drift turn to
-0.1–3, hover height to 0.5–1.5 yd, spring to 10–150, damping to 1–35,
-gravity to 10–40, hop speed to 2–8, and air steering to 0–0.5.
-Collision, streaming holds and server authorization/region/speed guards are
-unchanged. Tuning is bounded experimentation, not a promise that every extreme
-combination will feel good.
+There are no gameplay tuning upper ceilings. Values must be finite, representable
+32-bit floats and satisfy the physical sign/domain checks reported by Apply;
+boost maximum must remain at least cruise maximum. Scientific notation is accepted.
+The adjustable cruise/boost values still govern requested top speeds: uncapping the
+editor does not remove those controls or create infinite velocity. Air steering is
+an uncapped nonnegative multiplier, not a percentage capped at one.
+
+**Camera position (s)** is a separate session-only exponential low-pass time
+constant, default `0.15` seconds (`0` turns it off). After one time constant it covers about
+63.2% of a target-position change; larger values soften motion more. Zero disables
+position filtering, independently of yaw damping. Mount, reset, teleport/control
+handoff and remount initialize/snap the position rather than interpolating across
+the world. Camera collision is resolved both before and after filtering, with the
+final clipped position retained as filter history. Non-racer cameras are unchanged.
+
+Finite inputs are not a promise that every combination can be numerically simulated
+or feel good. Derived nonfinite/unrepresentable physics or collision arithmetic is
+rejected explicitly rather than silently clamping the tuning. Collision sweeps,
+the furnished-terrain window, boost reserve, hop timing, 120 Hz simulation, server
+authorization and track/state/ground constraints remain. Very high speeds can
+hit the streaming frontier; high hops/hover settings can leave the allowed ground
+envelope and revoke the mode. These are safety/region boundaries, not hidden speed
+or editor caps. The updated server is required to remove the previous custom packet
+distance budget; do not restart a running server without coordinating its owner.
 
 ### Controller
 
@@ -99,21 +116,23 @@ no MPQ/model/texture is extracted into the repository.
 
 `flats-racer-physics` is the deliberately small custom numerical crate. The app
 adapter owns authorization, actual terrain support and swept collision. It runs
-at 120 Hz with four spring/damper support probes, bounded boost/hop/gravity and
+at 120 Hz with four spring/damper support probes, bounded boost reserve/hop timing and
 three swept spheres with sliding and turn clearance. The collision body stays
 upright; only the render mount banks. The damped chase camera uses the existing
 world camera collision query.
 
-Current and projected support footprints must have resident, scene-ready,
-fully-collided terrain. Missing support/stream readiness holds the body instead
-of running through unbuilt collision. At most 12 steps are caught up per frame;
+Current terrain and the entire projected body envelope must have resident,
+scene-ready, fully-collided terrain. The displacement is checked after this tick's
+acceleration, so a high tuning value cannot jump over an unloaded tile. Missing
+stream readiness holds the body instead of running through unbuilt collision;
+missing ground support alone permits gravity/airborne motion. At most 12 steps are caught up per frame;
 time beyond a 100 ms hitch is intentionally discarded, not a claim of real-time
 simulation through stalls.
 
 Intentional protocol deviation: physical hops remain grounded wire poses while
-the explicitly authorized custom server mode validates its own bounded movement.
+the explicitly authorized custom server mode validates finite endpoints within its track volume.
 This exception is not a global anticheat bypass or unrestricted flight mode.
-Custom server authorization and speed handling are separate from normal walking.
+Custom server authorization and movement handling are separate from normal walking.
 
 The bounded track accepts installed AreaTable IDs 439 (The Shimmering Flats) and
 2240 (Mirage Raceway), both on map 1 under zone 400. Area 479 is The Rustmaul
@@ -206,31 +225,61 @@ still require the human acceptance pass below.
 
 ### Tuning/controller validation
 
-The tuning update passes 17 app racer tests (including real EditBox entry,
+The previous tuning update passed 17 app racer tests (including real EditBox entry,
 atomic Apply/defaults, controller mappings, device switching, disconnect and
 normal-mode exclusion), 17 numerical physics tests and the schedule-order audit.
 Cosmetic banking now runs in PostUpdate before animation and terrain conforming;
 the camera is explicitly excluded from its mutable transform query.
-The full Windows app run reports 4,846 passed, 12 ignored and three failures:
+Its full Windows app run reported 4,846 passed, 12 ignored and three failures:
 `cvars::deviations_doc::the_deviates_rows_read_back_as_the_generator_reads_them`
 (CRLF string parsing), `ui_script::fire_scan::every_relay_has_its_origin_in_view`
 (Windows path tracing), and
 `ui_session::tests::every_npc_session_is_portrait_bound_or_explicitly_excluded`
 (source-structure parsing). These unrelated source-audit failures remain
-unresolved; the full suite is not claimed green.
+unresolved; all three were reproduced individually using the prior committed
+test executable before this uncapping change. The full suite is not claimed green,
+and was not repeated for the camera/uncapping update.
 
-The installed-data tuning-panel capture retains the 480-frame measurements
-above, and all 17 fields plus Apply/defaults/Close were visually inspected.
+That prior installed-data tuning-panel capture retained the 480-frame measurements
+above, and its 17 fields plus Apply/defaults/Close were visually inspected.
 Synthetic gamepad tests do not establish physical controller mapping or handling
 feel. For the human pass, apply a lower speed cap and turn rate, close the panel
 and compare handling; restore defaults, then alternate keyboard presses with pad
 buttons/axes and check tutorial changes, deadzones, focus loss and disconnect.
 
-### Current Windows isolated-instance handoff
+The positional-filter checks use an exact one-second step response with a
+0.25-second time constant at 30/60/144 Hz and irregular steps
+`[0.001, 0.199, 0.3, 0.5]` seconds; each must reach `9.816844` yd for a
+10-yard target within `0.0001` yd. A separate alternating +/-0.1-yard target
+at 60 Hz measures synthetic jitter attenuation, not observed gameplay jitter.
+An actual Avian wall fixture verifies that filtering cannot retain a camera
+seat on the far side of a wall, and a reset snaps heading and position.
+No visible runtime jitter reproduction or human handling assessment is claimed.
+
+### Uncapping and positional-filter validation
+
+The current focused checks pass: 23 app racer tests and 20 numerical physics tests.
+They cover uncapped finite input (including round-tripping `f32::MAX`), atomic
+invalid Apply, actual high-value acceleration/speed/turn/brake response, numeric
+overflow rejection, a 5,000 yd/s Avian wall sweep, full-turn body clearance and
+post-acceleration streaming holds. The positional step-response error stays below
+0.0001 yd across the frame schedules above. Injected alternating target jitter
+at 60 Hz with a 0.15-second filter drops from 0.100000 to 0.005573 yd RMS;
+this measures a synthetic signal, not a reproduced runtime symptom.
+
+The separate installed-data capture completed 480 frames / 8.00005 seconds:
+peak 19.408924 yd/s, support-relative height 1.0995865 to 2.0912552 yd,
+hop/landing/reset true, zero stream holds, and rider/mount preflight passed.
+Final body/camera were `[3945, -57.65, 6235]` /
+`[3945, -50.09554, 6250.1816]`. It uses default handling, not live high-speed
+server validation. The actual 18-field tuning panel was captured and inspected.
+
+### Windows isolated-instance handoff
 
 The prepared workspace is
 `C:\Users\liz\copilot-worktrees\vanilla-world\lizizatt-special-guacamole`.
-Its separate executable is `target-racer\play\benilla.exe`. Nothing here updates
+Its new separate executable is `target-racer\uncapped\benilla.exe`; the prior
+`target-racer\play\benilla.exe` remains untouched. Nothing here updates
 the original running client or server. The ignored
 `target-racer\probe-runtime\identity.private.json` contains the dedicated non-GM
 account credentials and `Racerprobe` character name; never commit or publish it.
@@ -238,13 +287,15 @@ The scripted client has exited and disconnected. This character is already at
 Mirage Raceway, map 1, near `(-6235, -3945, -58.75)`, with full health. Use this
 account rather than moving or logging in the original player.
 
-From that workspace, explicitly start the manual, sound-disabled client with:
+After coordinating the server update and confirming its isolated auth/world
+services are available, start the new manual, sound-disabled client from the
+workspace root with the ignored launcher:
 
 ```powershell
-powershell.exe -NoProfile -File .\target-racer\probe-runtime\Start-Racer.ps1
+& .\target-racer\probe-runtime\Start-Uncapped-Racer.ps1
 ```
 
-This local ignored launcher reads that identity, selects auth
+`Start-Uncapped-Racer.ps1` selects the new executable, reads that identity, selects auth
 `127.0.0.1:3725`, clears inherited capture/synthetic-input/unattended/exit
 variables, sets `WOW_FLATS_RACER=1`, and selects the existing character. It
 does not inject any input. Focus the window before using the controls above;
@@ -264,8 +315,10 @@ Client terrain/Avian collision is used by the racer, not server MMaps.
 The test therefore does not validate NPC navigation or the full-pathfinding
 configuration of the original runtime.
 
-The isolated auth/world driver is stopped after the recorded probes; the DB may
-still be running. A newly started driver has a 40-minute lifetime. Inspect only
+The previous isolated auth/world driver has expired; its DB remains running.
+Do not restart or replace their
+binaries without the runtime owner's permission. A newly started driver has a
+40-minute lifetime. Inspect only
 these ports and use the ownership-aware DB status helper:
 
 ```powershell
@@ -313,6 +366,14 @@ tunneling. Approach a streaming frontier and verify a safe hold. F9 must return
 to the documented safe point without a correction loop. F8 must restore ordinary
 walk/run, jump and camera behavior; repeat with the client/server opt-ins absent
 and verify normal walking and movement validation are unchanged.
+
+In F10, apply cruise/boost values above the old 50 yd/s ceiling (start with
+80/120), plus increased thrust, and confirm the HUD exceeds 50 on a clear
+resident track section. Stay inside the authorized track volume. Try camera
+position seconds `0`, `0.15` and `0.4` at the same speed, then F9 and
+unmount/remount: reset must snap immediately and camera collision must still
+prevent wall penetration. Reject `NaN`, `inf`, negative camera seconds and
+boost below cruise without partially applying any other field.
 
 Neither the offline capture nor the isolated scripted drive establishes
 interactive feel or competitive safety. Never use the currently playing user's

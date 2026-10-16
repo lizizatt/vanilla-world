@@ -28,7 +28,13 @@ Assert-Source $player '(?s)bool Player::StopFlatsRacer.*?m_flatsRacerActive = fa
 Assert-Source $player '(?s)UnitDismountResult Player::Unmount.*?SendDismountResult\(DISMOUNTRESULT_OK\);\s*if \(m_flatsRacerActive\)\s*StopFlatsRacer\(\);' 'External dismount must revoke the racer grant.'
 Assert-Source $player '(?s)bool Player::ResetFlatsRacer.*?if \(!ReturnToFlatsRacerStart\(\)\).*?StopFlatsRacer\(false\);.*?return false;.*?SendSysMessage\("FLATS_RACER RESET"\)' 'Failed reset must revoke and release the mount instead of reporting success.'
 Assert-Source $player '(?s)bool Player::CanUseFlatsRacer.*?CONFIG_BOOL_CUSTOM_FLATS_RACER.*?GetRemoteAddress.*?IsAlive\(\) && !IsInCombat\(\).*?!IsTaxiFlying\(\) && !GetTransport\(\)' 'Eligibility must enforce config, session, and live state.'
-Assert-Source $player '(?s)bool Player::ValidateFlatsRacerMovement.*?FlatsRacer::InBounds.*?FlatsRacer::PlainMovement.*?FlatsRacer::OnTrack.*?m_flatsRacerBudget.Consume\(WorldTimer::getMSTime\(\)' 'Custom movement must enforce finite flags, track, and server-clock budget.'
+$validation = $player.Substring($player.IndexOf('bool Player::ValidateFlatsRacerMovement'))
+$validation = $validation.Substring(0, $validation.IndexOf('void Player::Update'))
+Assert-Source $validation '(?s)if \(!CanUseFlatsRacer\(\) \|\| !FlatsRacer::InBounds.*?!FlatsRacer::PlainMovement.*?return false;.*?GetHeight.*?GetAreaId.*?return FlatsRacer::OnTrack\(area, p.z, ground\);' 'Custom movement must reject invalid live state, endpoints, flags and floats before terrain queries, and accept valid track endpoints without a speed limit.'
+if ($validation -match 'WorldTimer|stime|MotionBudget|Consume' -or $player -match 'm_flatsRacerBudget') {
+    throw 'Client-authoritative racer movement must not retain a time or displacement budget.'
+}
+Assert-Source $player '(?s)bool Player::CanUseFlatsRacer.*?IsInWorld\(\).*?!IsLaunched\(\) && CanFreeMove\(\) && !HasPendingSplineDone\(\).*?movespline->Finalized\(\) && IsSelfMover\(\) && GetConfirmedMover\(\) == this.*?!HasUnitMovementFlag.*?FlatsRacer::InBounds' 'Invalid control, spline, movement or current-position state must still reject the custom path.'
 Assert-Source $player '(?s)void Player::SetDeathState.*?if \(s != ALIVE && m_flatsRacerActive\)\s*StopFlatsRacer\(\);' 'Death must revoke the grant.'
 Assert-Source $player '(?s)bool Player::TeleportTo.*?if \(m_flatsRacerActive\)\s*StopFlatsRacer\(false\);' 'External teleports must revoke without recursive correction.'
 Assert-Source $player '(?s)void Player::RemoveFromWorld.*?if \(m_flatsRacerActive\)\s*StopFlatsRacer\(false\);' 'World removal must revoke.'

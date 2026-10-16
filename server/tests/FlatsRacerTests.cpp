@@ -55,23 +55,25 @@ int main()
     assert(!PlainMovement(0, {nan}));
     assert(!PlainMovement(0, {inf}));
 
-    MotionBudget budget;
-    budget.Reset(1000);
-    assert(budget.Consume(1000, 6, 0, 2));
-    assert(!budget.Consume(1000, 0.01f, 0, 0));
-    assert(!budget.Consume(1000, 0, 0, 0.01f));
-    assert(budget.Consume(1100, 6, 0, -2));
-    assert(!budget.Consume(1200, 6.01f, 0, 0));
-    assert(budget.Consume(1200, 0, 6, 2));
-    assert(!budget.Consume(1300, 5, 5, 0)); // Euclidean, not independent axis budgets.
-    assert(!budget.Consume(1300, 0, 0, 2.01f));
-    assert(budget.Consume(1300, 6, 0, 0));
-    assert(!budget.Consume(60000, 15.01f, 0, 0)); // Idle cannot bank a teleport.
-    assert(budget.Consume(60000, 15, 0, 5));
-    assert(!budget.Consume(60000, 0.01f, 0, 0));
-    assert(!budget.Consume(60100, nan, 0, 0));
-    assert(!budget.Consume(60100, 0, inf, 0));
-    assert(!budget.Consume(60100, 0, 0, nan));
-    budget.Reset(0xfffffff0u);
-    assert(budget.Consume(84, 12, 0, 4)); // Server clock wraparound.
+    // Even consecutive packets can span the region: elapsed time is not a policy input.
+    struct Endpoint { float x, y, z, ground; };
+    Endpoint const endpoints[] = {
+        {-6500, -4500, -65, -65},
+        {-5700, -3300, -45, -45},
+        {-6235, -3945, -58.75f, -58.75f},
+        {-6100, -3800, -52.75f, -58.75f},
+        {-6235, -3945, -58.75f, -58.75f},
+    };
+    for (auto const& endpoint : endpoints)
+    {
+        assert(InBounds(1, endpoint.x, endpoint.y, endpoint.z, 0));
+        assert(OnTrack(439, endpoint.z, endpoint.ground));
+        assert(PlainMovement(1, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0}));
+    }
+    assert(endpoints[1].x - endpoints[0].x == 800);
+    assert(endpoints[1].y - endpoints[0].y == 1200);
+    assert(endpoints[1].z - endpoints[0].z == 20);
+    // Tunable hover/hop still cannot exceed either geometric height boundary.
+    assert(!OnTrack(439, -52.74f, -58.75f));
+    assert(!InBounds(1, -6235, -3945, -44.99f, 0));
 }

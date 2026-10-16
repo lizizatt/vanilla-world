@@ -1633,7 +1633,6 @@ class Player final: public Unit
         bool m_flatsRacerActive = false;
         uint32 m_flatsRacerMountDisplayId = 0;
         Position m_flatsRacerStart;
-        FlatsRacer::MotionBudget m_flatsRacerBudget;
         bool ReturnToFlatsRacerStart();
 
         Unit* m_mover;

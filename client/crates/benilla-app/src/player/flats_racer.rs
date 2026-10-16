@@ -7,6 +7,7 @@ use bevy::prelude::*;
 
 use super::Player;
 
+mod camera;
 mod collision;
 mod input;
 mod probe;
@@ -40,6 +41,8 @@ pub(crate) struct FlatsRacer {
     pub(super) speed: f32,
     pub(super) boost: f32,
     tuning: flats_racer_physics::Tuning,
+    camera_position_seconds: f32,
+    camera_position: camera::PositionFilter,
     tuning_open: bool,
     controls: input::Controls,
     dynamics: Option<flats_racer_physics::State>,
@@ -89,40 +92,29 @@ fn stream_ready(
         && progress.placements_pending == 0
 }
 
-fn chase_camera(
-    position: Vec3,
-    yaw: f32,
-    speed: f32,
-    dt: f32,
-    reset: bool,
-    camera: &mut Transform,
-    cam: &mut super::camera::FlyCam,
-    rig: &mut super::camera::CameraControl,
-    world: &benilla_world::collision::WorldCollision,
-) {
-    let blend = 1.0 - (-7.0 * dt.clamp(0.0, 0.1)).exp();
-    cam.yaw += crate::creature_anim::wrap_pi(yaw - cam.yaw) * blend;
-    cam.pitch = -0.22;
-    let pivot = position + Vec3::Y * 3.0;
-    let direction = Quat::from_rotation_y(cam.yaw) * Vec3::new(0.0, 0.3, 1.0).normalize();
-    let distance = 16.0 + (speed / 80.0).clamp(0.0, 1.0) * 4.0;
-    let arm = direction * distance;
-    let allowed = world.cast_camera(pivot, arm, false).unwrap_or(distance);
-    let wanted = pivot + direction * (allowed - 0.15).max(0.0);
-    let candidate = if reset {
-        wanted
-    } else {
-        camera.translation.lerp(wanted, blend)
+fn stream_corridor_ready(
+    from: Vec3,
+    to: Vec3,
+    progress: &benilla_world::terrain_stream::WorldLoadProgress,
+) -> bool {
+    let Some((focus_x, focus_y)) = progress.focus_tile else {
+        return false;
     };
-    let offset = candidate - pivot;
-    let clear = world
-        .cast_camera(pivot, offset, false)
-        .unwrap_or(offset.length());
-    camera.translation = pivot + offset.normalize_or_zero() * clear.max(0.0);
-    camera.look_at(pivot, Vec3::Y);
-    rig.park_distance(distance);
-    rig.collision_distance = clear;
-    rig.self_fade_alpha = 1.0;
+    // scene_ready proves exactly the focus tile and its eight neighbours, not a far endpoint.
+    // A straight sweep stays inside this convex furnished window if both envelopes do.
+    [from, to].into_iter().all(|position| {
+        // The sphere centers reach 3 yd and their radii 2.6 yd, at every yaw.
+        [-5.6, 5.6].into_iter().all(|edge| {
+            let point = position + Vec3::new(edge, 0.0, edge);
+            let wow = benilla_assets::coords::bevy_to_wow(point);
+            let map_half = 32.0 * benilla_formats::TILE_SIZE;
+            if !point.is_finite() || wow[0].abs() >= map_half || wow[1].abs() >= map_half {
+                return false;
+            }
+            let (x, y) = benilla_formats::world_to_tile(wow[0], wow[1]);
+            (x as i32 - focus_x).abs() <= 1 && (y as i32 - focus_y).abs() <= 1
+        })
+    })
 }
 
 impl Default for FlatsRacer {
@@ -135,6 +127,8 @@ impl Default for FlatsRacer {
             speed: 0.0,
             boost: 1.0,
             tuning: Default::default(),
+            camera_position_seconds: camera::DEFAULT_POSITION_SECONDS,
+            camera_position: Default::default(),
             tuning_open: false,
             controls: Default::default(),
             dynamics: None,
@@ -170,6 +164,7 @@ impl FlatsRacer {
     }
 
     pub(crate) fn revoke(&mut self) {
+        self.camera_position.clear();
         self.handoff |= self.dynamics.is_some();
         self.authorized = false;
         self.reset = true;
@@ -211,6 +206,9 @@ fn advance_tuned(
     progress: &benilla_world::terrain_stream::WorldLoadProgress,
     tuning: &flats_racer_physics::Tuning,
 ) -> Result<bool, flats_racer_physics::StepError> {
+    if !dt.is_finite() || dt < 0.0 {
+        return Err(flats_racer_physics::StepError::InvalidDt);
+    }
     let fixed = flats_racer_physics::FIXED_DT;
     let clock_step = 1.0 / 120.0;
     *accumulator += f64::from(dt.clamp(0.0, 0.1));
@@ -221,16 +219,15 @@ fn advance_tuned(
         }
         *accumulator -= clock_step;
         let position = Vec3::from_array(state.position);
-        let velocity = Vec3::from_array(state.velocity);
-        let ahead = position + velocity * 0.25;
         let supports = collision::supports(world, position, state.yaw);
-        // Ahead probes prove collision residency across tile edges; requiring the future tile
-        // to equal the current streaming focus would stop the racer before it could cross.
-        if !stream_ready(position, progress)
-            || supports.iter().any(Option::is_none)
-            || collision::supports(world, ahead, state.yaw)
-                .iter()
-                .any(Option::is_none)
+        let mut next = *state;
+        next.step_with_tuning(input, supports, fixed, tuning)?;
+        let movement = Vec3::from_array(next.velocity) * fixed;
+        let endpoint = position + movement;
+        if !endpoint.is_finite() || !movement.length_squared().is_finite() {
+            return Err(flats_racer_physics::StepError::NonFiniteResult);
+        }
+        if !stream_ready(position, progress) || !stream_corridor_ready(position, endpoint, progress)
         {
             state.velocity = [0.0; 3];
             state.yaw_rate = 0.0;
@@ -239,8 +236,8 @@ fn advance_tuned(
             break;
         }
         let old_yaw = state.yaw;
-        state.step_with_tuning(input, supports, fixed, tuning)?;
-        if !collision::clear_turn(world, position, old_yaw, state.yaw) {
+        *state = next;
+        if !collision::clear_turn(world, position, old_yaw, state.yaw_rate * fixed) {
             state.yaw = old_yaw;
             state.yaw_rate = 0.0;
         }
@@ -254,7 +251,39 @@ fn advance_tuned(
         state.position = position.to_array();
         state.velocity = velocity.to_array();
     }
+
     Ok(held)
+}
+
+#[cfg(test)]
+mod stream_tests {
+    use super::*;
+
+    #[test]
+    fn projected_envelope_cannot_skip_the_furnished_window() {
+        let position = Vec3::new(3945.0, -57.65, 6235.0);
+        let wow = benilla_assets::coords::bevy_to_wow(position);
+        let tile = benilla_formats::world_to_tile(wow[0], wow[1]);
+        let progress = benilla_world::terrain_stream::WorldLoadProgress {
+            focus_tile: Some((tile.0 as i32, tile.1 as i32)),
+            ..Default::default()
+        };
+        assert!(stream_corridor_ready(
+            position,
+            position + Vec3::X * 100.0,
+            &progress
+        ));
+        assert!(!stream_corridor_ready(
+            position,
+            position + Vec3::X * 2000.0,
+            &progress
+        ));
+        assert!(!stream_corridor_ready(
+            position,
+            Vec3::splat(f32::MAX),
+            &progress
+        ));
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -399,7 +428,7 @@ pub(super) fn control(
             }
         }
         Err(error) => {
-            error!("flats racer: simulation rejected state: {error:?}");
+            error!("flats racer: simulation rejected state: {error:?}; lower F10 tuning values before remounting");
             request(net, "off");
             yield_control(racer, player, net);
             return false;
@@ -429,12 +458,14 @@ pub(super) fn control(
         !was_grounded && state.grounded,
         0,
     );
-    chase_camera(
+    camera::chase(
         player.pos,
         state.yaw,
         racer.speed,
         dt,
         reset,
+        racer.camera_position_seconds,
+        &mut racer.camera_position,
         camera,
         cam,
         rig,
@@ -570,7 +601,7 @@ fn hud(
     *next = time.elapsed_secs() + 0.1;
     if !racer.enabled || !player.active {
         racer.tuning_open = false;
-        crate::ui_script::run_or_warn(&script, "if FlatsRacerHUD then FlatsRacerHUD:Hide() end if FlatsRacerTuning then for i=1,17 do getglobal('FlatsRacerTuneBox'..i):ClearFocus() end FlatsRacerTuning:Hide() end");
+        crate::ui_script::run_or_warn(&script, "if FlatsRacerHUD then FlatsRacerHUD:Hide() end if FlatsRacerTuning then for i=1,18 do getglobal('FlatsRacerTuneBox'..i):ClearFocus() end FlatsRacerTuning:Hide() end");
         return;
     }
     tuning::update(&script, &mut racer);

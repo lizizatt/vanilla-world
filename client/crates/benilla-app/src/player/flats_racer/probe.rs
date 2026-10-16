@@ -32,6 +32,7 @@ pub(super) struct Probe {
     landed: bool,
     reset: bool,
     holds: u32,
+    camera_position: camera::PositionFilter,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -112,7 +113,8 @@ pub(super) fn drive(
     if t >= 7.0 && std::env::var("WOW_RACER_TUNING_CAPTURE").as_deref() == Ok("1") {
         racer.tuning_open = true;
     }
-    if t >= 6.0 && !probe.reset {
+    let resetting = t >= 6.0 && !probe.reset;
+    if resetting {
         probe
             .dynamics
             .as_mut()
@@ -153,12 +155,14 @@ pub(super) fn drive(
     player.active = true;
     player.detached = false;
     let speed = Vec3::from_array(state.velocity).with_y(0.0).length();
-    chase_camera(
+    camera::chase(
         player.pos,
         state.yaw,
         speed,
         time.delta_secs(),
-        probe.frames == 0,
+        probe.frames == 0 || resetting,
+        racer.camera_position_seconds,
+        &mut probe.camera_position,
         &mut camera,
         &mut cam,
         &mut rig,

@@ -1,7 +1,6 @@
 #ifndef MANGOS_FLATS_RACER_H
 #define MANGOS_FLATS_RACER_H
 
-#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <initializer_list>
@@ -12,9 +11,6 @@ namespace FlatsRacer
     constexpr bool DefaultEnabled = false;
     constexpr std::uint32_t MountDisplayId = 10318;
     constexpr float ResetGroundClearance = 0.25f;
-    constexpr float MaxSpeed = 60.0f;
-    constexpr float MaxVerticalSpeed = 20.0f;
-    constexpr float MaxBudgetSeconds = 0.25f;
 
     inline bool Authorized(bool enabled, std::string const& address)
     {
@@ -45,36 +41,6 @@ namespace FlatsRacer
                 return false;
         return true;
     }
-
-    struct MotionBudget
-    {
-        std::uint32_t time = 0;
-        float horizontal = 0.0f;
-        float vertical = 0.0f;
-
-        void Reset(std::uint32_t now)
-        {
-            time = now;
-            horizontal = MaxSpeed * 0.1f;
-            vertical = MaxVerticalSpeed * 0.1f;
-        }
-
-        bool Consume(std::uint32_t now, float dx, float dy, float dz)
-        {
-            if (!std::isfinite(dx) || !std::isfinite(dy) || !std::isfinite(dz))
-                return false;
-            float const seconds = std::min(float(std::uint32_t(now - time)) / 1000.0f, MaxBudgetSeconds);
-            float const availableXY = std::min(horizontal + MaxSpeed * seconds, MaxSpeed * MaxBudgetSeconds);
-            float const availableZ = std::min(vertical + MaxVerticalSpeed * seconds, MaxVerticalSpeed * MaxBudgetSeconds);
-            float const distanceXY = std::hypot(dx, dy);
-            if (distanceXY > availableXY || std::fabs(dz) > availableZ)
-                return false;
-            time = now;
-            horizontal = availableXY - distanceXY;
-            vertical = availableZ - std::fabs(dz);
-            return true;
-        }
-    };
 }
 
 #endif

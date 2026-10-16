@@ -3,7 +3,7 @@
 use super::*;
 use flats_racer_physics::Tuning;
 
-const LABELS: [&str; 17] = [
+const LABELS: [&str; 18] = [
     "Speed cap (yd/s)",
     "Boost cap (yd/s)",
     "Thrust (yd/s2)",
@@ -21,9 +21,10 @@ const LABELS: [&str; 17] = [
     "Gravity (yd/s2)",
     "Hop speed (yd/s)",
     "Air steering fraction",
+    "Camera position (s)",
 ];
 
-fn values(t: &Tuning) -> [f32; 17] {
+fn values(t: &Tuning, camera_seconds: f32) -> [f32; 18] {
     [
         t.max_speed,
         t.boost_max_speed,
@@ -42,15 +43,16 @@ fn values(t: &Tuning) -> [f32; 17] {
         t.gravity,
         t.hop_speed,
         t.air_control,
+        camera_seconds,
     ]
 }
 
-fn parse(text: &str) -> Result<Tuning, String> {
+fn parse(text: &str) -> Result<(Tuning, f32), String> {
     let parts: Vec<_> = text.split('|').collect();
-    if parts.len() != 17 {
-        return Err("Expected 17 numeric fields; no changes applied.".into());
+    if parts.len() != LABELS.len() {
+        return Err("Expected 18 numeric fields; no changes applied.".into());
     }
-    let mut v = [0.0; 17];
+    let mut v = [0.0; 18];
     for (index, text) in parts.iter().enumerate() {
         v[index] = text
             .trim()
@@ -81,14 +83,27 @@ fn parse(text: &str) -> Result<Tuning, String> {
     tuning
         .validate()
         .map_err(|error| format!("{error:?}; no changes applied."))?;
-    Ok(tuning)
+    if v[17] < 0.0 {
+        return Err("Camera position seconds must be nonnegative; no changes applied.".into());
+    }
+    Ok((tuning, v[17]))
 }
 
-fn fill(script: &UiScript, tuning: &Tuning) {
-    for (index, value) in values(tuning).iter().enumerate() {
+fn fill(script: &UiScript, racer: &FlatsRacer) {
+    for (index, value) in values(&racer.tuning, racer.camera_position_seconds)
+        .iter()
+        .enumerate()
+    {
+        // Scientific notation fits every finite f32 in the text field without truncation.
+        let text = value.to_string();
+        let text = if text.len() > 14 {
+            format!("{value:e}")
+        } else {
+            text
+        };
         crate::ui_script::run_or_warn(
             script,
-            &format!("FlatsRacerTuneBox{}:SetText(\"{value}\")", index + 1),
+            &format!("FlatsRacerTuneBox{}:SetText(\"{text}\")", index + 1),
         );
     }
 }
@@ -113,7 +128,7 @@ pub(super) fn update(script: &UiScript, racer: &mut FlatsRacer) {
             .collect::<Vec<_>>()
             .join("\n");
         crate::ui_script::run_or_warn(script, &labels);
-        fill(script, &racer.tuning);
+        fill(script, racer);
         crate::ui_script::run_or_warn(script, "FlatsRacerTuneInitialized=true");
     }
     let command = match script
@@ -128,12 +143,13 @@ pub(super) fn update(script: &UiScript, racer: &mut FlatsRacer) {
     match command.as_deref() {
         Some("apply") => {
             let result = script.eval::<String>(
-                "local v={} for i=1,17 do v[i]=getglobal('FlatsRacerTuneBox'..i):GetText() end return table.concat(v,'|')"
+                "local v={} for i=1,18 do v[i]=getglobal('FlatsRacerTuneBox'..i):GetText() end return table.concat(v,'|')"
             ).map_err(|error| format!("Cannot read tuning fields: {error}")).and_then(|text| parse(&text));
             let message = match result {
-                Ok(tuning) => {
+                Ok((tuning, camera_seconds)) => {
                     racer.tuning = tuning;
-                    fill(script, &racer.tuning);
+                    racer.camera_position_seconds = camera_seconds;
+                    fill(script, racer);
                     "Applied. Close to drive; values last until client exit.".to_string()
                 }
                 Err(error) => {
@@ -153,7 +169,8 @@ pub(super) fn update(script: &UiScript, racer: &mut FlatsRacer) {
         }
         Some("defaults") => {
             racer.tuning = Tuning::default();
-            fill(script, &racer.tuning);
+            racer.camera_position_seconds = camera::DEFAULT_POSITION_SECONDS;
+            fill(script, racer);
             crate::ui_script::run_or_warn(
                 script,
                 "FlatsRacerTuneStatus:SetText('Defaults restored and applied.')",
@@ -169,7 +186,7 @@ pub(super) fn update(script: &UiScript, racer: &mut FlatsRacer) {
         if racer.tuning_open {
             "FlatsRacerTuning:Show()"
         } else {
-            "for i=1,17 do getglobal('FlatsRacerTuneBox'..i):ClearFocus() end FlatsRacerTuning:Hide()"
+            "for i=1,18 do getglobal('FlatsRacerTuneBox'..i):ClearFocus() end FlatsRacerTuning:Hide()"
         },
     );
 }
@@ -181,13 +198,33 @@ mod tests {
     #[test]
     fn tuning_fields_round_trip_and_invalid_values_do_not_change_active_tuning() {
         let default = Tuning::default();
-        let text = values(&default).map(|v| v.to_string()).join("|");
-        assert_eq!(parse(&text).unwrap(), default);
+        let seconds = camera::DEFAULT_POSITION_SECONDS;
+        let text = values(&default, seconds).map(|v| v.to_string()).join("|");
+        assert_eq!(parse(&text).unwrap(), (default, seconds));
         assert!(parse(&text.replacen("36", "NaN", 1)).is_err());
         assert!(parse("oops").is_err());
-        let mut fields = values(&default);
-        fields[0] = 51.0;
+        let mut fields = values(&default, seconds);
+        fields[0] = 500.0;
+        fields[1] = 1000.0;
+        fields[17] = 0.0;
+        let high = parse(&fields.map(|v| v.to_string()).join("|")).unwrap();
+        assert_eq!(
+            (high.0.max_speed, high.0.boost_max_speed, high.1),
+            (500.0, 1000.0, 0.0)
+        );
+        fields[17] = -0.1;
         assert!(parse(&fields.map(|v| v.to_string()).join("|")).is_err());
+        fields[0] = f32::MAX;
+        fields[1] = f32::MAX;
+        fields[17] = f32::MAX;
+        let high = parse(&fields.map(|v| format!("{v:e}")).join("|")).unwrap();
+        assert_eq!(high.0.max_speed, f32::MAX);
+        assert_eq!(high.1, f32::MAX);
+        for invalid in ["NaN", "inf", "-inf", "1e100", "-0.1"] {
+            let mut fields = values(&default, seconds).map(|v| v.to_string());
+            fields[17] = invalid.into();
+            assert!(parse(&fields.join("|")).is_err(), "{invalid}");
+        }
     }
 
     #[test]
@@ -225,9 +262,22 @@ mod tests {
             .eval::<String>("return FlatsRacerTuneStatus:GetText()")
             .unwrap()
             .contains("no changes"));
+        script.run("FlatsRacerTuneBox1:SetText('500') FlatsRacerTuneBox2:SetText('1000') FlatsRacerTuneBox18:SetText('0.35') FlatsRacerTuneCommand='apply'").unwrap();
+        update(&script, &mut racer);
+        assert_eq!(racer.tuning.max_speed, 500.0);
+        assert_eq!(racer.camera_position_seconds, 0.35);
+        let before = racer.tuning;
+        script.run("FlatsRacerTuneBox1:SetText('600') FlatsRacerTuneBox18:SetText('-1') FlatsRacerTuneCommand='apply'").unwrap();
+        update(&script, &mut racer);
+        assert_eq!(racer.tuning, before);
+        assert_eq!(racer.camera_position_seconds, 0.35);
         script.run("FlatsRacerTuneCommand='defaults'").unwrap();
         update(&script, &mut racer);
         assert_eq!(racer.tuning, Tuning::default());
+        assert_eq!(
+            racer.camera_position_seconds,
+            camera::DEFAULT_POSITION_SECONDS
+        );
         assert!(script.key_input("ESCAPE"));
         update(&script, &mut racer);
         assert!(!racer.tuning_open);

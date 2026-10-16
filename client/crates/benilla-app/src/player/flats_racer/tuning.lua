@@ -15,17 +15,17 @@ if not FlatsRacerTuning then
     local hint=f:CreateFontString(nil,"OVERLAY","GameFontNormal")
     hint:SetPoint("TOP",f,"TOP",0,-38)
     hint:SetText("Brakes held while open. Edit, Apply, Close. Tab advances; Escape in a field closes.")
-    for i=1,17 do
+    for i=1,18 do
         local col=math.floor((i-1)/9)
         local row=math.mod(i-1,9)
         local label=f:CreateFontString("FlatsRacerTuneLabel"..i,"OVERLAY","GameFontNormal")
         label:SetPoint("TOPLEFT",f,"TOPLEFT",20+col*325,-70-row*27)
         local box=CreateFrame("EditBox","FlatsRacerTuneBox"..i,f)
-        box:SetWidth(76) box:SetHeight(23)
-        box:SetPoint("TOPLEFT",f,"TOPLEFT",239+col*325,-65-row*27)
+        box:SetWidth(90) box:SetHeight(23)
+        box:SetPoint("TOPLEFT",f,"TOPLEFT",225+col*325,-65-row*27)
         box:SetFontObject("GameFontNormal")
         box:SetAutoFocus(false)
-        box:SetMaxLetters(14)
+        box:SetMaxLetters(64)
         box:SetTextInsets(5,5,0,0)
         box:SetBackdrop({bgFile="Interface\\Tooltips\\UI-Tooltip-Background"})
         box:SetBackdropColor(0.18,0.20,0.26,1)
@@ -40,13 +40,13 @@ if not FlatsRacerTuning then
         box:SetScript("OnTabPressed",function()
             local index=tonumber(string.sub(this:GetName(),18))
             this:ClearFocus()
-            getglobal("FlatsRacerTuneBox"..(math.mod(index,17)+1)):SetFocus()
+            getglobal("FlatsRacerTuneBox"..(math.mod(index,18)+1)):SetFocus()
         end)
     end
     local status=f:CreateFontString("FlatsRacerTuneStatus","OVERLAY","GameFontNormal")
     status:SetWidth(620) status:SetHeight(38)
     status:SetPoint("BOTTOM",f,"BOTTOM",0,49)
-    status:SetText("Session only. Server speed, region and collision guards still apply.")
+    status:SetText("Session only. No tuning upper caps. Camera seconds: 0=off. Track/collision/stream guards remain.")
     local function button(name,text,x,command)
         local b=CreateFrame("Button",name,f)
         b:SetWidth(150) b:SetHeight(27)
@@ -57,7 +57,7 @@ if not FlatsRacerTuning then
         b:SetBackdrop({bgFile="Interface\\Tooltips\\UI-Tooltip-Background"})
         b:SetBackdropColor(0.20,0.23,0.30,1)
         b:SetScript("OnClick",function()
-            for j=1,17 do getglobal("FlatsRacerTuneBox"..j):ClearFocus() end
+            for j=1,18 do getglobal("FlatsRacerTuneBox"..j):ClearFocus() end
             FlatsRacerTuneCommand=command
         end)
     end

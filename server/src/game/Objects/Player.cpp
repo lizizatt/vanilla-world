@@ -1176,7 +1176,6 @@ bool Player::StartFlatsRacer()
     m_flatsRacerStart.y = GetPositionY();
     m_flatsRacerStart.z = safeZ;
     m_flatsRacerStart.o = GetOrientation();
-    m_flatsRacerBudget.Reset(WorldTimer::getMSTime());
     m_flatsRacerActive = true;
     SendSysMessage("FLATS_RACER ON");
     return true;
@@ -1234,7 +1233,6 @@ bool Player::ResetFlatsRacer()
         StopFlatsRacer(false);
         return false;
     }
-    m_flatsRacerBudget.Reset(WorldTimer::getMSTime());
     m_flatsRacerActive = true;
     SendSysMessage("FLATS_RACER RESET");
     return true;
@@ -1252,9 +1250,8 @@ bool Player::ValidateFlatsRacerMovement(MovementInfo const& movement)
         return false;
     float const ground = GetMap()->GetHeight(p.x, p.y, p.z, true);
     uint32 const area = GetMap()->GetTerrain()->GetAreaId(p.x, p.y, p.z);
-    return FlatsRacer::OnTrack(area, p.z, ground) &&
-        m_flatsRacerBudget.Consume(WorldTimer::getMSTime(),
-            p.x - GetPositionX(), p.y - GetPositionY(), p.z - GetPositionZ());
+    // Local client-authoritative tuning has no velocity cap; bounded finite endpoints limit displacement.
+    return FlatsRacer::OnTrack(area, p.z, ground);
 }
 
 void Player::Update(uint32 update_diff, uint32 p_time)

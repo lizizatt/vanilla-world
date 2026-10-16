@@ -53,12 +53,17 @@ Only ordinary movement packets with flags in **0x3f** (forward/back/strafe/turn)
 are accepted. Use plain grounded flags even during the local gravity hop: no
 hover, fly, swim, transport, walk-mode, jumping, or far-falling flags.
 Positions/orientation and motion floats must be finite. Orientation is 0..6.284.
-Horizontal distance uses a **60 yd/s** server-clock token budget; absolute vertical
-distance uses **20 yd/s**. Initial slack is 100 ms and total saved slack is capped
-at **250 ms** (15 horizontal/5 vertical yards), regardless of idle time or client
-timestamps. Packet spam cannot regenerate a per-packet tolerance. Long network
-gaps can therefore revoke the experiment rather than accepting a large catch-up.
-These limits constrain distance, not a full physical trajectory simulation.
+This authorized local mode is **client-authoritative** for handling and speed.
+Any finite, geometrically valid in-region endpoint is accepted, including movement
+above 60 yd/s horizontally or 20 yd/s vertically. Finite speed caps and handling
+values remain client-configurable; there is no server tuning handshake or velocity
+budget, and neither elapsed time nor packet frequency constrains displacement.
+Both current and destination positions are finite and bounded by the retained
+**800 x 1200 x 20 yard** region, so coordinate differences cannot overflow and no
+additional velocity ceiling is needed. This validates endpoints, not the intervening
+trajectory or client physics. High hop or hover tuning can intentionally leave
+ground +6 or absolute map-z bounds and revoke the grant; those are play-region
+limits, not speed limits.
 
 Alive, noncombat, freely moving, self-controlled players only; activation requires
 being unmounted, and active mode requires the racer-owned mount. External dismount,
@@ -90,8 +95,11 @@ if ($LASTEXITCODE -eq 0) { & .\build\flats-racer\FlatsRacerTests.exe }
 ```
 
 The C++ assertions cover opt-in/loopback authorization, range/area/height, finite
-values, prohibited flags, speed/diagonal/vertical budgets, packet spam, idle
-teleports, and clock wraparound. The PowerShell test checks source-level wiring, including
+values, prohibited flags, consecutive full-region horizontal/diagonal/vertical
+endpoint transitions without a time budget, and retained hover/hop boundaries.
+Terrain values in these standalone assertions are fixtures, not live map queries.
+The PowerShell test checks source-level wiring, including invalid live-state rejection,
+the absence of a racer time/displacement budget,
 unchanged normal-mode stock anticheat and lifecycle revocation; it is not a runtime
 integration test. Neither replaces compiling the server or an
 isolated client/server terrain and teleport-ACK integration test. Do not use live

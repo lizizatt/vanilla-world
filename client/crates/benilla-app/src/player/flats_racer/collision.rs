@@ -15,24 +15,36 @@ pub(super) fn supports(world: &WorldCollision, position: Vec3, yaw: f32) -> [Opt
     let rotation = Quat::from_rotation_y(yaw);
     PROBES.map(|offset| {
         let from = position + rotation * offset + Vec3::Y * 2.0;
-        world.ray_body(from, Dir3::NEG_Y, 12.0).and_then(|hit| {
-            (hit.distance.is_finite() && hit.normal.y > 0.6)
-                .then_some((hit.distance - 2.0).max(0.0))
-        })
+        // The allowed Flats ground floor is Bevy y=-65 (WoW z=-65). Probe to that
+        // floor even during a tall hop; missing physical support is not missing terrain.
+        world
+            .ray_body(from, Dir3::NEG_Y, (from.y + 65.0).max(12.0))
+            .and_then(|hit| {
+                (hit.distance.is_finite() && hit.normal.y > 0.6)
+                    .then_some((hit.distance - 2.0).max(0.0))
+            })
     })
 }
 
-pub(super) fn clear_turn(world: &WorldCollision, position: Vec3, old: f32, new: f32) -> bool {
+pub(super) fn clear_turn(world: &WorldCollision, position: Vec3, old: f32, travel: f32) -> bool {
     let sphere = Collider::sphere(2.6);
-    let from = Quat::from_rotation_y(old);
-    let to = Quat::from_rotation_y(new);
-    [-3.0, 3.0].into_iter().all(|z| {
-        let offset = Vec3::new(0.0, 2.6, z);
-        let movement = to * offset - from * offset;
-        movement.length_squared() < 1.0e-10
-            || world
-                .cast_body(&sphere, position + from * offset, movement, 0.03)
-                .is_none()
+    // Any additional full revolutions visit the same envelope. Bounded arc sweeps
+    // cover it without turning a high requested yaw rate into an unbounded loop.
+    let travel = travel.clamp(-std::f32::consts::TAU, std::f32::consts::TAU);
+    let steps = (travel.abs() / (std::f32::consts::PI / 12.0))
+        .ceil()
+        .max(1.0) as usize;
+    (0..steps).all(|step| {
+        let from = Quat::from_rotation_y(old + travel * step as f32 / steps as f32);
+        let to = Quat::from_rotation_y(old + travel * (step + 1) as f32 / steps as f32);
+        [-3.0, 3.0].into_iter().all(|z| {
+            let offset = Vec3::new(0.0, 2.6, z);
+            let movement = to * offset - from * offset;
+            movement.length_squared() < 1.0e-10
+                || world
+                    .cast_body(&sphere, position + from * offset, movement, 0.03)
+                    .is_none()
+        })
     })
 }
 
@@ -80,12 +92,13 @@ pub(super) fn slide(
 }
 
 fn clip_velocity(velocity: Vec3, normal: Vec3) -> Vec3 {
-    let normal = normal.normalize_or_zero();
-    velocity - normal * velocity.dot(normal).min(0.0)
+    let normal = normal.normalize_or_zero().as_dvec3();
+    let velocity = velocity.as_dvec3();
+    (velocity - normal * velocity.dot(normal).min(0.0)).as_vec3()
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use avian3d::prelude::{PhysicsPlugins, RigidBody};
     use bevy::ecs::system::RunSystemOnce;
@@ -152,8 +165,75 @@ mod tests {
                 for distance in supports(&world, Vec3::Y * 1.1, 0.7) {
                     assert!((distance.expect("floor under every probe") - 1.1).abs() < 0.001);
                 }
+                for distance in supports(&world, Vec3::Y * 40.0, 0.7) {
+                    assert!(
+                        (distance.expect("floor remains visible during high hops") - 40.0).abs()
+                            < 0.001
+                    );
+                }
             })
             .expect("Avian fixture runs");
+    }
+
+    #[test]
+    fn high_requested_speed_is_swept_and_full_revolutions_check_the_entire_body_arc() {
+        fixture()
+            .world_mut()
+            .run_system_once(|world: WorldCollision| {
+                let (position, velocity) = slide(
+                    &world,
+                    Vec3::new(6.0, 1.1, 0.0),
+                    Vec3::new(5000.0, 0.0, 0.0),
+                    0.0,
+                    flats_racer_physics::FIXED_DT,
+                );
+                assert!(position.x < 7.5 && position.x >= 6.0, "{position:?}");
+                assert!(velocity.x.abs() < 0.01);
+                assert!(!clear_turn(&world, Vec3::new(6.0, 1.1, 0.0), 0.0, 1000.0));
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn newly_accelerated_frontier_crossing_holds_before_committing_the_step() {
+        fixture()
+            .world_mut()
+            .run_system_once(|world: WorldCollision| {
+                let tile = benilla_formats::world_to_tile(-20.0, -20.0);
+                let progress = benilla_world::terrain_stream::WorldLoadProgress {
+                    total: 1,
+                    ready: 1,
+                    focus_resident: true,
+                    scene_ready: true,
+                    focus_tile: Some((tile.0 as i32, tile.1 as i32)),
+                    ..Default::default()
+                };
+                let mut state = flats_racer_physics::State::new([20.0, 1.1, 20.0], 0.0).unwrap();
+                let tuning = flats_racer_physics::Tuning {
+                    max_speed: 1.0e9,
+                    boost_max_speed: 1.0e9,
+                    acceleration: 1.0e9,
+                    ..Default::default()
+                };
+                let mut accumulator = 0.0;
+                assert!(super::super::advance_tuned(
+                    &mut state,
+                    &mut accumulator,
+                    flats_racer_physics::Input {
+                        throttle: 1.0,
+                        ..Default::default()
+                    },
+                    flats_racer_physics::FIXED_DT,
+                    &world,
+                    &progress,
+                    &tuning,
+                )
+                .unwrap());
+                assert_eq!(state.position, [20.0, 1.1, 20.0]);
+                assert_eq!(state.velocity, [0.0; 3]);
+                assert_eq!(accumulator, 0.0);
+            })
+            .unwrap();
     }
 
     #[test]

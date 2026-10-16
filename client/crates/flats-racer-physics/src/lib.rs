@@ -23,14 +23,12 @@ pub const MAX_SPEED: f32 = 36.0;
 pub const BOOST_MAX_SPEED: f32 = 50.0;
 pub const GRAVITY: f32 = 24.0;
 
-/// Runtime dynamics, bounded to the existing server safety envelope.
+/// Runtime dynamics without gameplay range limits.
 ///
-/// All bounds are inclusive and values must be finite. Speed caps are [1, 50], with boost
-/// at least the normal cap; acceleration and boost acceleration are [0, 60], braking [0, 100],
-/// drag [0.01, 5], turn rate [0.1, 6], turn response [1, 30], both grips [0.1, 30],
-/// drift turn multiplier [0.1, 3], hover height [0.5, 1.5], spring [10, 150],
-/// damping [1, 35], gravity [10, 40], hop speed [2, 8], and air control [0, 0.5].
-/// Support reach, lift/vertical safety caps, boost consumption/recharge and timers stay fixed.
+/// Values must be finite. Speed caps, hover height and gravity must be positive; all other
+/// parameters may be zero but not negative. Boost speed must be at least normal speed.
+/// Boost consumption/recharge and hop-control timers stay fixed. Extreme configurations can
+/// produce an unrepresentable state; steps then return `NonFiniteResult` atomically.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tuning {
     pub max_speed: f32,
@@ -79,110 +77,57 @@ impl Default for Tuning {
 }
 
 impl Tuning {
-    /// Rejects the entire configuration, reporting the first invalid field and its allowed range.
+    /// Probe distance for this hover height. Callers must use this when casting support rays.
+    /// For valid tuning the result is finite, including at `f32::MAX`.
+    pub fn support_reach(&self) -> f32 {
+        (self.hover_height + 0.8).max(SUPPORT_REACH)
+    }
+
+    /// Rejects the entire configuration, reporting the first invalid field and its domain.
     pub fn validate(&self) -> Result<(), StepError> {
-        let bounds = [
-            (
-                self.max_speed,
-                1.0,
-                50.0,
-                "max_speed must be finite and in [1, 50]",
-            ),
+        let positive = [
+            (self.max_speed, "max_speed must be finite and > 0"),
             (
                 self.boost_max_speed,
-                1.0,
-                50.0,
-                "boost_max_speed must be finite and in [1, 50]",
+                "boost_max_speed must be finite and > 0",
             ),
-            (
-                self.acceleration,
-                0.0,
-                60.0,
-                "acceleration must be finite and in [0, 60]",
-            ),
+            (self.hover_height, "hover_height must be finite and > 0"),
+            (self.gravity, "gravity must be finite and > 0"),
+        ];
+        let nonnegative = [
+            (self.acceleration, "acceleration must be finite and >= 0"),
             (
                 self.boost_acceleration,
-                0.0,
-                60.0,
-                "boost_acceleration must be finite and in [0, 60]",
+                "boost_acceleration must be finite and >= 0",
             ),
-            (
-                self.braking,
-                0.0,
-                100.0,
-                "braking must be finite and in [0, 100]",
-            ),
-            (self.drag, 0.01, 5.0, "drag must be finite and in [0.01, 5]"),
-            (
-                self.turn_rate,
-                0.1,
-                6.0,
-                "turn_rate must be finite and in [0.1, 6]",
-            ),
-            (
-                self.turn_response,
-                1.0,
-                30.0,
-                "turn_response must be finite and in [1, 30]",
-            ),
-            (self.grip, 0.1, 30.0, "grip must be finite and in [0.1, 30]"),
-            (
-                self.drift_grip,
-                0.1,
-                30.0,
-                "drift_grip must be finite and in [0.1, 30]",
-            ),
+            (self.braking, "braking must be finite and >= 0"),
+            (self.drag, "drag must be finite and >= 0"),
+            (self.turn_rate, "turn_rate must be finite and >= 0"),
+            (self.turn_response, "turn_response must be finite and >= 0"),
+            (self.grip, "grip must be finite and >= 0"),
+            (self.drift_grip, "drift_grip must be finite and >= 0"),
             (
                 self.drift_turn_multiplier,
-                0.1,
-                3.0,
-                "drift_turn_multiplier must be finite and in [0.1, 3]",
+                "drift_turn_multiplier must be finite and >= 0",
             ),
-            (
-                self.hover_height,
-                0.5,
-                1.5,
-                "hover_height must be finite and in [0.5, 1.5]",
-            ),
-            (
-                self.spring,
-                10.0,
-                150.0,
-                "spring must be finite and in [10, 150]",
-            ),
-            (
-                self.damping,
-                1.0,
-                35.0,
-                "damping must be finite and in [1, 35]",
-            ),
-            (
-                self.gravity,
-                10.0,
-                40.0,
-                "gravity must be finite and in [10, 40]",
-            ),
-            (
-                self.hop_speed,
-                2.0,
-                8.0,
-                "hop_speed must be finite and in [2, 8]",
-            ),
-            (
-                self.air_control,
-                0.0,
-                0.5,
-                "air_control must be finite and in [0, 0.5]",
-            ),
+            (self.spring, "spring must be finite and >= 0"),
+            (self.damping, "damping must be finite and >= 0"),
+            (self.hop_speed, "hop_speed must be finite and >= 0"),
+            (self.air_control, "air_control must be finite and >= 0"),
         ];
-        for (value, min, max, message) in bounds {
-            if !value.is_finite() || !(min..=max).contains(&value) {
+        for (value, message) in positive {
+            if !value.is_finite() || value <= 0.0 {
+                return Err(StepError::InvalidTuning(message));
+            }
+        }
+        for (value, message) in nonnegative {
+            if !value.is_finite() || value < 0.0 {
                 return Err(StepError::InvalidTuning(message));
             }
         }
         if self.boost_max_speed < self.max_speed {
             return Err(StepError::InvalidTuning(
-                "boost_max_speed must be in [1, 50] and >= max_speed",
+                "boost_max_speed must be >= max_speed",
             ));
         }
         Ok(())
@@ -287,7 +232,8 @@ impl State {
         self.step_with_tuning(input, supports, dt, &Tuning::default())
     }
 
-    /// Like `step`, with caller-selected dynamics; invalid tuning leaves all state unchanged.
+    /// Like `step`, with caller-selected dynamics and `tuning.support_reach()`.
+    /// Invalid tuning or an unrepresentable result leaves all state unchanged.
     pub fn step_with_tuning(
         &mut self,
         input: Input,
@@ -309,9 +255,6 @@ impl State {
             if distance.is_some_and(|v| !v.is_finite() || v < 0.0) {
                 return Err(StepError::InvalidSupport(index));
             }
-        }
-        if !self.velocity[0].hypot(self.velocity[2]).is_finite() {
-            return Err(StepError::NonFiniteResult);
         }
         let mut next = *self;
         next.advance(input, supports, dt, tuning);
@@ -349,16 +292,17 @@ impl State {
         for distance in supports
             .into_iter()
             .flatten()
-            .filter(|v| *v <= SUPPORT_REACH)
+            .filter(|v| *v <= tuning.support_reach())
         {
-            height += distance;
+            height += distance as f64;
             count += 1;
         }
         let support = count > 0 && self.support_lockout == 0.0;
         if count > 0 {
-            height /= count as f32;
+            height /= count as f64;
         }
-        self.grounded = support && height <= tuning.hover_height + 0.3 && self.velocity[1] <= 2.0;
+        self.grounded =
+            support && height <= tuning.hover_height as f64 + 0.3 && self.velocity[1] <= 2.0;
         let jump = input.jump && !self.jump_held && self.grounded && self.jump_cooldown == 0.0;
         self.jump_held = input.jump;
         if jump {
@@ -369,50 +313,64 @@ impl State {
             self.grounded = false;
         }
         // Lift is unilateral: distant/missing ground cannot pull the racer downward or hold it up.
-        let lift = if support && !jump {
-            (tuning.gravity + tuning.spring * (tuning.hover_height - height)
-                - tuning.damping * self.velocity[1])
-                .clamp(0.0, 100.0)
+        let dt64 = dt as f64;
+        let vertical = self.velocity[1] as f64;
+        let gravity = tuning.gravity as f64;
+        let vertical_acceleration = if support && !jump {
+            // Subtract gravity algebraically before adding it, avoiding cancellation at large gravity.
+            (tuning.spring as f64 * (tuning.hover_height as f64 - height)
+                - tuning.damping as f64 * vertical)
+                .max(-gravity)
         } else {
-            0.0
+            -gravity
         };
-        self.velocity[1] = (self.velocity[1] + (lift - tuning.gravity) * dt).clamp(-80.0, 12.0);
+        self.velocity[1] = (vertical + vertical_acceleration * dt64) as f32;
 
-        let throttle = input.throttle.clamp(-1.0, 1.0);
-        let steer = input.steer.clamp(-1.0, 1.0);
+        let throttle = input.throttle.clamp(-1.0, 1.0) as f64;
+        let steer = input.steer.clamp(-1.0, 1.0) as f64;
         let authority = if self.grounded {
             1.0
         } else if self.air_steer_remaining > 0.0 {
-            tuning.air_control
+            tuning.air_control as f64
         } else {
             0.0
         };
-        let speed = self.velocity[0].hypot(self.velocity[2]);
+        let vx = self.velocity[0] as f64;
+        let vz = self.velocity[2] as f64;
+        let speed = vx.hypot(vz);
         let previous_speed = speed;
         let target_turn = steer
-            * tuning.turn_rate
+            * tuning.turn_rate as f64
             * (speed / 12.0).min(1.0)
             * authority
             * if input.drift {
-                tuning.drift_turn_multiplier
+                tuning.drift_turn_multiplier as f64
             } else {
                 1.0
             };
-        self.yaw_rate += (target_turn - self.yaw_rate) * (1.0 - (-tuning.turn_response * dt).exp());
-        self.yaw = wrap_yaw(self.yaw + self.yaw_rate * dt);
-        self.bank += ((-steer * authority * (speed / 12.0).min(1.0) * 0.35) - self.bank)
-            * (1.0 - (-8.0 * dt).exp());
+        // exp_m1 retains response for tiny rates; f64 products handle every finite f32 input.
+        let yaw_rate = self.yaw_rate as f64
+            + (target_turn - self.yaw_rate as f64)
+                * -(-(tuning.turn_response as f64) * dt64).exp_m1();
+        self.yaw_rate = yaw_rate as f32;
+        self.yaw = ((self.yaw as f64 + yaw_rate * dt64 + std::f64::consts::PI)
+            .rem_euclid(std::f64::consts::TAU)
+            - std::f64::consts::PI) as f32;
+        let bank_target = (-steer * authority * (speed / 12.0).min(1.0) * 0.35).clamp(-0.35, 0.35);
+        self.bank =
+            (self.bank as f64 + (bank_target - self.bank as f64) * -(-8.0 * dt64).exp_m1()) as f32;
         let (sin, cos) = self.yaw.sin_cos();
-        let forward = [-sin, -cos];
-        let right = [cos, -sin];
-        let mut longitudinal = self.velocity[0] * forward[0] + self.velocity[2] * forward[1];
-        let lateral = (self.velocity[0] * right[0] + self.velocity[2] * right[1])
+        let forward = [-sin as f64, -cos as f64];
+        let right = [cos as f64, -sin as f64];
+        let mut longitudinal = vx * forward[0] + vz * forward[1];
+        let lateral = (vx * right[0] + vz * right[1])
             * (-(if input.drift {
                 tuning.drift_grip
             } else {
                 tuning.grip
-            }) * authority
-                * dt)
+            } as f64)
+                * authority
+                * dt64)
                 .exp();
         let boosting = input.boost
             && throttle > 0.0
@@ -431,30 +389,32 @@ impl State {
             self.boost_reserve = (self.boost_reserve + 0.2 * dt).min(1.0);
         }
         longitudinal += throttle
-            * (tuning.acceleration + tuning.boost_acceleration * boost_fraction)
+            * (tuning.acceleration as f64
+                + tuning.boost_acceleration as f64 * boost_fraction as f64)
             * authority
-            * dt;
-        longitudinal *= (-tuning.drag * dt).exp();
+            * dt64;
+        let drag = (-(tuning.drag as f64) * dt64).exp();
+        longitudinal *= drag;
         if input.brake {
             longitudinal = longitudinal.signum()
-                * (longitudinal.abs() - tuning.braking * authority * dt).max(0.0);
+                * (longitudinal.abs() - tuning.braking as f64 * authority * dt64).max(0.0);
         }
-        self.velocity[0] = forward[0] * longitudinal + right[0] * lateral;
-        self.velocity[2] = forward[1] * longitudinal + right[1] * lateral;
-        let speed = self.velocity[0].hypot(self.velocity[2]);
+        let mut vx = forward[0] * longitudinal + right[0] * lateral;
+        let mut vz = forward[1] * longitudinal + right[1] * lateral;
+        let speed = vx.hypot(vz);
         // Retain excess boost momentum when released, but never accelerate past the normal cap.
         let cap = if boosting {
-            tuning.boost_max_speed
+            tuning.boost_max_speed as f64
         } else {
-            tuning
-                .max_speed
-                .max(previous_speed * (-tuning.drag * dt).exp())
+            (tuning.max_speed as f64).max(previous_speed * drag)
         };
-        let cap = cap.min(tuning.boost_max_speed);
+        let cap = cap.min(tuning.boost_max_speed as f64);
         if speed > cap {
-            self.velocity[0] *= cap / speed;
-            self.velocity[2] *= cap / speed;
+            vx *= cap / speed;
+            vz *= cap / speed;
         }
+        self.velocity[0] = vx as f32;
+        self.velocity[2] = vz as f32;
     }
 }
 
@@ -601,7 +561,8 @@ mod tests {
         compressed
             .step(Input::default(), [Some(0.0); 4], FIXED_DT)
             .unwrap();
-        assert!((compressed.velocity[1] - (-50.0 + 76.0 * FIXED_DT)).abs() < 0.00001);
+        let lift = GRAVITY + 90.0 * HOVER_HEIGHT + 18.0 * 50.0;
+        assert!((compressed.velocity[1] - (-50.0 + (lift - GRAVITY) * FIXED_DT)).abs() < 0.00001);
     }
 
     #[test]
@@ -874,12 +835,10 @@ mod tests {
         assert_eq!(clamped, normal);
         let mut overflow = racer();
         overflow.velocity = [f32::MAX, 0.0, f32::MAX];
-        let before = overflow;
-        assert_eq!(
-            overflow.step(Input::default(), [None; 4], FIXED_DT),
-            Err(StepError::NonFiniteResult)
-        );
-        assert_eq!(overflow, before);
+        overflow
+            .step(Input::default(), [None; 4], FIXED_DT)
+            .unwrap();
+        assert!(speed(&overflow) <= BOOST_MAX_SPEED + 0.0001);
     }
 
     #[test]
@@ -1050,7 +1009,7 @@ mod tests {
     }
 
     #[test]
-    fn every_tuning_bound_and_nonfinite_value_is_rejected_atomically() {
+    fn tuning_domains_and_nonfinite_values_are_checked_atomically() {
         type Field = fn(&mut Tuning) -> &mut f32;
         let fields: [(Field, f32, f32); 17] = [
             (|t| &mut t.max_speed, 1.0, 50.0),
@@ -1102,13 +1061,14 @@ mod tests {
             "air_control",
         ];
         for ((field, min, max), name) in fields.into_iter().zip(names) {
-            for value in [
-                min - 0.001,
-                max + 0.001,
-                f32::NAN,
-                f32::INFINITY,
-                f32::NEG_INFINITY,
-            ] {
+            let positive = matches!(
+                name,
+                "max_speed" | "boost_max_speed" | "hover_height" | "gravity"
+            );
+            for value in [-1.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY]
+                .into_iter()
+                .chain(positive.then_some(0.0))
+            {
                 let mut tuning = Tuning::default();
                 *field(&mut tuning) = value;
                 let error = tuning.validate().unwrap_err();
@@ -1117,7 +1077,10 @@ mod tests {
                 };
                 assert_eq!(
                     message,
-                    format!("{name} must be finite and in [{min}, {max}]")
+                    format!(
+                        "{name} must be finite and {} 0",
+                        if positive { ">" } else { ">=" }
+                    )
                 );
                 assert_eq!(error.to_string(), message);
                 let mut state = original;
@@ -1127,9 +1090,15 @@ mod tests {
                 );
                 assert_eq!(state, original);
             }
-            for value in [min, max] {
+            for value in [
+                if positive { f32::from_bits(1) } else { 0.0 },
+                min,
+                max,
+                f32::MAX,
+            ] {
                 let mut tuning = Tuning {
-                    max_speed: 1.0,
+                    max_speed: f32::from_bits(1),
+                    boost_max_speed: f32::MAX,
                     ..Tuning::default()
                 };
                 *field(&mut tuning) = value;
@@ -1144,9 +1113,276 @@ mod tests {
         assert_eq!(
             state.step_with_tuning(Input::default(), [None; 4], FIXED_DT, &tuning),
             Err(StepError::InvalidTuning(
-                "boost_max_speed must be in [1, 50] and >= max_speed"
+                "boost_max_speed must be >= max_speed"
             ))
         );
         assert_eq!(state, original);
+    }
+
+    #[test]
+    fn values_above_old_gameplay_limits_are_honored() {
+        let tuning = Tuning {
+            max_speed: 200.0,
+            boost_max_speed: 300.0,
+            acceleration: 1200.0,
+            boost_acceleration: 2400.0,
+            drag: 0.0,
+            turn_rate: 20.0,
+            turn_response: 1000.0,
+            hover_height: 10.0,
+            gravity: 1200.0,
+            hop_speed: 100.0,
+            ..Tuning::default()
+        };
+        assert_eq!(tuning.support_reach(), 10.8);
+        let mut state = racer();
+        for _ in 0..30 {
+            state
+                .step_with_tuning(
+                    Input {
+                        throttle: 1.0,
+                        ..Input::default()
+                    },
+                    [Some(10.0); 4],
+                    FIXED_DT,
+                    &tuning,
+                )
+                .unwrap();
+        }
+        assert!(state.grounded);
+        assert!((speed(&state) - 200.0).abs() < 0.001);
+        state
+            .step_with_tuning(
+                Input {
+                    throttle: 1.0,
+                    boost: true,
+                    ..Input::default()
+                },
+                [Some(10.0); 4],
+                FIXED_DT,
+                &tuning,
+            )
+            .unwrap();
+        assert!(speed(&state) > 225.0);
+        state
+            .step_with_tuning(
+                Input {
+                    steer: 1.0,
+                    ..Input::default()
+                },
+                [Some(10.0); 4],
+                FIXED_DT,
+                &tuning,
+            )
+            .unwrap();
+        assert!(state.yaw_rate > 19.0);
+        state
+            .step_with_tuning(
+                Input {
+                    jump: true,
+                    ..Input::default()
+                },
+                [Some(10.0); 4],
+                FIXED_DT,
+                &tuning,
+            )
+            .unwrap();
+        assert!((state.velocity[1] - 90.0).abs() < 0.001);
+        let mut fall = racer();
+        for _ in 0..12 {
+            fall.step_with_tuning(Input::default(), [None; 4], FIXED_DT, &tuning)
+                .unwrap();
+        }
+        assert!(fall.velocity[1] < -119.0);
+        let mut lift = racer();
+        lift.step_with_tuning(
+            Input::default(),
+            [Some(0.0); 4],
+            FIXED_DT,
+            &Tuning {
+                spring: 1200.0,
+                ..tuning
+            },
+        )
+        .unwrap();
+        assert!(lift.velocity[1] > 99.0);
+    }
+
+    #[test]
+    fn extreme_finite_tuning_uses_wide_intermediates_or_rejects_atomically() {
+        let tuning = Tuning {
+            max_speed: f32::MAX,
+            boost_max_speed: f32::MAX,
+            acceleration: f32::MAX,
+            boost_acceleration: f32::MAX,
+            drag: 0.0,
+            hover_height: f32::MAX,
+            ..Tuning::default()
+        };
+        assert_eq!(tuning.validate(), Ok(()));
+        assert!(tuning.support_reach().is_finite());
+        let mut state = racer();
+        state
+            .step_with_tuning(
+                Input {
+                    throttle: 1.0,
+                    boost: true,
+                    ..Input::default()
+                },
+                [Some(f32::MAX); 4],
+                FIXED_DT,
+                &tuning,
+            )
+            .unwrap();
+        assert!(state.grounded);
+        assert!(state.velocity[2] < -1e36);
+        assert_eq!(state.velocity[1], 0.0);
+        let before = state;
+        let spring_overflow = Tuning {
+            spring: f32::MAX,
+            ..tuning
+        };
+        assert_eq!(
+            state.step_with_tuning(Input::default(), [Some(0.0); 4], FIXED_DT, &spring_overflow),
+            Err(StepError::NonFiniteResult)
+        );
+        assert_eq!(state, before);
+        let turn_overflow = Tuning {
+            turn_rate: f32::MAX,
+            drift_turn_multiplier: f32::MAX,
+            turn_response: f32::MAX,
+            ..tuning
+        };
+        assert_eq!(
+            state.step_with_tuning(
+                Input {
+                    steer: 1.0,
+                    drift: true,
+                    ..Input::default()
+                },
+                [Some(f32::MAX); 4],
+                FIXED_DT,
+                &turn_overflow
+            ),
+            Err(StepError::NonFiniteResult)
+        );
+        assert_eq!(state, before);
+        let tiny_response = Tuning {
+            turn_response: 1e-30,
+            ..Tuning::default()
+        };
+        let mut turn = racer();
+        turn.velocity[2] = -20.0;
+        turn.step_with_tuning(
+            Input {
+                steer: 1.0,
+                ..Input::default()
+            },
+            [Some(HOVER_HEIGHT); 4],
+            FIXED_DT,
+            &tiny_response,
+        )
+        .unwrap();
+        assert!(turn.yaw_rate > 0.0);
+        let mut hover = racer();
+        hover
+            .step_with_tuning(
+                Input::default(),
+                [Some(1.0); 4],
+                FIXED_DT,
+                &Tuning {
+                    gravity: f32::MAX,
+                    ..Tuning::default()
+                },
+            )
+            .unwrap();
+        assert!(hover.velocity[1] > 0.07);
+    }
+
+    #[test]
+    fn extreme_drag_grip_and_air_control_remain_finite_and_time_limited() {
+        let tuning = Tuning {
+            max_speed: f32::MAX,
+            boost_max_speed: f32::MAX,
+            acceleration: f32::MAX,
+            boost_acceleration: f32::MAX,
+            braking: f32::MAX,
+            drag: f32::MAX,
+            grip: f32::MAX,
+            drift_grip: f32::MAX,
+            air_control: f32::MAX,
+            turn_rate: 0.0,
+            turn_response: 0.0,
+            ..Tuning::default()
+        };
+        let mut state = racer();
+        state.velocity[0] = f32::MAX;
+        state
+            .step_with_tuning(
+                Input {
+                    throttle: 1.0,
+                    brake: true,
+                    drift: true,
+                    ..Input::default()
+                },
+                [Some(HOVER_HEIGHT); 4],
+                FIXED_DT,
+                &tuning,
+            )
+            .unwrap();
+        assert_eq!(speed(&state), 0.0);
+        let tuning = Tuning {
+            drag: 0.0,
+            acceleration: 120.0,
+            air_control: 2.0,
+            max_speed: 1000.0,
+            boost_max_speed: 1000.0,
+            ..Tuning::default()
+        };
+        state = racer();
+        state
+            .step_with_tuning(
+                Input {
+                    jump: true,
+                    throttle: 1.0,
+                    ..Input::default()
+                },
+                [Some(HOVER_HEIGHT); 4],
+                FIXED_DT,
+                &tuning,
+            )
+            .unwrap();
+        assert!(speed(&state) > 1.9);
+        for _ in 0..60 {
+            state
+                .step_with_tuning(
+                    Input {
+                        throttle: 1.0,
+                        ..Input::default()
+                    },
+                    [None; 4],
+                    FIXED_DT,
+                    &tuning,
+                )
+                .unwrap();
+        }
+        let before = state.velocity;
+        for _ in 0..120 {
+            state
+                .step_with_tuning(
+                    Input {
+                        throttle: 1.0,
+                        boost: true,
+                        ..Input::default()
+                    },
+                    [None; 4],
+                    FIXED_DT,
+                    &tuning,
+                )
+                .unwrap();
+        }
+        assert_eq!(state.velocity[0], before[0]);
+        assert_eq!(state.velocity[2], before[2]);
+        assert!(state.velocity[1] < before[1]);
     }
 }
