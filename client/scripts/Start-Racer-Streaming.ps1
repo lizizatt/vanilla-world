@@ -9,7 +9,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $work = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $exe = Join-Path $work 'target-racer\streaming\benilla.exe'
-$home = Join-Path $work 'target-racer\streaming-state'
+$stateDir = Join-Path $work 'target-racer\streaming-state'
 if (!(Test-Path -LiteralPath $exe -PathType Leaf)) {
     throw "Build and copy the streaming executable first: $exe"
 }
@@ -17,9 +17,9 @@ $data = (Resolve-Path -LiteralPath $DataPath).Path
 if (!(Test-Path -LiteralPath $data -PathType Container)) {
     throw 'DataPath must be the existing game Data directory.'
 }
-New-Item -ItemType Directory -Path $home -Force | Out-Null
+New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
 if ($TuningFrom) {
-    $destination = Join-Path $home 'racer-tuning.txt'
+    $destination = Join-Path $stateDir 'racer-tuning.txt'
     if (Test-Path -LiteralPath $destination) {
         throw "Refusing to overwrite saved tuning: $destination"
     }
@@ -43,12 +43,12 @@ try {
         [Environment]::SetEnvironmentVariable($name, $null, 'Process')
     }
     $env:WOW_DATA = $data
-    $env:BENILLA_HOME = $home
+    $env:BENILLA_HOME = $stateDir
     $env:WOW_FLATS_RACER = '1'
     $env:WOW_HOST = $AuthAddress
     $env:WOW_NOSOUND = '1'
     if ($Trace) {
-        $env:WOW_MOVE_TRACE = Join-Path $home 'racer-trace.log'
+        $env:WOW_MOVE_TRACE = Join-Path $stateDir 'racer-trace.log'
         $env:WOW_MOVE_TRACE_TAGS = 'racer'
     }
     Push-Location $work
