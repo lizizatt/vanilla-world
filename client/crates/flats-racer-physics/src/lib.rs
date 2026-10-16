@@ -48,7 +48,7 @@ pub struct Tuning {
     pub damping: f32,
     pub gravity: f32,
     pub hop_speed: f32,
-    /// Fraction of ground authority during the fixed, brief hop-control window.
+    /// Multiplier for airborne horizontal thrust, braking, grip and steering.
     pub air_control: f32,
 }
 
@@ -161,7 +161,6 @@ pub struct State {
     /// Fraction in [0, 1], consumed only by supported forward boost.
     pub boost_reserve: f32,
     jump_held: bool,
-    air_steer_remaining: f32,
     support_lockout: f32,
 }
 
@@ -209,7 +208,6 @@ impl State {
             jump_cooldown: 0.0,
             boost_reserve: 1.0,
             jump_held: false,
-            air_steer_remaining: 0.0,
             support_lockout: 0.0,
         })
     }
@@ -290,13 +288,9 @@ impl State {
                 .iter()
                 .all(|v| v.is_finite())
             && (0.0..=1.0).contains(&self.boost_reserve)
-            && [
-                self.jump_cooldown,
-                self.air_steer_remaining,
-                self.support_lockout,
-            ]
-            .iter()
-            .all(|v| v.is_finite() && *v >= 0.0)
+            && [self.jump_cooldown, self.support_lockout]
+                .iter()
+                .all(|v| v.is_finite() && *v >= 0.0)
     }
 
     fn advance(
@@ -308,7 +302,6 @@ impl State {
         tuning: &Tuning,
     ) {
         self.jump_cooldown = (self.jump_cooldown - dt).max(0.0);
-        self.air_steer_remaining = (self.air_steer_remaining - dt).max(0.0);
         self.support_lockout = (self.support_lockout - dt).max(0.0);
         let mut height = 0.0;
         let mut count = 0;
@@ -333,7 +326,6 @@ impl State {
             self.velocity[1] = (f64::from(surface_velocity) + f64::from(tuning.hop_speed)) as f32;
             self.jump_cooldown = 0.65;
             self.support_lockout = 0.3;
-            self.air_steer_remaining = 0.45;
             self.grounded = false;
         }
         // Lift is unilateral: distant/missing ground cannot pull the racer downward or hold it up.
@@ -358,10 +350,8 @@ impl State {
         let steer = input.steer.clamp(-1.0, 1.0) as f64;
         let authority = if self.grounded {
             1.0
-        } else if self.air_steer_remaining > 0.0 {
-            tuning.air_control as f64
         } else {
-            0.0
+            tuning.air_control as f64
         };
         let vx = self.velocity[0] as f64;
         let vz = self.velocity[2] as f64;
@@ -369,7 +359,6 @@ impl State {
         let previous_speed = speed;
         let target_turn = steer
             * tuning.turn_rate as f64
-            * (speed / 12.0).min(1.0)
             * authority
             * if input.drift {
                 tuning.drift_turn_multiplier as f64
@@ -384,7 +373,8 @@ impl State {
         self.yaw = ((self.yaw as f64 + yaw_rate * dt64 + std::f64::consts::PI)
             .rem_euclid(std::f64::consts::TAU)
             - std::f64::consts::PI) as f32;
-        let bank_target = (-steer * authority * (speed / 12.0).min(1.0) * 0.35).clamp(-0.35, 0.35);
+        let bank_target =
+            (-steer * authority * (speed / 12.0).min(1.0) * 0.35).clamp(-0.35, 0.35);
         self.bank =
             (self.bank as f64 + (bank_target - self.bank as f64) * -(-8.0 * dt64).exp_m1()) as f32;
         let (sin, cos) = self.yaw.sin_cos();
@@ -542,7 +532,43 @@ mod tests {
         for _ in 0..120 {
             tick(&mut stopped, steer);
         }
-        assert_eq!(stopped.yaw, 0.0);
+        assert!(stopped.yaw > 1.0);
+        assert_eq!(speed(&stopped), 0.0);
+    }
+
+    #[test]
+    fn steering_works_after_crests_and_long_falls_without_granting_flight() {
+        for air_control in [0.0, 0.8] {
+            let tuning = Tuning {
+                air_control,
+                drag: 0.0,
+                ..Tuning::default()
+            };
+            let mut state = State::new([0.0, 100.0, 0.0], 0.0).unwrap();
+            for _ in 0..240 {
+                state
+                    .step_with_tuning(
+                        Input {
+                            steer: 1.0,
+                            boost: true,
+                            ..Input::default()
+                        },
+                        [None; 4],
+                        FIXED_DT,
+                        &tuning,
+                    )
+                    .unwrap();
+            }
+            assert_eq!(speed(&state), 0.0);
+            assert!(state.velocity[1] < -25.0);
+            assert_eq!(state.boost_reserve, 1.0);
+            if air_control == 0.0 {
+                assert_eq!(state.yaw, 0.0);
+            } else {
+                assert!(state.yaw.abs() > 1.0);
+                assert!((state.yaw_rate - tuning.turn_rate * air_control).abs() < 0.001);
+            }
+        }
     }
 
     #[test]
@@ -715,7 +741,7 @@ mod tests {
                 )
                 .unwrap();
             assert!(!state.grounded);
-            assert_eq!(speed(&state), 0.0);
+            assert!(speed(&state) > 0.0);
             assert_eq!(state.boost_reserve, 1.0);
         }
         assert!(state.velocity[1].abs() < 0.0001);
@@ -873,7 +899,7 @@ mod tests {
     }
 
     #[test]
-    fn airborne_throttle_has_only_brief_hop_authority() {
+    fn airborne_throttle_continues_after_hop_without_vertical_lift_or_boost() {
         let mut state = racer();
         tick(
             &mut state,
@@ -888,7 +914,6 @@ mod tests {
                     Input {
                         throttle: 1.0,
                         boost: true,
-                        steer: 1.0,
                         ..Input::default()
                     },
                     [None; 4],
@@ -904,7 +929,6 @@ mod tests {
                     Input {
                         throttle: 1.0,
                         boost: true,
-                        steer: 1.0,
                         ..Input::default()
                     },
                     [None; 4],
@@ -912,9 +936,54 @@ mod tests {
                 )
                 .unwrap();
         }
-        assert!(speed(&state) < before);
+        assert!(speed(&state) > before + 1.0);
         assert_eq!(state.boost_reserve, reserve);
         assert!(state.velocity[1] < -20.0);
+    }
+
+    #[test]
+    fn sustained_air_thrust_and_braking_match_rates_without_vertical_lift() {
+        for hz in [30, 60, 144] {
+            for air_control in [0.0, 0.8] {
+                let tuning = Tuning {
+                    acceleration: 30.0,
+                    braking: 30.0,
+                    drag: 0.0,
+                    air_control,
+                    max_speed: 250.0,
+                    boost_max_speed: 500.0,
+                    ..Tuning::default()
+                };
+                let mut state = State::new([0.0, 100.0, 0.0], 0.0).unwrap();
+                let mut falling = state;
+                let dt = 1.0 / hz as f32;
+                for tick in 0..hz * 3 {
+                    state
+                        .step_with_tuning(
+                            Input {
+                                throttle: if tick < hz * 2 { 1.0 } else { 0.0 },
+                                brake: tick >= hz * 2,
+                                boost: true,
+                                ..Input::default()
+                            },
+                            [None; 4],
+                            dt,
+                            &tuning,
+                        )
+                        .unwrap();
+                    falling
+                        .step_with_tuning(Input::default(), [None; 4], dt, &tuning)
+                        .unwrap();
+                    assert_eq!(state.velocity[1], falling.velocity[1]);
+                    assert_eq!(state.position[1], falling.position[1]);
+                    if tick == hz * 2 - 1 {
+                        assert!((speed(&state) - 60.0 * air_control).abs() < 0.001);
+                    }
+                }
+                assert!((speed(&state) - 30.0 * air_control).abs() < 0.001);
+                assert_eq!(state.boost_reserve, 1.0);
+            }
+        }
     }
 
     #[test]
@@ -1583,7 +1652,7 @@ mod tests {
     }
 
     #[test]
-    fn extreme_drag_grip_and_air_control_remain_finite_and_time_limited() {
+    fn extreme_drag_grip_and_sustained_air_control_remain_finite() {
         let tuning = Tuning {
             max_speed: f32::MAX,
             boost_max_speed: f32::MAX,
@@ -1665,7 +1734,7 @@ mod tests {
                 .unwrap();
         }
         assert_eq!(state.velocity[0], before[0]);
-        assert_eq!(state.velocity[2], before[2]);
+        assert!(state.velocity[2] < before[2] - 200.0);
         assert!(state.velocity[1] < before[1]);
     }
 }

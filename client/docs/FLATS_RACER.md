@@ -34,14 +34,14 @@ display 10318 must arrive before the local controller takes ownership.
 | A / D | Steer |
 | Shift | Boost (limited reserve, regenerates off boost) |
 | Ctrl | Drift (reduced lateral grip) |
-| Space | One hop per press, then brief airborne steering; no flight |
+| Space | One hop per press; airborne steering remains available, no flight |
 | F9 | Server-authorized safe reset; motion waits for the reset acknowledgement/pose |
 | F8 | Unmount and return to normal walking |
 | F10 / HUD Tuning button | Open/close numeric tuning panel; brakes held while open |
 
 The tuning panel has 18 text boxes: speed/boost limits, thrust/boost thrust, braking,
 drag, turn rate/response, grip/drift grip/drift turn multiplier, hover height,
-spring/damping, gravity, hop speed, airborne steering multiplier and camera-position
+spring/damping, gravity, hop speed, airborne horizontal-control multiplier and camera-position
 filter seconds. **Apply**
 validates the entire set atomically; an invalid field leaves the current handling
 unchanged and displays its reason. **Restore defaults** applies the original MVP
@@ -159,7 +159,31 @@ does not make the explicit spring integrator explode. Lift remains unilateral:
 the suspension cannot pull downward faster than gravity. Crests and missing
 support therefore launch into a ballistic arc, not terrain suction or flight.
 Hops inherit the terrain-relative rise rate and retain the existing brief
-support lockout and airborne steering window.
+support lockout. Air control multiplies horizontal thrust, braking, grip and
+steering throughout airtime, including natural crests and long falls; zero
+disables airborne horizontal control. Turning also
+works at a standstill so losing speed against an obstacle does not remove input.
+There is no airborne thrust timer. Boost still requires ground support.
+Thrust remains horizontal: gravity and unsupported ballistic motion are unchanged,
+so sustained throttle does not grant vertical flight.
+The F10 field is named **Air control multiplier**; the saved preset's existing
+seventeenth value remains compatible (0.8 means 80% horizontal authority).
+Collision clearance can still reject a turn that would rotate the body into a
+wall; back away or reset rather than expecting steering to penetrate geometry.
+
+The airborne-control update passes 30 physics and 29 focused app racer tests.
+At 30/60/144 Hz, unsupported thrust of 30 yd/s2 with air control 0.8 reaches
+48 yd/s after two seconds, then brakes to 24 yd/s after one second. Vertical
+motion exactly matches a no-input falling body and airborne boost consumes no
+reserve. Separate tests cover long-fall steering, zero authority, sustained
+post-hop thrust and actual Avian stationary turn clearance near a head-on wall,
+both supported and airborne. Human wall/air handling remains unverified.
+
+The latest separately prepared executable is `target-racer\air-control\benilla.exe`,
+SHA256 `BFF982C4F9402C21700ED65CAF2CE1017CD4E3AC1DEBD58A523BB78AD42F39E3`.
+The ignored `target-racer\probe-runtime\Start-Uncapped-Racer.ps1` selects it.
+Quit the older client and relaunch that script; this client-only update does not
+restart services or overwrite the running suspension executable.
 
 The probes still average available footprint clearances; on slopes the upright
 body may ride higher than its flat-ground hover setting. Faces whose upward

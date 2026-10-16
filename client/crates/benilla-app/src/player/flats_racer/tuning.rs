@@ -20,7 +20,7 @@ const LABELS: [&str; 18] = [
     "Hover damping",
     "Gravity (yd/s2)",
     "Hop speed (yd/s)",
-    "Air steering fraction",
+    "Air control multiplier",
     "Camera position (s)",
 ];
 

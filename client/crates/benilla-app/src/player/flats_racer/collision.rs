@@ -196,6 +196,43 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn stopped_racer_can_turn_away_from_a_head_on_wall() {
+        fixture()
+            .world_mut()
+            .run_system_once(|world: WorldCollision| {
+                for height in [1.1, 8.0] {
+                    let mut state =
+                        flats_racer_physics::State::new([4.2, height, 0.0], -std::f32::consts::FRAC_PI_2)
+                            .unwrap();
+                    let tuning = flats_racer_physics::Tuning {
+                        air_control: 0.8,
+                        ..Default::default()
+                    };
+                    let old = state.yaw;
+                    state
+                        .step_with_tuning(
+                            flats_racer_physics::Input {
+                                steer: 1.0,
+                                ..Default::default()
+                            },
+                            if height < 2.0 { [Some(1.1); 4] } else { [None; 4] },
+                            flats_racer_physics::FIXED_DT,
+                            &tuning,
+                        )
+                        .unwrap();
+                    assert!(state.yaw > old);
+                    assert!(clear_turn(
+                        &world,
+                        Vec3::new(4.2, height, 0.0),
+                        old,
+                        state.yaw_rate * flats_racer_physics::FIXED_DT,
+                    ));
+                }
+            })
+            .expect("Avian fixture runs");
+    }
+
+    #[test]
     fn avian_four_supports_measure_center_relative_height() {
         fixture()
             .world_mut()
