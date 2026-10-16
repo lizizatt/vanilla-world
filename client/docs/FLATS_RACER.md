@@ -334,8 +334,14 @@ separate terminal (leave it open):
 ```powershell
 & .\target-racer\probe-runtime\Isolated-Database.ps1 -Action Start
 Remove-Item .\target-racer\probe-runtime\stop-owned -ErrorAction SilentlyContinue
-python .\target-racer\probe-runtime\Run-Isolated-Servers.py
+python .\target-racer\probe-runtime\Run-Isolated-Servers.py .\server\build\flats-racer\uncapped-validation\server
 ```
+
+The separate Release server directory above contains `mangosd.exe`, `realmd.exe`,
+`libmySQL.dll` and `libeay32.dll`, built from commit `886a79c`. Both executable
+version smoke tests passed. With explicit user approval, this build initialized
+the isolated world successfully and the new manual client established a world
+connection. Startup/login is not a high-speed or camera-feel acceptance test.
 
 To stop safely, first disconnect the isolated client, then request auth/world
 shutdown. Wait until their ports are free before stopping the owned DB:
