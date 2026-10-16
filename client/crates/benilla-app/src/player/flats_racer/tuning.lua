@@ -1,0 +1,68 @@
+-- Opt-in fork UI; no stock FrameXML files are modified.
+if not FlatsRacerTuning then
+    local f = CreateFrame("Frame", "FlatsRacerTuning", UIParent)
+    f:SetWidth(660) f:SetHeight(400)
+    f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+    f:SetFrameStrata("DIALOG")
+    f:EnableMouse(true)
+    f:SetBackdrop({bgFile="Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile="Interface\\Tooltips\\UI-Tooltip-Border", tile=true, tileSize=16, edgeSize=16,
+        insets={left=4,right=4,top=4,bottom=4}})
+    f:SetBackdropColor(0.03, 0.04, 0.07, 0.96)
+    local title=f:CreateFontString(nil,"OVERLAY","GameFontNormal")
+    title:SetPoint("TOP",f,"TOP",0,-15)
+    title:SetText("FLATS RACER - LIVE TUNING")
+    local hint=f:CreateFontString(nil,"OVERLAY","GameFontNormal")
+    hint:SetPoint("TOP",f,"TOP",0,-38)
+    hint:SetText("Brakes held while open. Edit, Apply, Close. Tab advances; Escape in a field closes.")
+    for i=1,18 do
+        local col=math.floor((i-1)/9)
+        local row=math.mod(i-1,9)
+        local label=f:CreateFontString("FlatsRacerTuneLabel"..i,"OVERLAY","GameFontNormal")
+        label:SetPoint("TOPLEFT",f,"TOPLEFT",20+col*325,-70-row*27)
+        local box=CreateFrame("EditBox","FlatsRacerTuneBox"..i,f)
+        box:SetWidth(90) box:SetHeight(23)
+        box:SetPoint("TOPLEFT",f,"TOPLEFT",225+col*325,-65-row*27)
+        box:SetFontObject("GameFontNormal")
+        box:SetAutoFocus(false)
+        box:SetMaxLetters(64)
+        box:SetTextInsets(5,5,0,0)
+        box:SetBackdrop({bgFile="Interface\\Tooltips\\UI-Tooltip-Background"})
+        box:SetBackdropColor(0.18,0.20,0.26,1)
+        box:SetScript("OnEscapePressed",function()
+            this:ClearFocus()
+            FlatsRacerTuneCommand="close"
+        end)
+        box:SetScript("OnEnterPressed",function()
+            this:ClearFocus()
+            FlatsRacerTuneCommand="apply"
+        end)
+        box:SetScript("OnTabPressed",function()
+            local index=tonumber(string.sub(this:GetName(),18))
+            this:ClearFocus()
+            getglobal("FlatsRacerTuneBox"..(math.mod(index,18)+1)):SetFocus()
+        end)
+    end
+    local status=f:CreateFontString("FlatsRacerTuneStatus","OVERLAY","GameFontNormal")
+    status:SetWidth(620) status:SetHeight(38)
+    status:SetPoint("BOTTOM",f,"BOTTOM",0,49)
+    status:SetText("Apply saves tuning. No upper caps. Camera seconds: 0=off. Collision/stream guards remain.")
+    local function button(name,text,x,command)
+        local b=CreateFrame("Button",name,f)
+        b:SetWidth(150) b:SetHeight(27)
+        b:SetPoint("BOTTOMLEFT",f,"BOTTOMLEFT",x,15)
+        local caption=b:CreateFontString(nil,"OVERLAY","GameFontNormal")
+        caption:SetPoint("CENTER",b,"CENTER",0,0)
+        caption:SetText(text)
+        b:SetBackdrop({bgFile="Interface\\Tooltips\\UI-Tooltip-Background"})
+        b:SetBackdropColor(0.20,0.23,0.30,1)
+        b:SetScript("OnClick",function()
+            for j=1,18 do getglobal("FlatsRacerTuneBox"..j):ClearFocus() end
+            FlatsRacerTuneCommand=command
+        end)
+    end
+    button("FlatsRacerTuneApply","Apply",70,"apply")
+    button("FlatsRacerTuneDefaults","Restore defaults",255,"defaults")
+    button("FlatsRacerTuneClose","Close",440,"close")
+    f:Hide()
+end
