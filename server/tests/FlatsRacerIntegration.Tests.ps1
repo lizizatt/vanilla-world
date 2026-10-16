@@ -21,7 +21,7 @@ Assert-Source $ordinary '(?s)if \(racerMovement && !_player->ValidateFlatsRacerM
 Assert-Source $ordinary '(?s)if \(pPlayerMover && !racerMovement\)\s*\{\s*if \(\(m_moveRejectTime = _player->GetCheatData\(\)->HandleFlagTests.*?HandlePositionTests.*?return;' 'Normal movement must retain both stock anticheat checks and rejection.'
 
 $player = Read-Source 'src\game\Objects\Player.cpp'
-Assert-Source $player '(?s)float const safeZ = ground \+ FlatsRacer::ResetGroundClearance;.*?FlatsRacer::InBounds\(GetMapId\(\), GetPositionX\(\), GetPositionY\(\), safeZ, GetOrientation\(\)\).*?m_flatsRacerStart.z = safeZ;' 'Saved correction height must include terrain clearance and remain bounded.'
+Assert-Source $player '(?s)float const safeZ = ground \+ FlatsRacer::ResetGroundClearance;.*?MapManager::IsValidMapCoord\(GetMapId\(\), GetPositionX\(\), GetPositionY\(\), safeZ, GetOrientation\(\)\).*?m_flatsRacerStartMap = GetMapId\(\);.*?m_flatsRacerStart.z = safeZ;' 'Saved correction anchor must include ground clearance, engine validation and the original grant map.'
 Assert-Source $player '(?s)bool Player::StartFlatsRacer.*?m_flatsRacerActive \|\| IsMounted\(\).*?sCreatureDisplayInfoStore.LookupEntry\(displayId\).*?Mount\(displayId\) != MOUNTRESULT_OK.*?GetUInt32Value\(UNIT_FIELD_MOUNTDISPLAYID\) != displayId.*?m_flatsRacerActive = true;.*?SendSysMessage\("FLATS_RACER ON"\)' 'Activation must preserve existing mounts, validate display, and mount before granting.'
 Assert-Source $player '(?s)bool Player::CanUseFlatsRacer.*?GetUInt32Value\(UNIT_FIELD_MOUNTDISPLAYID\) == m_flatsRacerMountDisplayId.*?!m_flatsRacerActive \|\| IsMounted\(\)' 'Active eligibility must require the owned mount.'
 Assert-Source $player '(?s)bool Player::StopFlatsRacer.*?m_flatsRacerActive = false;.*?GetUInt32Value\(UNIT_FIELD_MOUNTDISPLAYID\) == m_flatsRacerMountDisplayId\)\s*Unmount\(\);.*?m_flatsRacerMountDisplayId = 0;' 'Revocation must unmount only its owned display without recursion.'
@@ -30,11 +30,22 @@ Assert-Source $player '(?s)bool Player::ResetFlatsRacer.*?if \(!ReturnToFlatsRac
 Assert-Source $player '(?s)bool Player::CanUseFlatsRacer.*?CONFIG_BOOL_CUSTOM_FLATS_RACER.*?GetRemoteAddress.*?IsAlive\(\) && !IsInCombat\(\).*?!IsTaxiFlying\(\) && !GetTransport\(\)' 'Eligibility must enforce config, session, and live state.'
 $validation = $player.Substring($player.IndexOf('bool Player::ValidateFlatsRacerMovement'))
 $validation = $validation.Substring(0, $validation.IndexOf('void Player::Update'))
-Assert-Source $validation '(?s)if \(!CanUseFlatsRacer\(\) \|\| !FlatsRacer::InBounds.*?!FlatsRacer::PlainMovement.*?return false;.*?GetHeight.*?GetAreaId.*?return FlatsRacer::OnTrack\(area, p.z, ground\);' 'Custom movement must reject invalid live state, endpoints, flags and floats before terrain queries, and accept valid track endpoints without a speed limit.'
+Assert-Source $validation '(?s)if \(!CanUseFlatsRacer\(\).*?!FlatsRacer::PlainMovement.*?return false;.*?FlatsRacerGroundError\(GetMap\(\), p, ground\).*?movement rejected: %s.*?return false;.*?return true;' 'Custom movement must validate live state and plain movement, and report actionable world/terrain rejections without a speed limit.'
+Assert-Source $player '(?s)static char const\* FlatsRacerGroundError.*?!map->IsContinent\(\).*?FlatsRacer::WorldMap.*?FlatsRacer::FinitePosition.*?MapManager::IsValidMapCoord.*?MapManager::ExistMapAndVMap.*?GetHeight\(p.x, p.y, p.z, true, MAX_FALL_DISTANCE\).*?ground <= INVALID_HEIGHT.*?FlatsRacer::AboveGround.*?IsOutdoors' 'World endpoints must use engine coordinates, available tiles, full-depth ground, the ground sentinel and outdoor checks.'
+Assert-Source $player '(?s)bool Player::StartFlatsRacer.*?FlatsRacerGroundError\(GetMap\(\), GetPosition\(\), ground\).*?fabs\(GetPositionZ\(\) - ground\) > 0.75f' 'Activation must remain grounded on validated outdoor terrain.'
+Assert-Source $player '(?s)bool Player::ReturnToFlatsRacerStart.*?GetMapId\(\) == m_flatsRacerStartMap.*?FlatsRacerGroundError\(GetMap\(\), m_flatsRacerStart, ground\).*?fabs\(m_flatsRacerStart.z - ground\) > 0.75f.*?KickPlayer.*?TeleportTo\(m_flatsRacerStartMap, m_flatsRacerStart.x, m_flatsRacerStart.y, m_flatsRacerStart.z' 'Reset/off must revalidate and return to the immutable grant anchor and map, failing closed if unavailable.'
+Assert-Source $player '(?s)bool Player::CanUseFlatsRacer.*?!m_flatsRacerActive \|\| GetMapId\(\) == m_flatsRacerStartMap' 'A grant must not survive an unexpected map change.'
+if ([regex]::Matches($player, 'm_flatsRacerStartMap\s*=').Count -ne 1 -or
+    [regex]::Matches($player, 'm_flatsRacerStart\.[xyzo]\s*=').Count -ne 4) {
+    throw 'Only activation may assign the original grant anchor/map; zone changes must not replace it.'
+}
+if ($validation -match 'GetAreaId|OnTrack|ground \+ 6' -or (Read-Source 'src\game\Objects\FlatsRacer.h') -match 'InBounds|OnTrack|6500|5700|4500|3300|ground \+ 6') {
+    throw 'World exploration must not retain Flats rectangles, areas or arbitrary maximum hover/hop altitude.'
+}
 if ($validation -match 'WorldTimer|stime|MotionBudget|Consume' -or $player -match 'm_flatsRacerBudget') {
     throw 'Client-authoritative racer movement must not retain a time or displacement budget.'
 }
-Assert-Source $player '(?s)bool Player::CanUseFlatsRacer.*?IsInWorld\(\).*?!IsLaunched\(\) && CanFreeMove\(\) && !HasPendingSplineDone\(\).*?movespline->Finalized\(\) && IsSelfMover\(\) && GetConfirmedMover\(\) == this.*?!HasUnitMovementFlag.*?FlatsRacer::InBounds' 'Invalid control, spline, movement or current-position state must still reject the custom path.'
+Assert-Source $player '(?s)bool Player::CanUseFlatsRacer.*?IsInWorld\(\).*?!IsLaunched\(\) && CanFreeMove\(\) && !HasPendingSplineDone\(\).*?movespline->Finalized\(\) && IsSelfMover\(\) && GetConfirmedMover\(\) == this.*?!HasUnitMovementFlag.*?FlatsRacer::FinitePosition.*?MapManager::IsValidMapCoord' 'Invalid control, spline, movement or current-position state must still reject the custom path.'
 Assert-Source $player '(?s)void Player::SetDeathState.*?if \(s != ALIVE && m_flatsRacerActive\)\s*StopFlatsRacer\(\);' 'Death must revoke the grant.'
 Assert-Source $player '(?s)bool Player::TeleportTo.*?if \(m_flatsRacerActive\)\s*StopFlatsRacer\(false\);' 'External teleports must revoke without recursive correction.'
 Assert-Source $player '(?s)void Player::RemoveFromWorld.*?if \(m_flatsRacerActive\)\s*StopFlatsRacer\(false\);' 'World removal must revoke.'

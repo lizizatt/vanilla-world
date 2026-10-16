@@ -322,7 +322,7 @@ pub(super) fn control(
         && !dead
         && !stunned
         && !in_combat
-        && speed_capsule.11 .0 == 1;
+        && flats_racer::supports_map(speed_capsule.11 .0);
     // Deviation: unattended instrumentation never steals focus or admits physical background input.
     let synthetic = (!focused && std::env::var("WOW_UNATTENDED").as_deref() == Ok("1"))
         .then(|| flats_racer::synthetic_input(&keys, &speed_capsule.13));

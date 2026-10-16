@@ -5,7 +5,7 @@
 [MangosdConf]
 
 # Custom local-only Flats racer. Never enable on a public realm.
-# Requires a loopback player session; see doc/FlatsRacer.md for bounds and commands.
+# Requires a loopback player session; see doc/FlatsRacer.md for world safety and commands.
 CustomFlatsRacer.Enable = false
 ConfVersion=2025040601
 

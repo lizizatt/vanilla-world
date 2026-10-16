@@ -1,5 +1,6 @@
 //! Deviation: opt-in local hover-racer controls, authorized explicitly by the custom server.
 //! Stock walking, mount assets, and Avian's streamed collision geometry remain separate.
+//! Deviation: outdoor exploration has no Flats leash; applied handling persists in local state.
 
 use benilla_protocol::messages::ChatMessage;
 use benilla_ui::script::UiScript;
@@ -15,6 +16,10 @@ mod tuning;
 pub(crate) use probe::{probe_done, probe_ready};
 
 pub(crate) const DISPLAY_ID: u32 = 10318;
+
+pub(super) fn supports_map(map: u32) -> bool {
+    matches!(map, 0 | 1)
+}
 
 pub(super) fn synthetic_input(
     keys: &ButtonInput<KeyCode>,
@@ -119,15 +124,32 @@ fn stream_corridor_ready(
 
 impl Default for FlatsRacer {
     fn default() -> Self {
+        let enabled = std::env::var("WOW_FLATS_RACER").as_deref() == Ok("1");
+        let mut tuning = Default::default();
+        let mut camera_seconds = camera::DEFAULT_POSITION_SECONDS;
+        let mut status = "F8 to request mount (local world exploration)";
+        if enabled {
+            match tuning::load() {
+                Ok(Some((saved, seconds))) => {
+                    tuning = saved;
+                    camera_seconds = seconds;
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    warn!("racer tuning: {error}; using defaults");
+                    status = "Saved tuning unreadable - defaults loaded; see log";
+                }
+            }
+        }
         Self {
-            enabled: std::env::var("WOW_FLATS_RACER").as_deref() == Ok("1"),
+            enabled,
             authorized: false,
             reset: false,
-            status: "F8 to request mount (Shimmering Flats only)",
+            status,
             speed: 0.0,
             boost: 1.0,
-            tuning: Default::default(),
-            camera_position_seconds: camera::DEFAULT_POSITION_SECONDS,
+            tuning,
+            camera_position_seconds: camera_seconds,
             camera_position: Default::default(),
             tuning_open: false,
             controls: Default::default(),
@@ -219,7 +241,7 @@ fn advance_tuned(
         }
         *accumulator -= clock_step;
         let position = Vec3::from_array(state.position);
-        let supports = collision::supports(world, position, state.yaw);
+        let supports = collision::supports(world, position, state.yaw, tuning.support_reach());
         let mut next = *state;
         next.step_with_tuning(input, supports, fixed, tuning)?;
         let movement = Vec3::from_array(next.velocity) * fixed;
@@ -636,6 +658,14 @@ FlatsRacerHUDText:SetText("FLATS RACER | {status} | {speed:.1} yd/s | boost {boo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exploration_admits_both_continents_but_not_instances() {
+        assert!(supports_map(0) && supports_map(1));
+        for map in [2, 30, 33, 489, u32::MAX] {
+            assert!(!supports_map(map));
+        }
+    }
 
     #[test]
     fn racer_systems_respect_the_world_and_ui_schedule_contract() {

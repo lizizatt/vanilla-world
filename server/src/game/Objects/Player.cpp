@@ -1110,6 +1110,25 @@ AutoAttackCheckResult Player::CanAutoAttackTarget(Unit const* pVictim) const
     return Unit::CanAutoAttackTarget(pVictim);
 }
 
+static char const* FlatsRacerGroundError(Map const* map, Position const& p, float& ground)
+{
+    if (!map || !map->IsContinent() || !FlatsRacer::WorldMap(map->GetId()))
+        return "only outdoor world maps 0 and 1 are supported";
+    if (!FlatsRacer::FinitePosition(p.x, p.y, p.z, p.o) ||
+        !MapManager::IsValidMapCoord(map->GetId(), p.x, p.y, p.z, p.o))
+        return "coordinates must be finite, within engine map bounds, and orientation 0..6.284";
+    if (!MapManager::ExistMapAndVMap(map->GetId(), p.x, p.y))
+        return "destination terrain/collision tile is unavailable; install the map and vmap data";
+    ground = map->GetHeight(p.x, p.y, p.z, true, MAX_FALL_DISTANCE);
+    if (!std::isfinite(ground) || ground <= INVALID_HEIGHT)
+        return "no valid terrain/collision ground was found below the destination";
+    if (!FlatsRacer::AboveGround(p.z, ground, INVALID_HEIGHT))
+        return "destination is below terrain/collision ground";
+    if (!map->GetTerrain()->IsOutdoors(p.x, p.y, p.z))
+        return "destination is indoors; remain on outdoor terrain";
+    return nullptr;
+}
+
 bool Player::CanUseFlatsRacer() const
 {
     return FlatsRacer::Authorized(sWorld.getConfig(CONFIG_BOOL_CUSTOM_FLATS_RACER),
@@ -1122,7 +1141,10 @@ bool Player::CanUseFlatsRacer() const
         movespline->Finalized() && IsSelfMover() && GetConfirmedMover() == this &&
         !HasUnitMovementFlag(MOVEFLAG_ROOT | MOVEFLAG_ONTRANSPORT | MOVEFLAG_FLYING |
             MOVEFLAG_HOVER | MOVEFLAG_LEVITATING | MOVEFLAG_SWIMMING) &&
-        FlatsRacer::InBounds(GetMapId(), GetPositionX(), GetPositionY(), GetPositionZ(), GetOrientation());
+        GetMap()->IsContinent() && FlatsRacer::WorldMap(GetMapId()) &&
+        (!m_flatsRacerActive || GetMapId() == m_flatsRacerStartMap) &&
+        FlatsRacer::FinitePosition(GetPositionX(), GetPositionY(), GetPositionZ(), GetOrientation()) &&
+        MapManager::IsValidMapCoord(GetMapId(), GetPositionX(), GetPositionY(), GetPositionZ(), GetOrientation());
 }
 
 bool Player::StartFlatsRacer()
@@ -1130,7 +1152,7 @@ bool Player::StartFlatsRacer()
     if (m_flatsRacerActive || IsMounted() || IsBeingTeleported() || !CanUseFlatsRacer() ||
         !FlatsRacer::PlainMovement(uint32(m_movementInfo.GetMovementFlags()), {}))
     {
-        PSendSysMessage("Flats racer start state: enabled=%u loopback=%u active=%u mounted=%u teleport=%u world=%u alive=%u combat=%u taxi=%u transport=%u launched=%u free=%u pendingSpline=%u splineFinal=%u selfMover=%u confirmedMover=%u bounds=%u plainMovement=%u blockedUnitFlags=%u flags=0x%x",
+        PSendSysMessage("Flats racer start state: enabled=%u loopback=%u active=%u mounted=%u teleport=%u world=%u alive=%u combat=%u taxi=%u transport=%u launched=%u free=%u pendingSpline=%u splineFinal=%u selfMover=%u confirmedMover=%u coordinates=%u plainMovement=%u blockedUnitFlags=%u flags=0x%x",
             unsigned(sWorld.getConfig(CONFIG_BOOL_CUSTOM_FLATS_RACER)),
             unsigned(FlatsRacer::Authorized(true, GetSession()->GetRemoteAddress())),
             unsigned(m_flatsRacerActive), unsigned(IsMounted()), unsigned(IsBeingTeleported()),
@@ -1138,23 +1160,28 @@ bool Player::StartFlatsRacer()
             unsigned(GetTransport() != nullptr), unsigned(IsLaunched()), unsigned(CanFreeMove()),
             unsigned(HasPendingSplineDone()), unsigned(movespline->Finalized()), unsigned(IsSelfMover()),
             unsigned(GetConfirmedMover() == this),
-            unsigned(FlatsRacer::InBounds(GetMapId(), GetPositionX(), GetPositionY(), GetPositionZ(), GetOrientation())),
+            unsigned(FlatsRacer::FinitePosition(GetPositionX(), GetPositionY(), GetPositionZ(), GetOrientation()) &&
+                MapManager::IsValidMapCoord(GetMapId(), GetPositionX(), GetPositionY(), GetPositionZ(), GetOrientation())),
             unsigned(FlatsRacer::PlainMovement(uint32(m_movementInfo.GetMovementFlags()), {})),
             unsigned(HasUnitMovementFlag(MOVEFLAG_ROOT | MOVEFLAG_ONTRANSPORT | MOVEFLAG_FLYING |
                 MOVEFLAG_HOVER | MOVEFLAG_LEVITATING | MOVEFLAG_SWIMMING)),
             unsigned(m_movementInfo.GetMovementFlags()));
         return false;
     }
-    float const ground = GetMap()->GetHeight(GetPositionX(), GetPositionY(), GetPositionZ(), true);
-    uint32 const area = GetMap()->GetTerrain()->GetAreaId(GetPositionX(), GetPositionY(), GetPositionZ());
-    if (!FlatsRacer::OnTrack(area, GetPositionZ(), ground) || std::fabs(GetPositionZ() - ground) > 0.75f)
+    float ground = INVALID_HEIGHT;
+    if (char const* reason = FlatsRacerGroundError(GetMap(), GetPosition(), ground))
     {
-        PSendSysMessage("Flats racer start terrain: map=%u area=%u z=%.4f ground=%.4f delta=%.4f; requires area 439/2240, ground [-65,-45], abs(delta)<=0.75",
-            unsigned(GetMapId()), unsigned(area), GetPositionZ(), ground, GetPositionZ() - ground);
+        PSendSysMessage("Flats racer activation rejected: %s.", reason);
+        return false;
+    }
+    if (std::fabs(GetPositionZ() - ground) > 0.75f)
+    {
+        PSendSysMessage("Flats racer activation requires standing within 0.75 yards of ground: z=%.4f ground=%.4f.",
+            GetPositionZ(), ground);
         return false;
     }
     float const safeZ = ground + FlatsRacer::ResetGroundClearance;
-    if (!FlatsRacer::InBounds(GetMapId(), GetPositionX(), GetPositionY(), safeZ, GetOrientation()))
+    if (!MapManager::IsValidMapCoord(GetMapId(), GetPositionX(), GetPositionY(), safeZ, GetOrientation()))
     {
         PSendSysMessage("Flats racer start anchor rejected: ground=%.4f safeZ=%.4f", ground, safeZ);
         return false;
@@ -1172,6 +1199,7 @@ bool Player::StartFlatsRacer()
         return false;
     }
     m_flatsRacerMountDisplayId = displayId;
+    m_flatsRacerStartMap = GetMapId();
     m_flatsRacerStart.x = GetPositionX();
     m_flatsRacerStart.y = GetPositionY();
     m_flatsRacerStart.z = safeZ;
@@ -1183,6 +1211,16 @@ bool Player::StartFlatsRacer()
 
 bool Player::ReturnToFlatsRacerStart()
 {
+    float ground = INVALID_HEIGHT;
+    char const* reason = GetMapId() == m_flatsRacerStartMap ?
+        FlatsRacerGroundError(GetMap(), m_flatsRacerStart, ground) : "the grant map has changed";
+    if (reason || std::fabs(m_flatsRacerStart.z - ground) > 0.75f)
+    {
+        PSendSysMessage("Flats racer original anchor is unsafe: %s; disconnecting.",
+            reason ? reason : "ground height changed");
+        GetSession()->KickPlayer();
+        return false;
+    }
     DisableSpline();
     m_movementInfo.SetMovementFlags(MOVEFLAG_NONE);
     m_movementInfo.ClearTransportData();
@@ -1195,7 +1233,7 @@ bool Player::ReturnToFlatsRacerStart()
     // Preserve combat; the local mode must never act as an evade command.
     bool const couldDelayTeleport = m_bCanDelayTeleport;
     SetCanDelayTeleport(false);
-    bool const corrected = TeleportTo(1, m_flatsRacerStart.x, m_flatsRacerStart.y, m_flatsRacerStart.z,
+    bool const corrected = TeleportTo(m_flatsRacerStartMap, m_flatsRacerStart.x, m_flatsRacerStart.y, m_flatsRacerStart.z,
         m_flatsRacerStart.o, TELE_TO_NOT_LEAVE_COMBAT);
     SetCanDelayTeleport(couldDelayTeleport);
     if (!corrected)
@@ -1243,15 +1281,22 @@ bool Player::ValidateFlatsRacerMovement(MovementInfo const& movement)
     Position const& p = movement.GetPos();
     auto const& jump = movement.GetJumpInfo();
     Position const& transport = movement.GetTransportPos();
-    if (!CanUseFlatsRacer() || !FlatsRacer::InBounds(GetMapId(), p.x, p.y, p.z, p.o) ||
+    if (!CanUseFlatsRacer() ||
         !FlatsRacer::PlainMovement(movement.moveFlags, {movement.s_pitch, movement.splineElevation,
             jump.zspeed, jump.xyspeed, jump.sinAngle, jump.cosAngle,
             transport.x, transport.y, transport.z, transport.o}))
+    {
+        SendSysMessage("Flats racer movement rejected: grant/state changed or non-plain movement flags/floats.");
         return false;
-    float const ground = GetMap()->GetHeight(p.x, p.y, p.z, true);
-    uint32 const area = GetMap()->GetTerrain()->GetAreaId(p.x, p.y, p.z);
-    // Local client-authoritative tuning has no velocity cap; bounded finite endpoints limit displacement.
-    return FlatsRacer::OnTrack(area, p.z, ground);
+    }
+    float ground = INVALID_HEIGHT;
+    if (char const* reason = FlatsRacerGroundError(GetMap(), p, ground))
+    {
+        PSendSysMessage("Flats racer movement rejected: %s (map=%u x=%.3f y=%.3f z=%.3f).",
+            reason, GetMapId(), p.x, p.y, p.z);
+        return false;
+    }
+    return true;
 }
 
 void Player::Update(uint32 update_diff, uint32 p_time)

@@ -1,4 +1,4 @@
-# Shimmering Flats hover racer (custom fork)
+# Hover racer and world explorer (custom fork)
 
 This is an opt-in, single-player client-authoritative vehicle mode, not a change to
 normal walking or a competitive multiplayer authority model. It uses the existing
@@ -14,13 +14,15 @@ $env:CARGO_TARGET_DIR = "$PWD\target-racer"
 cargo build --manifest-path client\Cargo.toml -p benilla --profile play -j 1
 $env:WOW_DATA = 'C:\Users\liz\Downloads\Stonetavern-Classic-1.12.1-v1.8\Data'
 $env:WOW_FLATS_RACER = '1'
+$env:BENILLA_HOME = "$PWD\target-racer\player-state"
 & .\target-racer\play\benilla.exe
 ```
 
 The server must also explicitly enable the custom mode; see
 [`server/doc/FlatsRacer.md`](../../server/doc/FlatsRacer.md).
 An unmodified or disabled server cannot grant it.
-Log in normally and travel to the Shimmering Flats on Kalimdor, near WoW
+Log in normally on outdoor map 0 (Eastern Kingdoms) or 1 (Kalimdor), on clear,
+level ground. The original test location is the Shimmering Flats near WoW
 `(-6235, -3945, -58.75)`. Do not launch a second client on an account already
 playing. F8 requests mount/unmount; the server's SYSTEM acknowledgement and
 display 10318 must arrive before the local controller takes ownership.
@@ -43,8 +45,18 @@ spring/damping, gravity, hop speed, airborne steering multiplier and camera-posi
 filter seconds. **Apply**
 validates the entire set atomically; an invalid field leaves the current handling
 unchanged and displays its reason. **Restore defaults** applies the original MVP
-handling. Values last only until this client exits (not saved to the account).
+handling. Successful Apply and Restore defaults atomically save all 18 values to
+`racer-tuning.txt` in the existing local-state folder (`BENILLA_HOME` when set).
+The next racer-enabled launch loads that exact set; nothing is saved to the account.
+A write failure leaves active values unchanged and reports the error. An invalid
+saved file reports an error and boots with defaults without overwriting the file.
+Capture runs neither read nor write this state. The launcher pins `BENILLA_HOME`
+inside this worktree, independently of executable location and working directory.
 Tab advances through fields, Enter applies, and Escape in a field closes.
+
+Earlier builds were session-only and did not record successful Apply values.
+The user's closed high-tuning session cannot be reconstructed from its log;
+those values must be re-entered once. No recovered preset is claimed.
 
 There are no gameplay tuning upper ceilings. Values must be finite, representable
 32-bit floats and satisfy the physical sign/domain checks reported by Apply;
@@ -53,7 +65,7 @@ The adjustable cruise/boost values still govern requested top speeds: uncapping 
 editor does not remove those controls or create infinite velocity. Air steering is
 an uncapped nonnegative multiplier, not a percentage capped at one.
 
-**Camera position (s)** is a separate session-only exponential low-pass time
+**Camera position (s)** is a separate saved exponential low-pass time
 constant, default `0.15` seconds (`0` turns it off). After one time constant it covers about
 63.2% of a target-position change; larger values soften motion more. Zero disables
 position filtering, independently of yaw damping. Mount, reset, teleport/control
@@ -65,11 +77,15 @@ Finite inputs are not a promise that every combination can be numerically simula
 or feel good. Derived nonfinite/unrepresentable physics or collision arithmetic is
 rejected explicitly rather than silently clamping the tuning. Collision sweeps,
 the furnished-terrain window, boost reserve, hop timing, 120 Hz simulation, server
-authorization and track/state/ground constraints remain. Very high speeds can
-hit the streaming frontier; high hops/hover settings can leave the allowed ground
-envelope and revoke the mode. These are safety/region boundaries, not hidden speed
-or editor caps. The updated server is required to remove the previous custom packet
-distance budget; do not restart a running server without coordinating its owner.
+authorization and state/ground constraints remain. There is no Flats rectangle,
+area restriction or distance leash from the mount point. Actual map extents remain;
+this is world exploration within the two outdoor continent maps, not an infinite
+coordinate space or unrestricted flight. Very high speeds can hit the streaming
+frontier and pause until terrain/collision catches up. Ground probes are relative
+to the body and configured hover height, not a fixed Flats altitude.
+The updated server is required to remove the previous area/leash/altitude guards
+(and includes the earlier uncapped packet changes); do not restart a running
+server without coordinating its owner.
 
 ### Controller
 
@@ -96,7 +112,10 @@ controller navigation for the stock client UI. Unfocused, typing and loading gat
 apply to both driving devices.
 
 Reset returns to the grounded position where the server granted this mount, not
-to a client-selected coordinate. Mount on a clear, level part of the track.
+to a client-selected coordinate. Mount on clear, level ground. The anchor is a
+reset destination, not a driving leash. Normal cross-map travel relinquishes
+custom control; remount after arrival. Seamless continent crossing, instances,
+ocean traversal and every world obstacle are not promised.
 
 The small HUD shows authorization/streaming status, speed and boost. Typing,
 unfocused-window or loading input brakes rather than driving. Death, combat,
@@ -130,17 +149,17 @@ time beyond a 100 ms hitch is intentionally discarded, not a claim of real-time
 simulation through stalls.
 
 Intentional protocol deviation: physical hops remain grounded wire poses while
-the explicitly authorized custom server mode validates finite endpoints within its track volume.
+the explicitly authorized custom server mode validates finite outdoor-map endpoints.
 This exception is not a global anticheat bypass or unrestricted flight mode.
 Custom server authorization and movement handling are separate from normal walking.
 
-The bounded track accepts installed AreaTable IDs 439 (The Shimmering Flats) and
+The original bounded MVP accepted installed AreaTable IDs 439 (The Shimmering Flats) and
 2240 (Mirage Raceway), both on map 1 under zone 400. Area 479 is The Rustmaul
-Dig Site and is deliberately rejected. The ordinary-account activation probe
+Dig Site, not the raceway. The ordinary-account activation probe
 identified the original wrong-area assumption: its authoritative area was 2240,
 player z -58.7415, ground -58.7517, and delta 0.0102 yd. State and ground
-prerequisites passed; the corrected shared area check is used for activation
-and ongoing movement. Rejections now report the actual failing state or terrain
+prerequisites passed. The world-explorer update removes these area and Flats
+altitude restrictions, while retaining actionable state and terrain
 prerequisite rather than only a generic command failure.
 
 Coordinates follow the existing client conversion, not a separate racer
@@ -258,7 +277,7 @@ No visible runtime jitter reproduction or human handling assessment is claimed.
 
 ### Uncapping and positional-filter validation
 
-The current focused checks pass: 23 app racer tests and 20 numerical physics tests.
+The prior uncapping update passed 23 app racer tests and 20 numerical physics tests.
 They cover uncapped finite input (including round-tripping `f32::MAX`), atomic
 invalid Apply, actual high-value acceleration/speed/turn/brake response, numeric
 overflow rejection, a 5,000 yd/s Avian wall sweep, full-turn body clearance and
@@ -278,9 +297,10 @@ server validation. The actual 18-field tuning panel was captured and inspected.
 
 The prepared workspace is
 `C:\Users\liz\copilot-worktrees\vanilla-world\lizizatt-special-guacamole`.
-Its new separate executable is `target-racer\uncapped\benilla.exe`; the prior
-`target-racer\play\benilla.exe` remains untouched. Nothing here updates
-the original running client or server. The ignored
+The world-explorer executable is `target-racer\world-explorer\benilla.exe`; the prior
+uncapping executable is `target-racer\uncapped\benilla.exe`. The
+original client at `C:\Users\liz\copilot-worktrees\benilla\lizizatt-upgraded-funicular\target\play\benilla.exe`
+remains untouched. Nothing here updates the running client or server. The ignored
 `target-racer\probe-runtime\identity.private.json` contains the dedicated non-GM
 account credentials and `Racerprobe` character name; never commit or publish it.
 The scripted client has exited and disconnected. This character is already at
@@ -315,9 +335,9 @@ Client terrain/Avian collision is used by the racer, not server MMaps.
 The test therefore does not validate NPC navigation or the full-pathfinding
 configuration of the original runtime.
 
-The previous isolated auth/world driver has expired; its DB remains running.
-Do not restart or replace their
-binaries without the runtime owner's permission. A newly started driver has a
+Check whether the isolated driver has expired before starting another.
+Do not restart or replace its binaries without coordinating the runtime owner.
+A newly started driver has a
 40-minute lifetime. Inspect only
 these ports and use the ownership-aware DB status helper:
 
@@ -334,14 +354,15 @@ separate terminal (leave it open):
 ```powershell
 & .\target-racer\probe-runtime\Isolated-Database.ps1 -Action Start
 Remove-Item .\target-racer\probe-runtime\stop-owned -ErrorAction SilentlyContinue
-python .\target-racer\probe-runtime\Run-Isolated-Servers.py .\server\build\flats-racer\uncapped-validation\server
+python .\target-racer\probe-runtime\Run-Isolated-Servers.py .\server\build\flats-racer\world-validation\server
 ```
 
 The separate Release server directory above contains `mangosd.exe`, `realmd.exe`,
-`libmySQL.dll` and `libeay32.dll`, built from commit `886a79c`. Both executable
-version smoke tests passed. With explicit user approval, this build initialized
-the isolated world successfully and the new manual client established a world
-connection. Startup/login is not a high-speed or camera-feel acceptance test.
+`libmySQL.dll` and `libeay32.dll`. It includes the explorer source changes on
+parent commit `3b0556c` (the embedded revision identifies the parent, not a clean
+release). Both executable version smoke tests passed. The previous uncapping
+server in `uncapped-validation` does not authorize world exploration.
+Startup/login is not a high-speed or camera-feel acceptance test.
 
 To stop safely, first disconnect the isolated client, then request auth/world
 shutdown. Wait until their ports are free before stopping the owned DB:
@@ -359,8 +380,33 @@ Other machines must build and configure their own server using
 [`server/doc/FlatsRacer.md`](../../server/doc/FlatsRacer.md); these paths and
 credentials are not portable.
 
-## Human acceptance test still required
+### World-explorer update validation
 
+The explorer client builds separately at `target-racer\world-explorer\benilla.exe`.
+All 26 focused app racer tests pass, including atomic save/reload and failed-write
+preservation, both-continent eligibility/instance rejection, and real Avian support
+probes at terrain altitudes -500 and 1500 yd. Ground beyond configured probe reach
+supplies no lift. Existing camera, collision, streaming, input and walking-handoff
+tests remain in that focused set.
+
+Its installed-data offline capture completed 480 frames / 8.00005 s with peak
+19.408924 yd/s, height 1.0995865 to 2.0912552 yd, hop/landing/reset and seated
+rider/mount preflight true, zero stream holds. The 18-field panel was visually
+inspected. This default-tuning capture is a regression check, not a claim that
+the user's lost high tune was recovered or that all outdoor terrain was driven.
+The updated server passed C++ policy assertions, structural normal-path checks,
+affected object compilation and a serial Release full link. It allows outdoor
+maps 0/1 with finite engine coordinates, available terrain/collision and
+endpoint altitude at least ground minus 0.75 yd; there is no upper altitude
+ceiling. Activation/reset anchors must be grounded. Same-map travel preserves
+the original reset map/anchor; external teleports revoke authorization.
+Server checks are endpoint-only; swept collision remains the local client's job.
+Runtime whole-world terrain/teleport-ACK acceptance remains a human check.
+
+## Human acceptance and world-exploration checks
+
+The user reported that the uncapped racer feels wonderful after manual play.
+That is real handling feedback, not validation of this later range/persistence update.
 On a separately scheduled server/client update, with the player's permission and
 without another session using that account: enable the server option, enter the
 Flats, press F8, verify the Goblin car and properly seated rider, then W for two
@@ -373,15 +419,20 @@ to the documented safe point without a correction loop. F8 must restore ordinary
 walk/run, jump and camera behavior; repeat with the client/server opt-ins absent
 and verify normal walking and movement validation are unchanged.
 
-In F10, apply cruise/boost values above the old 50 yd/s ceiling (start with
-80/120), plus increased thrust, and confirm the HUD exceeds 50 on a clear
-resident track section. Stay inside the authorized track volume. Try camera
+In F10, re-enter the preferred high tuning once and Apply. Close and relaunch
+with the same `BENILLA_HOME`; every field must match exactly. Apply cruise/boost
+values above the old 50 yd/s ceiling (start with 80/120), plus increased thrust,
+and confirm the HUD exceeds 50 on clear resident terrain. Drive beyond the old
+Flats rectangle into adjoining outdoor terrain; there must be no area/leash rejection.
+Check hills and substantially different altitudes, streaming-frontier hold/recovery,
+F9 returning to the original mount anchor, and ordinary map-change/remount on both
+continents. Do not treat unstreamed terrain or oceans as a track. Try camera
 position seconds `0`, `0.15` and `0.4` at the same speed, then F9 and
 unmount/remount: reset must snap immediately and camera collision must still
 prevent wall penetration. Reject `NaN`, `inf`, negative camera seconds and
 boost below cruise without partially applying any other field.
 
 Neither the offline capture nor the isolated scripted drive establishes
-interactive feel or competitive safety. Never use the currently playing user's
+world-wide obstacle coverage or competitive safety. Never use the currently playing user's
 account for scripted validation. Scripted login requires a separate ignored
 `.probe-identity`, `WOW_UNATTENDED=1` and `WOW_NOSOUND=1`.

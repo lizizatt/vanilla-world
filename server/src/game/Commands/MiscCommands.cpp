@@ -57,7 +57,7 @@ bool ChatHandler::HandleFlatsRacerCommand(char* args)
 
     if (!success)
     {
-        SendSysMessage("Flats racer command rejected: enable the local config and use an alive, freely moving, noncombat loopback player at the bounded Flats track. On requires no existing mount; reset/off require an active grant.");
+        SendSysMessage("Flats racer command rejected: enable the local config and use an alive, freely moving, noncombat loopback player on supported outdoor terrain in map 0 or 1. On requires standing on valid ground and no existing mount; reset/off require an active grant.");
         SetSentErrorMessage(true);
     }
     return success;

@@ -96,7 +96,12 @@ pub(super) fn drive(
         false
     });
     let rendered = seated && poses.get(mount).is_ok();
-    let supports = collision::supports(&world, origin, 0.0);
+    let supports = collision::supports(
+        &world,
+        origin,
+        0.0,
+        flats_racer_physics::Tuning::default().support_reach(),
+    );
     if !READY.load(Ordering::Relaxed) {
         if !rendered || !stream_ready(origin, &progress) || supports.iter().any(Option::is_none) {
             return;

@@ -1,4 +1,4 @@
-//! Deviation: session-only positional low-pass for the custom racer camera.
+//! Deviation: tunable positional low-pass for the custom racer camera.
 
 use super::*;
 

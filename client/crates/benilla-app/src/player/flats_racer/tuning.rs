@@ -1,4 +1,4 @@
-//! Session-only racer tuning through the existing FrameXML EditBox bridge.
+//! Saved custom racer tuning through the existing FrameXML EditBox bridge.
 
 use super::*;
 use flats_racer_physics::Tuning;
@@ -89,6 +89,49 @@ fn parse(text: &str) -> Result<(Tuning, f32), String> {
     Ok((tuning, v[17]))
 }
 
+fn render(tuning: &Tuning, camera_seconds: f32) -> String {
+    values(tuning, camera_seconds)
+        .map(|value| value.to_string())
+        .join("|")
+}
+
+fn load_path(path: &std::path::Path) -> Result<Option<(Tuning, f32)>, String> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => parse(&text).map(Some),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!("Cannot read {}: {error}", path.display())),
+    }
+}
+
+pub(super) fn load() -> Result<Option<(Tuning, f32)>, String> {
+    crate::local_state::racer_tuning_path().map_or(Ok(None), |path| load_path(&path))
+}
+
+fn apply(
+    racer: &mut FlatsRacer,
+    tuning: Tuning,
+    camera_seconds: f32,
+    path: Option<&std::path::Path>,
+) -> Result<&'static str, String> {
+    let text = render(&tuning, camera_seconds);
+    if let Some(path) = path {
+        crate::local_state::write_atomic(path, &text).map_err(|error| {
+            format!(
+                "Cannot save {}: {error}; no changes applied.",
+                path.display()
+            )
+        })?;
+    }
+    racer.tuning = tuning;
+    racer.camera_position_seconds = camera_seconds;
+    info!("racer tuning applied (18 fields in panel order): {text}");
+    Ok(if path.is_some() {
+        "Applied and saved. Close to drive."
+    } else {
+        "Applied; persistence disabled for this capture/test."
+    })
+}
+
 fn fill(script: &UiScript, racer: &FlatsRacer) {
     for (index, value) in values(&racer.tuning, racer.camera_position_seconds)
         .iter()
@@ -145,12 +188,13 @@ pub(super) fn update(script: &UiScript, racer: &mut FlatsRacer) {
             let result = script.eval::<String>(
                 "local v={} for i=1,18 do v[i]=getglobal('FlatsRacerTuneBox'..i):GetText() end return table.concat(v,'|')"
             ).map_err(|error| format!("Cannot read tuning fields: {error}")).and_then(|text| parse(&text));
-            let message = match result {
-                Ok((tuning, camera_seconds)) => {
-                    racer.tuning = tuning;
-                    racer.camera_position_seconds = camera_seconds;
+            let path = crate::local_state::racer_tuning_path();
+            let message = match result
+                .and_then(|(tuning, seconds)| apply(racer, tuning, seconds, path.as_deref()))
+            {
+                Ok(message) => {
                     fill(script, racer);
-                    "Applied. Close to drive; values last until client exit.".to_string()
+                    message.to_string()
                 }
                 Err(error) => {
                     warn!("flats racer tuning: {error}");
@@ -168,13 +212,25 @@ pub(super) fn update(script: &UiScript, racer: &mut FlatsRacer) {
             );
         }
         Some("defaults") => {
-            racer.tuning = Tuning::default();
-            racer.camera_position_seconds = camera::DEFAULT_POSITION_SECONDS;
-            fill(script, racer);
-            crate::ui_script::run_or_warn(
-                script,
-                "FlatsRacerTuneStatus:SetText('Defaults restored and applied.')",
-            );
+            match apply(
+                racer,
+                Tuning::default(),
+                camera::DEFAULT_POSITION_SECONDS,
+                crate::local_state::racer_tuning_path().as_deref(),
+            ) {
+                Ok(message) => {
+                    fill(script, racer);
+                    crate::ui_script::run_or_warn(
+                        script,
+                        &format!("FlatsRacerTuneStatus:SetText('{message}')"),
+                    );
+                }
+                Err(error) => {
+                    warn!("racer tuning: {error}");
+                    crate::ui_script::run_or_warn(script,
+                        "FlatsRacerTuneStatus:SetText('Cannot save defaults; no changes applied. See client log.')");
+                }
+            }
         }
         Some("close") => racer.tuning_open = false,
         Some("toggle") => racer.tuning_open = !racer.tuning_open,
@@ -194,6 +250,39 @@ pub(super) fn update(script: &UiScript, racer: &mut FlatsRacer) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn applied_tuning_survives_restart_and_write_failure_keeps_previous_state() {
+        let root = std::env::temp_dir().join(format!("racer-tuning-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("racer-tuning.txt");
+        let mut racer = FlatsRacer::default();
+        let tuning = Tuning {
+            max_speed: 800.0,
+            boost_max_speed: 1200.0,
+            acceleration: 150.0,
+            ..Default::default()
+        };
+        apply(&mut racer, tuning, 0.4, Some(&path)).unwrap();
+        assert_eq!(load_path(&path).unwrap(), Some((tuning, 0.4)));
+        let blocker = root.join("not-a-directory");
+        std::fs::write(&blocker, "block").unwrap();
+        assert!(apply(
+            &mut racer,
+            Tuning::default(),
+            0.0,
+            Some(&blocker.join("tuning"))
+        )
+        .is_err());
+        assert_eq!(racer.tuning, tuning);
+        assert_eq!(racer.camera_position_seconds, 0.4);
+        assert_eq!(load_path(&path).unwrap(), Some((tuning, 0.4)));
+        std::fs::write(&path, "NaN|invalid").unwrap();
+        assert!(load_path(&path).is_err());
+        std::fs::remove_file(&path).unwrap();
+        std::fs::remove_file(&blocker).unwrap();
+        std::fs::remove_dir(&root).unwrap();
+    }
 
     #[test]
     fn tuning_fields_round_trip_and_invalid_values_do_not_change_active_tuning() {

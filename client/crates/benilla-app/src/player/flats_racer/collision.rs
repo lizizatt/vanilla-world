@@ -11,14 +11,22 @@ pub(super) const PROBES: [Vec3; 4] = [
     Vec3::new(1.7, 0.0, 3.0),
 ];
 
-pub(super) fn supports(world: &WorldCollision, position: Vec3, yaw: f32) -> [Option<f32>; 4] {
+pub(super) fn supports(
+    world: &WorldCollision,
+    position: Vec3,
+    yaw: f32,
+    reach: f32,
+) -> [Option<f32>; 4] {
     let rotation = Quat::from_rotation_y(yaw);
     PROBES.map(|offset| {
         let from = position + rotation * offset + Vec3::Y * 2.0;
-        // The allowed Flats ground floor is Bevy y=-65 (WoW z=-65). Probe to that
-        // floor even during a tall hop; missing physical support is not missing terrain.
+        // Relative reach works at any terrain altitude; distant ground cannot supply lift.
         world
-            .ray_body(from, Dir3::NEG_Y, (from.y + 65.0).max(12.0))
+            .ray_body(
+                from,
+                Dir3::NEG_Y,
+                (f64::from(reach) + 2.0).min(f64::from(f32::MAX)) as f32,
+            )
             .and_then(|hit| {
                 (hit.distance.is_finite() && hit.normal.y > 0.6)
                     .then_some((hit.distance - 2.0).max(0.0))
@@ -162,10 +170,10 @@ pub(super) mod tests {
         fixture()
             .world_mut()
             .run_system_once(|world: WorldCollision| {
-                for distance in supports(&world, Vec3::Y * 1.1, 0.7) {
+                for distance in supports(&world, Vec3::Y * 1.1, 0.7, 1.9) {
                     assert!((distance.expect("floor under every probe") - 1.1).abs() < 0.001);
                 }
-                for distance in supports(&world, Vec3::Y * 40.0, 0.7) {
+                for distance in supports(&world, Vec3::Y * 40.0, 0.7, 41.0) {
                     assert!(
                         (distance.expect("floor remains visible during high hops") - 40.0).abs()
                             < 0.001
@@ -173,6 +181,30 @@ pub(super) mod tests {
                 }
             })
             .expect("Avian fixture runs");
+    }
+
+    #[test]
+    fn support_rays_are_altitude_independent_and_distant_ground_does_not_hover() {
+        let mut app = fixture();
+        for height in [-500.0, 1500.0] {
+            app.world_mut().spawn((
+                RigidBody::Static,
+                Collider::cuboid(100.0, 1.0, 100.0),
+                Transform::from_xyz(height, height - 0.5, 0.0),
+            ));
+        }
+        app.update();
+        app.world_mut()
+            .run_system_once(|world: WorldCollision| {
+                for height in [-500.0, 1500.0] {
+                    for distance in supports(&world, Vec3::new(height, height + 1.1, 0.0), 0.0, 1.9)
+                    {
+                        assert!((distance.unwrap() - 1.1).abs() < 0.001);
+                    }
+                }
+                assert_eq!(supports(&world, Vec3::Y * 40.0, 0.0, 1.9), [None; 4]);
+            })
+            .unwrap();
     }
 
     #[test]

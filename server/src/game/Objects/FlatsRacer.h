@@ -18,18 +18,22 @@ namespace FlatsRacer
             (address == "127.0.0.1" || address == "::1" || address == "::ffff:127.0.0.1");
     }
 
-    inline bool InBounds(std::uint32_t map, float x, float y, float z, float orientation)
+    inline bool WorldMap(std::uint32_t map)
     {
-        return map == 1 && std::isfinite(x) && std::isfinite(y) &&
-            std::isfinite(z) && std::isfinite(orientation) &&
-            x >= -6500.0f && x <= -5700.0f && y >= -4500.0f && y <= -3300.0f &&
-            z >= -65.0f && z <= -45.0f && orientation >= 0.0f && orientation <= 6.284f;
+        return map == 0 || map == 1;
     }
 
-    inline bool OnTrack(std::uint32_t area, float z, float ground)
+    inline bool FinitePosition(float x, float y, float z, float orientation)
     {
-        return (area == 439 || area == 2240) && std::isfinite(ground) &&
-            ground >= -65.0f && ground <= -45.0f && z >= ground - 0.75f && z <= ground + 6.0f;
+        return std::isfinite(x) && std::isfinite(y) &&
+            std::isfinite(z) && std::isfinite(orientation) &&
+            orientation >= 0.0f && orientation <= 6.284f;
+    }
+
+    inline bool AboveGround(float z, float ground, float invalidHeight)
+    {
+        return std::isfinite(z) && std::isfinite(ground) &&
+            ground > invalidHeight && z >= ground - 0.75f;
     }
 
     inline bool PlainMovement(std::uint32_t flags, std::initializer_list<float> values)

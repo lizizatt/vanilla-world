@@ -29,7 +29,7 @@ A setting boots at the reference's default unless it is listed here (`docs/METHO
 
 Each entry is the first sentence of a `Deviation:` comment, linking to where it lives.
 
-- [benilla-app](#benilla-app): 235
+- [benilla-app](#benilla-app): 236
 - [benilla-assets](#benilla-assets): 6
 - [benilla-blp](#benilla-blp): 1
 - [benilla-formats](#benilla-formats): 16
@@ -153,7 +153,7 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 
 #### local_state
 
-- The reference writes `Screenshots\\` inside the install, which benilla never writes to; the folder keeps the reference's name. ([`src/local_state.rs:378`](../crates/benilla-app/src/local_state.rs#L378))
+- The reference writes `Screenshots\\` inside the install, which benilla never writes to; the folder keeps the reference's name. ([`src/local_state.rs:383`](../crates/benilla-app/src/local_state.rs#L383))
 
 #### login
 
@@ -202,8 +202,9 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 - Unattended instrumentation never steals focus or admits physical background input. ([`src/player/controller.rs:326`](../crates/benilla-app/src/player/controller.rs#L326))
 - No drunk field-of-view lane, because the reference's is invisible in play: its target `(179° − 90°)·fraction` (camera `+0x10c`, setter `0x511250`) eases at `cameraFoVSmoothSpeed`, 0.5°/s, and restarts on every drunk-byte change, so it creeps under 1°. ([`src/player/drunk.rs:46`](../crates/benilla-app/src/player/drunk.rs#L46))
 - Opt-in local hover-racer controls, authorized explicitly by the custom server. ([`src/player/flats_racer.rs:1`](../crates/benilla-app/src/player/flats_racer.rs#L1))
-- Physical hops remain local; only this server-authorized mode uses grounded wire poses. ([`src/player/flats_racer.rs:474`](../crates/benilla-app/src/player/flats_racer.rs#L474))
-- Session-only positional low-pass for the custom racer camera. ([`src/player/flats_racer/camera.rs:1`](../crates/benilla-app/src/player/flats_racer/camera.rs#L1))
+- Outdoor exploration has no Flats leash; applied handling persists in local state. ([`src/player/flats_racer.rs:3`](../crates/benilla-app/src/player/flats_racer.rs#L3))
+- Physical hops remain local; only this server-authorized mode uses grounded wire poses. ([`src/player/flats_racer.rs:496`](../crates/benilla-app/src/player/flats_racer.rs#L496))
+- Tunable positional low-pass for the custom racer camera. ([`src/player/flats_racer/camera.rs:1`](../crates/benilla-app/src/player/flats_racer/camera.rs#L1))
 - Conservative rocket-car envelope over the existing Avian world queries. ([`src/player/flats_racer/collision.rs:1`](../crates/benilla-app/src/player/flats_racer/collision.rs#L1))
 - Server-less integration instrument; real rider/mount, terrain, resolver and camera. ([`src/player/flats_racer/probe.rs:1`](../crates/benilla-app/src/player/flats_racer/probe.rs#L1))
 - A hold is summed and sent once on release, without the send's `[mgr+0x130] += lag` heartbeat push, because ours lasts seconds where the reference's lasts a substep. ([`src/player/movement_net.rs:299`](../crates/benilla-app/src/player/movement_net.rs#L299))

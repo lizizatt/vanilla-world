@@ -1250,7 +1250,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { "gps",            SEC_MODERATOR,      false, &ChatHandler::HandleGPSCommand,                 "", nullptr },
         { "guid",           SEC_MODERATOR,      false, &ChatHandler::HandleGUIDCommand,                "", nullptr },
         { "help",           SEC_PLAYER,         true,  &ChatHandler::HandleHelpCommand,                "", nullptr },
-        { "flatsracer",     SEC_PLAYER,         false, &ChatHandler::HandleFlatsRacerCommand, ".flatsracer on|off|reset (local opt-in track only)", nullptr },
+        { "flatsracer",     SEC_PLAYER,         false, &ChatHandler::HandleFlatsRacerCommand, ".flatsracer on|off|reset (local opt-in outdoor maps 0/1)", nullptr },
         { "itemmove",       SEC_GAMEMASTER,     false, &ChatHandler::HandleItemMoveCommand,            "", nullptr },
         { "cooldown",       SEC_GAMEMASTER,     false, nullptr,                                        "", cooldownCommandTable },
         { "unlearn",        SEC_GAMEMASTER,     false, nullptr,                                        "", unlearnCommandTable },

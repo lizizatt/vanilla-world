@@ -46,7 +46,7 @@ if not FlatsRacerTuning then
     local status=f:CreateFontString("FlatsRacerTuneStatus","OVERLAY","GameFontNormal")
     status:SetWidth(620) status:SetHeight(38)
     status:SetPoint("BOTTOM",f,"BOTTOM",0,49)
-    status:SetText("Session only. No tuning upper caps. Camera seconds: 0=off. Track/collision/stream guards remain.")
+    status:SetText("Apply saves tuning. No upper caps. Camera seconds: 0=off. Collision/stream guards remain.")
     local function button(name,text,x,command)
         local b=CreateFrame("Button",name,f)
         b:SetWidth(150) b:SetHeight(27)

@@ -1632,6 +1632,7 @@ class Player final: public Unit
 
         bool m_flatsRacerActive = false;
         uint32 m_flatsRacerMountDisplayId = 0;
+        uint32 m_flatsRacerStartMap = 0;
         Position m_flatsRacerStart;
         bool ReturnToFlatsRacerStart();
 

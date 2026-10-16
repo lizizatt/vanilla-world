@@ -107,6 +107,11 @@ pub(crate) fn config_path() -> Option<PathBuf> {
     home().map(|h| h.join("config.toml"))
 }
 
+/// `benilla-config/racer-tuning.txt`: the custom racer's last applied handling and camera values.
+pub(crate) fn racer_tuning_path() -> Option<PathBuf> {
+    home().map(|h| h.join("racer-tuning.txt"))
+}
+
 /// `benilla-config/macros/account.txt`: the account-wide macro tab (indices 1..=18).
 pub(crate) fn macros_account_path() -> Option<PathBuf> {
     home().map(|h| h.join("macros/account.txt"))
