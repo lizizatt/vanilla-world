@@ -1,6 +1,9 @@
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path $PSScriptRoot -Parent
-$Runtime = Join-Path $Root 'runtime'
+# Default runtime lives inside this checkout. Set VANILLA_WORLD_RUNTIME to an
+# external, persistent folder to reuse one build/database/extraction across
+# disposable worktree checkouts instead of repeating hours of setup each time.
+$Runtime = if ($env:VANILLA_WORLD_RUNTIME) { $env:VANILLA_WORLD_RUNTIME } else { Join-Path $Root 'runtime' }
 $DatabaseBin = Join-Path $Runtime 'tools\mariadb-10.11.15-winx64\bin'
 $AdminOptions = Join-Path $Runtime 'admin.ini'
 

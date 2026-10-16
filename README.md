@@ -108,6 +108,28 @@ account once and saves its credentials to private `runtime\probe.json`; omit
 that switch on later starts. Never paste that file into a commit, issue, or log.
 No characters, privileged account, or automated gameplay are created.
 
+#### Reusing a build across worktree checkouts
+
+By default `runtime` lives inside this checkout, so it is lost if the checkout
+(for example a disposable worktree session) is removed. Set the
+`VANILLA_WORLD_RUNTIME` environment variable to an external, persistent folder
+before running any script to build/extract into (and later start from) that
+location instead, avoiding repeated hours-long builds and map extraction:
+
+```powershell
+$env:VANILLA_WORLD_RUNTIME = 'C:\path\to\persistent\vanilla-world-runtime'
+.\scripts\Setup-LocalServer.ps1 -Step All -GameDirectory 'C:\path\to\your\1.12.1'
+.\scripts\Start-LocalServer.ps1 -CreateProbeAccount
+```
+
+Set the same variable in later sessions/checkouts to reuse the cached build,
+database, and extracted maps/VMaps/mmaps without rerunning setup. The `Build`
+step still refuses to silently reuse a cached build after `server/` source
+changes; follow its printed instructions to rebuild when that happens. Treat
+this external folder with the same care as `runtime`: it contains the same
+private credentials and user-supplied game-derived data, must stay out of any
+git checkout, and must never be committed or redistributed.
+
 Point a separately built Benilla at your existing `Data` directory using
 `WOW_DATA`, and at `127.0.0.1:3724` using `WOW_HOST`. Read upstream's account
 guard and unattended-run guidance before scripted login. This bootstrap is
