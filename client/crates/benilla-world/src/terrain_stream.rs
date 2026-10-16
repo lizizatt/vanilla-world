@@ -31,6 +31,7 @@ mod collider;
 mod furnish;
 pub mod merge;
 mod queries;
+mod racer;
 mod spawn;
 mod weld;
 pub(crate) mod window;
@@ -38,6 +39,7 @@ pub(crate) mod window;
 use collider::{finish_colliders, impassable_wall_data, terrain_collider_data};
 use furnish::furnish_tile_cells;
 use merge::{flush_static_merge, StaticMerge};
+pub use racer::RacerPrefetch;
 use spawn::prop_light::WmoDoodadInst;
 use spawn::spawn_loaded_placements;
 use weld::{flush_hull_welds, HullWelds};
@@ -83,6 +85,8 @@ pub struct TerrainStreamer {
     settled: bool,
     /// The off-grid focus tile last warned about, so the warning fires once per tile.
     off_grid_reported: Option<(i32, i32)>,
+    /// Deviation: deterministic body/lookahead order, empty for ordinary walking.
+    racer_priority: Vec<(i32, i32)>,
 }
 
 /// The map-global WMO's placement id: a WMO-only map has no ADT uniqueIds to collide with, and
@@ -90,6 +94,19 @@ pub struct TerrainStreamer {
 const GLOBAL_WMO_UID: u32 = u32::MAX;
 
 impl TerrainStreamer {
+    fn priority(&self, tile: (i32, i32)) -> usize {
+        if self.racer_priority.is_empty() {
+            (tile.0 - self.focus.0)
+                .abs()
+                .max((tile.1 - self.focus.1).abs()) as usize
+        } else {
+            self.racer_priority
+                .iter()
+                .position(|t| *t == tile)
+                .unwrap_or(usize::MAX)
+        }
+    }
+
     /// `(spawned, requested)` tiles for the debug panel: furnished, and all in the window.
     pub fn residency(&self) -> (usize, usize) {
         let spawned = self.tiles.values().filter(|t| t.furnished).count();
@@ -170,6 +187,9 @@ struct Placement {
 /// the post-snap physics hold, which keys on this and never on ground contact.
 #[derive(Resource, Default)]
 pub struct WorldLoadProgress {
+    /// Deviation: live per-tile proof of terrain, placements and their attached collision.
+    /// Missing WDT tiles and failed model loads never grant racer traversal.
+    pub collision_tiles: std::collections::HashSet<(i32, i32)>,
     /// Units done of [`Self::total`]: desired tiles furnished, focus-neighbourhood placements up.
     pub ready: usize,
     pub total: usize,
@@ -373,6 +393,7 @@ impl Plugin for TerrainPlugin {
     fn build(&self, app: &mut App) {
         // Defaulted here, so a program with no game boots and streams around the camera.
         app.init_resource::<ViewFocus>()
+            .init_resource::<RacerPrefetch>()
             .init_resource::<WorldLoadProgress>()
             .init_resource::<TerrainStreamer>()
             .init_resource::<StreamActivity>()
@@ -394,6 +415,7 @@ impl Plugin for TerrainPlugin {
                     flush_hull_welds,
                     flush_static_merge,
                     sync_interior_volumes,
+                    racer::publish_collision_tiles,
                 )
                     .chain()
                     .in_set(WorldStage::Stream)
@@ -469,6 +491,7 @@ fn stream_terrain(
         Option<Res<CurrentMap>>,
         Option<Res<MapCatalogRes>>,
         Res<crate::view::ViewDistance>,
+        Res<RacerPrefetch>,
     ),
     mut load_progress: Option<ResMut<WorldLoadProgress>>,
     // The stream-batch accumulators the map-change drop must clear.
@@ -481,7 +504,7 @@ fn stream_terrain(
 ) {
     let (mut welds, mut static_merge, mut staticgx) = batchers;
     let (mut materials, mut meshes, wdts, _time, mut activity) = asset_stores;
-    let (current_map, map_catalog, view) = location;
+    let (current_map, map_catalog, view, racer) = location;
     // Idle until other plugins' startup has made the light buffer and the map catalog.
     let (Some(shared_light), Some(map_catalog)) = (shared_light, map_catalog) else {
         return;
@@ -559,7 +582,9 @@ fn stream_terrain(
     let same_window = state.focus == (cx, cy) && state.reach == Some((window.inner, window.outer));
     // Skip an unchanged frame only in a paced, complete, presentable world, since the tail it
     // bypasses releases a load; even then the undrawn count stays fresh, so a rebake un-skips it.
-    if same_window
+    if !racer.active
+        && state.racer_priority.is_empty()
+        && same_window
         && state.settled
         && focus.paced
         && state.was_paced == focus.paced
@@ -588,6 +613,12 @@ fn stream_terrain(
     // Every tile the outer window touches on the 64×64 grid, less those the WDT's `MAIN` bit 0
     // says do not exist, as the reference tests (`0x69863c`).
     let mut desired = window.wanted_tiles();
+    if racer.active {
+        desired = racer::wanted(center, racer.wow_velocity);
+        state.racer_priority.clone_from(&desired);
+    } else {
+        state.racer_priority.clear();
+    }
     if let Some(w) = wdt_index {
         desired.retain(|&(tx, ty)| w.has_tile(tx as u32, ty as u32));
     }
@@ -625,7 +656,13 @@ fn stream_terrain(
             .tiles
             .keys()
             .copied()
-            .filter(|&tile| !window.keeps(tile))
+            .filter(|&tile| {
+                if racer.active {
+                    !desired.contains(&tile)
+                } else {
+                    !window.keeps(tile)
+                }
+            })
             .collect()
     };
     let stale_empty = stale.is_empty();
@@ -646,7 +683,8 @@ fn stream_terrain(
                 placements,
                 c,
                 &t.placements,
-                merge::merge_enabled(),
+                // Racer traversal also needs straddling welded collision rebuilt on its new owner.
+                merge::merge_enabled() || (racer.active && !weld::hull_weld_disabled()),
             );
             // A retained-pass batch has no entity or blob, so its owner's items leave here or
             // never; the cells re-bake without them.
@@ -667,7 +705,11 @@ fn stream_terrain(
             .filter(|c| !state.tiles.contains_key(c))
             .collect();
         fresh_empty = fresh.is_empty();
-        if live && fresh.len() > 1 {
+        if racer.active {
+            fresh.sort_unstable_by_key(|&tile| state.priority(tile));
+            let room = racer::MAX_RESIDENT_TILES.saturating_sub(state.tiles.len());
+            fresh.truncate(room.min(if live { 2 } else { usize::MAX }));
+        } else if live && fresh.len() > 1 {
             fresh.sort_by_key(|&(tx, ty)| (tx - cx).abs().max((ty - cy).abs()));
             fresh.truncate(1);
         }
@@ -696,7 +738,12 @@ fn stream_terrain(
     // Spawn loaded tiles within the frame's budget. The material binds the shared light buffer,
     // so a new tile is lit and fogged on its first frame.
     let tile_deadline = Instant::now() + SPAWN_BUDGET;
-    for (&(tx, ty), tile) in state.tiles.iter_mut() {
+    let mut spawn_order: Vec<_> = state.tiles.keys().copied().collect();
+    if racer.active {
+        spawn_order.sort_unstable_by_key(|&tile| state.priority(tile));
+    }
+    for (tx, ty) in spawn_order {
+        let tile = state.tiles.get_mut(&(tx, ty)).expect("existing tile");
         if tile.entity.is_some() {
             continue;
         }
@@ -1124,16 +1171,16 @@ fn sync_interior_volumes(placements: Res<Placements>, mut vols: ResMut<WmoReside
 
 /// Hand the dead tile's surviving M2 placements to a still-loaded referrer and queue a respawn:
 /// their merged batches and welded hulls live with the owner tile and died with it. Only with the
-/// merge on; a WMO's prop blobs ride its own entity list.
+/// merge on, or the racer's welded-collision safety path; a WMO's prop blobs ride its own list.
 fn handoff_straddlers(
     commands: &mut Commands,
     tiles: &HashMap<(i32, i32), TileState>,
     placements: &mut Placements,
     dead: (i32, i32),
     uids: &[u32],
-    merge_on: bool,
+    rebuild_owned: bool,
 ) {
-    if !merge_on {
+    if !rebuild_owned {
         return;
     }
     // The dead tile's M2 placements with refs left, then one pass over each neighbour's list.

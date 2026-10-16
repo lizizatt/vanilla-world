@@ -57,7 +57,24 @@ pub(super) fn publish_view_focus(
     roster: Option<Res<crate::char_select::Roster>>,
     cinematic: Option<Res<crate::cinematic::Cinematic>>,
     mut was_flying: Local<bool>,
+    racer: Option<Res<super::flats_racer::FlatsRacer>>,
+    prefetch: Option<ResMut<benilla_world::terrain_stream::RacerPrefetch>>,
 ) {
+    if let Some(mut prefetch) = prefetch {
+        // The offline capture drives its own body and publishes its measured velocity.
+        if std::env::var("WOW_CAPTURE").as_deref() != Ok("flats-racer") {
+            let velocity = player
+                .as_deref()
+                .filter(|p| p.active && !p.detached)
+                .and_then(|_| {
+                    racer
+                        .as_deref()
+                        .and_then(super::flats_racer::FlatsRacer::stream_velocity)
+                });
+            prefetch.active = velocity.is_some();
+            prefetch.wow_velocity = velocity.unwrap_or([0.0; 2]);
+        }
+    }
     let entry = roster
         .as_deref()
         .and_then(crate::char_select::Roster::pending_entry);

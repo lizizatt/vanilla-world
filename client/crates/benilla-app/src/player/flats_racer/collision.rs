@@ -43,6 +43,15 @@ pub(super) fn supports_with_motion(
                 if !hit.distance.is_finite() || !hit.normal.is_finite() || hit.normal.y <= 0.6 {
                     return None;
                 }
+                if benilla_assets::trace::enabled_for("racer-support") {
+                    benilla_assets::trace::line(
+                        "racer-support",
+                        &format!(
+                            "from={from:?} distance={} normal={:?}",
+                            hit.distance, hit.normal
+                        ),
+                    );
+                }
                 let distance = (hit.distance - 2.0).max(0.0);
                 if distance <= reach {
                     // n dot (vx, terrain-rise, vz) = 0 on the actual collision plane.
@@ -122,6 +131,12 @@ pub(super) fn slide(
             return (position, Vec3::ZERO);
         }
         let fraction = ((hit.distance - 0.03).max(0.0) / length).clamp(0.0, 1.0);
+        if benilla_assets::trace::enabled_for("racer") {
+            benilla_assets::trace::line("racer", &format!(
+                "collision pos={position:?} actual={velocity:?} distance={} normal={:?} fraction={fraction}",
+                hit.distance, hit.normal1
+            ));
+        }
         position += movement * fraction;
         remaining *= 1.0 - fraction;
         velocity = clip_velocity(velocity, hit.normal1);
@@ -201,9 +216,11 @@ pub(super) mod tests {
             .world_mut()
             .run_system_once(|world: WorldCollision| {
                 for height in [1.1, 8.0] {
-                    let mut state =
-                        flats_racer_physics::State::new([4.2, height, 0.0], -std::f32::consts::FRAC_PI_2)
-                            .unwrap();
+                    let mut state = flats_racer_physics::State::new(
+                        [4.2, height, 0.0],
+                        -std::f32::consts::FRAC_PI_2,
+                    )
+                    .unwrap();
                     let tuning = flats_racer_physics::Tuning {
                         air_control: 0.8,
                         ..Default::default()
@@ -215,7 +232,11 @@ pub(super) mod tests {
                                 steer: 1.0,
                                 ..Default::default()
                             },
-                            if height < 2.0 { [Some(1.1); 4] } else { [None; 4] },
+                            if height < 2.0 {
+                                [Some(1.1); 4]
+                            } else {
+                                [None; 4]
+                            },
                             flats_racer_physics::FIXED_DT,
                             &tuning,
                         )
@@ -296,6 +317,7 @@ pub(super) mod tests {
                         scene_ready: true,
                         complete: true,
                         focus_tile: Some((32, 32)),
+                        collision_tiles: (31..=33).flat_map(|x| (31..=33).map(move |y| (x,y))).collect(),
                         ..Default::default()
                     };
                     let mut accumulator = 0.0;
@@ -425,6 +447,7 @@ pub(super) mod tests {
                     focus_resident: true,
                     scene_ready: true,
                     focus_tile: Some((tile.0 as i32, tile.1 as i32)),
+                    collision_tiles: [(tile.0 as i32, tile.1 as i32)].into_iter().collect(),
                     ..Default::default()
                 };
                 let mut state = flats_racer_physics::State::new([20.0, 1.1, 20.0], 0.0).unwrap();
@@ -435,26 +458,212 @@ pub(super) mod tests {
                     ..Default::default()
                 };
                 let mut accumulator = 0.0;
-                assert!(
-                    super::super::advance_tuned(
-                        &mut state,
-                        &mut accumulator,
-                        flats_racer_physics::Input {
-                            throttle: 1.0,
-                            ..Default::default()
-                        },
-                        flats_racer_physics::FIXED_DT,
-                        &world,
-                        &progress,
-                        &tuning,
-                    )
-                    .unwrap()
-                );
+                assert!(super::super::advance_tuned(
+                    &mut state,
+                    &mut accumulator,
+                    flats_racer_physics::Input {
+                        throttle: 1.0,
+                        ..Default::default()
+                    },
+                    flats_racer_physics::FIXED_DT,
+                    &world,
+                    &progress,
+                    &tuning,
+                )
+                .unwrap());
                 assert_eq!(state.position, [20.0, 1.1, 20.0]);
                 assert_eq!(state.velocity, [0.0; 3]);
                 assert_eq!(accumulator, 0.0);
             })
             .unwrap();
+    }
+
+    #[test]
+    fn long_frame_discards_backlog_without_stopping_airborne_momentum() {
+        fixture()
+            .world_mut()
+            .run_system_once(|world: WorldCollision| {
+                let progress = benilla_world::terrain_stream::WorldLoadProgress {
+                    collision_tiles: (31..=33)
+                        .flat_map(|x| (31..=33).map(move |y| (x, y)))
+                        .collect(),
+                    ..Default::default()
+                };
+                let mut state = flats_racer_physics::State::new([20.0, 100.0, 20.0], 0.0).unwrap();
+                state.velocity = [0.0, 0.0, 500.0];
+                let tuning = flats_racer_physics::Tuning {
+                    max_speed: 500.0,
+                    boost_max_speed: 500.0,
+                    drag: 0.0,
+                    ..Default::default()
+                };
+                let mut accumulator = 0.0;
+                assert!(!super::super::advance_tuned(
+                    &mut state,
+                    &mut accumulator,
+                    Default::default(),
+                    0.4,
+                    &world,
+                    &progress,
+                    &tuning,
+                )
+                .unwrap());
+                assert!((state.position[2] - 70.0).abs() < 0.01);
+                assert!((state.velocity[2] - 500.0).abs() < 0.01);
+                assert!(accumulator < 1.0 / 120.0);
+                let before = state.position[2];
+                assert!(!super::super::advance_tuned(
+                    &mut state,
+                    &mut accumulator,
+                    Default::default(),
+                    1.0 / 60.0,
+                    &world,
+                    &progress,
+                    &tuning,
+                )
+                .unwrap());
+                assert!((state.position[2] - before - 500.0 / 60.0).abs() < 0.01);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn streaming_holds_preserve_ground_and_air_momentum_without_catchup() {
+        for hz in [30, 60, 144] {
+            for speed in [250.0, 500.0] {
+                for y in [1.1, 100.0] {
+                    fixture()
+                        .world_mut()
+                        .run_system_once(move |world: WorldCollision| {
+                            let mut state = flats_racer_physics::State::new(
+                                [20.0, y, 20.0],
+                                std::f32::consts::PI,
+                            )
+                            .unwrap();
+                            state.velocity = [0.0, 7.0, speed];
+                            state.yaw_rate = 0.5;
+                            let before = state;
+                            let mut accumulator = 0.0;
+                            let mut progress =
+                                benilla_world::terrain_stream::WorldLoadProgress::default();
+                            let tuning = flats_racer_physics::Tuning {
+                                max_speed: speed,
+                                boost_max_speed: speed,
+                                drag: 0.0,
+                                ..Default::default()
+                            };
+                            for _ in 0..hz * 2 {
+                                assert!(super::super::advance_tuned(
+                                    &mut state,
+                                    &mut accumulator,
+                                    Default::default(),
+                                    1.0 / hz as f32,
+                                    &world,
+                                    &progress,
+                                    &tuning,
+                                )
+                                .unwrap());
+                                assert_eq!(state.position, before.position);
+                                assert_eq!(state.velocity, before.velocity);
+                                assert_eq!(state.yaw_rate, before.yaw_rate);
+                                assert_eq!(accumulator, 0.0);
+                            }
+                            progress.collision_tiles = (31..=33)
+                                .flat_map(|x| (31..=33).map(move |y| (x, y)))
+                                .collect();
+                            assert!(!super::super::advance_tuned(
+                                &mut state,
+                                &mut accumulator,
+                                Default::default(),
+                                1.0 / 30.0,
+                                &world,
+                                &progress,
+                                &tuning,
+                            )
+                            .unwrap());
+                            let displacement = Vec3::from_array(state.position)
+                                .distance(Vec3::from_array(before.position));
+                            assert!(
+                                displacement > 1.0 && displacement < speed / 30.0 + 1.0,
+                                "{hz}Hz, speed={speed}, y={y}: resume moved {displacement}"
+                            );
+                            assert!(
+                                state.velocity[2] > speed * 0.99,
+                                "resume must not rebuild horizontal momentum: {:?}",
+                                state.velocity
+                            );
+                        })
+                        .unwrap();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn high_speed_ground_and_air_ignore_distant_backlog_at_all_frame_rates() {
+        for speed in [250.0, 500.0] {
+            for y in [1.1, 100.0] {
+                let positions = [30, 60, 144].map(|hz| {
+                    fixture()
+                        .world_mut()
+                        .run_system_once(move |world: WorldCollision| {
+                            let mut state = flats_racer_physics::State::new(
+                                [20.0, y, 20.0],
+                                std::f32::consts::PI,
+                            )
+                            .unwrap();
+                            state.velocity = [0.0, 0.0, speed];
+                            let progress = benilla_world::terrain_stream::WorldLoadProgress {
+                                collision_tiles: (31..=34)
+                                    .flat_map(|x| (31..=34).map(move |y| (x, y)))
+                                    .collect(),
+                                colliders_pending: 100,
+                                placements_pending: 100,
+                                merge_pending: 100,
+                                ..Default::default()
+                            };
+                            let tuning = flats_racer_physics::Tuning {
+                                max_speed: speed,
+                                boost_max_speed: speed,
+                                drag: 0.0,
+                                ..Default::default()
+                            };
+                            let mut accumulator = 0.0;
+                            for frame in 0..hz {
+                                assert!(
+                                    !super::super::advance_tuned(
+                                        &mut state,
+                                        &mut accumulator,
+                                        flats_racer_physics::Input {
+                                            throttle: 1.0,
+                                            ..Default::default()
+                                        },
+                                        1.0 / hz as f32,
+                                        &world,
+                                        &progress,
+                                        &tuning,
+                                    )
+                                    .unwrap(),
+                                    "{hz}Hz frame={frame}"
+                                );
+                                assert!(
+                                    state.velocity[2] > speed * 0.99,
+                                    "{hz}Hz frame={frame} speed={speed} y={y}: {:?}",
+                                    state.velocity
+                                );
+                            }
+                            assert!((state.position[2] - 20.0 - speed).abs() < 0.02);
+                            state.position
+                        })
+                        .unwrap()
+                });
+                for position in &positions[1..] {
+                    assert!(
+                        Vec3::from_array(*position).distance(Vec3::from_array(positions[0])) < 0.01
+                    );
+                }
+            }
+        }
     }
 
     #[test]
@@ -476,6 +685,10 @@ pub(super) mod tests {
                     gx_pending: 0,
                     focus_tile: Some((tile.0 as i32, tile.1 as i32)),
                     complete: true,
+                    collision_tiles: (31..=33)
+                        .flat_map(|x| (31..=33).map(move |y| (x, y)))
+                        .collect(),
+                    ..Default::default()
                 };
                 // Stay inside one streamer focus tile so the test measures the actual accumulator.
                 let origin = [20.0, 1.1, 20.0];
@@ -483,20 +696,18 @@ pub(super) mod tests {
                     let mut state = State::new(origin, 0.0).unwrap();
                     let mut accumulator = 0.0;
                     for _ in 0..fps {
-                        assert!(
-                            !super::super::advance(
-                                &mut state,
-                                &mut accumulator,
-                                Input {
-                                    throttle: 1.0,
-                                    ..Default::default()
-                                },
-                                1.0 / fps as f32,
-                                &world,
-                                &progress
-                            )
-                            .unwrap()
-                        );
+                        assert!(!super::super::advance(
+                            &mut state,
+                            &mut accumulator,
+                            Input {
+                                throttle: 1.0,
+                                ..Default::default()
+                            },
+                            1.0 / fps as f32,
+                            &world,
+                            &progress
+                        )
+                        .unwrap());
                     }
                     state
                 });
@@ -509,35 +720,45 @@ pub(super) mod tests {
                 let ahead = benilla_formats::world_to_tile(4.9, -20.0);
                 assert_ne!(current, ahead);
                 progress.focus_tile = Some((current.0 as i32, current.1 as i32));
-                assert!(
-                    !super::super::advance(
-                        &mut crossing,
-                        &mut 0.0,
-                        Input::default(),
-                        flats_racer_physics::FIXED_DT,
-                        &world,
-                        &progress
-                    )
-                    .unwrap()
-                );
+                assert!(!super::super::advance(
+                    &mut crossing,
+                    &mut 0.0,
+                    Input::default(),
+                    flats_racer_physics::FIXED_DT,
+                    &world,
+                    &progress
+                )
+                .unwrap());
                 assert!(crossing.position[2] < 0.0);
                 progress.focus_tile = Some((tile.0 as i32, tile.1 as i32));
                 let mut state = states[0].clone();
                 let before = state.position;
                 progress.colliders_pending = 1;
-                assert!(
-                    super::super::advance(
-                        &mut state,
-                        &mut 0.0,
-                        Input::default(),
-                        0.1,
-                        &world,
-                        &progress
-                    )
-                    .unwrap()
-                );
-                assert_eq!(state.position, before);
-                assert_eq!(state.velocity, [0.0; 3]);
+                progress.merge_pending = 200;
+                progress.placements_pending = 200;
+                assert!(!super::super::advance(
+                    &mut state,
+                    &mut 0.0,
+                    Input::default(),
+                    0.1,
+                    &world,
+                    &progress,
+                )
+                .unwrap());
+                assert_ne!(state.position, before);
+                progress.collision_tiles.clear();
+                let before = state;
+                assert!(super::super::advance(
+                    &mut state,
+                    &mut 0.0,
+                    Input::default(),
+                    0.1,
+                    &world,
+                    &progress
+                )
+                .unwrap());
+                assert_eq!(state.position, before.position);
+                assert_eq!(state.velocity, before.velocity);
             })
             .expect("Avian fixture runs");
     }

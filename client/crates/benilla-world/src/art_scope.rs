@@ -145,14 +145,22 @@ impl ArtScopeState {
 pub struct ArtScope<'w> {
     state: Res<'w, ArtScopeState>,
     census: ResMut<'w, ArtCensus>,
+    racer: Res<'w, crate::terrain_stream::RacerPrefetch>,
 }
 
 impl ArtScope<'_> {
     /// Sweeps one cache on sweep frames and records its residency.
     pub fn apply<K: Eq + Hash, V>(&mut self, cache: &mut SpatialCache<K, V>, slot: ArtSlot) {
+        let radius = if self.racer.active && self.state.radius > 0.0 {
+            self.state
+                .radius
+                .max(4.0 * TILE_SIZE * std::f32::consts::SQRT_2 + TILE_SIZE)
+        } else {
+            self.state.radius
+        };
         let dropped = match self.state.focus {
-            Some(focus) if self.state.due && self.state.radius > 0.0 => {
-                cache.scope(focus, self.state.radius, self.state.now)
+            Some(focus) if self.state.due && radius > 0.0 => {
+                cache.scope(focus, radius, self.state.now)
             }
             _ => 0,
         };
@@ -163,7 +171,7 @@ impl ArtScope<'_> {
             debug!(
                 "art-scope: dropped {dropped} {} entries beyond {:.0} yd ({} live)",
                 slot.column(),
-                self.state.radius,
+                radius,
                 cache.len()
             );
         }
@@ -207,6 +215,7 @@ impl Plugin for ArtScopePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ArtCensus>()
             .init_resource::<ArtScopeState>()
+            .init_resource::<crate::terrain_stream::RacerPrefetch>()
             .add_systems(Startup, configure_art_scope)
             .add_systems(Update, track_art_scope);
     }

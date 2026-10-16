@@ -86,15 +86,14 @@ fn stream_ready(
     position: Vec3,
     progress: &benilla_world::terrain_stream::WorldLoadProgress,
 ) -> bool {
+    if !position.is_finite() {
+        return false;
+    }
     let wow = benilla_assets::coords::bevy_to_wow(position);
     let tile = benilla_formats::world_to_tile(wow[0], wow[1]);
-    progress.total > 0
-        && progress.focus_resident
-        && progress.scene_ready
-        && progress.focus_tile == Some((tile.0 as i32, tile.1 as i32))
-        && progress.colliders_pending == 0
-        && progress.merge_pending == 0
-        && progress.placements_pending == 0
+    progress
+        .collision_tiles
+        .contains(&(tile.0 as i32, tile.1 as i32))
 }
 
 fn stream_corridor_ready(
@@ -102,24 +101,48 @@ fn stream_corridor_ready(
     to: Vec3,
     progress: &benilla_world::terrain_stream::WorldLoadProgress,
 ) -> bool {
-    let Some((focus_x, focus_y)) = progress.focus_tile else {
+    if !from.is_finite() || !to.is_finite() {
         return false;
-    };
-    // scene_ready proves exactly the focus tile and its eight neighbours, not a far endpoint.
-    // A straight sweep stays inside this convex furnished window if both envelopes do.
-    [from, to].into_iter().all(|position| {
-        // The sphere centers reach 3 yd and their radii 2.6 yd, at every yaw.
-        [-5.6, 5.6].into_iter().all(|edge| {
-            let point = position + Vec3::new(edge, 0.0, edge);
-            let wow = benilla_assets::coords::bevy_to_wow(point);
-            let map_half = 32.0 * benilla_formats::TILE_SIZE;
-            if !point.is_finite() || wow[0].abs() >= map_half || wow[1].abs() >= map_half {
-                return false;
-            }
-            let (x, y) = benilla_formats::world_to_tile(wow[0], wow[1]);
-            (x as i32 - focus_x).abs() <= 1 && (y as i32 - focus_y).abs() <= 1
-        })
+    }
+    // Conservatively prove every tile of the swept rectangle, not just its endpoints.
+    // Sphere centers reach 3 yd plus radius 2.6 yd at arbitrary yaw.
+    let low = benilla_assets::coords::bevy_to_wow(from.min(to) - Vec3::new(5.6, 0.0, 5.6));
+    let high = benilla_assets::coords::bevy_to_wow(from.max(to) + Vec3::new(5.6, 0.0, 5.6));
+    let map_half = 32.0 * benilla_formats::TILE_SIZE;
+    if [low[0], low[1], high[0], high[1]]
+        .into_iter()
+        .any(|v| !v.is_finite() || v.abs() >= map_half)
+    {
+        return false;
+    }
+    let a = benilla_formats::world_to_tile(low[0], low[1]);
+    let b = benilla_formats::world_to_tile(high[0], high[1]);
+    (a.0.min(b.0)..=a.0.max(b.0)).all(|x| {
+        (a.1.min(b.1)..=a.1.max(b.1))
+            .all(|y| progress.collision_tiles.contains(&(x as i32, y as i32)))
     })
+}
+
+fn trace_hold(
+    state: &flats_racer_physics::State,
+    desired: Vec3,
+    progress: &benilla_world::terrain_stream::WorldLoadProgress,
+) {
+    if benilla_assets::trace::enabled_for("racer") {
+        benilla_assets::trace::line("racer", &format!(
+            "stream-hold pos={:?} actual={:?} desired={desired:?} focus={:?} collision_tiles={} queues=collider:{},merge:{},placement:{}",
+            state.position, state.velocity, progress.focus_tile, progress.collision_tiles.len(),
+            progress.colliders_pending, progress.merge_pending, progress.placements_pending
+        ));
+    }
+}
+
+impl FlatsRacer {
+    pub(super) fn stream_velocity(&self) -> Option<[f32; 2]> {
+        self.dynamics
+            .filter(|_| self.enabled && self.authorized)
+            .map(|s| [-s.velocity[2], -s.velocity[0]])
+    }
 }
 
 impl Default for FlatsRacer {
@@ -171,12 +194,16 @@ impl FlatsRacer {
         }
         match message.text.as_str() {
             "FLATS_RACER ON" => {
+                benilla_assets::trace::line("racer", "server-authority=ON");
                 self.authorized = true;
                 self.reset = true;
                 self.waiting_since = None;
                 self.status = "Mounting";
             }
-            "FLATS_RACER OFF" => self.revoke(),
+            "FLATS_RACER OFF" => {
+                benilla_assets::trace::line("racer", "server-authority=OFF");
+                self.revoke();
+            }
             "FLATS_RACER RESET" if self.authorized => {
                 self.reset = true;
                 self.status = "Resetting";
@@ -231,6 +258,22 @@ fn advance_tuned(
     if !dt.is_finite() || dt < 0.0 {
         return Err(flats_racer_physics::StepError::InvalidDt);
     }
+    let position = Vec3::from_array(state.position);
+    if !stream_ready(position, progress) || !stream_corridor_ready(position, position, progress) {
+        trace_hold(state, Vec3::from_array(state.velocity), progress);
+        *accumulator = 0.0;
+        return Ok(true);
+    }
+    if dt > 0.1 && benilla_assets::trace::enabled_for("racer") {
+        benilla_assets::trace::line(
+            "racer",
+            &format!(
+                "frame-backlog dt={dt} discarded={} actual={:?}",
+                dt - 0.1,
+                state.velocity
+            ),
+        );
+    }
     let fixed = flats_racer_physics::FIXED_DT;
     let clock_step = 1.0 / 120.0;
     *accumulator += f64::from(dt.clamp(0.0, 0.1));
@@ -257,8 +300,9 @@ fn advance_tuned(
         }
         if !stream_ready(position, progress) || !stream_corridor_ready(position, endpoint, progress)
         {
-            state.velocity = [0.0; 3];
-            state.yaw_rate = 0.0;
+            trace_hold(state, Vec3::from_array(next.velocity), progress);
+            // Keep the entire pre-step state, including airborne momentum. Wall time is
+            // discarded: loading must never build up a catch-up teleport.
             *accumulator = 0.0;
             held = true;
             break;
@@ -292,8 +336,11 @@ mod stream_tests {
         let position = Vec3::new(3945.0, -57.65, 6235.0);
         let wow = benilla_assets::coords::bevy_to_wow(position);
         let tile = benilla_formats::world_to_tile(wow[0], wow[1]);
-        let progress = benilla_world::terrain_stream::WorldLoadProgress {
+        let mut progress = benilla_world::terrain_stream::WorldLoadProgress {
             focus_tile: Some((tile.0 as i32, tile.1 as i32)),
+            collision_tiles: (-1..=1)
+                .flat_map(|x| (-1..=1).map(move |y| (tile.0 as i32 + x, tile.1 as i32 + y)))
+                .collect(),
             ..Default::default()
         };
         assert!(stream_corridor_ready(
@@ -311,6 +358,16 @@ mod stream_tests {
             Vec3::splat(f32::MAX),
             &progress
         ));
+        let end = position + Vec3::X * 2000.0;
+        let wow = benilla_assets::coords::bevy_to_wow(end);
+        let far = benilla_formats::world_to_tile(wow[0], wow[1]);
+        progress
+            .collision_tiles
+            .insert((far.0 as i32, far.1 as i32));
+        assert!(
+            !stream_corridor_ready(position, end, &progress),
+            "loaded endpoints cannot bridge an unloaded middle tile"
+        );
     }
 }
 
@@ -373,6 +430,18 @@ pub(super) fn control(
         .as_ref()
         .is_some_and(|state| Vec3::from_array(state.position).distance(player.pos) > 3.0);
     if !eligible || (corrected && !racer.reset && racer.waiting_reset.is_none()) {
+        warn!("flats racer: yielding eligible={eligible} corrected={corrected} body={:?} simulated={:?}",
+            player.pos, racer.dynamics.map(|s| s.position));
+        if benilla_assets::trace::enabled_for("racer") {
+            benilla_assets::trace::line(
+                "racer",
+                &format!(
+                    "yield eligible={eligible} corrected={corrected} body={:?} simulated={:?}",
+                    player.pos,
+                    racer.dynamics.map(|s| s.position)
+                ),
+            );
+        }
         request(net, "off");
         yield_control(racer, player, net);
         return false;
@@ -434,8 +503,9 @@ pub(super) fn control(
     }
     let input = input::driving(keys, &racer.controls, accepts_input);
     let state = racer.dynamics.as_mut().expect("initialized racer state");
+    let frame_start = Vec3::from_array(state.position);
     let was_grounded = state.grounded;
-    match advance_tuned(
+    let held = match advance_tuned(
         state,
         &mut racer.accumulator,
         input,
@@ -453,7 +523,8 @@ pub(super) fn control(
                 "Drifting"
             } else {
                 "Hovering"
-            }
+            };
+            held
         }
         Err(error) => {
             error!("flats racer: simulation rejected state: {error:?}; lower F10 tuning values before remounting");
@@ -461,7 +532,7 @@ pub(super) fn control(
             yield_control(racer, player, net);
             return false;
         }
-    }
+    };
     player.pos = Vec3::from_array(state.position);
     player.face_yaw = state.yaw;
     player.model_yaw = state.yaw;
@@ -470,7 +541,7 @@ pub(super) fn control(
     player.vel_y = velocity.y;
     racer.speed = player.horiz_vel.length();
     racer.boost = state.boost_reserve;
-    let flags = if racer.speed > 0.1 {
+    let flags = if !held && racer.speed > 0.1 {
         crate::creature_anim::move_flags::FORWARD
     } else {
         0
@@ -501,6 +572,21 @@ pub(super) fn control(
     );
     // Deviation: physical hops remain local; only this server-authorized mode uses grounded wire poses.
     let report_due = now - racer.last_report >= 0.1;
+    if report_due && benilla_assets::trace::enabled_for("racer") {
+        let frame_motion = if dt > 0.0 {
+            (player.pos - frame_start) / dt
+        } else {
+            Vec3::ZERO
+        };
+        benilla_assets::trace::line(
+            "racer",
+            &format!(
+            "motion pos={:?} actual={:?} frame_motion={frame_motion:?} throttle={} boost={} grounded={} held={} accumulator={}",
+            state.position, state.velocity, input.throttle, input.boost, state.grounded, held,
+            racer.accumulator,
+        ),
+        );
+    }
     if report_due || flags != player.move_flags || !speed_acks.is_empty() {
         super::movement_net::stream_self_movement(
             &net.0,
@@ -807,15 +893,27 @@ mod tests {
             gx_pending: 0,
             focus_tile: None,
             complete: true,
+            ..Default::default()
         };
         assert!(!stream_ready(position, &progress));
         let tile = benilla_formats::world_to_tile(-6235.0, -3945.0);
         progress.focus_tile = Some((tile.0 as i32, tile.1 as i32));
+        assert!(
+            !stream_ready(position, &progress),
+            "render readiness is not collision proof"
+        );
+        progress
+            .collision_tiles
+            .insert((tile.0 as i32, tile.1 as i32));
         assert!(stream_ready(position, &progress));
         progress.colliders_pending = 1;
-        assert!(!stream_ready(position, &progress));
-        progress.colliders_pending = 0;
-        progress.total = 0;
+        progress.merge_pending = 100;
+        progress.placements_pending = 100;
+        assert!(
+            stream_ready(position, &progress),
+            "unrelated backlog must not stop a ready tile"
+        );
+        progress.collision_tiles.clear();
         assert!(!stream_ready(position, &progress));
     }
 }
