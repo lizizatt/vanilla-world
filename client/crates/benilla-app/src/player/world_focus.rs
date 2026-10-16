@@ -52,6 +52,7 @@ pub(super) fn publish_viewer(
 /// Tells the world where to stream from each frame, before the stream stage; a cinematic, which
 /// streams from the camera, also puts the body on the settle hold.
 pub(super) fn publish_view_focus(
+    mut commands: Commands,
     mut focus: ResMut<ViewFocus>,
     mut player: Option<ResMut<Player>>,
     roster: Option<Res<crate::char_select::Roster>>,
@@ -59,7 +60,20 @@ pub(super) fn publish_view_focus(
     mut was_flying: Local<bool>,
     racer: Option<Res<super::flats_racer::FlatsRacer>>,
     prefetch: Option<ResMut<benilla_world::terrain_stream::RacerPrefetch>>,
+    horizon: Option<Res<benilla_world::wdl::RacerWdl>>,
 ) {
+    if std::env::var("WOW_CAPTURE").as_deref() != Ok("flats-racer") {
+        let active = player.as_deref().is_some_and(|p| p.active && !p.detached)
+            && racer
+                .as_deref()
+                .and_then(super::flats_racer::FlatsRacer::stream_velocity)
+                .is_some();
+        if active && horizon.is_none() {
+            commands.insert_resource(benilla_world::wdl::RacerWdl);
+        } else if !active && horizon.is_some() {
+            commands.remove_resource::<benilla_world::wdl::RacerWdl>();
+        }
+    }
     if let Some(mut prefetch) = prefetch {
         // The offline capture drives its own body and publishes its measured velocity.
         if std::env::var("WOW_CAPTURE").as_deref() != Ok("flats-racer") {
@@ -285,6 +299,32 @@ mod tests {
         let p = app.world().resource::<Player>();
         assert!(!p.settling);
         assert!(!p.world_stale);
+    }
+
+    #[test]
+    fn ordinary_walking_releases_racer_horizon_and_prefetch() {
+        let mut app = App::new();
+        app.insert_resource(ViewFocus::default())
+            .insert_resource(Player {
+                active: true,
+                ..Player::default()
+            })
+            .insert_resource(benilla_world::wdl::RacerWdl)
+            .insert_resource(benilla_world::terrain_stream::RacerPrefetch {
+                active: true,
+                wow_velocity: [250.0, 0.0],
+            })
+            .add_systems(Update, publish_view_focus);
+        app.update();
+        assert!(
+            !app.world()
+                .contains_resource::<benilla_world::wdl::RacerWdl>()
+        );
+        let prefetch = app
+            .world()
+            .resource::<benilla_world::terrain_stream::RacerPrefetch>();
+        assert!(!prefetch.active);
+        assert_eq!(prefetch.wow_velocity, [0.0; 2]);
     }
 
     #[test]
