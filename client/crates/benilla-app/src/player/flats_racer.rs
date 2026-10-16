@@ -241,9 +241,15 @@ fn advance_tuned(
         }
         *accumulator -= clock_step;
         let position = Vec3::from_array(state.position);
-        let supports = collision::supports(world, position, state.yaw, tuning.support_reach());
+        let (supports, surface_velocity) = collision::supports_with_motion(
+            world,
+            position,
+            state.yaw,
+            tuning.support_reach(),
+            Vec3::from_array(state.velocity),
+        );
         let mut next = *state;
-        next.step_with_tuning(input, supports, fixed, tuning)?;
+        next.step_with_surface_motion(input, supports, surface_velocity, fixed, tuning)?;
         let movement = Vec3::from_array(next.velocity) * fixed;
         let endpoint = position + movement;
         if !endpoint.is_finite() || !movement.length_squared().is_finite() {

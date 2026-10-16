@@ -179,7 +179,9 @@ impl fmt::Display for StepError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidDt => f.write_str("dt must be finite and in (0, 1/30] seconds"),
-            Self::InvalidInput => f.write_str("throttle and steer must be finite"),
+            Self::InvalidInput => {
+                f.write_str("throttle, steer and terrain rise rate must be finite")
+            }
             Self::InvalidState => f.write_str("state must be finite with valid reserve and timers"),
             Self::InvalidTuning(message) => f.write_str(message),
             Self::InvalidSupport(index) => {
@@ -241,11 +243,25 @@ impl State {
         dt: f32,
         tuning: &Tuning,
     ) -> Result<[f32; 3], StepError> {
+        self.step_with_surface_motion(input, supports, 0.0, dt, tuning)
+    }
+
+    /// Terrain rise rate under horizontal motion, in yd/s; zero for flat or missing support.
+    /// Damping and contact use velocity relative to the support plane, not world vertical speed.
+    pub fn step_with_surface_motion(
+        &mut self,
+        input: Input,
+        supports: [Option<f32>; 4],
+        surface_velocity: f32,
+        dt: f32,
+        tuning: &Tuning,
+    ) -> Result<[f32; 3], StepError> {
         tuning.validate()?;
         if !dt.is_finite() || dt <= 0.0 || dt > 1.0 / 30.0 {
             return Err(StepError::InvalidDt);
         }
-        if !input.throttle.is_finite() || !input.steer.is_finite() {
+        if !input.throttle.is_finite() || !input.steer.is_finite() || !surface_velocity.is_finite()
+        {
             return Err(StepError::InvalidInput);
         }
         if !self.valid() {
@@ -257,7 +273,7 @@ impl State {
             }
         }
         let mut next = *self;
-        next.advance(input, supports, dt, tuning);
+        next.advance(input, supports, surface_velocity, dt, tuning);
         if !next.valid() {
             return Err(StepError::NonFiniteResult);
         }
@@ -283,7 +299,14 @@ impl State {
             .all(|v| v.is_finite() && *v >= 0.0)
     }
 
-    fn advance(&mut self, input: Input, supports: [Option<f32>; 4], dt: f32, tuning: &Tuning) {
+    fn advance(
+        &mut self,
+        input: Input,
+        supports: [Option<f32>; 4],
+        surface_velocity: f32,
+        dt: f32,
+        tuning: &Tuning,
+    ) {
         self.jump_cooldown = (self.jump_cooldown - dt).max(0.0);
         self.air_steer_remaining = (self.air_steer_remaining - dt).max(0.0);
         self.support_lockout = (self.support_lockout - dt).max(0.0);
@@ -301,12 +324,13 @@ impl State {
         if count > 0 {
             height /= count as f64;
         }
-        self.grounded =
-            support && height <= tuning.hover_height as f64 + 0.3 && self.velocity[1] <= 2.0;
+        self.grounded = support
+            && height <= tuning.hover_height as f64 + 0.3
+            && f64::from(self.velocity[1]) - f64::from(surface_velocity) <= 2.0;
         let jump = input.jump && !self.jump_held && self.grounded && self.jump_cooldown == 0.0;
         self.jump_held = input.jump;
         if jump {
-            self.velocity[1] = tuning.hop_speed;
+            self.velocity[1] = (f64::from(surface_velocity) + f64::from(tuning.hop_speed)) as f32;
             self.jump_cooldown = 0.65;
             self.support_lockout = 0.3;
             self.air_steer_remaining = 0.45;
@@ -316,15 +340,19 @@ impl State {
         let dt64 = dt as f64;
         let vertical = self.velocity[1] as f64;
         let gravity = tuning.gravity as f64;
-        let vertical_acceleration = if support && !jump {
-            // Subtract gravity algebraically before adding it, avoiding cancellation at large gravity.
-            (tuning.spring as f64 * (tuning.hover_height as f64 - height)
-                - tuning.damping as f64 * vertical)
-                .max(-gravity)
+        let next_vertical = if support && !jump {
+            let relative = vertical - f64::from(surface_velocity);
+            let spring = f64::from(tuning.spring);
+            let damping = f64::from(tuning.damping);
+            // Implicit spring/damper stays stable with stiff tuning; suspension can push, not suck.
+            let relative_next = (relative
+                + spring * (f64::from(tuning.hover_height) - height) * dt64)
+                / (1.0 + damping * dt64 + spring * dt64 * dt64);
+            (relative_next + f64::from(surface_velocity)).max(vertical - gravity * dt64)
         } else {
-            -gravity
+            vertical - gravity * dt64
         };
-        self.velocity[1] = (vertical + vertical_acceleration * dt64) as f32;
+        self.velocity[1] = next_vertical as f32;
 
         let throttle = input.throttle.clamp(-1.0, 1.0) as f64;
         let steer = input.steer.clamp(-1.0, 1.0) as f64;
@@ -543,6 +571,255 @@ mod tests {
     }
 
     #[test]
+    fn climbing_and_descending_support_preserve_contact_and_control() {
+        for rise in [-40.0, -5.0, 0.0, 5.0, 40.0] {
+            let mut state = racer();
+            state.velocity = [0.0, rise, -20.0];
+            for _ in 0..120 {
+                state
+                    .step_with_surface_motion(
+                        Input {
+                            throttle: 1.0,
+                            steer: 0.5,
+                            boost: true,
+                            ..Default::default()
+                        },
+                        [Some(HOVER_HEIGHT); 4],
+                        rise,
+                        FIXED_DT,
+                        &Tuning::default(),
+                    )
+                    .unwrap();
+                assert!(state.grounded, "terrain rise {rise}");
+                assert!((state.velocity[1] - rise).abs() < 0.0001);
+            }
+            assert!(state.yaw.abs() > 0.5);
+            assert!(speed(&state) > 30.0);
+            assert!(state.boost_reserve < 0.7);
+        }
+    }
+
+    #[test]
+    fn slope_hop_inherits_rise_then_ignores_support_during_lockout() {
+        for rise in [-5.0, 8.0] {
+            let tuning = Tuning::default();
+            let mut state = racer();
+            state.velocity[1] = rise;
+            state
+                .step_with_surface_motion(
+                    Input {
+                        jump: true,
+                        ..Default::default()
+                    },
+                    [Some(HOVER_HEIGHT); 4],
+                    rise,
+                    FIXED_DT,
+                    &tuning,
+                )
+                .unwrap();
+            assert!(!state.grounded);
+            assert!(
+                (state.velocity[1] - (rise + tuning.hop_speed - GRAVITY * FIXED_DT)).abs()
+                    < 0.00001
+            );
+            let before = state.velocity[1];
+            state
+                .step_with_surface_motion(
+                    Input::default(),
+                    [Some(HOVER_HEIGHT); 4],
+                    100.0,
+                    FIXED_DT,
+                    &tuning,
+                )
+                .unwrap();
+            assert!(!state.grounded);
+            assert!((state.velocity[1] - (before - GRAVITY * FIXED_DT)).abs() < 0.00001);
+        }
+    }
+
+    #[test]
+    fn partial_supports_agree_and_missing_support_never_uses_terrain_motion() {
+        let mut full = racer();
+        full.velocity[1] = -3.0;
+        let mut partial = full;
+        full.step(Input::default(), [Some(0.8); 4], FIXED_DT)
+            .unwrap();
+        partial
+            .step(
+                Input::default(),
+                [Some(0.8), None, Some(0.8), None],
+                FIXED_DT,
+            )
+            .unwrap();
+        assert_eq!(full, partial);
+        for supports in [[None; 4], [Some(SUPPORT_REACH + 0.01); 4]] {
+            let mut flat = racer();
+            let mut slope = flat;
+            flat.step(Input::default(), supports, FIXED_DT).unwrap();
+            slope
+                .step_with_surface_motion(
+                    Input::default(),
+                    supports,
+                    f32::MAX,
+                    FIXED_DT,
+                    &Tuning::default(),
+                )
+                .unwrap();
+            assert_eq!(flat, slope);
+        }
+    }
+
+    #[test]
+    fn spring_float_absorbs_small_bumps_instead_of_snapping_to_ground() {
+        let mut state = racer();
+        let mut peak = HOVER_HEIGHT;
+        for tick in 0..480 {
+            let ground = if tick < 30 { 0.25 } else { 0.0 };
+            let before = state.position[1];
+            state
+                .step(Input::default(), [Some(before - ground); 4], FIXED_DT)
+                .unwrap();
+            state.position[1] += state.velocity[1] * FIXED_DT;
+            assert!((state.position[1] - before).abs() < 0.02);
+            if tick == 0 {
+                assert!(
+                    state.position[1] > HOVER_HEIGHT && state.position[1] < HOVER_HEIGHT + 0.01
+                );
+            }
+            peak = peak.max(state.position[1]);
+        }
+        assert!(peak > HOVER_HEIGHT + 0.1 && peak < HOVER_HEIGHT + 0.3);
+        assert!((state.position[1] - HOVER_HEIGHT).abs() < 0.001);
+        println!(
+            "quarter-yard bump: body rise {:.4}yd, settles within .001yd after 4s",
+            peak - HOVER_HEIGHT
+        );
+    }
+
+    #[test]
+    fn crest_is_ballistic_and_reacquisition_recovers_without_free_flight() {
+        let mut state = racer();
+        state.velocity[1] = 12.0;
+        for _ in 0..60 {
+            state
+                .step_with_surface_motion(
+                    Input {
+                        throttle: 1.0,
+                        boost: true,
+                        ..Default::default()
+                    },
+                    [None; 4],
+                    -12.0,
+                    FIXED_DT,
+                    &Tuning::default(),
+                )
+                .unwrap();
+            assert!(!state.grounded);
+            assert_eq!(speed(&state), 0.0);
+            assert_eq!(state.boost_reserve, 1.0);
+        }
+        assert!(state.velocity[1].abs() < 0.0001);
+        for _ in 0..600 {
+            tick(&mut state, Input::default());
+        }
+        assert!(state.grounded);
+        assert!((state.position[1] - HOVER_HEIGHT).abs() < 0.001);
+    }
+
+    #[test]
+    fn stiff_or_zero_suspension_stays_finite_and_bounded() {
+        for (spring, damping) in [(90.0, 0.0), (1e8, 0.0), (f32::MAX, f32::MAX), (0.0, 0.0)] {
+            let tuning = Tuning {
+                spring,
+                damping,
+                ..Default::default()
+            };
+            let mut state = racer();
+            state.position[1] -= 0.2;
+            for _ in 0..1200 {
+                state
+                    .step_with_tuning(
+                        Input::default(),
+                        [Some(state.position[1]); 4],
+                        FIXED_DT,
+                        &tuning,
+                    )
+                    .unwrap();
+                state.position[1] += state.velocity[1] * FIXED_DT;
+                assert!(
+                    (0.0..20.0).contains(&state.position[1]),
+                    "{spring}/{damping}: {state:?}"
+                );
+                assert!(
+                    state.velocity[1].abs() < 30.0,
+                    "{spring}/{damping}: {state:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn terrain_motion_nonfinite_and_overflow_fail_atomically() {
+        for rise in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let original = racer();
+            let mut state = original;
+            assert_eq!(
+                state.step_with_surface_motion(
+                    Input::default(),
+                    [Some(HOVER_HEIGHT); 4],
+                    rise,
+                    FIXED_DT,
+                    &Tuning::default(),
+                ),
+                Err(StepError::InvalidInput)
+            );
+            assert_eq!(state, original);
+        }
+        let mut state = racer();
+        let original = state;
+        let tuning = Tuning {
+            hop_speed: f32::MAX,
+            ..Default::default()
+        };
+        assert_eq!(
+            state.step_with_surface_motion(
+                Input {
+                    jump: true,
+                    ..Default::default()
+                },
+                [Some(HOVER_HEIGHT); 4],
+                f32::MAX,
+                FIXED_DT,
+                &tuning,
+            ),
+            Err(StepError::NonFiniteResult)
+        );
+        assert_eq!(state, original);
+    }
+
+    #[test]
+    fn reverse_braking_never_flips_direction_and_does_not_spend_boost() {
+        let mut state = racer();
+        state.velocity[2] = 10.0;
+        for _ in 0..240 {
+            state
+                .step(
+                    Input {
+                        brake: true,
+                        boost: true,
+                        ..Default::default()
+                    },
+                    [Some(HOVER_HEIGHT); 4],
+                    FIXED_DT,
+                )
+                .unwrap();
+            assert!(state.velocity[2] >= 0.0);
+            assert_eq!(state.boost_reserve, 1.0);
+        }
+        assert!(speed(&state) < 0.001);
+    }
+
+    #[test]
     fn missing_or_distant_support_is_ballistic_not_suction() {
         for supports in [[None; 4], [Some(SUPPORT_REACH + 0.01); 4]] {
             let mut state = racer();
@@ -561,8 +838,9 @@ mod tests {
         compressed
             .step(Input::default(), [Some(0.0); 4], FIXED_DT)
             .unwrap();
-        let lift = GRAVITY + 90.0 * HOVER_HEIGHT + 18.0 * 50.0;
-        assert!((compressed.velocity[1] - (-50.0 + (lift - GRAVITY) * FIXED_DT)).abs() < 0.00001);
+        let expected = (-50.0 + 90.0 * HOVER_HEIGHT * FIXED_DT)
+            / (1.0 + 18.0 * FIXED_DT + 90.0 * FIXED_DT * FIXED_DT);
+        assert!((compressed.velocity[1] - expected).abs() < 0.00001);
     }
 
     #[test]
@@ -1205,7 +1483,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(lift.velocity[1] > 99.0);
+        assert!(lift.velocity[1] > 75.0);
     }
 
     #[test]
@@ -1296,7 +1574,12 @@ mod tests {
                 },
             )
             .unwrap();
-        assert!(hover.velocity[1] > 0.07);
+        assert!(hover.velocity[1] > 0.06);
+        let mut ordinary_gravity = racer();
+        ordinary_gravity
+            .step(Input::default(), [Some(1.0); 4], FIXED_DT)
+            .unwrap();
+        assert_eq!(hover.velocity[1], ordinary_gravity.velocity[1]);
     }
 
     #[test]

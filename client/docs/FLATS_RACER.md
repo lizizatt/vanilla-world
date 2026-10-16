@@ -54,9 +54,18 @@ Capture runs neither read nor write this state. The launcher pins `BENILLA_HOME`
 inside this worktree, independently of executable location and working directory.
 Tab advances through fields, Enter applies, and Escape in a field closes.
 
-Earlier builds were session-only and did not record successful Apply values.
-The user's closed high-tuning session cannot be reconstructed from its log;
-those values must be re-entered once. No recovered preset is claimed.
+Earlier session-only builds did not record Apply values, so their closed sessions
+cannot be reconstructed. The later saved user tune was captured successfully:
+
+| Saved handling | Values |
+| --- | --- |
+| Cruise / boost maximum; thrust / extra boost thrust / braking | 250 / 500 yd/s; 30 / 50 / 30 yd/s² |
+| Drag; turn rate / response; grip / drift grip / drift turn multiplier | 0.25; 2.2 / 10; 4 / 0.5 / 1.3 |
+| Hover height; spring / damping; gravity / hop / air control | 1.1 yd; 90 / 18; 15 / 7 / 0.8 |
+| Camera position time constant | 0.5 s |
+
+This tune stays in the launcher's existing local-state file, not a forced new
+default. Suspension updates do not overwrite it.
 
 There are no gameplay tuning upper ceilings. Values must be finite, representable
 32-bit floats and satisfy the physical sign/domain checks reported by Apply;
@@ -139,6 +148,23 @@ at 120 Hz with four spring/damper support probes, bounded boost reserve/hop timi
 three swept spheres with sliding and turn clearance. The collision body stays
 upright; only the render mount banks. The damped chase camera uses the existing
 world camera collision query.
+
+Suspension damping and grounded control use vertical velocity relative to the
+terrain rise rate, derived from the actual accepted collision-hit normals and
+horizontal body velocity. Uphill travel no longer loses thrust merely because
+world vertical velocity exceeds 2 yd/s, nor does damping fight the climb.
+The spring/damper is integrated implicitly: small ground bumps compress the
+suspension instead of snapping the body to terrain, and stiff finite tuning
+does not make the explicit spring integrator explode. Lift remains unilateral:
+the suspension cannot pull downward faster than gravity. Crests and missing
+support therefore launch into a ballistic arc, not terrain suction or flight.
+Hops inherit the terrain-relative rise rate and retain the existing brief
+support lockout and airborne steering window.
+
+The probes still average available footprint clearances; on slopes the upright
+body may ride higher than its flat-ground hover setting. Faces whose upward
+normal component is at most 0.6 cannot supply suspension. This is neither wall
+climbing nor a promise to stick to steep descents at arbitrary speed.
 
 Current terrain and the entire projected body envelope must have resident,
 scene-ready, fully-collided terrain. The displacement is checked after this tick's
@@ -393,7 +419,7 @@ Its installed-data offline capture completed 480 frames / 8.00005 s with peak
 19.408924 yd/s, height 1.0995865 to 2.0912552 yd, hop/landing/reset and seated
 rider/mount preflight true, zero stream holds. The 18-field panel was visually
 inspected. This default-tuning capture is a regression check, not a claim that
-the user's lost high tune was recovered or that all outdoor terrain was driven.
+the earlier unsaved tune was recovered or that all outdoor terrain was driven.
 The updated server passed C++ policy assertions, structural normal-path checks,
 affected object compilation and a serial Release full link. It allows outdoor
 maps 0/1 with finite engine coordinates, available terrain/collision and
@@ -403,7 +429,52 @@ the original reset map/anchor; external teleports revoke authorization.
 Server checks are endpoint-only; swept collision remains the local client's job.
 Runtime whole-world terrain/teleport-ACK acceptance remains a human check.
 
+### Slope-relative suspension update validation
+
+The updated client is prepared separately at
+`target-racer\suspension\benilla.exe`; the ignored manual launcher now selects
+it while retaining the same `BENILLA_HOME` and saved user tune:
+
+```powershell
+& .\target-racer\probe-runtime\Start-Uncapped-Racer.ps1
+```
+
+Auth/world must already be running as described above. This update does not
+change server policy, restart services or overwrite either prior client.
+The new executable SHA-256 is
+`DBCA85FCB772BB2747FAE3B4F4B9700E9174C527CE2C3AEE400AA16418092266`.
+
+All 28 numerical physics tests and all 28 focused app racer tests pass. New
+coverage includes partial/missing support, stiff/zero damping, invalid terrain
+motion and overflow atomicity, slope hops/lockout, reverse braking, bump
+compression/recovery, ballistic crests, steep-face rejection and real Avian
+20-degree uphill/downhill travel. At 30/60/144 Hz, each three-second ramp run
+ends at the same position (within 0.01 yd), reaches 74.0004 yd/s horizontally,
+and retains grounded control throughout the measured final two seconds.
+A 0.25-yd bump lasting 0.25 s produces 0.1788 yd of body rise, less than
+0.02 yd displacement per fixed tick, and recovery within 0.001 yd after 4 s.
+
+The new installed-data offline capture completes 480 frames / 8.00005 s:
+peak 19.342102 yd/s, height 1.099556 to 2.0912628 yd, seated rider/rendered
+mount, hop/landing/reset true, zero stream holds. Its camera/body preflight
+and 18-field tuning screenshot were inspected. This uses defaults without
+loading or changing the saved user tune. It is not a human hill/crest test.
+The build succeeds; no C++ changed in this suspension update. The three
+previous Windows source-audit failures remain baseline and the broad suite
+was not repeated.
+
 ## Human acceptance and world-exploration checks
+
+For the suspension refinement, drive the same moderate hill in both directions
+without hopping: thrust, steering and boost should remain available while
+supported. Cross small bumps at a steady speed and look for compression/recovery,
+not a rigid height snap. Crest a hill quickly: gravity must take over when the
+probes lose reach, followed by a settled landing. Hop once uphill and downhill,
+hold the hop button, then release/repress after landing; holding must not create
+repeated flight. Compare the saved spring/damping 90/18 with a softer pair such
+as 50/12, then restore the saved values explicitly if preferred. Repeat F9 and
+unmount to check reset, camera snapping and normal walking. These feel/terrain
+checks require human play; numerical assertions alone do not establish them.
 
 The user reported that the uncapped racer feels wonderful after manual play.
 That is real handling feedback, not validation of this later range/persistence update.

@@ -17,8 +17,20 @@ pub(super) fn supports(
     yaw: f32,
     reach: f32,
 ) -> [Option<f32>; 4] {
+    supports_with_motion(world, position, yaw, reach, Vec3::ZERO).0
+}
+
+pub(super) fn supports_with_motion(
+    world: &WorldCollision,
+    position: Vec3,
+    yaw: f32,
+    reach: f32,
+    velocity: Vec3,
+) -> ([Option<f32>; 4], f32) {
     let rotation = Quat::from_rotation_y(yaw);
-    PROBES.map(|offset| {
+    let mut rise = 0.0_f64;
+    let mut count = 0;
+    let distances = PROBES.map(|offset| {
         let from = position + rotation * offset + Vec3::Y * 2.0;
         // Relative reach works at any terrain altitude; distant ground cannot supply lift.
         world
@@ -28,10 +40,28 @@ pub(super) fn supports(
                 (f64::from(reach) + 2.0).min(f64::from(f32::MAX)) as f32,
             )
             .and_then(|hit| {
-                (hit.distance.is_finite() && hit.normal.y > 0.6)
-                    .then_some((hit.distance - 2.0).max(0.0))
+                if !hit.distance.is_finite() || !hit.normal.is_finite() || hit.normal.y <= 0.6 {
+                    return None;
+                }
+                let distance = (hit.distance - 2.0).max(0.0);
+                if distance <= reach {
+                    // n dot (vx, terrain-rise, vz) = 0 on the actual collision plane.
+                    rise -= (f64::from(hit.normal.x) * f64::from(velocity.x)
+                        + f64::from(hit.normal.z) * f64::from(velocity.z))
+                        / f64::from(hit.normal.y);
+                    count += 1;
+                }
+                Some(distance)
             })
-    })
+    });
+    (
+        distances,
+        if count > 0 {
+            (rise / f64::from(count)) as f32
+        } else {
+            0.0
+        },
+    )
 }
 
 pub(super) fn clear_turn(world: &WorldCollision, position: Vec3, old: f32, travel: f32) -> bool {
@@ -184,6 +214,126 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn sustained_slope_motion_keeps_thrust_and_hover_across_render_rates() {
+        let mut results = Vec::new();
+        for (hz, direction) in [
+            (30, 1.0),
+            (60, 1.0),
+            (144, 1.0),
+            (30, -1.0),
+            (60, -1.0),
+            (144, -1.0),
+        ] {
+            let mut app = fixture();
+            let angle = 20.0_f32.to_radians();
+            app.world_mut().spawn((
+                RigidBody::Static,
+                Collider::cuboid(1000.0, 1.0, 1000.0),
+                Transform::from_xyz(200.0, 100.0 - 0.5 / angle.cos(), 20.0)
+                    .with_rotation(Quat::from_rotation_z(angle)),
+            ));
+            app.update();
+            let result = app
+                .world_mut()
+                .run_system_once(move |world: WorldCollision| {
+                    let mut state = flats_racer_physics::State::new(
+                        [
+                            200.0 - 40.0 * direction,
+                            100.0 - 40.0 * direction * angle.tan() + 2.2,
+                            20.0,
+                        ],
+                        -std::f32::consts::FRAC_PI_2 * direction,
+                    )
+                    .unwrap();
+                    state.velocity = [20.0 * direction, 20.0 * direction * angle.tan(), 0.0];
+                    let tuning = flats_racer_physics::Tuning {
+                        max_speed: 80.0,
+                        boost_max_speed: 80.0,
+                        drag: 0.0,
+                        ..Default::default()
+                    };
+                    let mut progress = benilla_world::terrain_stream::WorldLoadProgress {
+                        total: 1,
+                        ready: 1,
+                        focus_resident: true,
+                        scene_ready: true,
+                        complete: true,
+                        focus_tile: Some((32, 32)),
+                        ..Default::default()
+                    };
+                    let mut accumulator = 0.0;
+                    let mut grounded = 0;
+                    for frame in 0..hz * 3 {
+                        let wow = benilla_assets::coords::bevy_to_wow(Vec3::from_array(state.position));
+                        let tile = benilla_formats::world_to_tile(wow[0], wow[1]);
+                        progress.focus_tile = Some((tile.0 as i32, tile.1 as i32));
+                        assert!(
+                            !super::super::advance_tuned(
+                                &mut state,
+                                &mut accumulator,
+                                flats_racer_physics::Input {
+                                    throttle: 1.0,
+                                    ..Default::default()
+                                },
+                                1.0 / hz as f32,
+                                &world,
+                                &progress,
+                                &tuning,
+                            )
+                            .unwrap(),
+                            "{hz}Hz direction={direction}, frame={frame}, position={:?}", state.position
+                        );
+                        if frame >= hz {
+                            grounded += usize::from(state.grounded);
+                            let clearance =
+                                state.position[1] - 100.0 - (state.position[0] - 200.0) * angle.tan();
+                            assert!((0.7..2.5).contains(&clearance), "{hz}Hz: {clearance}");
+                        }
+                    }
+                    assert!(
+                        grounded > (hz * 2 * 9 / 10) as usize,
+                        "{hz}Hz: {grounded} supported"
+                    );
+                    assert!(state.velocity[0] * direction > 65.0, "{hz}Hz: {:?}", state.velocity);
+                    println!("{hz}Hz slope direction={direction}: position={:?}, velocity={:?}, grounded frames={grounded}", state.position, state.velocity);
+                    state.position
+                })
+                .unwrap();
+            results.push(result);
+        }
+        for group in results.chunks_exact(3) {
+            for result in &group[1..] {
+                assert!(Vec3::from_array(*result).distance(Vec3::from_array(group[0])) < 0.01);
+            }
+        }
+    }
+
+    #[test]
+    fn steep_faces_cannot_supply_hover_or_terrain_motion() {
+        let mut app = fixture();
+        app.world_mut().spawn((
+            RigidBody::Static,
+            Collider::cuboid(100.0, 1.0, 100.0),
+            Transform::from_xyz(0.0, 99.0, 0.0)
+                .with_rotation(Quat::from_rotation_z(60.0_f32.to_radians())),
+        ));
+        app.update();
+        app.world_mut()
+            .run_system_once(|world: WorldCollision| {
+                let (distances, rise) = supports_with_motion(
+                    &world,
+                    Vec3::new(0.0, 101.1, 0.0),
+                    0.0,
+                    1.9,
+                    Vec3::X * 500.0,
+                );
+                assert_eq!(distances, [None; 4]);
+                assert_eq!(rise, 0.0);
+            })
+            .unwrap();
+    }
+
+    #[test]
     fn support_rays_are_altitude_independent_and_distant_ground_does_not_hover() {
         let mut app = fixture();
         for height in [-500.0, 1500.0] {
@@ -248,19 +398,21 @@ pub(super) mod tests {
                     ..Default::default()
                 };
                 let mut accumulator = 0.0;
-                assert!(super::super::advance_tuned(
-                    &mut state,
-                    &mut accumulator,
-                    flats_racer_physics::Input {
-                        throttle: 1.0,
-                        ..Default::default()
-                    },
-                    flats_racer_physics::FIXED_DT,
-                    &world,
-                    &progress,
-                    &tuning,
-                )
-                .unwrap());
+                assert!(
+                    super::super::advance_tuned(
+                        &mut state,
+                        &mut accumulator,
+                        flats_racer_physics::Input {
+                            throttle: 1.0,
+                            ..Default::default()
+                        },
+                        flats_racer_physics::FIXED_DT,
+                        &world,
+                        &progress,
+                        &tuning,
+                    )
+                    .unwrap()
+                );
                 assert_eq!(state.position, [20.0, 1.1, 20.0]);
                 assert_eq!(state.velocity, [0.0; 3]);
                 assert_eq!(accumulator, 0.0);
@@ -294,18 +446,20 @@ pub(super) mod tests {
                     let mut state = State::new(origin, 0.0).unwrap();
                     let mut accumulator = 0.0;
                     for _ in 0..fps {
-                        assert!(!super::super::advance(
-                            &mut state,
-                            &mut accumulator,
-                            Input {
-                                throttle: 1.0,
-                                ..Default::default()
-                            },
-                            1.0 / fps as f32,
-                            &world,
-                            &progress
-                        )
-                        .unwrap());
+                        assert!(
+                            !super::super::advance(
+                                &mut state,
+                                &mut accumulator,
+                                Input {
+                                    throttle: 1.0,
+                                    ..Default::default()
+                                },
+                                1.0 / fps as f32,
+                                &world,
+                                &progress
+                            )
+                            .unwrap()
+                        );
                     }
                     state
                 });
@@ -318,29 +472,33 @@ pub(super) mod tests {
                 let ahead = benilla_formats::world_to_tile(4.9, -20.0);
                 assert_ne!(current, ahead);
                 progress.focus_tile = Some((current.0 as i32, current.1 as i32));
-                assert!(!super::super::advance(
-                    &mut crossing,
-                    &mut 0.0,
-                    Input::default(),
-                    flats_racer_physics::FIXED_DT,
-                    &world,
-                    &progress
-                )
-                .unwrap());
+                assert!(
+                    !super::super::advance(
+                        &mut crossing,
+                        &mut 0.0,
+                        Input::default(),
+                        flats_racer_physics::FIXED_DT,
+                        &world,
+                        &progress
+                    )
+                    .unwrap()
+                );
                 assert!(crossing.position[2] < 0.0);
                 progress.focus_tile = Some((tile.0 as i32, tile.1 as i32));
                 let mut state = states[0].clone();
                 let before = state.position;
                 progress.colliders_pending = 1;
-                assert!(super::super::advance(
-                    &mut state,
-                    &mut 0.0,
-                    Input::default(),
-                    0.1,
-                    &world,
-                    &progress
-                )
-                .unwrap());
+                assert!(
+                    super::super::advance(
+                        &mut state,
+                        &mut 0.0,
+                        Input::default(),
+                        0.1,
+                        &world,
+                        &progress
+                    )
+                    .unwrap()
+                );
                 assert_eq!(state.position, before);
                 assert_eq!(state.velocity, [0.0; 3]);
             })
