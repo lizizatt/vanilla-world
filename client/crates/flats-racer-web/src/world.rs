@@ -1,5 +1,5 @@
 //! Live archive topology and layout; WDT presence is independent of asynchronous ADT residency.
-use crate::voyage::{HorizonEntry, Manifest, Region, TileEntry, Voyage, TILE};
+use crate::voyage::{HorizonEntry, Manifest, Region, TILE, TileEntry, Voyage};
 use benilla_formats::WdlFile;
 use benilla_wdt::{WdtReader, WowVersion};
 use std::{collections::VecDeque, io::Cursor};
@@ -282,8 +282,23 @@ impl Voyage {
     pub fn required_tiles(&self) -> Vec<u32> {
         let p = self.telemetry();
         let mut needed = Vec::new();
-        // Four-yard support margin plus conservative 0.1s speed sweep; no tile can be evicted mid-step.
-        let radius = 4.0 + p[5] * 0.1;
+        let radius = 4.0 + self.frame_sweep_distance();
+        if radius >= TILE / 2.0 {
+            // A nine-point stencil can skip intermediate cells at high user-tuned speeds.
+            for (index, tile) in self.manifest.tiles.iter().enumerate() {
+                let r = &self.manifest.regions[tile.region];
+                let x = r.placement[0] + (f64::from(tile.x) - f64::from(r.tile_origin[0])) * TILE;
+                let z = r.placement[1] + (f64::from(tile.y) - f64::from(r.tile_origin[1])) * TILE;
+                if x <= p[0] + radius
+                    && x + TILE >= p[0] - radius
+                    && z <= p[2] + radius
+                    && z + TILE >= p[2] - radius
+                {
+                    needed.push(index as u32);
+                }
+            }
+            return needed;
+        }
         for x in [p[0] - radius, p[0], p[0] + radius] {
             for z in [p[2] - radius, p[2], p[2] + radius] {
                 if let Some(index) = self.locate([x, z]) {
@@ -354,6 +369,45 @@ mod tests {
             doodads: vec![],
             wmos: vec![],
         }
+    }
+
+    #[test]
+    fn accelerated_large_sweep_pins_intermediate_tiles_missed_by_nine_points() {
+        let mut m = crate::voyage::tests::fixture(0.0);
+        m.regions[0].tile_count = [4, 1];
+        m.regions[1].placement[0] = 4000.0;
+        m.ocean[0] = 4.0 * TILE;
+        m.ocean[2] = 4000.0;
+        m.destination[0] = 4200.0;
+        m.spawn = [TILE * 1.5, 1.1, 200.0, 0.0];
+        m.tiles.clear();
+        for (region, r) in m.regions.iter().enumerate() {
+            for y in r.tile_origin[1]..r.tile_origin[1] + r.tile_count[1] {
+                for x in r.tile_origin[0]..r.tile_origin[0] + r.tile_count[0] {
+                    m.tiles.push(TileEntry {
+                        region,
+                        x,
+                        y,
+                        file: format!("{}_{}_{}.adt", r.map, x, y),
+                        bytes: 1,
+                        sha256: "a".repeat(64),
+                    });
+                }
+            }
+        }
+        let mut world = Voyage::from_manifest(m).unwrap();
+        assert_eq!(world.required_tiles(), vec![1]);
+        let mut tuning = world.tuning();
+        tuning[0] = 10000.0;
+        tuning[1] = 10000.0;
+        tuning[2] = 1000000.0;
+        world.set_tuning(&tuning).unwrap();
+        assert!(world.frame_sweep_distance() >= 1000.0);
+        assert_eq!(world.required_tiles(), vec![0, 1, 2, 3]);
+        assert!(
+            world.resident.is_empty(),
+            "Expected cells must not become fictitious ocean"
+        );
     }
 
     #[test]

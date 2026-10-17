@@ -2,15 +2,21 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {readFile} from 'node:fs/promises';
 import {createContext,runInContext} from 'node:vm';
+import {transformedBounds,globalCollisionVertices,SCENE_LIMITS,placementMatrix} from './scene-stream.js';
 
 // Exercise the actual worker queue with synthetic archive/Wasm boundaries, without starting WebGPU.
 const worker=(await readFile(new URL('./world-worker.js',import.meta.url),'utf8'))
   .replace(/^import .*;\r?$/gm,'');
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
+function boot() {
+  const context=createContext({init:async()=>({}),performance,postMessage(){},
+    transformedBounds,globalCollisionVertices,SCENE_LIMITS});
+  runInContext(worker,context);
+  return context;
+}
 function fixture(xs=[0,1,20,21]) {
   const reads=[],added=[],pending=new Map(),required=[0];
-  const context=createContext({init:async()=>({}),performance,postMessage(){}});
-  runInContext(worker,context);
+  const context=boot();
   context.dependencies={
     world:{required_tiles:()=>required,add_tile:i=>added.push(i),remove_tile(){},
       geometry:()=>new Float32Array(),horizon_seams:()=>new Float32Array(),terrain_material:()=>({})},
@@ -99,4 +105,79 @@ test('failed prefetched terrain stays unavailable and exposes its error rather t
   assert.match(f.state().failures[0],/tile1\.adt: NOT_FOUND missing authored tile/);
   await f.stream([0,0],true);
   assert.deepEqual(f.reads,[1],'Failed expected terrain requires explicit retry');
+});
+
+function collisionFixture() {
+  const context=boot(),body=Array(15).fill(0),built=[];
+  const state={instances:[],collisionInstances:[],unresolvedCollision:[],assets:new Map(),textures:new Map()};
+  const f={body,built,sweep:0};
+  const scene={revision:0,selectionRevision:0,update(){this.selectionRevision=this.revision;},
+    async pump(){},snapshot:()=>state};
+  context.dependencies={
+    world:{telemetry:()=>body,frame_sweep_distance:()=>f.sweep,set_scene_mesh:vertices=>built.push([...vertices]),
+      collision_vertices:()=>new Float64Array(),collision_nodes:()=>new Float64Array()},
+    manifest:{ocean:[10000,0,20000,0],regions:[{placement:[0,0],tile_origin:[32,32]}]},scene,
+  };
+  runInContext(`({world,manifest,scene}=dependencies);
+    globalThis.updateCollision=()=>updateScene(Array.from(world.telemetry().slice(0,3)));
+    globalThis.refreshUnknown=()=>updateCameraUnknown(world.telemetry(),0);
+    globalThis.unknown=()=>cameraUnknown.map(i=>i.id);`,context);
+  f.update=context.updateCollision;
+  f.refreshUnknown=context.refreshUnknown;
+  f.unknown=()=>Array.from(context.unknown());
+  f.add=x=>{
+    const id=String(x),matrix=placementMatrix({position:[0,-x,0],rotation:[0,180,0],scale:1});
+    const bounds=[[-1,-x-1,0],[1,-x+1,0]];
+    const instance={id,key:id,matrix,bounds,boundsKnown:true,kind:'m2'};
+    state.collisionInstances.push(instance);
+    state.assets.set(id,{vertices:new Float32Array(),indices:new Uint32Array(),batches:[],
+      collisionVertices:new Float32Array([-1,-1,0,1,-1,0,0,1,0]),collisionIndices:new Uint32Array([0,1,2])});
+    scene.revision++;
+    return instance;
+  };
+  f.unresolved=x=>{
+    state.unresolvedCollision.push({id:String(x),kind:'m2',boundsKnown:true,
+      bounds:[[-1,-x-1,0],[1,-x+1,0]]});
+    scene.revision++;
+  };
+  return f;
+}
+
+test('stable collision anchor avoids edge rebuilds while retaining camera and hull coverage',async()=>{
+  const f=collisionFixture();
+  f.add(100);f.add(125);
+  await f.update();
+  assert.equal(f.built.length,1);
+  assert.equal(f.built[0].length,9);
+  f.body[0]=10;await f.update();
+  assert.equal(f.built.length,1);
+  f.body[0]=33;await f.update();
+  assert.equal(f.built.length,2);
+  assert.equal(f.built[1].length,18);
+});
+
+test('newly decoded colliders bypass anchor cadence immediately',async()=>{
+  const f=collisionFixture();
+  f.add(100);await f.update();
+  f.add(10);await f.update();
+  assert.equal(f.built.length,2);
+  assert.equal(f.built[1].length,18);
+});
+
+test('fast post-step camera remains covered at the edge of the retained anchor',async()=>{
+  const f=collisionFixture();
+  f.add(132);await f.update();
+  assert.equal(f.built[0].length,0);
+  f.sweep=50;await f.update();
+  assert.equal(f.built[1].length,9);
+  f.body[0]=32;await f.update();
+  assert.equal(f.built.length,2,'Anchor still covers 32yd drift + 50yd step + 50yd camera');
+});
+
+test('camera unknown bounds refresh around post-physics rather than stale pre-step position',async()=>{
+  const f=collisionFixture();
+  f.unresolved(100);await f.update();
+  assert.deepEqual(f.unknown(),[]);
+  f.body[0]=50;f.refreshUnknown();
+  assert.deepEqual(f.unknown(),['100']);
 });

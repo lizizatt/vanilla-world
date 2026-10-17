@@ -1,7 +1,7 @@
 import init,{Voyage,world_manifest} from './pkg/flats_racer_web.js';
 import * as wasmTypes from './pkg/flats_racer_web.js';
 import {openDataSource} from './asset-source.js';
-import {SceneStream,transformedBounds,globalCollisionVertices} from './scene-stream.js';
+import {SceneStream,SCENE_LIMITS,transformedBounds,globalCollisionVertices} from './scene-stream.js';
 import {TerrainStream} from './terrain-stream.js';
 import {loadCraft} from './craft-stream.js';
 
@@ -27,6 +27,7 @@ let scenePumpError;
 const collisionBounds=new Map();
 let collisionCount=0;
 let collisionSignature='';
+let collisionFocus;
 const collisionInstances=new Map();
 const timings={frames:0,totalMs:0,maxMs:0,terrainMs:0,sceneMs:0,selectionMs:0,snapshotMs:0,
   physicsMs:0,postMs:0,collisionBuildMs:0,collisionBuilds:0};
@@ -186,6 +187,12 @@ function sourcePosition(region,p) {
   return [-(p[2]-r.placement[1]+(r.tile_origin[1]-32)*TILE),
     -(p[0]-r.placement[0]+(r.tile_origin[0]-32)*TILE),p[1]];
 }
+function updateCameraUnknown(body,region) {
+  const p=sourcePosition(region,body);
+  cameraUnknown=sceneState.unresolvedCollision.filter(i=>Math.hypot(
+    ...p.map((v,a)=>Math.max(i.bounds[0][a]-v,0,v-i.bounds[1][a])))<84
+    || (i.kind==='wmo'&&!i.boundsKnown));
+}
 async function updateScene(focus) {
   if(scenePumpError)throw scenePumpError;
   const region=focusRegion(focus);
@@ -207,16 +214,20 @@ async function updateScene(focus) {
   }
   sceneRevision=scene.revision;
   for(const key of collisionBounds.keys())if(!sceneState.assets.has(key))collisionBounds.delete(key);
-  const bodySource=sourcePosition(region,body),radius=4+body[5]*.1;
+  const sweep=world.frame_sweep_distance(),bodySource=sourcePosition(region,body),radius=4+sweep;
+  if(radius>SCENE_LIMITS.radius)throw new Error('Frame sweep exceeds the streamed scene collision coverage');
   objectWait=sceneState.unresolvedCollision.filter(i=>{
     if(i.kind==='wmo' && !i.boundsKnown)return true;
     const distance=Math.hypot(...bodySource.map((v,a)=>Math.max(i.bounds[0][a]-v,0,v-i.bounds[1][a])));
     // shortcut: unknown M2 extents use a 32-yard proximity guard until their authored hull is decoded.
     return distance<(i.boundsKnown?radius:Math.max(32,radius));
   });
-  cameraUnknown=sceneState.unresolvedCollision.filter(i=>Math.hypot(
-    ...bodySource.map((v,a)=>Math.max(i.bounds[0][a]-v,0,v-i.bounds[1][a])))<84
-    || (i.kind==='wmo'&&!i.boundsKnown));
+  updateCameraUnknown(body,region);
+  const reach=Math.max(120,32+52+sweep);
+  if(!collisionFocus || collisionFocus.region!==region || reach>collisionFocus.reach ||
+    Math.hypot(body[0]-collisionFocus.x,body[2]-collisionFocus.z)>32) {
+    collisionFocus={region,x:body[0],z:body[2],reach};
+  }
   const active=new Set(),nearby=[];
   const toGlobal=p=>[-p[1]+r.placement[0]+(32-r.tile_origin[0])*TILE,p[2],-p[0]+r.placement[1]+(32-r.tile_origin[1])*TILE];
   for(const instance of sceneState.collisionInstances) {
@@ -240,7 +251,8 @@ async function updateScene(focus) {
       collisionInstances.set(instance.id,cached);
     }
     const global=cached.bounds;
-    if(Math.hypot(Math.max(global[0]-body[0],0,body[0]-global[3]),Math.max(global[2]-body[2],0,body[2]-global[5]))<Math.max(120,radius))nearby.push(cached);
+    if(Math.hypot(Math.max(global[0]-collisionFocus.x,0,collisionFocus.x-global[3]),
+      Math.max(global[2]-collisionFocus.z,0,collisionFocus.z-global[5]))<collisionFocus.reach)nearby.push(cached);
   }
   for(const id of collisionInstances.keys())if(!active.has(id))collisionInstances.delete(id);
   nearby.sort((a,b)=>a.instance.id.localeCompare(b.instance.id));
@@ -355,6 +367,7 @@ async function handle(message) {
         measureHold(hold===1?'terrain':hold===3?'solid':hold===2?'unsupported':'clear',elapsed);
       }
     } else {accumulator=0;lastHoldTime=0;lastHold='clear';}
+    updateCameraUnknown(world.telemetry(),focusRegion(focus));
     timings.physicsMs+=performance.now()-physicsStart;
     if(message.focus || Array.from(world.required_tiles()).every(i=>resident.has(i)))startDistantRead();
     if(!objectWait.length) {

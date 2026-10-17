@@ -769,6 +769,16 @@ impl Voyage {
         Ok(())
     }
 
+    /// Conservative travel during the worker's maximum 0.1-second batch, including new thrust.
+    pub fn frame_sweep_distance(&self) -> f64 {
+        let duration = f64::from(FIXED_DT) * 12.0;
+        let speed = f64::from(self.state.velocity[0]).hypot(f64::from(self.state.velocity[2]));
+        let thrust = (f64::from(self.tuning.acceleration)
+            + f64::from(self.tuning.boost_acceleration))
+            * f64::from(self.tuning.air_control).max(1.0);
+        (speed + thrust * duration).min(f64::from(self.tuning.boost_max_speed)) * duration
+    }
+
     /// Indexed authored collision triangles in global east/up/south coordinates.
     pub fn set_scene_mesh(&mut self, vertices: &[f64]) -> Result<(), JsValue> {
         self.scene_mesh = CollisionTree::new(vertices).map_err(JsValue::from_str)?;
@@ -1055,6 +1065,47 @@ impl Voyage {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #[test]
+    fn frame_sweep_bounds_new_thrust_boost_and_airborne_authority() {
+        use super::*;
+        for supports in [[Some(1.1); 4], [None; 4]] {
+            for (speed, acceleration, cap, air_control) in [
+                (0.0, 18.0, 60.0, 0.9),
+                (0.0, 10000.0, 500.0, 4.0),
+                (500.0, 18.0, 500.0, 4.0),
+            ] {
+                let mut world = Voyage::from_manifest(fixture(0.0)).unwrap();
+                world.state.velocity = [speed, 0.0, 0.0];
+                world.tuning.max_speed = cap;
+                world.tuning.boost_max_speed = cap;
+                world.tuning.acceleration = acceleration;
+                world.tuning.air_control = air_control;
+                let bound = world.frame_sweep_distance();
+                let mut traveled = 0.0;
+                for _ in 0..12 {
+                    world
+                        .state
+                        .step_with_tuning(
+                            Input {
+                                throttle: 1.0,
+                                steer: 1.0,
+                                boost: true,
+                                ..Default::default()
+                            },
+                            supports,
+                            FIXED_DT,
+                            &world.tuning,
+                        )
+                        .unwrap();
+                    traveled += f64::from(world.state.velocity[0])
+                        .hypot(f64::from(world.state.velocity[2]))
+                        * f64::from(FIXED_DT);
+                }
+                assert!(traveled <= bound + 0.0001, "{traveled} exceeds {bound}");
+            }
+        }
+    }
+
     #[test]
     fn indexed_authored_collision_keeps_open_interiors_bridges_and_swept_walls() {
         use super::*;
