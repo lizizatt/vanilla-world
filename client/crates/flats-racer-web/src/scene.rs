@@ -1,4 +1,5 @@
 //! Deviation: bounded, static browser scene meshes, not the native animated world renderer.
+use crate::voyage::Voyage;
 use benilla_formats::{
     CollisionMesh, ModelBlend, RenderSubmesh, WmoRoot, accumulate_wmo_group_collision,
     adt_to_tile_mesh, blp_to_rgba, parse_m2_collision_hull, parse_m2_render_submeshes,
@@ -346,6 +347,129 @@ impl SceneTexture {
     }
 }
 
+#[wasm_bindgen]
+pub struct TerrainMaterial {
+    vertices: Vec<f32>,
+    indices: Vec<u32>,
+    masks: Vec<u8>,
+    paths: Vec<String>,
+}
+
+impl TerrainMaterial {
+    fn build(tile: &benilla_formats::TileMesh, x: u32, y: u32) -> Result<Self, String> {
+        if tile.chunks.is_empty() || tile.chunks.len() > 256 {
+            return Err("Terrain requires 1..256 authored chunks".into());
+        }
+        let mut out = Self {
+            vertices: Vec::new(),
+            indices: Vec::new(),
+            masks: vec![0; tile.chunks.len() * 64 * 64 * 4],
+            paths: Vec::new(),
+        };
+        let nw = [
+            (32.0 - f64::from(y)) * crate::voyage::TILE,
+            (32.0 - f64::from(x)) * crate::voyage::TILE,
+        ];
+        for (chunk_id, chunk) in tile.chunks.iter().enumerate() {
+            validate_mesh(&chunk.positions, &chunk.indices)?;
+            if chunk.normals.len() != chunk.positions.len()
+                || chunk.uvs.len() != chunk.positions.len()
+                || chunk.layer_textures.is_empty()
+                || chunk.layer_textures.len() > 4
+                || chunk
+                    .alpha_map
+                    .as_ref()
+                    .is_some_and(|a| a.len() != 64 * 64 * 4)
+                || chunk.shadow.as_ref().is_some_and(|s| s.len() != 64 * 64)
+            {
+                return Err(format!(
+                    "Invalid terrain material streams in chunk {chunk_id}"
+                ));
+            }
+            let mut layers = [0.0; 4];
+            for (layer, path) in chunk.layer_textures.iter().enumerate() {
+                let path = path.replace('/', "\\").to_ascii_lowercase();
+                let index = if let Some(index) = out.paths.iter().position(|p| p == &path) {
+                    index
+                } else {
+                    if out.paths.len() == 64 {
+                        return Err("Terrain tile exceeds 64 unique texture layers".into());
+                    }
+                    out.paths.push(path);
+                    out.paths.len() - 1
+                };
+                layers[layer] = index as f32;
+            }
+            for layer in chunk.layer_textures.len()..4 {
+                layers[layer] = layers[0];
+            }
+            let mask = &mut out.masks[chunk_id * 16384..(chunk_id + 1) * 16384];
+            for (i, pixel) in mask.chunks_exact_mut(4).enumerate() {
+                if let Some(alpha) = &chunk.alpha_map {
+                    pixel[..3].copy_from_slice(&alpha[i * 4..i * 4 + 3]);
+                }
+                pixel[3] = chunk.shadow.as_ref().map_or(0, |s| s[i]);
+            }
+            let base = (out.vertices.len() / 13) as u32;
+            for (i, p) in chunk.positions.iter().enumerate() {
+                let n = chunk.normals[i];
+                let uv = chunk.uvs[i];
+                if n.iter().chain(uv.iter()).any(|v| !v.is_finite())
+                    || n.iter().map(|v| v * v).sum::<f32>() < 0.01
+                {
+                    return Err("Invalid authored terrain normal or UV".into());
+                }
+                out.vertices.extend([
+                    (nw[1] - f64::from(p[1])) as f32,
+                    p[2],
+                    (nw[0] - f64::from(p[0])) as f32,
+                    -n[1],
+                    n[2],
+                    -n[0],
+                    uv[0],
+                    uv[1],
+                    layers[0],
+                    layers[1],
+                    layers[2],
+                    layers[3],
+                    chunk_id as f32,
+                ]);
+            }
+            // The native fan indices already omit every authored MCNK hole.
+            out.indices.extend(chunk.indices.iter().map(|i| base + i));
+        }
+        Ok(out)
+    }
+}
+
+#[wasm_bindgen]
+impl TerrainMaterial {
+    pub fn vertices(&self) -> Vec<f32> {
+        self.vertices.clone()
+    }
+    pub fn indices(&self) -> Vec<u32> {
+        self.indices.clone()
+    }
+    pub fn masks(&self) -> Vec<u8> {
+        self.masks.clone()
+    }
+    pub fn paths(&self) -> String {
+        serde_json::to_string(&self.paths).expect("texture paths")
+    }
+}
+
+#[wasm_bindgen]
+impl Voyage {
+    pub fn terrain_material(&self, index: usize) -> Result<TerrainMaterial, JsValue> {
+        let tile = self
+            .resident
+            .get(&index)
+            .ok_or_else(|| js("Tile is not resident"))?;
+        let entry = &self.manifest.tiles[index];
+        TerrainMaterial::build(tile, entry.x, entry.y).map_err(js)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,6 +483,87 @@ mod tests {
         assert!(validate_mesh(&[[0.0; 3]], &[0, 1, 0]).is_err());
         assert!(validate_mesh(&[[f32::NAN; 3]], &[]).is_err());
         assert!(validate_mesh(&[[0.0; 3]], &[0]).is_err());
+    }
+
+    #[test]
+    fn authored_terrain_material_streams_match_native_layers_masks_normals_and_holes() {
+        let data = benilla_formats::wow_data_or_skip!();
+        let mut chain = benilla_formats::Chain::open(&data).unwrap();
+        let mut layered = 0;
+        let mut shadowed = 0;
+        let mut holes = 0;
+        let mut colored_textures = 0;
+        for (map, x, y) in [
+            ("Kalimdor", 39, 43),
+            ("Azeroth", 32, 48),
+            ("Azeroth", 30, 48),
+            ("Kalimdor", 40, 30),
+        ] {
+            let bytes = chain
+                .read_file(&format!("World\\Maps\\{map}\\{map}_{x}_{y}.adt"))
+                .unwrap();
+            let tile = adt_to_tile_mesh(&bytes).unwrap();
+            let material = TerrainMaterial::build(&tile, x, y).unwrap();
+            assert_eq!(
+                material.indices.len(),
+                tile.chunks.iter().map(|c| c.indices.len()).sum::<usize>()
+            );
+            assert_eq!(material.vertices.len(), tile.vertex_count() * 13);
+            assert_eq!(material.masks.len(), tile.chunks.len() * 16384);
+            let mut vertex = 0;
+            let mut index = 0;
+            for (id, chunk) in tile.chunks.iter().enumerate() {
+                layered += usize::from(chunk.layer_textures.len() > 1);
+                holes += chunk.holes.count_ones();
+                for i in 0..chunk.positions.len() {
+                    let v = &material.vertices[(vertex + i) * 13..(vertex + i + 1) * 13];
+                    assert_eq!(&v[6..8], &chunk.uvs[i]);
+                    assert_eq!(
+                        &v[3..6],
+                        &[
+                            -chunk.normals[i][1],
+                            chunk.normals[i][2],
+                            -chunk.normals[i][0]
+                        ]
+                    );
+                    assert_eq!(v[12], id as f32);
+                    for (layer, path) in chunk.layer_textures.iter().enumerate() {
+                        assert_eq!(
+                            material.paths[v[8 + layer] as usize],
+                            path.to_ascii_lowercase()
+                        );
+                    }
+                }
+                for &i in &chunk.indices {
+                    assert_eq!(material.indices[index], vertex as u32 + i);
+                    index += 1;
+                }
+                for pixel in 0..4096 {
+                    let mask = &material.masks[id * 16384 + pixel * 4..][..4];
+                    assert_eq!(mask[3], chunk.shadow.as_ref().map_or(0, |s| s[pixel]));
+                    shadowed += usize::from(mask[3] != 0);
+                    assert_eq!(
+                        &mask[..3],
+                        chunk
+                            .alpha_map
+                            .as_ref()
+                            .map_or(&[0, 0, 0][..], |a| &a[pixel * 4..pixel * 4 + 3])
+                    );
+                }
+                vertex += chunk.positions.len();
+            }
+            for path in material.paths {
+                let texture = SceneTexture::decode(&chain.read_file(&path).unwrap()).unwrap();
+                assert_eq!(texture.rgba.len(), (texture.width * texture.height * 4) as usize);
+                colored_textures += usize::from(
+                    texture
+                        .rgba
+                        .chunks_exact(4)
+                        .any(|p| p[0] != p[1] || p[1] != p[2])
+                );
+            }
+        }
+        assert!(layered > 0 && shadowed > 0 && holes > 0 && colored_textures > 0);
     }
 
     #[test]
