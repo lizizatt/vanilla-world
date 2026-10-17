@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --test asset-source.test.mjs scene-stream.test.mjs terrain-stream.test.mjs world.test.mjs feel.test.mjs",
+    "test": "node --test asset-source.test.mjs scene-stream.test.mjs terrain-stream.test.mjs craft-stream.test.mjs world.test.mjs feel.test.mjs",
     "test:world": "node overworld-smoke.mjs",
     "test:assets": "node asset-smoke.mjs",
     "test:scene": "node scene-smoke.mjs",

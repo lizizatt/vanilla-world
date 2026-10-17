@@ -24,13 +24,15 @@ function fail(error) {
   console.error(error);evidence.errors.push(message);$('error').textContent=message;$('error').hidden=false;
 }
 const client=new WorldClient(data=>{
-  evidence.eventRevision=(evidence.eventRevision||0)+1;
-  if(data.event==='progress')report(data.text);
-  else {
-    cameraCollision.event(data);
-    if(data.event==='collision')renderer.clipCamera=(pivot,point,origin)=>cameraCollision.clip(pivot,point,origin);
-    else renderer.event(data);
-  }
+  try {
+    evidence.eventRevision=(evidence.eventRevision||0)+1;
+    if(data.event==='progress')report(data.text);
+    else {
+      cameraCollision.event(data);
+      if(data.event==='collision')renderer.clipCamera=(pivot,point,origin)=>cameraCollision.clip(pivot,point,origin);
+      else renderer.event(data);
+    }
+  } catch(error){running=false;fail(error);}
 },error=>{running=false;fail(error);});
 function enabled(value) {
   for(const id of ['save','load','reset','retry','overview','fly','drive'])$(id).disabled=!value;
@@ -55,8 +57,8 @@ function zoom(steps) {
   $('camera-distance').value=settings.cameraDistance;
 }
 function cockpit() {
-  report('Cockpit unavailable: the browser craft has no authored rider attachment and head-height yet.');
-  evidence.cockpit={available:false,reason:'Authored mount/rider seat unavailable'};
+  report('Cockpit unavailable: no rider model is selected, so its head height and animated seat frame are unavailable.');
+  evidence.cockpit={available:false,reason:'Selected rider head height and animated seat frame unavailable'};
 }
 function fillTuning(values,seconds) {
   [...values,seconds].forEach((n,i)=>$(`tune-${i}`).value=n);
@@ -266,7 +268,10 @@ function frame(now) {
       $('resident').textContent=`${s.resident.length}/4 terrain tiles · ${stats.horizonTiles} distant patches · ${scene?.instances||0} scene instances`;
       $('population').textContent=scene?.population || 'Reading static population…';
       $('details').textContent=`${client.info.archiveCount} local archives · ${((scene?.bytes||0)/1048576).toFixed(1)} MiB scene cache · ${scene?.pending||0} pending assets${scene?.capacityBlocked?' · scene capacity reached':''}${!flight&&scene?.waitingCollision?` · waiting for ${scene.waitingCollision} nearby collision assets`:''}${stats.gpuOmittedInstances?` · ${stats.gpuOmittedInstances} meshes beyond GPU budget`:''}`;
-      $('problems').textContent=[...s.failures,...(s.distant?.failures||[]),...(s.terrain?.errors||[]),...(scene?.errors||[])].map(e=>typeof e==='string'?e:JSON.stringify(e)).join('\n');
+      $('craft-status').textContent=stats.craftReady?`Authored racer display 10318 / ${stats.craftPose}`
+        :stats.craftStatus==='failed'?'Player craft failed to load; temporary body remains':'Loading authored player craft; temporary body shown';
+      $('problems').textContent=[...s.failures,...(s.distant?.failures||[]),...(s.terrain?.errors||[]),...(scene?.errors||[]),
+        ...(stats.craftError?[`Player craft: ${stats.craftError}`]:[])].map(e=>typeof e==='string'?e:JSON.stringify(e)).join('\n');
       $('problems').hidden=!$('problems').textContent;
       evidence.fps=frames*1000/(now-(evidence.started||now));hudTime=now;
     }

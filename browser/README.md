@@ -169,7 +169,7 @@ $env:CARGO_TARGET_DIR = Join-Path (Get-Location) 'target-web'
 $env:WOW_DATA = 'C:\path\to\your\install\Data'
 $env:BENILLA_REQUIRE_DATA = '1'
 cargo test --manifest-path .\client\Cargo.toml --release -j 2 -p flats-racer-web
-node --test .\browser\asset-source.test.mjs .\browser\scene-stream.test.mjs .\browser\world.test.mjs
+npm --prefix .\browser test
 # With the local preview running and Playwright installed:
 node .\browser\overworld-smoke.mjs
 node .\browser\distant-smoke.mjs
