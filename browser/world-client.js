@@ -23,17 +23,22 @@ export class WorldClient {
     const worker=new Worker('./world-worker.js',{type:'module'});
     this.worker=worker;
     worker.onerror=event=>{
+      if(this.worker!==worker)return;
       for(const request of this.requests.values()) request.reject(new Error(event.message));
       this.requests.clear();this.onError(new Error(`World worker failed: ${event.message}`));
     };
     worker.onmessage=({data})=>{
+      if(this.worker!==worker)return;
+      if(data.event==='world-error'){
+        this.discardFrame();this.onError(new Error(data.error));return;
+      }
       if(data.event) {this.onEvent(data);return;}
       const request=this.requests.get(data.id);
       if(!request)return;
       this.requests.delete(data.id);
       if(data.error)request.reject(new Error(data.error));else request.resolve(data.result);
     };
-    const result=await this.request('open',{folder,sceneInstanceDeltas:true});
+    const result=await this.request('open',{folder,sceneInstanceDeltas:true,postFrameVisuals:true});
     this.info=result.info;this.state=result.state;
     return result;
   }

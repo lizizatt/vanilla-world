@@ -66,7 +66,33 @@ test('new clients explicitly negotiate resource-only scene updates at open',asyn
   try{
     const client=new WorldClient(()=>{},error=>{throw error;});
     await client.open({kind:'fixture'});
-    assert.equal(sent[0].action,'open');assert.equal(sent[0].sceneInstanceDeltas,true);
+    assert.equal(sent[0].action,'open');assert.equal(sent[0].sceneInstanceDeltas,true);assert.equal(sent[0].postFrameVisuals,true);
+    client.stop();
+  } finally{if(old===undefined)delete globalThis.Worker;else globalThis.Worker=old;}
+});
+test('post-response worker faults stop pending input and stale workers cannot fault a new world',async()=>{
+  const old=globalThis.Worker,workers=[],errors=[],events=[];
+  let active=true;
+  globalThis.Worker=class {
+    constructor(){workers.push(this);}
+    postMessage(message){
+      queueMicrotask(()=>this.onmessage({data:{id:message.id,result:{info:{},state:{}}}}));
+    }
+    terminate(){}
+  };
+  try{
+    const client=new WorldClient(event=>events.push(event),error=>{errors.push(error.message);active=false;},()=>active);
+    await client.open({kind:'first'});
+    client.frame(.01,1,0,0);client.frame(.03,1,0,0);
+    workers[0].onmessage({data:{event:'world-error',error:'Visual transfer failed'}});
+    assert.deepEqual(errors,['Visual transfer failed']);assert.deepEqual(events,[]);
+    assert.equal(client.pendingFrame,undefined);assert.equal(client.elapsed,0);
+    await settle();assert(!client.inFlight);
+    active=true;await client.open({kind:'second'});
+    workers[0].onmessage({data:{event:'world-error',error:'Old failure'}});
+    workers[0].onmessage({data:{event:'scene',instances:[]}});
+    workers[0].onerror({message:'Old worker error'});
+    assert.deepEqual(errors,['Visual transfer failed']);assert.deepEqual(events,[]);
     client.stop();
   } finally{if(old===undefined)delete globalThis.Worker;else globalThis.Worker=old;}
 });
