@@ -13,7 +13,7 @@ const input=new WorldInput(),audio=new WorldAudio();
 const cameraCollision=new CameraCollision();
 const evidence={ready:false,frames:0,errors:[],mode:'drive'};
 window.worldEvidence=evidence;
-let renderer,folder,flight,running=false,busy=false,last=0,frames=0,hudTime=0,permissionNeeded=false;
+let renderer,folder,flight,running=false,busy=false,last=0,frames=0,hudTime=0,hudFrames=0,permissionNeeded=false;
 let orbit=[0,0],dragging=false,soundStarting=false,testPads,frozenPresentation=false,tuningValues=TUNING_FIELDS.map(f=>f[1]);
 const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:false};
 const settings={...defaults};
@@ -160,7 +160,7 @@ $('reset').addEventListener('click',()=>operation(async()=>{
   $('error').hidden=true;report('Returned to the Thousand Needles raceway. Existing save retained until you save.');
 }));
 $('retry').addEventListener('click',()=>operation(async()=>{
-  client.state=await client.request('retry');running=true;report('Retrying unavailable terrain.');$('error').hidden=true;
+  client.state=await client.request('retry');running=true;report('Retrying unavailable terrain, scene assets and player craft.');$('error').hidden=true;
 }));
 $('fly').addEventListener('click',()=>{
   const p=client.state?.telemetry;if(!p)return;
@@ -262,7 +262,7 @@ function frame(now) {
         :cameraCollision.coverageLimited?'Camera lag limited to its collision window':'Chase collision ready';
       $('motion').textContent=flight?'Free flight / vehicle remains parked':scene?.waitingCollision
         ?'Waiting for nearby collision geometry (not textures)'
-        :['Drive / collision ready','Waiting for detailed terrain','Unsupported surface or terrain hole','Solid bounds or steep ground'][p[8]];
+        :['Drive / collision ready','Waiting for detailed terrain','Unsupported surface or terrain hole','Solid geometry or steep ground'][p[8]];
       $('place').textContent=flight?'FREE FLIGHT':p[10]===-1?'THE GREAT SEA':p[10]===1?'EASTERN KINGDOMS':'KALIMDOR';
       $('coordinates').textContent=`${(flight?.[0]??p[0]).toFixed(0)} E / ${(flight?.[2]??p[2]).toFixed(0)} S`;
       $('resident').textContent=`${s.resident.length}/4 terrain tiles · ${stats.horizonTiles} distant patches · ${scene?.instances||0} scene instances`;
@@ -273,7 +273,7 @@ function frame(now) {
       $('problems').textContent=[...s.failures,...(s.distant?.failures||[]),...(s.terrain?.errors||[]),...(scene?.errors||[]),
         ...(stats.craftError?[`Player craft: ${stats.craftError}`]:[])].map(e=>typeof e==='string'?e:JSON.stringify(e)).join('\n');
       $('problems').hidden=!$('problems').textContent;
-      evidence.fps=frames*1000/(now-(evidence.started||now));hudTime=now;
+      evidence.fps=(frames-hudFrames)*1000/(now-hudTime);hudFrames=frames;hudTime=now;
     }
   } catch(error){running=false;fail(error);}
 }

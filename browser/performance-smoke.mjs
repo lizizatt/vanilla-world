@@ -4,8 +4,8 @@ import {mkdir, writeFile} from 'node:fs/promises';
 
 assert(process.env.WOW_DATA, 'Set WOW_DATA to your read-only Classic Data folder');
 const seconds = Number(process.env.DRIVE_SECONDS || 40);
-assert(Number.isFinite(seconds) && seconds >= 24, 'Sample at least 24 seconds, including streaming');
-const url = process.env.WORLD_URL || 'http://127.0.0.1:4175/?test';
+assert(Number.isFinite(seconds) && seconds >= 40, 'Sample at least 40 seconds to verify 30 seconds of sustained driving');
+const url = process.env.WORLD_URL || 'http://127.0.0.1:4173/?test';
 const out = new URL(`./test-results/performance/${process.env.RUN_LABEL || 'run'}.json`, import.meta.url);
 await mkdir(new URL('.', out), {recursive: true});
 const browser = await chromium.launch({channel: 'msedge', headless: true});
@@ -216,4 +216,11 @@ try {
   assert(results.some(r => r.name === 'coastal-boundary' && r.boundaryPassed), 'Coastal ADT boundary crossing failed');
   assert(results.some(r => r.name === 'raceway-clear' && r.movingSeconds>seconds*.75 && r.traveled>250), 'Clear raceway sustained driving failed');
   assert(results.some(r => r.name === 'coastal-circuit' && r.crossed && r.movingSeconds>seconds*.75 && r.traveled>250), 'Coastal circuit sustained crossing failed');
+  for(const name of ['raceway-clear','coastal-circuit','stormwind']) {
+    const route=results.find(r=>r.name===name);
+    assert(route?.movingSeconds>=30 && route.movingSeconds>seconds*.75 && route.traveled>250, `${name}: sustained driving required`);
+    assert(route.minRollingFps>=30 && route.movingFrameMs?.p95<=1000/30, `${name}: render cadence below 30 FPS`);
+    assert(route.freshPoseHz>=30 && route.movingPoseUpdateMs?.p95<=1000/30,
+      `${name}: fresh simulation poses fail the 30 Hz / 33.3 ms p95 gate`);
+  }
 } finally { await browser.close(); }

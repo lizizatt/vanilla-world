@@ -23,8 +23,9 @@ export class EngineEnvelope {
   }
 }
 export class WorldAudio {
-  constructor(){this.envelope=new EngineEnvelope();this.enabled=false;this.voices=[];this.active=false;}
+  constructor(){this.envelope=new EngineEnvelope();this.enabled=false;this.voices=[];this.active=false;this.activation=0;}
   async enable() {
+    const activation=++this.activation;
     if(!globalThis.AudioContext)throw new Error('Web Audio is unavailable in this browser.');
     if(!this.context) {
       this.context=new AudioContext();
@@ -40,10 +41,13 @@ export class WorldAudio {
       }
     }
     clearTimeout(this.release);
-    await this.context.resume();this.envelope=new EngineEnvelope();this.active=false;
+    await this.context.resume();
+    if(activation!==this.activation)return;
+    this.envelope=new EngineEnvelope();this.active=false;
     this.master.gain.setValueAtTime(0,this.context.currentTime);this.enabled=true;
   }
   mute() {
+    this.activation++;
     this.enabled=false;this.active=false;
     if(!this.context)return;
     this.master.gain.setTargetAtTime(0,this.context.currentTime,.06);

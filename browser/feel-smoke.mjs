@@ -21,6 +21,7 @@ try {
   await page.goto(`${process.env.BASE_URL || 'http://127.0.0.1:4173'}/?test`);
   await ready();
   await page.waitForFunction(()=>worldEvidence.state.scene?.waitingCollision===0 && worldEvidence.state.telemetry[7]===1,{},{timeout:120000});
+  await page.waitForFunction(()=>worldEvidence.cameraCollision?.terrainTiles>0 && worldEvidence.cameraCollision.triangles>0,{},{timeout:120000});
   assert.equal(await page.locator('#control-profile').inputValue(),'native');
   await page.keyboard.down('KeyS');
   await page.waitForFunction(()=>worldEvidence.input?.flags===1 && worldEvidence.input.throttle===0);
@@ -93,6 +94,10 @@ try {
   assert.deepEqual(await page.evaluate(()=>worldTest.request('tuning')),checks.tuning);
   assert.equal(await page.locator('#control-profile').inputValue(),'native');
   assert.equal(Number(await page.locator('#camera-distance').inputValue()),distance+1);
+  await page.locator('#tuning').click();
+  await page.waitForFunction(()=>document.getElementById('tuning-panel').open);
+  assert.equal(Number(await page.locator('#tune-17').inputValue()),.25);
+  await page.locator('#tuning-close').click();
   checks.offlineTuningReload=true;
   await page.evaluate(async()=>{
     const {worldSave}=await import('./world-store.js'),id=worldEvidence.info.id,save=await worldSave(id);

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {cameraView} from './world-camera.js';
 import {WorldInput} from './world-input.js';
-import {engineSample,EngineEnvelope} from './world-audio.js';
+import {engineSample,EngineEnvelope,WorldAudio} from './world-audio.js';
 import {TUNING_FIELDS,validateTuningRecord} from './world-tuning.js';
 import {CameraCollision} from './camera-collision.js';
 
@@ -68,6 +68,22 @@ test('native engine beds are bounded, seamless stereo; envelopes release boost a
   for(let i=0;i<120;i++)envelope.advance(120,1,true,true,false,1/60);
   assert(envelope.boost<.001 && envelope.thrust<.001 && envelope.speed<.001);
 });
+test('muting cancels a delayed audio resume without preventing the next activation',async()=>{
+  const previous=globalThis.AudioContext,audio=new WorldAudio();
+  let resumed;
+  globalThis.AudioContext=function(){};
+  audio.context={currentTime:0,resume:()=>new Promise(resolve=>{resumed=resolve;}),suspend:async()=>{}};
+  audio.master={gain:{setValueAtTime(){},setTargetAtTime(){}}};
+  try {
+    const pending=audio.enable();audio.mute();resumed();await pending;
+    assert.equal(audio.enabled,false);
+    const next=audio.enable();resumed();await next;
+    assert.equal(audio.enabled,true);
+  } finally {
+    clearTimeout(audio.release);
+    if(previous===undefined)delete globalThis.AudioContext;else globalThis.AudioContext=previous;
+  }
+});
 test('tuning accepts native physical domains without gameplay ceilings and retains malformed records',()=>{
   const record={version:1,values:TUNING_FIELDS.map(f=>f[1]),cameraSeconds:.5};
   assert.equal(validateTuningRecord(record),record);
@@ -88,6 +104,11 @@ test('camera uses the shared object BVH and rejects corrupt topology',()=>{
   assert.deepEqual(collision.clip([0,30,0],[10,30,0],[0,0]),[10,30,0]);
   collision.tree.nodes[8]=0;collision.tree.nodes[9]=0;
   assert.throws(()=>collision.clip([0,3,0],[10,3,0],[0,0]),/topology/);
+  collision.event({event:'collision',vertices:new Float64Array(),nodes:new Float64Array()});
+  collision.frame({},0);
+  assert.deepEqual(collision.clip([0,3,0],[10,3,0],[0,0]),[10,3,0]);
+  assert.deepEqual(collision.clip([0,3,0],[100,3,0],[0,0]),[50,3,0]);
+  assert(collision.coverageLimited);
 });
 test('camera terrain buckets clip ground, skip water and guard expected unloaded tiles',()=>{
   const collision=new CameraCollision(),size=1600/3;

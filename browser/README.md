@@ -66,6 +66,15 @@ game audio files or Kira. It starts only after interaction, fades outside drivin
 and suspends when muted/hidden. Browser permission policy may require another click
 after restoring a sound-enabled save.
 
+The player craft resolves local display **10318** and renders its authored M2 and
+textures independently of scenery visibility. Its weighted **Stand frame 0**
+(absolute animation time 3333 ms) is baked once, preserving the chassis and embedded
+goblin's separate root transforms; it is not a guessed model yaw. This is a static
+Stand pose, not live animation. A temporary body remains while loading or after an
+explicit craft error, and the craft is hidden during free flight. The mount's raw
+and posed attachment 0 are available, but do not supply a selected rider's head
+height or an animated cockpit.
+
 **Handling & camera** edits the 17 existing Rust physics parameters plus camera
 smoothing seconds. Rust validates the complete set; successful writes persist in
 a separate per-install tuning record without overwriting the saved vehicle pose.
@@ -136,15 +145,19 @@ Combined model drawing retains a nearest-first prefix capped at **two million
 triangles and 4096 draw calls**; any omitted instances are reported in the HUD.
 
 Collision uses **BVH-indexed authored collision triangles**, with continuous
-swept hovercraft-hull tests and four support probes, not foliage cards or a WDL
+two-sided swept hull tests (half-extents 1.1 east / 0.5 up / 1.1 south yards)
+and four support probes, not foliage cards or a WDL
 floor. Mesh height preserves openings and bridges that whole-building bounds
-previously blocked. The near collision cache has a separate 200,000-triangle
+previously blocked. The near collision window extends at least 120 yards.
+Its cache has a separate 200,000-triangle
 safety limit and is not hidden by the visual instance budget. Collision does not
 wait for alpha textures. Unavailable nearby geometry is held explicitly; unresolved M2
 extents use a conservative 32-yard proximity guard, not a proof of empty space.
 Terrain, near-object and solid-contact hold counters are exposed in
 `window.worldEvidence.state.holds`. **Retry terrain** also retries failed scene
-assets. No baking or silent collision disablement is implemented.
+assets and the player craft. Transformed meshes and the BVH are live caches,
+invalidated by scene membership; no persistent collision bake or silent collision
+disablement is implemented.
 
 ## Static NPCs and private data
 
@@ -174,6 +187,7 @@ npm --prefix .\browser test
 node .\browser\overworld-smoke.mjs
 node .\browser\distant-smoke.mjs
 node .\browser\feel-smoke.mjs
+node .\browser\performance-smoke.mjs
 ```
 
 If Playwright is missing, run `npm ci --prefix .\browser`; tests use installed
@@ -190,6 +204,16 @@ The feel check exercises native/legacy inputs, the actual Web Audio output graph
 synthetic standard-gamepad values through the browser frame path, tuning validation,
 write-failure preservation and offline reload. It does not claim a physical gamepad
 or subjective listening test.
+
+The performance check runs seven 40-second keyboard routes with scenery and
+distant terrain enabled. It records the actual canvas dimensions/DPR, frame and
+fresh-pose cadence, worker round trips, input-to-render timing and hold episodes.
+The clear raceway, coastal circuit and city routes must each sustain movement for
+at least 30 seconds and travel more than 250 yards. Their minimum rolling render
+rate and fresh-pose rate must reach 30 Hz, with p95 moving frame/pose intervals no
+greater than 33.3 ms; high render FPS alone cannot pass. Input timing ends at the
+first changed-pose draw, not physical monitor scanout. `WORLD_URL` overrides the
+default local URL and `RUN_LABEL` selects the ignored evidence filename.
 
 [ASSETS.md](ASSETS.md) documents the bounded MPQ reader, corruption semantics,
 77-file native/Node/Edge parity and the whole-install codec census. All 2,389,542
