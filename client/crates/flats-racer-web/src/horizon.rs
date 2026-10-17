@@ -293,7 +293,7 @@ mod tests {
                 let axis = if edge < 2 { 0 } else { 2 };
                 let border = if edge % 2 == 0 { 0.0 } else { TILE as f32 };
                 for chunk in &tile.chunks {
-                    for tri in chunk.indices.chunks_exact(3) {
+                    for tri in chunk.indices.as_chunks::<3>().0 {
                         for (a, b) in [(tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])] {
                             let local = |i: u32| {
                                 let p = chunk.positions[i as usize];
@@ -335,7 +335,9 @@ mod tests {
             world.resident.insert(0, tile);
             let seams = world.horizon_seams(0).unwrap();
             let actual: Vec<_> = seams
-                .chunks_exact(42)
+                .as_chunks::<42>()
+                .0
+                .iter()
                 .map(|quad| {
                     [
                         <[f32; 3]>::try_from(&quad[..3]).unwrap(),
