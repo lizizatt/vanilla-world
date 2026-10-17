@@ -223,12 +223,16 @@ context, disconnects the network, and captures the cached production graph using
 release, water, airborne, landing, braking, collision hold, pause and mute inputs.
 It checks output level, stereo energy, spectral bands, discontinuities and
 envelope-update cost, and saves an original stereo WAV under `test-results/audio`.
+It also exercises a real-time `AudioContext`: activation, inactive-view fade,
+mute/suspend, resume with the same three voices, and explicit context cleanup.
 This is captured signal evidence, **not a listening audition** or a substitute
 for the integrated real-time driving check.
 The captured 28-second sequence peaks at 0.133 full scale; idle/cruise/boost/held
 RMS is 0.030/0.035/0.050/0.030, with silence after pause/mute fades. Measured
 envelope/parameter updates are p99 0.1 ms, max 0.3 ms at browser timer resolution;
-initial one-time graph/buffer creation is 16.8 ms. These are isolated CPU captures,
+initial one-time graph/buffer creation takes about 17-22 ms across repeats.
+The real-time lifecycle capture measures p99/max update cost of 0.2 ms.
+These are isolated CPU captures,
 not an end-to-end driving-continuity measurement.
 The distant check compares actual screenshots with models enabled/disabled at
 1400-yard camera altitude on both continents; it asserts visible changed pixels,

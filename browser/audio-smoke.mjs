@@ -95,11 +95,55 @@ try {
     return {wav:btoa(encoded),setupMs,updateP99Ms:updateMs[Math.floor(updateMs.length*.99)],
       updateMaxMs:updateMs.at(-1),voices:audio.voices.length,reused,windows,spectra,envelopes};
   });
+  await page.mouse.click(40,40);
+  await page.evaluate(async()=>{
+    const {WorldAudio}=await import('./world-audio.js');
+    window.audioProbe=new WorldAudio();window.audioProbeActive=true;
+    const telemetry=new Float64Array(15);telemetry[5]=60;telemetry[6]=1;telemetry[7]=1;
+    const state={telemetry,scene:{waitingCollision:0}},input={throttle:1,flags:2};
+    await audioProbe.enable();
+    window.originalVoices=audioProbe.voices.slice();
+    window.audioUpdates=[];
+    let last=performance.now();
+    window.audioTick=setInterval(()=>{
+      const now=performance.now();
+      audioProbe.update(state,input,(now-last)/1000,audioProbeActive);
+      audioUpdates.push(performance.now()-now);last=now;
+    },16);
+    window.audioSample=()=>{
+      const samples=new Float32Array(audioProbe.analyser.fftSize);
+      audioProbe.analyser.getFloatTimeDomainData(samples);
+      return Math.sqrt(samples.reduce((sum,value)=>sum+value*value,0)/samples.length);
+    };
+  });
+  await page.waitForFunction(()=>audioProbe.context.state==='running' && audioSample()>.005);
+  const runningRms=await page.evaluate(()=>audioSample());
+  await page.evaluate(()=>{audioProbeActive=false;});
+  await page.waitForFunction(()=>audioSample()<.00001);
+  await page.evaluate(()=>{audioProbeActive=true;});
+  await page.waitForFunction(()=>audioSample()>.005);
+  await page.evaluate(()=>audioProbe.mute());
+  await page.waitForFunction(()=>!audioProbe.enabled && audioProbe.context.state==='suspended');
+  await page.mouse.click(40,40);
+  await page.evaluate(()=>audioProbe.enable());
+  await page.waitForFunction(()=>audioProbe.enabled && audioProbe.context.state==='running' && audioSample()>.005);
+  result.realTime=await page.evaluate(async()=>{
+    const reused=audioProbe.voices.length===3 && audioProbe.voices.every((voice,i)=>voice===originalVoices[i]);
+    const rms=audioSample(),updates=audioUpdates.sort((a,b)=>a-b);
+    clearInterval(audioTick);audioProbe.mute();clearTimeout(audioProbe.release);
+    await audioProbe.context.close();
+    return {reused,resumedRms:rms,updates:updates.length,updateP99Ms:updates[Math.floor(updates.length*.99)],
+      updateMaxMs:updates.at(-1),closed:audioProbe.context.state==='closed'};
+  });
+  result.realTime.runningRms=runningRms;
   await writeFile(new URL('hover-racer.wav',out),Buffer.from(result.wav,'base64'));
   delete result.wav;
   result.offlineShell=offlineShell[0];
   await writeFile(new URL('evidence.json',out),JSON.stringify(result,null,2));
   assert.equal(result.voices,3);assert(result.reused);
+  assert(result.realTime.reused && result.realTime.closed);
+  assert(result.realTime.runningRms>.005 && result.realTime.resumedRms>.005);
+  assert(result.realTime.updateP99Ms<1);
   assert(result.windows.every(w=>Number.isFinite(w.rms) && w.peak<.3 && w.maxStep<.06));
   assert(result.windows[1].rms>.005);
   assert(result.windows[10].rms>result.windows[7].rms);
@@ -111,5 +155,6 @@ try {
   console.log(JSON.stringify({setupMs:result.setupMs,updateP99Ms:result.updateP99Ms,
     updateMaxMs:result.updateMaxMs,peak:Math.max(...result.windows.map(w=>w.peak)),
     idleRms:result.windows[1].rms,cruiseRms:result.windows[7].rms,boostRms:result.windows[10].rms,
-    heldRms:result.windows[19].rms,offlineShell:result.offlineShell,audition:'Captured only; not listened to'},null,2));
+    heldRms:result.windows[19].rms,offlineShell:result.offlineShell,realTime:result.realTime,
+    audition:'Captured only; not listened to'},null,2));
 } finally {await browser.close();}
