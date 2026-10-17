@@ -145,6 +145,23 @@ test('material paths normalize at decode and invalid paths remain explicit faile
   assert.equal(broken.freed(), 1);
 });
 
+test('near-full visual selection equals the full sort without reordering or capping collision candidates', () => {
+  for (const nearCount of [1, 3, 5]) {
+    const f = fixture(), all = new SceneStream(f.source, f.wasm);
+    const bounded = new SceneStream(f.source, f.wasm, {instances: 3});
+    const near = Array.from({length: nearCount}, (_, i) => p(10 - i, 'near.m2', (i % 2) * 20));
+    const far = Array.from({length: 20}, (_, i) => p(100 - i, 'far.m2', 1000 + (i % 3) * 10));
+    for (const stream of [all, bounded]) {
+      stream.setTile('1:0:0', near);
+      stream.setDistantTile('1:1:0', far);
+      stream.update(1, [0, 0, 0]);
+    }
+    assert.deepEqual(bounded.instances, all.instances.slice(0, 3));
+    assert.deepEqual(bounded.collisionCandidates, all.collisionCandidates);
+    assert.deepEqual(bounded.collisionCandidates.map(i => i.id), near.map(i => `1:m2:${i.id}`));
+  }
+});
+
 test('predicted swept-path solids precede current textures without waiting for their I/O', async () => {
   const f = fixture({cutout: true}), reads = [];
   let finishTexture;
@@ -229,6 +246,11 @@ test('private NPC provenance, corruption and bounded local residency', async () 
   stream.update(1,[1,0,0]);
   assert.notEqual(stream.snapshot().instances[0].matrix,matrix);
   assert.deepEqual(stream.snapshot().instances[0].matrix.slice(12,15),[2,0,0]);
+  pack.models[7].skins=['replacement.blp'];
+  stream.setPopulation(pack);stream.update(1,[0,0,0]);
+  assert.equal(stream.instances[0].key,'m2:creature.m2:["replacement.blp"]');
+  await stream.pump();
+  assert.equal(stream.snapshot().instances[0].key,'m2:creature.m2:["replacement.blp"]');
   stream.update(1, [9000, 9000, 0]);
   assert.equal(stream.snapshot().instances.length, 0);
   assert.throws(() => validatePopulation({ ...pack, spawns: [...pack.spawns, ...pack.spawns] }));
@@ -263,6 +285,10 @@ test('WMO groups and selected child doodads load as separate jobs', async () => 
   stream.update(0, [1,0,0]);
   assert.equal(stream.snapshot().instances.find(i=>i.id===chair.id).matrix,chair.matrix,
     'Static WMO child transform should be reused while the observer moves');
+  stream.tiles.get('0:0:0')[0].id=8;
+  stream.update(0,[1,0,0]);
+  assert.deepEqual(stream.snapshot().instances.map(i=>i.id).sort(),['0:wmo:8:doodad:0','0:wmo:8:group:0'],
+    'A reused matrix must not retain child IDs from a different WMO instance');
 });
 
 test('pinned cache limit does not reread resources endlessly and fifth tile is rejected', async () => {

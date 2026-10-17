@@ -9,6 +9,8 @@ export function modelPath(path) {
   if (normalized.split('\\').some(p => !p || p === '.' || p === '..')) throw new Error('Invalid scene path');
   return normalized;
 }
+const EMPTY_SKINS = Object.freeze([]);
+const modelKey = (kind, p) => `${kind}:${p.path}:${JSON.stringify(p.skins || EMPTY_SKINS)}`;
 
 const identity = () => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 export function multiply(a, b) {
@@ -136,6 +138,7 @@ export class SceneStream {
       if (p.bounds && (!Array.isArray(p.bounds) || p.bounds.length !== 2 || p.bounds.some(v => !finite(v, 3))
           || p.bounds[0].some((v, i) => v > p.bounds[1][i]))) throw new Error('Invalid authored placement bounds');
       p.matrix = placementMatrix(p);
+      p.key = modelKey(p.kind, p);
     }
     return placements;
   }
@@ -165,8 +168,8 @@ export class SceneStream {
     const add = (p, id, matrix, kind = p.kind, distant = false) => {
       if (distant && candidates.has(id)) return;
       const path = p.path;
-      const skins = p.skins || [];
-      const key = `${kind}:${path}:${JSON.stringify(skins)}`;
+      const skins = p.skins || EMPTY_SKINS;
+      const key = p.key;
       const asset = this.cache.get(key)?.value;
       let bounds = p.bounds;
       if (!bounds && asset?.bounds) {
@@ -186,33 +189,36 @@ export class SceneStream {
         let placements = this.expanded.get(asset);
         if (!placements) { placements = new WeakMap(); this.expanded.set(asset, placements); }
         let expanded = placements.get(matrix);
-        if (!expanded) {
+        if (!expanded || expanded.id !== id) {
           const doodads = new Set();
           for (const setIndex of new Set([0, p.doodadSet || 0])) {
             const set = asset.sets[setIndex];
             if (set) for (let i = set.start; i < set.start + set.count; i++) doodads.add(i);
           }
           expanded = {
+            id,
             groups: asset.groups.map(group => transformedBounds(group.bounds, matrix)),
+            groupIds: asset.groups.map((_, index) => `${id}:group:${index}`),
             doodads: [...doodads].map(i => {
               const d = asset.doodads[i];
               if (!d) throw new Error('WMO doodad set references absent doodad');
-              return {i, d, matrix: multiply(matrix, placementMatrix(d))};
+              return {id: `${id}:doodad:${i}`, d, matrix: multiply(matrix, placementMatrix(d))};
             }),
           };
           placements.set(matrix, expanded);
         }
         asset.groups.forEach((group, index) => {
-          if (distant && candidates.has(`${id}:group:${index}`)) return;
+          const groupId = expanded.groupIds[index];
+          if (distant && candidates.has(groupId)) return;
           const groupBounds = expanded.groups[index], d = boundsDistance(groupBounds, position);
           if (d > radius) return;
           const groupKey = `group:${path}:${index}`;
           want(groupKey, { kind: 'group', path: `${path.slice(0, -4)}_${String(index).padStart(3, '0')}.wmo`,
             rootKey: key, collisionScore: collisionDistance(groupBounds) }, d, distant);
-          put(`${id}:group:${index}`, { id: `${id}:group:${index}`, key: groupKey, matrix, bounds: groupBounds, boundsKnown: true, score: d, kind: 'group', distant });
+          put(groupId, { id: groupId, key: groupKey, matrix, bounds: groupBounds, boundsKnown: true, score: d, kind: 'group', distant });
         });
-        for (const {i, d, matrix: childMatrix} of expanded.doodads) {
-          add({ ...d, kind: 'm2' }, `${id}:doodad:${i}`, childMatrix, 'm2', distant);
+        for (const {id: childId, d, matrix: childMatrix} of expanded.doodads) {
+          add(d, childId, childMatrix, 'm2', distant);
         }
       }
     };
@@ -248,14 +254,16 @@ export class SceneStream {
             });
             this.npcMatrices.set(npc, matrix);
           }
-          add({ ...model, kind: 'm2' }, `${map}:npc:${npc.id}`, matrix);
+          add(model, `${map}:npc:${npc.id}`, matrix, 'm2');
         }
       }
     }
-    this.instances = [...candidates.values()].sort((a, b) => Number(a.distant) - Number(b.distant)
+    const all = [...candidates.values()];
+    // Preserve every near solid and its order, even when the visual budget is full.
+    this.collisionCandidates = all.filter(i => !i.distant);
+    const visible = this.collisionCandidates.length >= this.limits.instances ? this.collisionCandidates.slice() : all;
+    this.instances = visible.sort((a, b) => Number(a.distant) - Number(b.distant)
       || a.score - b.score || a.id.localeCompare(b.id)).slice(0, this.limits.instances);
-    // Visual admission must not erase an unresolved solid under the vehicle.
-    this.collisionCandidates = [...candidates.values()].filter(i => !i.distant);
     const keep = new Set(this.instances.map(i => i.key));
     for (const i of this.collisionCandidates) if (collisionDistance(i.bounds) < 32) {
       keep.add(i.key);
@@ -373,7 +381,10 @@ export class SceneStream {
               || g.bounds.some(v => !finite(v, 3)) || g.bounds[0].some((v, i) => v > g.bounds[1][i]))) {
           throw new Error('WMO group bounds are incomplete or invalid');
         }
-        for (const doodad of value.doodads) { doodad.path = modelPath(doodad.path); placementMatrix(doodad); }
+        for (const doodad of value.doodads) {
+          doodad.path = modelPath(doodad.path);placementMatrix(doodad);
+          doodad.key = modelKey('m2', doodad);
+        }
         if (value.sets.some(s => !Number.isSafeInteger(s.start) || !Number.isSafeInteger(s.count)
             || s.start < 0 || s.count < 0 || s.start + s.count > value.doodads.length)) throw new Error('Invalid WMO doodad set');
         value.bounds = value.groups.reduce((b, g) => b.map((v, side) => v.map((n, axis) =>
@@ -447,6 +458,7 @@ export function validatePopulation(pack) {
     if (!Number.isFinite(model.scale) || model.scale <= 0 || model.scale > 100
         || !Array.isArray(model.skins) || model.skins.length > 4
         || model.skins.some(s => s !== null && (typeof s !== 'string' || s.length > 1024))) throw new Error('Invalid NPC model');
+    model.key = modelKey('m2', model);
   }
   const chunks = new Map(), ids = new Set();
   for (const npc of pack.spawns) {
