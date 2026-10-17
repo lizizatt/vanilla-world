@@ -140,7 +140,8 @@ try{
       await worldTest.request('restore',{pose:[...p.slice(0,3),yaw]});
     },Number(process.env.YAW));
   }
-  await page.locator('#drive').click();
+  if(await page.locator('#drive').isVisible())await page.locator('#drive').click();
+  else await page.locator('#world').click();
   const clock=await page.evaluate(()=>({...worldEvidence.state.drivingClock}));
   await page.waitForFunction(before=>{
     const state=worldEvidence.state;
