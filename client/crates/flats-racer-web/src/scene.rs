@@ -1,7 +1,7 @@
 //! Deviation: bounded, static browser scene meshes, not the native animated world renderer.
 use crate::voyage::Voyage;
 use benilla_formats::{
-    CollisionMesh, ModelBlend, RenderSubmesh, WmoRoot, accumulate_wmo_group_collision,
+    CollisionMesh, ModelBlend, RenderSubmesh, TileMesh, WmoRoot, accumulate_wmo_group_collision,
     adt_to_tile_mesh, blp_to_rgba, parse_m2_collision_hull, parse_m2_render_submeshes,
     parse_wmo_root, wmo_group_submeshes_strict,
 };
@@ -75,16 +75,20 @@ pub fn scene_placements(bytes: &[u8]) -> Result<String, JsValue> {
 fn placements(bytes: &[u8]) -> Result<String, String> {
     bounded(bytes)?;
     let tile = adt_to_tile_mesh(bytes).map_err(|e| e.to_string())?;
+    tile_placements(&tile, bytes)
+}
+
+fn tile_placements(tile: &TileMesh, bytes: &[u8]) -> Result<String, String> {
     let bounds = modf_bounds(bytes)?;
     if tile.doodads.len() + tile.wmos.len() > 20_000 {
         return Err("ADT exceeds 20000 scene placements".into());
     }
     let mut out = Vec::new();
-    for d in tile.doodads {
+    for d in &tile.doodads {
         out.push(json!({"kind":"m2", "id":d.unique_id, "path":d.model,
             "position":d.position, "rotation":d.rotation, "scale":d.scale, "doodadSet":0}));
     }
-    for d in tile.wmos {
+    for d in &tile.wmos {
         let world_bounds = bounds
             .get(&d.unique_id)
             .ok_or("WMO placement has no MODF bounds")?;
@@ -525,6 +529,15 @@ impl TerrainMaterial {
 
 #[wasm_bindgen]
 impl Voyage {
+    pub fn tile_placements(&self, index: usize, bytes: &[u8]) -> Result<String, JsValue> {
+        bounded(bytes).map_err(js)?;
+        let tile = self
+            .resident
+            .get(&index)
+            .ok_or_else(|| js("Tile is not resident"))?;
+        tile_placements(tile, bytes).map_err(js)
+    }
+
     pub fn terrain_material(&self, index: usize) -> Result<TerrainMaterial, JsValue> {
         let tile = self
             .resident
@@ -899,6 +912,10 @@ mod tests {
                 .unwrap();
             let refs: Vec<serde_json::Value> =
                 serde_json::from_str(&placements(&bytes).unwrap()).unwrap();
+            let tile = adt_to_tile_mesh(&bytes).unwrap();
+            let reused: Vec<serde_json::Value> =
+                serde_json::from_str(&tile_placements(&tile, &bytes).unwrap()).unwrap();
+            assert_eq!(refs, reused, "Resident tile reuse must preserve every authored placement");
             assert!(!refs.is_empty(), "{map} has authored placements");
             let mut seen = std::collections::HashSet::new();
             let mut decoded = 0;

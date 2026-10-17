@@ -25,6 +25,15 @@ const fixture = ({ cutout = false, texture = 'leaves.blp' } = {}) => {
   };
 };
 
+test('resident ADT metadata reuses the parsed tile but retains placement validation',()=>{
+  const f=fixture(),stream=new SceneStream(f.source,f.wasm);
+  f.wasm.scene_placements=()=>{throw Error('Unexpected second ADT parse');};
+  stream.setTile('1:0:0',new Uint8Array(),JSON.stringify([p(1)]));
+  assert.equal(stream.tiles.get('1:0:0')[0].path,'tree.m2');
+  assert.throws(()=>stream.setTile('1:0:0',new Uint8Array(),JSON.stringify([{...p(2),scale:NaN}])),/Invalid scene placement/);
+  assert.equal(stream.tiles.get('1:0:0')[0].id,1,'Invalid metadata cannot replace the resident placements');
+});
+
 test('ADT rotations preserve source axes, tilted scale, bounds and translation', () => {
   const identity = placementMatrix(p(1));
   assert.deepEqual(transformPoint(identity, [1, 2, 3]).map(v => Math.round(v)), [1, 2, 3]);

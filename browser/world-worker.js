@@ -21,6 +21,7 @@ function startCraft() {
 }
 let resident=new Set(),failures=new Map(),loads=0,evictions=0,peak=0,horizon;
 let terrainRead;
+const terrainMaterials=new Set();
 let sentAssets=new Set(),sentTextures=new Set(),sceneState,sceneSignature='';
 let sentInstanceMatrices=new Map();
 let sentSceneRegion;
@@ -103,6 +104,7 @@ async function stream(p,pin,fill=false) {
   }
   for(const index of resident) if(!wanted.includes(index)) {
     world.remove_tile(index);scene.removeTile(tileKey(index));terrain.removeTile(index);terrainErrors.delete(index);
+    terrainMaterials.delete(index);
     resident.delete(index);removed.push(index);evictions++;
   }
   let prefetches=0;
@@ -136,13 +138,12 @@ async function stream(p,pin,fill=false) {
         bytes=read.bytes;
       } else bytes=await source.read(assetPath(entry));
       world.add_tile(index,bytes);
-      scene.setTile(tileKey(index),bytes);
+      scene.setTile(tileKey(index),bytes,world.tile_placements(index,bytes));
       sceneFocus=undefined;
       const vertices=world.geometry(index);
       resident.add(index);loads++;peak=Math.max(peak,resident.size);
       tiles.push({index,placement:placements[index],vertices});
-      try {terrain.setTile(index,world.terrain_material(index));}
-      catch(error) {terrainErrors.set(index,`Terrain material ${entry.file}: ${error.message || error}`);}
+      terrainMaterials.add(index);
     } catch(error) {
       world.remove_tile(index);scene.removeTile(tileKey(index));
       recordTerrainFailure(index,error);
@@ -335,6 +336,12 @@ function publishScene(region) {
   sceneSubmissionPending=false;
 }
 function startOptionalWork(message) {
+  const index=terrainMaterials.values().next().value;
+  if(index!==undefined) {
+    terrainMaterials.delete(index);
+    try {terrain.setTile(index,world.terrain_material(index));}
+    catch(error) {terrainErrors.set(index,`Terrain material ${manifest.tiles[index].file}: ${error.message || error}`);}
+  }
   if(message.focus || Array.from(world.required_tiles()).every(i=>resident.has(i)))startDistantRead();
   if(!objectWait.length) {
     void terrain.pump();
@@ -380,6 +387,7 @@ async function handle(message) {
     sceneInstanceDeltas=message.sceneInstanceDeltas===true;
     postFrameVisuals=message.postFrameVisuals===true;
     terrainRead=undefined;
+    terrainMaterials.clear();
     report('Opening local MPQ archives and patch chain');
     source=await openDataSource(message.folder);
     const wdts=[],wdls=[];

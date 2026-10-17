@@ -127,9 +127,9 @@ export class SceneStream {
     this.bounds = new WeakMap();
     this.npcs = null; this.populationStatus = 'No local NPC spawn pack; client Data has no spawn positions';
   }
-  setTile(key, bytes) {
+  setTile(key, bytes, metadata) {
     if (!this.tiles.has(key) && this.tiles.size >= 4) throw new Error('Remove an old scene tile before loading a fifth');
-    this.tiles.set(key, this.parsePlacements(bytes));
+    this.tiles.set(key, this.parsePlacements(bytes, metadata));
     this.revision++;
   }
   setDistantTile(key, bytes) {
@@ -138,8 +138,8 @@ export class SceneStream {
     this.revision++;
   }
   removeDistantTile(key) { if(this.distantTiles.delete(key))this.revision++; }
-  parsePlacements(bytes) {
-    const placements = JSON.parse(this.wasm.scene_placements(bytes));
+  parsePlacements(bytes, metadata) {
+    const placements = JSON.parse(metadata ?? this.wasm.scene_placements(bytes));
     for (const p of placements) {
       p.path = modelPath(p.path);
       if (!['m2', 'wmo'].includes(p.kind) || !Number.isSafeInteger(p.id) || p.id < 0) throw new Error('Invalid scene identity');

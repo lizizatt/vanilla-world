@@ -15,11 +15,12 @@ function boot(events=[],clock=performance) {
   return context;
 }
 function fixture(xs=[0,1,20,21]) {
-  const reads=[],added=[],pending=new Map(),required=[0];
+  const reads=[],added=[],materials=[],pending=new Map(),required=[0];
   const context=boot();
   context.dependencies={
     world:{required_tiles:()=>required,add_tile:i=>added.push(i),remove_tile(){},
-      geometry:()=>new Float32Array(),horizon_seams:()=>new Float32Array(),terrain_material:()=>({})},
+      geometry:()=>new Float32Array(),horizon_seams:()=>new Float32Array(),terrain_material:i=>{materials.push(i);return {};},
+      tile_placements:()=> '[]'},
     source:{read:path=>{
       const index=Number(path.match(/tile(\d+)\.adt$/)[1]);
       reads.push(index);
@@ -27,13 +28,15 @@ function fixture(xs=[0,1,20,21]) {
     }},
     manifest:{regions:[{map:'test'}],tiles:xs.map((x,i)=>({region:0,x,y:0,file:`tile${i}.adt`}))},
     placements:xs.map(x=>[x*1600/3,0]),
-    scene:{setTile(){},removeTile(){}},terrain:{setTile(){},removeTile(){}},
+    scene:{setTile(){},removeTile(){}},terrain:{setTile(){},removeTile(){},pump(){}},
   };
   runInContext(`({world,source,manifest,placements,scene,terrain}=dependencies);
     resident=new Set([0]);
+    craft.ready=true;
     globalThis.streamTerrain=stream;
+    globalThis.visuals=()=>startOptionalWork({});
     globalThis.state=()=>({resident:[...resident],failures:[...failures.values()]});`,context);
-  return {reads,added,required,pending,stream:context.streamTerrain,
+  return {reads,added,materials,required,pending,stream:context.streamTerrain,visuals:context.visuals,
     state:()=>JSON.parse(JSON.stringify(context.state()))};
 }
 
@@ -50,6 +53,22 @@ test('slow optional ADT read does not block frames, duplicate reads, or admit te
   assert.deepEqual(f.reads,[1]);
   assert.deepEqual(f.added,[1]);
   assert.deepEqual(f.state().resident,[0,1]);
+});
+
+test('terrain materials follow the physics reply and evicted pending work never returns',async()=>{
+  const f=fixture();
+  await f.stream([0,0],true);
+  f.pending.get(1).resolve(new Uint8Array([1]));await settle();
+  await f.stream([0,0],true);
+  assert.deepEqual(f.added,[1]);assert.deepEqual(f.materials,[]);
+  f.visuals();assert.deepEqual(f.materials,[1]);
+  f.visuals();assert.deepEqual(f.materials,[1]);
+  const stale=fixture();
+  await stale.stream([0,0],true);
+  stale.pending.get(1).resolve(new Uint8Array([1]));await settle();
+  await stale.stream([0,0],true);
+  await stale.stream([20*1600/3,0],false);
+  stale.visuals();assert.deepEqual(stale.materials,[]);
 });
 
 test('prefetched ADT becoming required waits for the same read and keeps current support pinned',async()=>{
