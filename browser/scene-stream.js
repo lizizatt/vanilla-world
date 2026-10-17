@@ -1,6 +1,6 @@
 // Static authored geometry only. All matrices are column-major, model -> source WoW world.
 export const SCENE_LIMITS = Object.freeze({
-  assets: 128, bytes: 96 * 1024 * 1024, instances: 1024, jobs: 2, radius: 850,
+  assets: 96, textures: 192, bytes: 96 * 1024 * 1024, instances: 1024, jobs: 2, radius: 850,
 });
 
 export function modelPath(path) {
@@ -75,6 +75,10 @@ function modelBytes(model) {
   return model.vertices.byteLength + model.indices.byteLength
     + model.collisionVertices.byteLength + model.collisionIndices.byteLength;
 }
+function requestOrder(a, b) {
+  const priority = { texture: 0, wmo: 1, group: 2, m2: 3 };
+  return a.score - b.score || priority[a.kind] - priority[b.kind] || a.key.localeCompare(b.key);
+}
 
 export class SceneStream {
   constructor(source, wasm, limits = {}) {
@@ -120,7 +124,7 @@ export class SceneStream {
       const score = distance(bounds, position);
       if ((kind !== 'wmo' || asset) && score > this.limits.radius) return;
       want(key, { kind, path, skins }, score);
-      candidates.set(id, { id, key, matrix, bounds, score, kind });
+      candidates.set(id, { id, key, matrix, bounds, boundsKnown: !!asset?.bounds, score, kind });
       if (kind === 'wmo' && asset) {
         candidates.delete(id);
         asset.groups.forEach((group, index) => {
@@ -128,7 +132,7 @@ export class SceneStream {
           if (d > this.limits.radius) return;
           const groupKey = `group:${path}:${index}`;
           want(groupKey, { kind: 'group', path: `${path.slice(0, -4)}_${String(index).padStart(3, '0')}.wmo`, rootKey: key }, d);
-          candidates.set(`${id}:group:${index}`, { id: `${id}:group:${index}`, key: groupKey, matrix, bounds: groupBounds, score: d, kind: 'group' });
+          candidates.set(`${id}:group:${index}`, { id: `${id}:group:${index}`, key: groupKey, matrix, bounds: groupBounds, boundsKnown: true, score: d, kind: 'group' });
         });
         const doodads = new Set();
         for (const setIndex of new Set([0, p.doodadSet || 0])) {
@@ -192,10 +196,13 @@ export class SceneStream {
     try {
       for (let job = 0; job < this.limits.jobs; job++) {
         const request = [...this.requests.values()].filter(r => !this.cache.has(r.key) && !this.failures.has(r.key))
-          .sort((a, b) => a.score - b.score || a.key.localeCompare(b.key))[0];
+          .sort(requestOrder)[0];
         if (!request) break;
-        if (this.cache.size >= this.limits.assets && [...this.cache.keys()].every(k => this.requests.has(k))) {
-          this.capacityBlocked = true; break;
+        const limit = request.kind === 'texture' ? this.limits.textures : this.limits.assets;
+        if (this.resourceCount(request.kind) >= limit) {
+          const victim = this.victimFor(request, true);
+          if (!victim) { this.capacityBlocked = true; break; }
+          this.evict(victim);
         }
         let result;
         try {
@@ -204,13 +211,12 @@ export class SceneStream {
             result.dispose?.(); continue;
           }
           if (result.bytes > this.limits.bytes) throw new Error('Decoded scene resource exceeds cache byte budget');
-          while (this.cache.size >= this.limits.assets || this.bytes + result.bytes > this.limits.bytes) {
-            const victim = [...this.cache.entries()].filter(([key]) => !this.requests.has(key))
-              .sort((a, b) => a[1].used - b[1].used)[0];
+          while (this.resourceCount(request.kind) >= limit || this.bytes + result.bytes > this.limits.bytes) {
+            const victim = this.victimFor(request, this.resourceCount(request.kind) >= limit);
             if (!victim) break;
-            this.evict(victim[0]);
+            this.evict(victim);
           }
-          if (this.cache.size >= this.limits.assets || this.bytes + result.bytes > this.limits.bytes) {
+          if (this.resourceCount(request.kind) >= limit || this.bytes + result.bytes > this.limits.bytes) {
             this.capacityBlocked = true;
             throw Object.assign(new Error('Pinned nearby scene resources exhaust cache budget'), { code: 'LIMIT' });
           }
@@ -225,6 +231,23 @@ export class SceneStream {
         }
       }
     } finally { this.busy = false; }
+  }
+  resourceCount(kind) {
+    return [...this.cache.keys()].filter(key => key.startsWith('texture:') === (kind === 'texture')).length;
+  }
+  victimFor(request, sameKind = false) {
+    const protectedRoots = new Set([...this.requests.values()].filter(r => r.rootKey).map(r => r.rootKey));
+    const owners = request.kind === 'texture' ? new Set([...this.cache.entries()]
+      .filter(([, entry]) => entry.value.batches?.some(b => b.texture && modelPath(b.texture) === request.path))
+      .map(([key]) => key)) : new Set();
+    return [...this.cache.entries()].filter(([key]) => !protectedRoots.has(key) && !owners.has(key)
+      && (!sameKind || key.startsWith('texture:') === (request.kind === 'texture'))
+      && (!this.requests.has(key) || requestOrder(this.requests.get(key), request) > 0))
+      .sort(([a, x], [b, y]) => {
+        const ar = this.requests.get(a), br = this.requests.get(b);
+        if (!ar || !br) return ar ? 1 : br ? -1 : x.used - y.used;
+        return requestOrder(br, ar);
+      })[0]?.[0];
   }
   async load(request) {
     const bytes = await this.source.read(request.path);
@@ -261,22 +284,27 @@ export class SceneStream {
     return { value, bytes: modelBytes(value) };
   }
   snapshot() {
-    const assets = new Map(), textures = new Map();
+    const assets = new Map(), textures = new Map(), collisionInstances = [], unresolvedCollision = [];
     const instances = this.instances.filter(i => {
       const value = this.cache.get(i.key)?.value;
-      if (!value?.vertices) return false;
-      // No opaque leaf-card fallback: a cutout waits for its actual alpha texture.
-      if (value.batches.some(b => b.alphaCutoff > 0 && (!b.texture || !this.cache.has(`texture:${modelPath(b.texture)}`)))) return false;
+      if (!value?.vertices) {
+        unresolvedCollision.push({ id: i.id, key: i.key, kind: i.kind, bounds: i.bounds, boundsKnown: i.boundsKnown,
+          status: this.failures.get(i.key)?.code || 'PENDING' });
+        return false;
+      }
       assets.set(i.key, value);
+      collisionInstances.push(i);
       for (const b of value.batches) {
         if (!b.texture) continue;
         const path = modelPath(b.texture), texture = this.cache.get(`texture:${path}`)?.value;
         if (texture) textures.set(path, texture);
       }
-      return true;
+      // Collision is already valid while a cutout waits for its actual alpha texture.
+      return !value.batches.some(b => b.alphaCutoff > 0 && (!b.texture || !this.cache.has(`texture:${modelPath(b.texture)}`)));
     });
-    return { instances, assets, textures, errors: [...this.errors], populationStatus: this.populationStatus,
+    return { instances, collisionInstances, unresolvedCollision, assets, textures, errors: [...this.errors], populationStatus: this.populationStatus,
       cachedAssets: this.cache.size, cachedBytes: this.bytes, capacityBlocked: !!this.capacityBlocked,
+      cachedModels: this.resourceCount('m2'), cachedTextures: this.resourceCount('texture'),
       pending: [...this.requests.keys()].filter(k => !this.cache.has(k) && !this.failures.has(k)).length };
   }
   evict(key) {
@@ -292,8 +320,9 @@ export class SceneStream {
 
 export function validatePopulation(pack) {
   if (!pack || pack.version !== 1 || !pack.provenance || typeof pack.provenance.source !== 'string'
-      || !pack.provenance.source || pack.provenance.redistribution !== 'private-local-only'
-      || !pack.models || !Array.isArray(pack.spawns) || pack.spawns.length > 200000) throw new Error('Invalid local NPC pack/provenance');
+      || !pack.provenance.source || pack.provenance.source.length > 4096 || pack.provenance.redistribution !== 'private-local-only'
+      || !pack.models || Array.isArray(pack.models) || Object.keys(pack.models).length > 16000
+      || !Array.isArray(pack.spawns) || pack.spawns.length > 200000) throw new Error('Invalid local NPC pack/provenance');
   for (const model of Object.values(pack.models)) {
     model.path = modelPath(model.path);
     if (!Number.isFinite(model.scale) || model.scale <= 0 || model.scale > 100
@@ -303,9 +332,11 @@ export function validatePopulation(pack) {
   const chunks = new Map(), ids = new Set();
   for (const npc of pack.spawns) {
     if (!Number.isSafeInteger(npc.id) || npc.id < 0 || ids.has(npc.id) || ![0, 1].includes(npc.map)
+        || !Number.isSafeInteger(npc.displayId) || npc.displayId <= 0
         || !finite(npc.position, 3) || npc.position.some(v => Math.abs(v) > 100000)
         || !Number.isFinite(npc.orientation) || !Number.isFinite(npc.scale) || npc.scale <= 0
-        || npc.scale > 100 || !Object.hasOwn(pack.models, npc.displayId)) throw new Error('Invalid NPC spawn');
+        || npc.scale > 100 || !Object.hasOwn(pack.models, npc.displayId)
+        || npc.scale * pack.models[npc.displayId].scale > 100) throw new Error('Invalid NPC spawn');
     ids.add(npc.id);
     const x = Math.floor((17066.666666666668 - npc.position[1]) / (1600 / 3));
     const y = Math.floor((17066.666666666668 - npc.position[0]) / (1600 / 3));

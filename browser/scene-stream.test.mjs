@@ -65,6 +65,9 @@ test('actual alpha texture gates leaf cards and missing/corrupt are distinct', a
   const f = fixture({ cutout: true }), stream = new SceneStream(f.source, f.wasm, { jobs: 1 });
   stream.setTile('1:0:0', [p(1)]); stream.update(1, [0, 0, 0]); await stream.pump();
   assert.equal(stream.snapshot().instances.length, 0);
+  assert.equal(stream.snapshot().collisionInstances.length, 1);
+  assert.equal(stream.snapshot().unresolvedCollision.length, 0);
+  assert.equal(stream.snapshot().assets.size, 1);
   await stream.pump();
   assert.equal(stream.snapshot().instances.length, 1);
   assert.equal(stream.snapshot().textures.get('leaves.blp').rgba[3], 0);
@@ -73,6 +76,8 @@ test('actual alpha texture gates leaf cards and missing/corrupt are distinct', a
     broken.setTile('1:0:0', [p(1)]); broken.update(1, [0, 0, 0]); await broken.pump();
     assert.equal(broken.snapshot().errors[0].code, code);
     assert.equal(broken.snapshot().instances.length, 0);
+    assert.equal(broken.snapshot().unresolvedCollision[0].status, code);
+    assert.equal(broken.snapshot().unresolvedCollision[0].boundsKnown, false);
   }
 });
 
@@ -113,6 +118,9 @@ test('WMO groups and selected child doodads load as separate jobs', async () => 
   stream.update(0, [0, 0, 0]); await stream.pump();
   assert.equal(f.reads(), 1);
   assert.equal(stream.snapshot().instances.length, 0);
+  const unresolvedGroup = stream.snapshot().unresolvedCollision.find(i => i.kind === 'group');
+  assert.equal(unresolvedGroup.boundsKnown, true);
+  assert.deepEqual(unresolvedGroup.bounds, [[-2, -2, 0], [2, 2, 5]]);
   await stream.pump(); await stream.pump();
   assert.equal(f.reads(), 3);
   const snapshot = stream.snapshot();
@@ -130,4 +138,27 @@ test('pinned cache limit does not reread resources endlessly and fifth tile is r
   assert.equal(f.reads(), 1);
   assert.equal(stream.snapshot().capacityBlocked, true);
   assert.equal(stream.snapshot().cachedAssets, 1);
+});
+
+test('nearer moving demand displaces a still-visible distant cached model', async () => {
+  const f = fixture(), stream = new SceneStream(f.source, f.wasm, { assets: 1 });
+  stream.setTile('1:0:0', [p(1, 'near.m2', 0), p(2, 'far.m2', 500)]);
+  stream.update(1, [0, 0, 0]); await stream.pump();
+  assert.equal(stream.snapshot().instances[0].id, '1:m2:1');
+  stream.update(1, [500, 0, 0]); await stream.pump();
+  assert.equal(stream.snapshot().instances[0].id, '1:m2:2');
+  assert.equal(stream.snapshot().cachedAssets, 1);
+  assert.equal(f.reads(), 2);
+});
+
+test('texture dependencies have separate bounded slots and cannot evict their geometry owner', async () => {
+  const f = fixture({ cutout: true }), stream = new SceneStream(f.source, f.wasm, { assets: 1, textures: 1 });
+  stream.setTile('1:0:0', [p(1)]); stream.update(1, [0, 0, 0]);
+  await stream.pump(); await stream.pump();
+  const snapshot = stream.snapshot();
+  assert.equal(snapshot.instances.length, 1);
+  assert.equal(snapshot.cachedModels, 1);
+  assert.equal(snapshot.cachedTextures, 1);
+  assert.equal(f.reads(), 2);
+  assert.equal(snapshot.pending, 0);
 });

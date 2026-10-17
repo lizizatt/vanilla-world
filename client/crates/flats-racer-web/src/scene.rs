@@ -157,15 +157,28 @@ impl SceneModel {
         }
         let dir = path.rsplit_once(['\\', '/']).map_or("", |(dir, _)| dir);
         let mut subs = parse_m2_render_submeshes(bytes, dir, &skins).map_err(|e| e.to_string())?;
+        let mut omitted_character_batches = 0;
         if let Some(Some(body)) = skins.get(3) {
             for sub in &mut subs {
                 if sub.char_slot == Some(benilla_formats::CharSkinSlot::Body) {
                     sub.texture = Some(body.clone());
                 }
             }
+            // shortcut: baked body only; resolve hair/equipment before admitting their untextured cards.
+            let before = subs.len();
+            subs.retain(|sub| sub.char_slot.is_none() || sub.texture.is_some());
+            omitted_character_batches = before - subs.len();
         }
         let collision = parse_m2_collision_hull(bytes).map_err(|e| e.to_string())?;
-        Self::build(subs, collision)
+        let mut model = Self::build(subs, collision)?;
+        if omitted_character_batches > 0 {
+            let mut metadata: serde_json::Value =
+                serde_json::from_str(&model.metadata).map_err(|e| e.to_string())?;
+            metadata["omittedCharacterBatches"] = omitted_character_batches.into();
+            metadata["appearance"] = "baked-body-only".into();
+            model.metadata = metadata.to_string();
+        }
+        Ok(model)
     }
 }
 
@@ -396,5 +409,49 @@ mod tests {
                 refs.len()
             );
         }
+    }
+
+    #[test]
+    fn real_baked_npc_has_a_visible_body_without_unresolved_cutout_cards() {
+        let data = benilla_formats::wow_data_or_skip!();
+        let mut chain = benilla_formats::Chain::open(&data).unwrap();
+        let catalog = benilla_formats::load_creature_catalog(&mut chain).unwrap();
+        let creature = catalog
+            .display_models()
+            .filter_map(|(id, _)| catalog.model(id))
+            .find(|m| {
+                m.npc_appearance
+                    .as_ref()
+                    .is_some_and(|a| a.bake_name.is_some())
+            })
+            .unwrap();
+        let path = creature
+            .model_path
+            .to_ascii_lowercase()
+            .replace(".mdx", ".m2");
+        let mut skins = creature.textures.to_vec();
+        skins.push(
+            creature
+                .npc_appearance
+                .unwrap()
+                .bake_name
+                .map(|name| format!("Textures\\BakedNpcTextures\\{name}")),
+        );
+        let bytes = chain.read_file(&path).unwrap();
+        let model =
+            SceneModel::from_m2(&bytes, &path, &serde_json::to_string(&skins).unwrap()).unwrap();
+        let metadata: serde_json::Value = serde_json::from_str(&model.metadata).unwrap();
+        let batches = metadata["batches"].as_array().unwrap();
+        assert!(batches.iter().any(|b| {
+            b["texture"]
+                .as_str()
+                .is_some_and(|s| s.contains("BakedNpcTextures"))
+        }));
+        assert!(
+            batches
+                .iter()
+                .all(|b| b["alphaCutoff"].as_f64().unwrap() == 0.0 || b["texture"].is_string()),
+            "Unresolved character cutouts hide an otherwise valid baked NPC"
+        );
     }
 }

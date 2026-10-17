@@ -11,8 +11,10 @@ most two file reads/decodes, serially; WMO roots and individual groups are separ
 jobs. `clear()` invalidates pending completion and releases retained Wasm roots.
 
 `snapshot()` returns `instances`, `assets` and `textures` Maps, bounded error
-history, population status and cache counters. Hard limits are 128 cached resources,
-96 MiB accounted decoded payload, 1,024 closest scene instances and 850 yards.
+history, population status and cache counters. Hard limits are 96 geometry/root
+resources plus 192 dependent textures, 96 MiB shared accounted decoded payload,
+1,024 closest scene instances and 850 yards. Texture dependencies do not consume
+geometry slots; nearest requests win, with texture-first ties and protected owners.
 `capacityBlocked`/`pending` mean content is incomplete, not successfully loaded.
 The byte count includes conservative root memory accounting but excludes parser
 temporaries, JavaScript bookkeeping and the separately owned main-thread/GPU copy.
@@ -44,6 +46,13 @@ trunks, **not** foliage) or WMO walking faces excluding DETAIL. They are a colli
 input seam, not a physics implementation. Renderer integration must use swept
 contacts and distinguish missing collision assets from clear space. Empty M2 hulls
 are valid non-solid models. Source vertices are not collision AABB boxes.
+`collisionInstances` includes loaded hulls even while rendering waits for alpha;
+their buffers are in `assets`. `unresolvedCollision` identifies unloaded/failed
+geometry with status, bounds and `boundsKnown`. WMO groups have known transformed
+boxes; unknown M2/root bounds are only placement points, **not** certified empty
+space. The physics integration must conservatively gate nearby unresolved points
+and known boxes, not freeze for every far `pending` resource. These bounds do not
+prove an unparsed model's true extent.
 
 Worker buffers must stay attached for reuse/collision. Copy and transfer each newly
 visible asset/texture once; release main-thread/GPU copies when absent from the
@@ -74,8 +83,15 @@ export chooses the first authored template/display alternative and patch 10, not
 event/pool scheduling. All models currently use bind pose; equipment, humanoid
 hair/geoset customization, skeletal animation, billboarding, quests and combat are
 not implemented. The baked body texture is retained where available.
+Unresolved hair/cape material batches are omitted from a baked-body NPC, with
+`omittedCharacterBatches`/`appearance: "baked-body-only"` metadata, rather than making
+the whole NPC disappear or drawing opaque substitute cards.
 
 Focused checks: `node --test browser\scene-stream.test.mjs` and
 `cargo test --manifest-path client\Cargo.toml -p flats-racer-web --test scene`.
 Set `WOW_DATA` and `BENILLA_REQUIRE_DATA=1` for the real both-continent placements,
 complete Elwynn pine/alpha and Goldshire inn checks.
+After building the Wasm exports, `node browser\scene-smoke.mjs` checks real MPQ
+reads and scene admission in an Edge worker at the raceway and Stormwind.
+Optional `NPC_SPAWNS` points to a private companion for that check. This is not a
+substitute for the integrated renderer's GPU and collision acceptance.
