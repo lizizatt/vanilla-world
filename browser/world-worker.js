@@ -1,7 +1,7 @@
 import init,{Voyage,world_manifest} from './pkg/flats_racer_web.js';
 import * as wasmTypes from './pkg/flats_racer_web.js';
 import {openDataSource} from './asset-source.js';
-import {SceneStream,SCENE_LIMITS,transformedBounds,globalCollisionVertices} from './scene-stream.js';
+import {SceneStream,SCENE_LIMITS,transformedBounds,globalCollisionVertices,boundsDistance} from './scene-stream.js';
 import {TerrainStream} from './terrain-stream.js';
 import {loadCraft} from './craft-stream.js';
 
@@ -24,6 +24,7 @@ let terrainRead;
 let sentAssets=new Set(),sentTextures=new Set(),sceneState,sceneSignature='';
 let sentInstanceMatrices=new Map();
 let sceneFocus,sceneUpdated=0,sceneRevision=-1;
+let sceneSubmissionPending=true;
 let scenePumpError;
 const collisionBounds=new Map();
 let collisionCount=0;
@@ -191,9 +192,8 @@ function sourcePosition(region,p) {
 }
 function updateCameraUnknown(body,region) {
   const p=sourcePosition(region,body);
-  cameraUnknown=sceneState.unresolvedCollision.filter(i=>Math.hypot(
-    ...p.map((v,a)=>Math.max(i.bounds[0][a]-v,0,v-i.bounds[1][a])))<84
-    || (i.kind==='wmo'&&!i.boundsKnown));
+  cameraUnknown=sceneState.unresolvedCollision.filter(i=>(i.kind==='wmo'&&!i.boundsKnown)
+    || boundsDistance(i.bounds,p)<84);
 }
 async function updateScene(focus) {
   if(scenePumpError)throw scenePumpError;
@@ -213,23 +213,26 @@ async function updateScene(focus) {
   void scene.pump(true).catch(error=>{scenePumpError=error;});
   if(changed || sceneRevision!==scene.revision || !sceneState) {
     const start=performance.now();sceneState=scene.snapshot();timings.snapshotMs+=performance.now()-start;
+    sceneSubmissionPending=true;
   }
   sceneRevision=scene.revision;
-  for(const key of collisionBounds.keys())if(!sceneState.assets.has(key))collisionBounds.delete(key);
   const sweep=world.frame_sweep_distance(),bodySource=sourcePosition(region,body),radius=4+sweep;
   if(radius>SCENE_LIMITS.radius)throw new Error('Frame sweep exceeds the streamed scene collision coverage');
   objectWait=sceneState.unresolvedCollision.filter(i=>{
     if(i.kind==='wmo' && !i.boundsKnown)return true;
-    const distance=Math.hypot(...bodySource.map((v,a)=>Math.max(i.bounds[0][a]-v,0,v-i.bounds[1][a])));
+    const distance=boundsDistance(i.bounds,bodySource);
     // shortcut: unknown M2 extents use a 32-yard proximity guard until their authored hull is decoded.
     return distance<(i.boundsKnown?radius:Math.max(32,radius));
   });
-  updateCameraUnknown(body,region);
   const reach=Math.max(120,32+52+sweep);
   if(!collisionFocus || collisionFocus.region!==region || reach>collisionFocus.reach ||
     Math.hypot(body[0]-collisionFocus.x,body[2]-collisionFocus.z)>32) {
     collisionFocus={region,x:body[0],z:body[2],reach};
+    sceneSubmissionPending=true;
   }
+  // Readiness above is live every frame; unchanged snapshot/anchor inputs cannot change submission.
+  if(!sceneSubmissionPending)return;
+  for(const key of collisionBounds.keys())if(!sceneState.assets.has(key))collisionBounds.delete(key);
   const active=new Set(),nearby=[];
   const toGlobal=p=>[-p[1]+r.placement[0]+(32-r.tile_origin[0])*TILE,p[2],-p[0]+r.placement[1]+(32-r.tile_origin[1])*TILE];
   for(const instance of sceneState.collisionInstances) {
@@ -284,25 +287,30 @@ async function updateScene(focus) {
     timings.collisionBuildMs+=performance.now()-start;timings.collisionBuilds++;
   }
   const assets=[],textures=[],removedAssets=[],removedTextures=[],transfers=[];
-  for(const key of sentAssets)if(!sceneState.assets.has(key)){removedAssets.push(key);sentAssets.delete(key);}
-  for(const key of sentTextures)if(!sceneState.textures.has(key)){removedTextures.push(key);sentTextures.delete(key);}
+  for(const key of sentAssets)if(!sceneState.assets.has(key))removedAssets.push(key);
+  for(const key of sentTextures)if(!sceneState.textures.has(key))removedTextures.push(key);
   for(const [key,asset] of sceneState.assets)if(!sentAssets.has(key)) {
     const vertices=asset.vertices.slice(),indices=asset.indices.slice();
     assets.push({key,vertices,indices,batches:asset.batches});
-    transfers.push(vertices.buffer,indices.buffer);sentAssets.add(key);
+    transfers.push(vertices.buffer,indices.buffer);
   }
   for(const [key,texture] of sceneState.textures)if(!sentTextures.has(key)) {
     const rgba=texture.rgba.slice();
     textures.push({key,width:texture.width,height:texture.height,rgba});
-    transfers.push(rgba.buffer);sentTextures.add(key);
+    transfers.push(rgba.buffer);
   }
   const signature=JSON.stringify(sceneState.instances.map(i=>[i.id,i.key,i.distant]));
   const transformsChanged=sceneState.instances.some(i=>sentInstanceMatrices.get(i.id)!==i.matrix);
   if(signature!==sceneSignature || transformsChanged || assets.length || textures.length || removedAssets.length || removedTextures.length) {
+    postMessage({event:'scene',region,instances:sceneState.instances,assets,textures,removedAssets,removedTextures},transfers);
+    for(const key of removedAssets)sentAssets.delete(key);
+    for(const key of removedTextures)sentTextures.delete(key);
+    for(const {key} of assets)sentAssets.add(key);
+    for(const {key} of textures)sentTextures.add(key);
     sceneSignature=signature;
     sentInstanceMatrices=new Map(sceneState.instances.map(i=>[i.id,i.matrix]));
-    postMessage({event:'scene',region,instances:sceneState.instances,assets,textures,removedAssets,removedTextures},transfers);
   }
+  sceneSubmissionPending=false;
 }
 function snapshot() {
   horizon.wasmPeakBytes=Math.max(horizon.wasmPeakBytes,wasm.memory.buffer.byteLength);
@@ -353,6 +361,7 @@ async function handle(message) {
     await stream([manifest.spawn[0],manifest.spawn[2]],true);
     world.initialize_spawn();
     await updateScene(Array.from(world.telemetry().slice(0,3)));
+    updateCameraUnknown(world.telemetry(),focusRegion(world.telemetry()));
     return {info:{id:source.fingerprint,manifest,archiveCount:source.archives.length,tuning:Array.from(world.tuning())},state:snapshot()};
   }
   if(!world)throw new Error('Local world is not open');
@@ -412,6 +421,11 @@ async function handle(message) {
   } else if(message.action==='probe') {
     return message.points.map(p=>Array.from(world.surface(p[0],p[1])));
   } else if(message.action!=='snapshot')throw new Error('Unknown world operation');
+  if(message.action==='restore' || message.action==='reset' || message.action==='retry') {
+    const body=world.telemetry();
+    await updateScene(Array.from(body.slice(0,3)));
+    updateCameraUnknown(body,focusRegion(body));
+  }
   return snapshot();
 }
 onmessage=({data})=>{

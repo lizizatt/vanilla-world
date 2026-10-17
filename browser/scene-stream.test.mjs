@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { SceneStream, placementMatrix, transformPoint, transformedBounds, globalCollisionVertices, validatePopulation, modelPath } from './scene-stream.js';
+import { SceneStream, placementMatrix, transformPoint, transformedBounds, globalCollisionVertices, validatePopulation, modelPath, boundsDistance } from './scene-stream.js';
 
 const p = (id, path = 'tree.mdx', x = 0) => ({ kind: 'm2', id, path, position: [x, 0, 0], rotation: [0, 180, 0], scale: 1 });
-const fixture = ({ cutout = false } = {}) => {
+const fixture = ({ cutout = false, texture = 'leaves.blp' } = {}) => {
   let reads = 0, freed = 0;
   const model = () => ({
     metadata: () => JSON.stringify({ bounds: [[-1, -1, 0], [1, 1, 2]], batches: [{
-      texture: cutout ? 'leaves.blp' : null, alphaCutoff: cutout ? 224 / 255 : 0,
+      texture: cutout ? texture : null, alphaCutoff: cutout ? 224 / 255 : 0,
     }] }),
     vertices: () => new Float32Array(36), indices: () => new Uint32Array([0, 1, 2]),
     collision_vertices: () => new Float32Array(9), collision_indices: () => new Uint32Array([0, 1, 2]),
@@ -38,6 +38,20 @@ test('ADT rotations preserve source axes, tilted scale, bounds and translation',
   assert.throws(() => placementMatrix({ ...p(1), scale: NaN }));
   assert.throws(() => modelPath('..\\secret'));
   assert.equal(modelPath('WORLD/Tree.MDX'), 'world\\tree.m2');
+});
+
+test('scalar bounds distance preserves point and swept-box distances on every axis', () => {
+  const bounds = [[-2, -3, -4], [5, 6, 7]];
+  const points = [[0, 0, 0], [-2, -3, -4], [5, 6, 7], [9, -8, 12], [-9, 8, -12], [1e200, -1e200, 1e200]];
+  for (const start of points) {
+    assert.equal(boundsDistance(bounds, start),
+      Math.hypot(...start.map((v, a) => Math.max(bounds[0][a] - v, 0, v - bounds[1][a]))));
+    for (const end of points) {
+      const low = start.map((v, a) => Math.min(v, end[a])), high = start.map((v, a) => Math.max(v, end[a]));
+      assert.equal(boundsDistance(bounds, low, high), Math.hypot(...start.map((v, a) =>
+        Math.max(bounds[0][a] - Math.max(v, end[a]), 0, Math.min(v, end[a]) - bounds[1][a]))));
+    }
+  }
 });
 
 test('indexed collision vertices retain transformed tilt, scale and translated world precision', () => {
@@ -111,6 +125,24 @@ test('shared near/far metadata does not rebuild admitted near models or omit far
   assert.equal(lookups.get('m2:near.m2:[]'), 2, 'One admission and one material dependency lookup');
   assert.equal(stream.requests.get('m2:near.m2:[]').distant, false);
   assert.equal(stream.requests.get('m2:far.m2:[]').distant, true);
+});
+
+test('material paths normalize at decode and invalid paths remain explicit failed collision resources', async () => {
+  const f = fixture({cutout: true, texture: 'World/Leaves.BLP'});
+  const stream = new SceneStream(f.source, f.wasm, {jobs: 1});
+  stream.setTile('1:0:0', [p(1)]); stream.update(1, [0, 0, 0]);
+  await stream.pump();
+  assert.equal(stream.snapshot().assets.get('m2:tree.m2:[]').batches[0].texture, 'world\\leaves.blp');
+  await stream.pump();
+  assert.equal(stream.snapshot().instances.length, 1);
+  assert(stream.snapshot().textures.has('world\\leaves.blp'));
+  const broken = fixture({cutout: true, texture: '..\\secret.blp'});
+  const invalid = new SceneStream(broken.source, broken.wasm, {jobs: 1});
+  invalid.setTile('1:0:0', [p(1)]); invalid.update(1, [0, 0, 0]);
+  await invalid.pump();
+  assert.match(invalid.snapshot().errors[0].message, /Invalid scene path/);
+  assert.equal(invalid.snapshot().unresolvedCollision[0].status, 'CORRUPT');
+  assert.equal(broken.freed(), 1);
 });
 
 test('predicted swept-path solids precede current textures without waiting for their I/O', async () => {

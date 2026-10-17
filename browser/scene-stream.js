@@ -74,12 +74,17 @@ export function globalCollisionVertices(vertices, m, region) {
   }
   return out;
 }
-function distance(bounds, p) {
-  return Math.hypot(...p.map((v, k) => Math.max(bounds[0][k] - v, 0, v - bounds[1][k])));
+export function boundsDistance(bounds, low, high = low) {
+  return Math.hypot(
+    Math.max(bounds[0][0] - high[0], 0, low[0] - bounds[1][0]),
+    Math.max(bounds[0][1] - high[1], 0, low[1] - bounds[1][1]),
+    Math.max(bounds[0][2] - high[2], 0, low[2] - bounds[1][2]));
 }
 function extractModel(handle) {
   try {
-    return { ...JSON.parse(handle.metadata()), vertices: handle.vertices(), indices: handle.indices(),
+    const metadata = JSON.parse(handle.metadata());
+    for (const batch of metadata.batches) if (batch.texture) batch.texture = modelPath(batch.texture);
+    return { ...metadata, vertices: handle.vertices(), indices: handle.indices(),
       collisionVertices: handle.collision_vertices(), collisionIndices: handle.collision_indices() };
   } finally { handle.free(); }
 }
@@ -145,8 +150,9 @@ export class SceneStream {
   update(map, position, predicted = position) {
     if (![0, 1].includes(map) || !finite(position, 3) || !finite(predicted, 3)) throw new Error('Invalid scene observer');
     this.map = map; this.position = position; this.predicted = predicted; this.clock++;
-    const collisionDistance = bounds => Math.hypot(...position.map((v, a) =>
-      Math.max(bounds[0][a] - Math.max(v, predicted[a]), 0, Math.min(v, predicted[a]) - bounds[1][a])));
+    const low = position.map((v, a) => Math.min(v, predicted[a]));
+    const high = position.map((v, a) => Math.max(v, predicted[a]));
+    const collisionDistance = bounds => boundsDistance(bounds, low, high);
     const candidates = new Map(), requests = new Map();
     const want = (key, request, score, distant) => {
       const previous = requests.get(key);
@@ -158,7 +164,7 @@ export class SceneStream {
     };
     const add = (p, id, matrix, kind = p.kind, distant = false) => {
       if (distant && candidates.has(id)) return;
-      const path = modelPath(p.path);
+      const path = p.path;
       const skins = p.skins || [];
       const key = `${kind}:${path}:${JSON.stringify(skins)}`;
       const asset = this.cache.get(key)?.value;
@@ -170,7 +176,7 @@ export class SceneStream {
         if (!bounds) { bounds = transformedBounds(asset.bounds, matrix); transforms.set(matrix, bounds); }
       }
       bounds ||= [matrix.slice(12, 15), matrix.slice(12, 15)];
-      const score = distance(bounds, position);
+      const score = boundsDistance(bounds, position);
       const radius = distant ? this.limits.distantRadius : this.limits.radius;
       if ((kind !== 'wmo' || asset || p.bounds) && score > radius) return;
       want(key, { kind, path, skins, collisionScore: collisionDistance(bounds) }, score, distant);
@@ -198,7 +204,7 @@ export class SceneStream {
         }
         asset.groups.forEach((group, index) => {
           if (distant && candidates.has(`${id}:group:${index}`)) return;
-          const groupBounds = expanded.groups[index], d = distance(groupBounds, position);
+          const groupBounds = expanded.groups[index], d = boundsDistance(groupBounds, position);
           if (d > radius) return;
           const groupKey = `group:${path}:${index}`;
           want(groupKey, { kind: 'group', path: `${path.slice(0, -4)}_${String(index).padStart(3, '0')}.wmo`,
@@ -262,7 +268,7 @@ export class SceneStream {
       const asset = this.cache.get(i.key)?.value;
       for (const batch of asset?.batches || []) {
         if (!batch.texture) continue;
-        const path = modelPath(batch.texture), key = `texture:${path}`;
+        const path = batch.texture, key = `texture:${path}`;
         want(key, { kind: 'texture', path }, i.score, i.distant);
         keep.add(key);
       }
@@ -332,7 +338,7 @@ export class SceneStream {
   victimFor(request, sameKind = false) {
     const protectedRoots = new Set([...this.requests.values()].filter(r => r.rootKey).map(r => r.rootKey));
     const owners = request.kind === 'texture' ? new Set([...this.cache.entries()]
-      .filter(([, entry]) => entry.value.batches?.some(b => b.texture && modelPath(b.texture) === request.path))
+      .filter(([, entry]) => entry.value.batches?.some(b => b.texture === request.path))
       .map(([key]) => key)) : new Set();
     return [...this.cache.entries()].filter(([key]) => !protectedRoots.has(key) && !owners.has(key)
       && (!sameKind || key.startsWith('texture:') === (request.kind === 'texture'))
@@ -367,7 +373,7 @@ export class SceneStream {
               || g.bounds.some(v => !finite(v, 3)) || g.bounds[0].some((v, i) => v > g.bounds[1][i]))) {
           throw new Error('WMO group bounds are incomplete or invalid');
         }
-        for (const doodad of value.doodads) { modelPath(doodad.path); placementMatrix(doodad); }
+        for (const doodad of value.doodads) { doodad.path = modelPath(doodad.path); placementMatrix(doodad); }
         if (value.sets.some(s => !Number.isSafeInteger(s.start) || !Number.isSafeInteger(s.count)
             || s.start < 0 || s.count < 0 || s.start + s.count > value.doodads.length)) throw new Error('Invalid WMO doodad set');
         value.bounds = value.groups.reduce((b, g) => b.map((v, side) => v.map((n, axis) =>
@@ -401,11 +407,11 @@ export class SceneStream {
       assets.set(i.key, value);
       for (const b of value.batches) {
         if (!b.texture) continue;
-        const path = modelPath(b.texture), texture = this.cache.get(`texture:${path}`)?.value;
+        const path = b.texture, texture = this.cache.get(`texture:${path}`)?.value;
         if (texture) textures.set(path, texture);
       }
       // Collision is already valid while a cutout waits for its actual alpha texture.
-      return !value.batches.some(b => b.alphaCutoff > 0 && (!b.texture || !this.cache.has(`texture:${modelPath(b.texture)}`)));
+      return !value.batches.some(b => b.alphaCutoff > 0 && (!b.texture || !this.cache.has(`texture:${b.texture}`)));
     });
     return { instances, collisionInstances, unresolvedCollision, assets, textures, errors: [...this.errors], populationStatus: this.populationStatus,
       cachedAssets: this.cache.size, cachedBytes: this.bytes, capacityBlocked: !!this.capacityBlocked, timings: {...this.timings},

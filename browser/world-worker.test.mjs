@@ -2,15 +2,15 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {readFile} from 'node:fs/promises';
 import {createContext,runInContext} from 'node:vm';
-import {transformedBounds,globalCollisionVertices,SCENE_LIMITS,placementMatrix} from './scene-stream.js';
+import {transformedBounds,globalCollisionVertices,SCENE_LIMITS,placementMatrix,boundsDistance} from './scene-stream.js';
 
 // Exercise the actual worker queue with synthetic archive/Wasm boundaries, without starting WebGPU.
 const worker=(await readFile(new URL('./world-worker.js',import.meta.url),'utf8'))
   .replace(/^import .*;\r?$/gm,'');
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 function boot(events=[]) {
-  const context=createContext({init:async()=>({}),performance,postMessage:message=>events.push(message),
-    transformedBounds,globalCollisionVertices,SCENE_LIMITS});
+  const context=createContext({init:async()=>({memory:{buffer:new ArrayBuffer(0)}}),performance,postMessage:message=>events.push(message),
+    transformedBounds,globalCollisionVertices,SCENE_LIMITS,boundsDistance});
   runInContext(worker,context);
   return context;
 }
@@ -110,9 +110,12 @@ test('failed prefetched terrain stays unavailable and exposes its error rather t
 function collisionFixture() {
   const events=[],context=boot(events),body=Array(15).fill(0),built=[],updates=[],parts=new Map();
   const state={instances:[],collisionInstances:[],unresolvedCollision:[],assets:new Map(),textures:new Map()};
-  const f={body,built,updates,events,sweep:0,failNext:false};
+  const f={body,built,updates,events,state,sweep:0,failNext:false,spawn:[0,0,0,0]};
   const scene={revision:0,selectionRevision:0,update(){this.selectionRevision=this.revision;},
-    async pump(){},snapshot:()=>state};
+    async pump(){},snapshot:()=>state,retry(){
+      this.revision++;
+      state.unresolvedCollision=state.unresolvedCollision.map(i=>({...i,status:'PENDING'}));
+    }};
   context.dependencies={
     world:{telemetry:()=>body,frame_sweep_distance:()=>f.sweep,set_scene_parts:(ids,counts,vertices)=>{
       updates.push({ids:[...ids],counts:[...counts],supplied:vertices.length});
@@ -126,16 +129,25 @@ function collisionFixture() {
       for(const id of parts.keys())if(!wanted.has(id))parts.delete(id);
       built.push([...ids].flatMap(id=>parts.get(id)));
     },
-      collision_vertices:()=>new Float64Array(),collision_nodes:()=>new Float64Array()},
-    manifest:{ocean:[10000,0,20000,0],regions:[{placement:[0,0],tile_origin:[32,32]}]},scene,
+      collision_vertices:()=>new Float64Array(),collision_nodes:()=>new Float64Array(),
+      required_tiles:()=>[],collision_stats:()=>[0,0,0],
+      restore:pose=>body.splice(0,4,...pose),initialize_spawn:()=>body.splice(0,4,...f.spawn)},
+    manifest:{spawn:f.spawn,ocean:[10000,0,20000,0],regions:[{placement:[0,0],tile_origin:[32,32]}]},scene,
   };
   runInContext(`({world,manifest,scene}=dependencies);
+    horizon={wasmPeakBytes:0};source={stats:{}};
+    terrain={snapshot:()=>({errors:[]}),retry:async()=>{}};
+    stream=async()=>{};
+    globalThis.request=handle;
     globalThis.updateCollision=()=>updateScene(Array.from(world.telemetry().slice(0,3)));
     globalThis.refreshUnknown=()=>updateCameraUnknown(world.telemetry(),0);
-    globalThis.unknown=()=>cameraUnknown.map(i=>i.id);`,context);
+    globalThis.unknown=()=>cameraUnknown.map(i=>i.id);
+    globalThis.waiting=()=>objectWait.map(i=>i.id);`,context);
   f.update=context.updateCollision;
+  f.request=context.request;
   f.refreshUnknown=context.refreshUnknown;
   f.unknown=()=>Array.from(context.unknown());
+  f.waiting=()=>Array.from(context.waiting());
   f.add=x=>{
     const id=String(x),matrix=placementMatrix({position:[0,-x,0],rotation:[0,180,0],scale:1});
     const bounds=[[-1,-x-1,0],[1,-x+1,0]];
@@ -186,6 +198,24 @@ test('newly decoded colliders bypass anchor cadence immediately',async()=>{
   assert.deepEqual(f.updates[1].counts.toSorted(),[0,1]);
 });
 
+test('unchanged submissions skip asset traversal but readiness follows every body and sweep update',async()=>{
+  const f=collisionFixture();
+  f.add(100);f.unresolved(10);
+  await f.update();
+  let lookups=0;
+  const get=f.state.assets.get.bind(f.state.assets);
+  f.state.assets.get=key=>{lookups++;return get(key);};
+  assert.deepEqual(f.waiting(),[]);
+  f.body[0]=6;await f.update();
+  assert.deepEqual(f.waiting(),['10']);
+  f.body[0]=0;f.sweep=10;await f.update();
+  assert.deepEqual(f.waiting(),['10']);
+  f.sweep=0;await f.update();
+  assert.deepEqual(f.waiting(),[]);
+  assert.equal(lookups,0);
+  assert.equal(f.built.length,1);
+});
+
 test('failed cached-part upload never marks new tokens reusable',async()=>{
   const f=collisionFixture();
   f.add(100);f.failNext=true;
@@ -194,6 +224,33 @@ test('failed cached-part upload never marks new tokens reusable',async()=>{
   await f.update();
   assert.deepEqual(f.updates.map(u=>u.counts),[[1],[1]]);
   assert.deepEqual(f.updates.map(u=>u.supplied),[9,9]);
+});
+
+test('failed anchor-only submission remains dirty until the cached-part upload succeeds',async()=>{
+  const f=collisionFixture();
+  f.add(132);await f.update();
+  f.sweep=50;f.failNext=true;
+  await assert.rejects(f.update(),/Rejected synthetic/);
+  await f.update();
+  assert.equal(f.built.length,2);
+  assert.deepEqual(f.updates.map(u=>u.supplied),[0,9,9]);
+});
+
+test('failed scene transfer retries its full assets and textures without treating them as uploaded',async()=>{
+  const f=collisionFixture(),push=f.events.push.bind(f.events);
+  let reject=true;
+  f.events.push=message=>{
+    if(message.event==='scene' && reject){reject=false;throw new Error('Rejected synthetic scene transfer');}
+    return push(message);
+  };
+  f.add(100);
+  f.state.textures.set('leaf.blp',{width:1,height:1,rgba:new Uint8Array(4)});
+  await assert.rejects(f.update(),/Rejected synthetic scene transfer/);
+  await f.update();
+  const scene=f.events.find(e=>e.event==='scene');
+  assert.deepEqual(Array.from(scene.assets,a=>a.key),['100']);
+  assert.deepEqual(Array.from(scene.textures,t=>t.key),['leaf.blp']);
+  assert.equal(f.built.length,1);
 });
 
 test('changed transforms replace cached collision and visual instances with the same scene ID',async()=>{
@@ -221,7 +278,25 @@ test('fast post-step camera remains covered at the edge of the retained anchor',
 test('camera unknown bounds refresh around post-physics rather than stale pre-step position',async()=>{
   const f=collisionFixture();
   f.unresolved(100);await f.update();
+  f.refreshUnknown();
   assert.deepEqual(f.unknown(),[]);
   f.body[0]=50;f.refreshUnknown();
   assert.deepEqual(f.unknown(),['100']);
+});
+
+test('restore, reset and retry return camera unknown bounds matching the immediately returned pose',async()=>{
+  const f=collisionFixture();
+  f.unresolved(100);await f.update();f.refreshUnknown();
+  assert.deepEqual(f.unknown(),[]);
+  const restored=await f.request({action:'restore',pose:[50,0,0,0]});
+  assert.equal(restored.telemetry[0],50);
+  assert.deepEqual(Array.from(restored.scene.unresolvedCollision,i=>i.id),['100']);
+  const reset=await f.request({action:'reset'});
+  assert.equal(reset.telemetry[0],0);
+  assert.deepEqual(Array.from(reset.scene.unresolvedCollision),[]);
+  f.body[0]=50;
+  f.state.unresolvedCollision[0].status='NOT_FOUND';
+  const retried=await f.request({action:'retry'});
+  assert.equal(retried.telemetry[0],50);
+  assert.deepEqual(Array.from(retried.scene.unresolvedCollision,i=>[i.id,i.status]),[['100','PENDING']]);
 });
