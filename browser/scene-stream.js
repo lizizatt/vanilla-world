@@ -156,6 +156,7 @@ export class SceneStream {
       if (!candidates.has(id) || !instance.distant) candidates.set(id, instance);
     };
     const add = (p, id, matrix, kind = p.kind, distant = false) => {
+      if (distant && candidates.has(id)) return;
       const path = modelPath(p.path);
       const skins = p.skins || [];
       const key = `${kind}:${path}:${JSON.stringify(skins)}`;
@@ -195,6 +196,7 @@ export class SceneStream {
           placements.set(matrix, expanded);
         }
         asset.groups.forEach((group, index) => {
+          if (distant && candidates.has(`${id}:group:${index}`)) return;
           const groupBounds = expanded.groups[index], d = distance(groupBounds, position);
           if (d > radius) return;
           const groupKey = `group:${path}:${index}`;

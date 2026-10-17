@@ -95,6 +95,24 @@ test('actual alpha texture gates leaf cards and missing/corrupt are distinct', a
   }
 });
 
+test('shared near/far metadata does not rebuild admitted near models or omit far-only models', () => {
+  const f = fixture(), stream = new SceneStream(f.source, f.wasm);
+  const placements = [p(1, 'near.m2'), p(2, 'far.m2', 1000)];
+  stream.setTile('1:0:0', placements);
+  stream.setDistantTile('1:0:0', placements);
+  const lookups = new Map(), get = stream.cache.get.bind(stream.cache);
+  stream.cache.get = key => {
+    lookups.set(key, (lookups.get(key) || 0) + 1);
+    return get(key);
+  };
+  stream.update(1, [0, 0, 0]);
+  assert.deepEqual(stream.instances.map(i => [i.id, i.distant]), [['1:m2:1', false], ['1:m2:2', true]]);
+  assert.deepEqual(stream.collisionCandidates.map(i => i.id), ['1:m2:1']);
+  assert.equal(lookups.get('m2:near.m2:[]'), 2, 'One admission and one material dependency lookup');
+  assert.equal(stream.requests.get('m2:near.m2:[]').distant, false);
+  assert.equal(stream.requests.get('m2:far.m2:[]').distant, true);
+});
+
 test('predicted swept-path solids precede current textures without waiting for their I/O', async () => {
   const f = fixture({cutout: true}), reads = [];
   let finishTexture;
