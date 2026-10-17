@@ -15,3 +15,8 @@ workspace = true
 flats-racer-physics = { path = "../flats-racer-physics" }
 benilla-formats = { path = "../benilla-formats", default-features = false }
 wasm-bindgen = "=0.2.122"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[dev-dependencies]
+sha2 = "0.10"

@@ -16,8 +16,10 @@ Windows-only, source-build local server bootstrap; the client remains separate.
 
 For the isolated local **browser racer experiment**, see
 [browser/README.md](browser/README.md). It reuses Rust racer physics and terrain
-formats in Wasm with an alternate WebGPU renderer; it is **not** a Bevy/VMaNGOS
-port or a completed singleplayer RPG.
+formats in Wasm with an alternate WebGPU renderer. Route mode streams a private
+four-tile Durotar-to-Westfall corridor across a provisional connecting ocean,
+with global hovercraft saves and offline resume. This is **not** full-continent
+coverage, a Bevy/VMaNGOS port, or a completed singleplayer RPG.
 
 Run component commands from their own directories, not the monorepo root.
 See the [Benilla README](client/README.md),

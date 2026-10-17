@@ -1,5 +1,5 @@
-const CACHE = 'racer-shell-v1';
-const FILES = ['./', './index.html', './app.js', './style.css', './pkg/flats_racer_web.js', './pkg/flats_racer_web_bg.wasm'];
+const CACHE = 'racer-shell-v3';
+const FILES = ['./', './index.html', './app.js', './voyage-client.js', './voyage-store.js', './voyage-worker.js', './style.css', './pkg/flats_racer_web.js', './pkg/flats_racer_web_bg.wasm'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(FILES)).then(() => self.skipWaiting()));
 });
