@@ -55,7 +55,13 @@ try {
     const draw = WorldRenderer.prototype.draw;
     const request = WorldClient.prototype.request;
     const submit = GPUQueue.prototype.submit;
-    window.profile = {frames: [], movingMs: [], draws: [], submits: [], worker: [], tasks: [], samples: [], active: false};
+    window.profile = {frames: [], movingMs: [], draws: [], submits: [], worker: [], freshStates: [],
+      freshPoses: [], movingPoseMs: [], inputs: [], tasks: [], samples: [], active: false};
+    document.addEventListener('keydown', event => {
+      if(!profile.active || event.repeat || !['KeyW','KeyA','KeyD'].includes(event.code))return;
+      const p = worldEvidence.state.telemetry;
+      profile.inputs.push({code: event.code, at: performance.now(), pose: [p[0],p[2],p[3]], visibleMs: null});
+    });
     GPUQueue.prototype.submit = function(...args) {
       const start = performance.now(), result = submit.apply(this,args);
       if(profile.active)profile.submits.push(performance.now()-start);
@@ -64,7 +70,20 @@ try {
     WorldClient.prototype.request = function(action, ...args) {
       const start = performance.now();
       return request.call(this, action, ...args).then(result => {
-        if(profile.active && action === 'frame')profile.worker.push(performance.now()-start);
+        if(profile.active && action === 'frame') {
+          const now = performance.now(), p = result.telemetry;
+          profile.worker.push(now-start);profile.freshStates.push(now);
+          const pose = [p[0],p[2],p[3]];
+          const moved = profile.lastPose && pose.some((v,i)=>v!==profile.lastPose[i]);
+          const moving = p[5]>1 && !p[8] && !result.scene.waitingCollision;
+          if(moved) {
+            profile.freshPoses.push(now);
+            if(moving && profile.previousMoving && profile.lastPoseAt!==undefined)profile.movingPoseMs.push(now-profile.lastPoseAt);
+            profile.lastPoseAt = now;
+          }
+          if(!moving)profile.lastPoseAt = undefined;
+          profile.previousMoving = moving;profile.lastPose = pose;
+        }
         return result;
       });
     };
@@ -72,6 +91,11 @@ try {
       const start = performance.now();
       const result = draw.apply(this, args);
       if (profile.active) {
+        const p = args[0];
+        for(const input of profile.inputs) if(input.visibleMs===null &&
+          (input.code==='KeyW' ? p[0]!==input.pose[0] || p[2]!==input.pose[1] : p[3]!==input.pose[2])) {
+          input.visibleMs = performance.now()-input.at;
+        }
         profile.draws.push(performance.now()-start);
         const state = worldEvidence.state;
         const moving = state.telemetry[5]>1 && !state.telemetry[8] && !state.scene.waitingCollision;
@@ -87,6 +111,7 @@ try {
     setInterval(() => {
       if (profile.active) profile.samples.push({time: performance.now(),
         telemetry: [...worldEvidence.state.telemetry], holds: structuredClone(worldEvidence.state.holds),
+        freshStates: profile.freshStates.length, freshPoses: profile.freshPoses.length,
         timings: {...worldEvidence.state.timings}, collision: worldEvidence.state.collision,
         pending: worldEvidence.state.scene.pending, waitingCollision: worldEvidence.state.scene.waitingCollision,
         sceneBytes: worldEvidence.state.scene.bytes, render: {...worldEvidence.render}});
@@ -125,7 +150,9 @@ try {
     const before = await page.evaluate(() => structuredClone(worldEvidence.state));
     const cpuBefore = await cdp.send('Performance.getMetrics');
     await page.evaluate(() => {
-      Object.assign(profile, {frames: [], movingMs: [], draws: [], submits: [], worker: [], tasks: [], samples: [], wasMoving: false, active: true});
+      Object.assign(profile, {frames: [], movingMs: [], draws: [], submits: [], worker: [], freshStates: [],
+        freshPoses: [], movingPoseMs: [], inputs: [], tasks: [], samples: [], wasMoving: false,
+        previousMoving: false, lastPose: undefined, lastPoseAt: undefined, active: true});
     });
     await page.locator('#world').focus();
     await page.keyboard.down('KeyW');
@@ -171,6 +198,8 @@ try {
       submitCpuMs: distribution(data.submits),
       movingFrameMs: distribution(data.movingMs), movingSeconds: data.movingMs.reduce((n,v)=>n+v,0)/1000,
       workerRoundTripMs: distribution(data.worker),
+      freshStateHz: data.freshStates.length/seconds, freshPoseHz: data.freshPoses.length/seconds,
+      movingPoseUpdateMs: distribution(data.movingPoseMs), inputToVisible: data.inputs,
       averageFps: (data.frames.length-1)*1000/(data.frames.at(-1)-data.frames[0]),
       minRollingFps: rolling.length ? Math.min(...rolling) : 0,
       holds: Object.fromEntries(Object.entries(after.holds).map(([k,v]) => [k, {
