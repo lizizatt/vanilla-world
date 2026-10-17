@@ -544,6 +544,11 @@ struct CollisionNode {
     children: Option<[usize; 2]>,
 }
 
+struct CollisionPrimitive {
+    bounds: [f64; 6],
+    center: [f64; 3],
+}
+
 impl CollisionTree {
     fn new(vertices: &[f64]) -> Result<Self, &'static str> {
         if !vertices.len().is_multiple_of(9)
@@ -562,21 +567,64 @@ impl CollisionTree {
             triangles,
             nodes: vec![],
         };
-        if !tree.triangles.is_empty() {
-            tree.build(0..tree.triangles.len());
+        let count = tree.triangles.len();
+        if count > 0 {
+            let primitives: Vec<_> = tree
+                .triangles
+                .iter()
+                .map(|triangle| {
+                    let mut bounds = [f64::INFINITY; 6];
+                    bounds[3..].fill(f64::NEG_INFINITY);
+                    for p in triangle {
+                        for a in 0..3 {
+                            bounds[a] = bounds[a].min(p[a]);
+                            bounds[a + 3] = bounds[a + 3].max(p[a]);
+                        }
+                    }
+                    CollisionPrimitive {
+                        bounds,
+                        center: std::array::from_fn(|a| triangle.iter().map(|v| v[a]).sum()),
+                    }
+                })
+                .collect();
+            let mut order: Vec<_> = (0..count).collect();
+            tree.build(0..count, &mut order, &primitives);
+            drop(primitives);
+            // Partition small indices, then apply the resulting permutation once in place.
+            for start in 0..count {
+                if order[start] == usize::MAX {
+                    continue;
+                }
+                let saved = tree.triangles[start];
+                let mut at = start;
+                loop {
+                    let next = order[at];
+                    order[at] = usize::MAX;
+                    if next == start {
+                        tree.triangles[at] = saved;
+                        break;
+                    }
+                    tree.triangles[at] = tree.triangles[next];
+                    at = next;
+                }
+            }
         }
         Ok(tree)
     }
 
-    fn build(&mut self, range: std::ops::Range<usize>) -> usize {
+    fn build(
+        &mut self,
+        range: std::ops::Range<usize>,
+        order: &mut [usize],
+        primitives: &[CollisionPrimitive],
+    ) -> usize {
         let mut bounds = [f64::INFINITY; 6];
         bounds[3..].fill(f64::NEG_INFINITY);
-        for triangle in &self.triangles[range.clone()] {
-            for p in triangle {
-                for a in 0..3 {
-                    bounds[a] = bounds[a].min(p[a]);
-                    bounds[a + 3] = bounds[a + 3].max(p[a]);
-                }
+        for &i in &order[range.clone()] {
+            let b = primitives[i].bounds;
+            for a in 0..3 {
+                bounds[a] = bounds[a].min(b[a]);
+                bounds[a + 3] = bounds[a + 3].max(b[a + 3]);
             }
         }
         let index = self.nodes.len();
@@ -592,15 +640,12 @@ impl CollisionTree {
                 })
                 .unwrap();
             let half = range.len() / 2;
-            self.triangles[range.clone()].select_nth_unstable_by(half, |a, b| {
-                a.iter()
-                    .map(|v| v[axis])
-                    .sum::<f64>()
-                    .total_cmp(&b.iter().map(|v| v[axis]).sum::<f64>())
+            order[range.clone()].select_nth_unstable_by(half, |&a, &b| {
+                primitives[a].center[axis].total_cmp(&primitives[b].center[axis])
             });
             let middle = range.start + half;
-            let left = self.build(range.start..middle);
-            let right = self.build(middle..range.end);
+            let left = self.build(range.start..middle, order, primitives);
+            let right = self.build(middle..range.end, order, primitives);
             self.nodes[index].children = Some([left, right]);
         }
         index
@@ -1065,6 +1110,41 @@ impl Voyage {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #[test]
+    fn indexed_bvh_partition_preserves_every_triangle_and_exported_node_range() {
+        use super::*;
+        for count in [1, 8, 9, 17, 257, 2049] {
+            let mut original: Vec<[[f64; 3]; 3]> = (0..count)
+                .map(|i| {
+                    let x = f64::from((i * 97) % 31);
+                    let z = f64::from((i * 73) % 29);
+                    [[x, 0.0, z], [x + 0.4, 0.0, z], [x, 0.0, z + 0.3]]
+                })
+                .collect();
+            let vertices: Vec<_> = original.iter().flatten().flatten().copied().collect();
+            let tree = CollisionTree::new(&vertices).unwrap();
+            let mut reordered = tree.triangles.clone();
+            original.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            reordered.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            assert_eq!(reordered, original);
+            assert_eq!(tree.nodes[0].range, 0..count as usize);
+            let mut covered = 0;
+            for node in &tree.nodes {
+                if node.children.is_none() {
+                    covered += node.range.len();
+                }
+                for triangle in &tree.triangles[node.range.clone()] {
+                    for point in triangle {
+                        for (axis, value) in point.iter().enumerate() {
+                            assert!(*value >= node.bounds[axis] && *value <= node.bounds[axis + 3]);
+                        }
+                    }
+                }
+            }
+            assert_eq!(covered, count as usize);
+        }
+    }
+
     #[test]
     fn frame_sweep_bounds_new_thrust_boost_and_airborne_authority() {
         use super::*;
