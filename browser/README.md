@@ -233,6 +233,8 @@ $env:WAYPOINTS = '[[0,-250],[-350,-400],[-550,-150],[-350,-150]]'
 $env:MAX_MOVING_FREEZE_MS = '' # Set '50' for the optional strict maximum-gap gate
 $env:VIDEO = ''
 $env:PROFILE = ''
+$env:PRESENTATION = 'confirmed'
+$env:INPUT_PULSES = ''
 $env:SOUND = ''
 $env:RUN_LABEL = 'continuity-silent'
 node .\browser\driving-smoke.mjs
@@ -275,8 +277,8 @@ Evidence is in `test-results/driving/integrated-{silent,sound}-controlled`.
 These runs reproduce the faster regime, **not a complete fix for catching**:
 they exceed the optional 50 ms maximum gate, and do not explain the earlier
 unchanged-source run with 655 moving freezes, 384 ms maximum and 4.56 seconds of
-discarded time. That failing trace remains retained. Raw fixed-step presentation
-also repeats poses between physics ticks; further continuity work is pending.
+discarded time. That failing trace remains retained. Those captures used raw
+fixed-step presentation, which repeats poses between physics ticks.
 
 The subsequent camera-allocation fix (`dfa2b2f`) replaces the temporary growing
 JavaScript positions array with exact typed storage, preserving every land
@@ -286,6 +288,64 @@ triangle and spatial bucket while excluding water as before. In matched peer
 71.2/73.0 ms: this is **not a maximum-tail fix**. Both discarded zero time;
 physical trajectories differed. The integrated 103-test suite and actual Edge
 controls/audio/camera/save/offline check pass with shell cache v16.
+
+### Confirmed-pose presentation
+
+Driving now targets a fixed 30 ms history of confirmed physics poses, with no
+prediction or extrapolation. Camera and craft use the same presented pose;
+physics, audio and HUD remain authoritative. Holds, reset/restore, source/mode
+changes and rebases immediately invalidate the history. A newer authoritative
+hold stops buffered motion immediately. Without a bracket, drawing holds the
+latest confirmed pose rather than accumulating more delay.
+
+The final 180-second capture compared the actual presented pose with the current
+raw client pose at every draw, under identical scheduling:
+
+| Measure | Raw | Presented |
+| --- | --- | --- |
+| Repeated moving draws | 5070 | 171 |
+| Changed-pose interval p99 | 20.9 ms | 10.0 ms |
+| Moving freezes over 50 ms | 11 | 2 |
+| Maximum moving freeze | 117.4 ms | 90.3 ms |
+
+This is a 96.6% reduction in repeated moving draws, **not elimination of every
+stall**. The optional strict 50 ms maximum gate failed and its trace is retained.
+The run covered 5866 yards with 178.67 seconds moving, six physical reverse
+recoveries, 180.27 seconds simulated and zero client-discarded time. All 23 draws
+reporting a hold exactly matched the raw position/yaw; nine rebases occurred.
+All 180 document samples were visible/focused, at 1206 x 534 pixels and DPR 1,
+with sound/video/profiling off. CPU was 52% in the pre-run snapshot; this does not
+explain historical slow runs.
+
+Corrected six-pulse controls measured 13.1-21.4 ms additional input-to-changed-pose
+draw latency, with zero discarded time. Each pulse had to start at rest without
+a hold and produce a complete onset inside its own one-second throttle window;
+later movement cannot satisfy a missed pulse. This is draw timing, not physical
+monitor scan-out. Reproduce those controls after the environment setup above:
+
+```powershell
+$env:WAYPOINTS = ''
+$env:DRIVE_SECONDS = '30'
+$env:INPUT_PULSES = '1'
+$env:SOUND = ''
+foreach ($mode in @('raw', 'confirmed')) {
+  $env:PRESENTATION = $mode
+  $env:RUN_LABEL = "latency-$mode"
+  node .\browser\driving-smoke.mjs
+}
+```
+
+The peer evidence folders are `idle-input-raw`, `idle-input-confirmed` and
+`idle-sustained-confirmed` under its ignored `browser/test-results/driving`.
+Final integrated validation passes 109 JavaScript tests and the actual Edge
+controls/audio/camera/save/offline check with shell cache v17. A separate
+sound-enabled six-pulse capture measured 13.8-21.2 ms added delay, reduced repeated
+moving draws from 225 to 1, and discarded no time; all 30 samples stayed
+visible/focused. The harness checks the added-delay bound against 30 ms plus the
+actual onset draw interval. Its retained evidence is
+`test-results/driving/integrated-confirmed-sound-pulses`.
+The earlier slow/fallback traces remain retained too: a 30 ms presentation buffer
+does not fix worker starvation or guarantee smooth motion under sustained load.
 
 The audio check installs the current offline shell in an isolated browser
 context, disconnects the network, and captures the cached production graph using Edge's

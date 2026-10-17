@@ -282,9 +282,11 @@ try{
     const reply=data.responses.find(r=>r.t>=input.t&&r.t<end&&moved(r.p[0],r.p[2]));
     const drawn=data.draws.find(r=>r[0]>=input.t&&r[0]<end&&moved(r[1],r[3]));
     const authoritative=data.rawDraws.find(r=>r[0]>=input.t&&r[0]<end&&moved(r[1],r[3]));
+    const drawIndex=drawn?data.draws.indexOf(drawn):-1;
     return {at:input.t-data.start,windowMs:end-input.t,startedAtRest:input.speed<.001,
       initialHold:input.hold,initialWait:input.wait,replyMs:reply?reply.t-input.t:null,
       authoritativeDrawMs:authoritative?authoritative[0]-input.t:null,presentedDrawMs:drawn?drawn[0]-input.t:null,
+      drawIntervalMs:drawIndex>0?drawn[0]-data.draws[drawIndex-1][0]:null,
       addedDisplayMs:drawn&&authoritative?drawn[0]-authoritative[0]:null};
   });
   for(let i=1;i<data.responses.length;i++){
@@ -326,6 +328,8 @@ try{
     assert(inputLatency.every(p=>p.startedAtRest&&!p.initialHold&&!p.initialWait),'Latency pulses must start at rest without a hold');
     assert(inputLatency.every(p=>p.replyMs!==null&&p.authoritativeDrawMs!==null&&p.presentedDrawMs!==null),
       'Every pulse must visibly move inside its own throttle window');
+    assert(inputLatency.every(p=>p.drawIntervalMs!==null&&p.addedDisplayMs>=0&&p.addedDisplayMs<=30+p.drawIntervalMs+1e-6),
+      'Presentation must add at most 30ms plus one draw interval');
   }
   assert(distance>20,'Held throttle must actually move the vehicle');
   if(process.env.WAYPOINTS && seconds>=120)assert(movingSeconds>seconds*.9,'A stopped vehicle is not sustained driving');
