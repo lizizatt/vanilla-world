@@ -3201,6 +3201,15 @@ name = "flats-racer-physics"
 version = "0.2.0"
 
 [[package]]
+name = "flats-racer-web"
+version = "0.2.0"
+dependencies = [
+ "benilla-formats",
+ "flats-racer-physics",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

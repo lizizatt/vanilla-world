@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vanilla World | Local racer lab</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header><div><span class="eyebrow">VANILLA WORLD / EXPERIMENT 01</span><h1>Local racer lab</h1></div><span class="badge">RUST WASM + WEBGPU</span></header>
+  <main>
+    <section class="viewport" aria-label="Interactive racer view">
+      <canvas id="world" tabindex="0" aria-label="Racer. W or up to accelerate, A and D to steer."></canvas>
+      <div class="overlay"><span id="terrain">Synthetic flat fixture / no game assets</span><span id="status" role="status">Starting WebAssembly...</span></div>
+      <div class="meters"><div><strong id="speed">0</strong><span>YARDS / SEC</span></div><div><strong id="boost">100%</strong><span>BOOST RESERVE</span></div><div><strong id="contact">PARKED</strong><span>LOCAL SIMULATION</span></div></div>
+    </section>
+    <section class="toolbar" aria-label="Local world and save controls">
+      <label class="button">Import local .adt<input id="import" type="file" accept=".adt" aria-label="Import local ADT terrain" disabled></label>
+      <button id="save" disabled>Save locally</button><button id="load" disabled>Load save</button><button id="reset" disabled>Reset racer</button>
+      <span id="offline">Offline cache pending</span>
+    </section>
+    <p class="controls"><kbd>W</kbd><kbd>S</kbd> throttle/reverse &nbsp; <kbd>A</kbd><kbd>D</kbd> steer &nbsp; <kbd>Space</kbd> brake &nbsp; <kbd>Shift</kbd> boost &nbsp; <kbd>C</kbd> drift &nbsp; <kbd>J</kbd> hop</p>
+    <p class="scope">Alternate web rendering adapter using the repository's racer physics and terrain mesher. Imported height geometry only: no textures, buildings, water collision, Bevy renderer, or VMaNGOS combat/quests. Tile edges, holes and impassable ground stop traversal. Saves stay in this browser and include the private imported tile.</p>
+  </main>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

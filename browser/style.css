@@ -1,0 +1,27 @@
+:root { color-scheme: dark; font: 14px/1.5 system-ui, sans-serif; color: #d4e3ea; background: #0a121b; }
+* { box-sizing: border-box; }
+body { margin: 0 auto; max-width: 1440px; padding: 26px 36px; }
+header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+h1 { margin: 4px 0 0; font-size: 30px; letter-spacing: -.8px; font-weight: 550; }
+.eyebrow, .badge { font-size: 11px; letter-spacing: 2px; color: #72c8ca; }
+.badge { border: 1px solid #284249; padding: 9px 13px; border-radius: 20px; }
+.viewport { position: relative; height: min(67vh, 760px); min-height: 360px; border: 1px solid #2b424e; border-radius: 12px; overflow: hidden; background: #152632; }
+canvas { display: block; width: 100%; height: 100%; outline-offset: -4px; }
+.overlay { position: absolute; left: 20px; top: 17px; display: grid; gap: 4px; pointer-events: none; max-width: 90%; text-shadow: 0 1px 5px #000; }
+#terrain { font-weight: 650; }
+#status { color: #bdd3db; font-size: 12px; }
+.meters { position: absolute; bottom: 18px; left: 20px; display: flex; gap: 30px; pointer-events: none; background: #0a1720d9; border: 1px solid #47606a; border-radius: 8px; padding: 12px 20px; }
+.meters div { display: grid; min-width: 90px; }
+.meters strong { font-size: 24px; font-variant-numeric: tabular-nums; color: #86e4de; }
+.meters span { font-size: 9px; letter-spacing: 1.4px; }
+.toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 17px; }
+button, .button { position: relative; padding: 10px 15px; background: #19313d; border: 1px solid #355564; border-radius: 6px; color: #e2f4f5; cursor: pointer; font: inherit; }
+button:hover, .button:hover { background: #254957; }
+button:disabled { opacity: .4; cursor: wait; }
+.button:focus-within { outline: 2px solid #86e4de; }
+input[type=file] { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+#offline { margin-left: auto; color: #8ea6b1; font-size: 12px; }
+.controls { margin-top: 22px; color: #a5bac4; }
+kbd { font: 11px system-ui; border: 1px solid #35515e; padding: 2px 5px; border-radius: 4px; }
+.scope { font-size: 12px; color: #8199a6; max-width: 1050px; }
+@media (max-width: 700px) { body { padding: 16px; } .badge { display: none; } .meters { gap: 10px; padding: 8px; left: 10px; } .meters strong { font-size: 18px; } }

@@ -14,6 +14,11 @@ Windows-only, source-build local server bootstrap; the client remains separate.
 
 ## Building and running
 
+For the isolated local **browser racer experiment**, see
+[browser/README.md](browser/README.md). It reuses Rust racer physics and terrain
+formats in Wasm with an alternate WebGPU renderer; it is **not** a Bevy/VMaNGOS
+port or a completed singleplayer RPG.
+
 Run component commands from their own directories, not the monorepo root.
 See the [Benilla README](client/README.md),
 [Benilla contribution/build guide](client/docs/CONTRIBUTING.md),
