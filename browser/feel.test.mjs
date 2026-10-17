@@ -191,6 +191,34 @@ test('camera uses the shared object BVH and rejects corrupt topology',()=>{
   assert.deepEqual(collision.clip([0,3,0],[100,3,0],[0,0]),[50,3,0]);
   assert(collision.coverageLimited);
 });
+test('camera terrain allocation preserves a full tile and exact bucket membership',()=>{
+  const source=new Float32Array(128*128*4*21),unit=(1600/3)/128;
+  let offset=0;
+  for(let z=0;z<128;z++)for(let x=0;x<128;x++){
+    const center=[(x+.5)*unit,Math.sin(x/12)*3,(z+.5)*unit];
+    const corners=[[x*unit,0,z*unit],[(x+1)*unit,1,z*unit],
+      [(x+1)*unit,2,(z+1)*unit],[x*unit,3,(z+1)*unit]];
+    for(let t=0;t<4;t++)for(const p of [center,corners[t],corners[(t+1)%4]]){
+      source.set([...p,0,1,0,(x+z)%17===0?2:0],offset);offset+=7;
+    }
+  }
+  const vertices=[],buckets=Array.from({length:1024},()=>[]);
+  const cell=n=>Math.max(0,Math.min(31,Math.floor(n/((1600/3)/32))));
+  for(let i=0;i<source.length;i+=21){
+    if(source[i+6]!==0)continue;
+    const first=vertices.length;
+    const points=[0,7,14].map(offset=>Array.from(source.subarray(i+offset,i+offset+3)));
+    vertices.push(...points.flat());
+    for(let z=cell(Math.min(...points.map(p=>p[2])));z<=cell(Math.max(...points.map(p=>p[2])));z++)
+      for(let x=cell(Math.min(...points.map(p=>p[0])));x<=cell(Math.max(...points.map(p=>p[0])));x++)
+        buckets[z*32+x].push(first);
+  }
+  const collision=new CameraCollision(),placement=[-500,700];
+  collision.event({event:'detail',removed:[],tiles:[{index:1,placement,vertices:source}]});
+  const tile=collision.tiles.get(1);
+  assert.deepEqual(tile,{placement,vertices:new Float32Array(vertices),buckets});
+  assert.equal(tile.vertices.buffer.byteLength,vertices.length*4,'Only ground vertices retain storage');
+});
 test('camera terrain buckets clip ground, skip water and guard expected unloaded tiles',()=>{
   const collision=new CameraCollision(),size=1600/3;
   const manifest={regions:[{placement:[0,0],tile_origin:[32,32]}],

@@ -29,18 +29,22 @@ function triangleHit(vertices,i,from,direction) {
   return t>=0 && t<=1?t:Infinity;
 }
 function terrainTile(tile) {
-  const source=tile.vertices,positions=[],buckets=Array.from({length:CELLS*CELLS},()=>[]);
+  const source=tile.vertices,buckets=Array.from({length:CELLS*CELLS},()=>[]);
+  let count=0;
+  for(let i=0;i<source.length;i+=21)if(source[i+6]===0)count+=9;
+  const positions=new Float32Array(count);
+  count=0;
   for(let i=0;i<source.length;i+=21) {
     if(source[i+6]!==0)continue;
-    const first=positions.length;
-    for(let v=0;v<3;v++)positions.push(source[i+v*7],source[i+v*7+1],source[i+v*7+2]);
-    const x0=cell(Math.min(positions[first],positions[first+3],positions[first+6]));
-    const x1=cell(Math.max(positions[first],positions[first+3],positions[first+6]));
-    const z0=cell(Math.min(positions[first+2],positions[first+5],positions[first+8]));
-    const z1=cell(Math.max(positions[first+2],positions[first+5],positions[first+8]));
+    const first=count;
+    for(let v=0;v<3;v++)for(let a=0;a<3;a++)positions[count++]=source[i+v*7+a];
+    const x0=cell(Math.min(source[i],source[i+7],source[i+14]));
+    const x1=cell(Math.max(source[i],source[i+7],source[i+14]));
+    const z0=cell(Math.min(source[i+2],source[i+9],source[i+16]));
+    const z1=cell(Math.max(source[i+2],source[i+9],source[i+16]));
     for(let z=z0;z<=z1;z++)for(let x=x0;x<=x1;x++)buckets[z*CELLS+x].push(first);
   }
-  return {placement:tile.placement,vertices:new Float32Array(positions),buckets};
+  return {placement:tile.placement,vertices:positions,buckets};
 }
 export class CameraCollision {
   constructor(){this.reset();}
