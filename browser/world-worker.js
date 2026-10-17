@@ -20,6 +20,7 @@ function startCraft() {
     .catch(error=>{craft={ready:false,pending:false,error:`Authored craft: ${error.message || error}`};});
 }
 let resident=new Set(),failures=new Map(),loads=0,evictions=0,peak=0,horizon;
+let terrainRead;
 let sentAssets=new Set(),sentTextures=new Set(),sceneState,sceneSignature='';
 let sceneFocus,sceneUpdated=0,sceneRevision=-1;
 let scenePumpError;
@@ -89,6 +90,10 @@ async function stream(p,pin,fill=false) {
   const nearby=manifest.tiles.map((_,i)=>i).filter(i=>distance(i,p)<850).sort((a,b)=>distance(a,p)-distance(b,p));
   const wanted=[...required,...nearby.filter(i=>!required.includes(i))].slice(0,LIMIT);
   const tiles=[],removed=[];
+  if(terrainRead?.ready && !wanted.includes(terrainRead.index)) {
+    if('error' in terrainRead)recordTerrainFailure(terrainRead.index,terrainRead.error);
+    terrainRead=undefined;
+  }
   for(const index of resident) if(!wanted.includes(index)) {
     world.remove_tile(index);scene.removeTile(tileKey(index));terrain.removeTile(index);terrainErrors.delete(index);
     resident.delete(index);removed.push(index);evictions++;
@@ -96,12 +101,33 @@ async function stream(p,pin,fill=false) {
   let prefetches=0;
   for(const index of wanted) {
     if(resident.has(index)||failures.has(index))continue;
-    if(!fill && !required.includes(index) && prefetches++>=1)continue;
+    const staged=terrainRead?.index===index && terrainRead.ready;
+    if(!fill && !required.includes(index) && !staged && prefetches++>=1)continue;
     const entry=manifest.tiles[index];
+    if(!fill && !required.includes(index)) {
+      if(!terrainRead) {
+        const read={index,ready:false};
+        terrainRead=read;
+        // Stage one raw ADT only; admission stays in this queue before collision readiness is checked.
+        read.pending=(async()=>{
+          try {read.bytes=await source.read(assetPath(entry));}
+          catch(error) {read.error=error;}
+          finally {read.ready=true;}
+        })();
+      }
+      if(terrainRead.index!==index || !terrainRead.ready)continue;
+    }
     report(`Loading ${entry.file}; required terrain stays blocked until ready.`);
     const started=performance.now();
     try {
-      const bytes=await source.read(assetPath(entry));
+      let bytes;
+      if(terrainRead?.index===index) {
+        const read=terrainRead;
+        await read.pending;
+        terrainRead=undefined;
+        if('error' in read)throw read.error;
+        bytes=read.bytes;
+      } else bytes=await source.read(assetPath(entry));
       world.add_tile(index,bytes);
       scene.setTile(tileKey(index),bytes);
       sceneFocus=undefined;
@@ -112,11 +138,14 @@ async function stream(p,pin,fill=false) {
       catch(error) {terrainErrors.set(index,`Terrain material ${entry.file}: ${error.message || error}`);}
     } catch(error) {
       world.remove_tile(index);scene.removeTile(tileKey(index));
-      failures.set(index,`${entry.file}: ${error.code || 'PARSE'} ${error.message || error}`);
+      recordTerrainFailure(index,error);
     } finally {
       if(pin && required.includes(index)){
         measureHold('terrain',performance.now()-started);lastHoldTime=performance.now();
       }
+    }
+    function recordTerrainFailure(index,error) {
+      failures.set(index,`${manifest.tiles[index].file}: ${error?.code || 'PARSE'} ${error?.message || String(error)}`);
     }
   }
   if(tiles.length || removed.length) {
@@ -269,7 +298,8 @@ function snapshot() {
       unresolvedCollision:cameraUnknown}:undefined,
     holds,timings,craft,collision:Array.from(world.collision_stats()),
     collisionMappedBytes:[...collisionInstances.values()].reduce((n,c)=>n+(c.vertices?.byteLength||0),0),
-    terrain:{...terrainState,errors:[...terrainState.errors,...terrainErrors.values()]},
+    terrain:{...terrainState,errors:[...terrainState.errors,...terrainErrors.values()],
+      prefetch:terrainRead?{index:terrainRead.index,pending:!terrainRead.ready,bytes:terrainRead.bytes?.byteLength||0}:null},
     distant:{resident:distantResident.size,peak:distantPeak,limit:12,loads:distantLoads,
       pending:distantWanted.filter(i=>!distantResident.has(i) && !distantFailures.has(i)).length,
       failures:Array.from(distantFailures.values())}};
@@ -277,6 +307,7 @@ function snapshot() {
 async function handle(message) {
   await ready;
   if(message.action==='open') {
+    terrainRead=undefined;
     report('Opening local MPQ archives and patch chain');
     source=await openDataSource(message.folder);
     const wdts=[],wdls=[];
