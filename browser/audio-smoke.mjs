@@ -6,8 +6,13 @@ const out=new URL('./test-results/audio/',import.meta.url);
 await mkdir(out,{recursive:true});
 const browser=await chromium.launch({channel:'msedge',headless:true,args:['--disable-gpu']});
 try {
-  const page=await browser.newPage({serviceWorkers:'block'});
+  const page=await browser.newPage();
   await page.goto(`${process.env.BASE_URL || 'http://127.0.0.1:4173'}/world-audio.js`);
+  await page.evaluate(()=>navigator.serviceWorker.register('./sw.js').then(()=>{}));
+  await page.waitForFunction(()=>navigator.serviceWorker.controller,{},{timeout:30000});
+  const offlineShell=await page.evaluate(async()=>(await caches.keys()).filter(key=>key.startsWith('racer-shell-')));
+  assert.equal(offlineShell.length,1);
+  await page.context().setOffline(true);
   const result=await page.evaluate(async()=>{
     const {WorldAudio}=await import('./world-audio.js');
     const rate=24000,seconds=28,context=new OfflineAudioContext(2,rate*seconds,rate);
@@ -92,6 +97,7 @@ try {
   });
   await writeFile(new URL('hover-racer.wav',out),Buffer.from(result.wav,'base64'));
   delete result.wav;
+  result.offlineShell=offlineShell[0];
   await writeFile(new URL('evidence.json',out),JSON.stringify(result,null,2));
   assert.equal(result.voices,3);assert(result.reused);
   assert(result.windows.every(w=>Number.isFinite(w.rms) && w.peak<.3 && w.maxStep<.06));
@@ -105,5 +111,5 @@ try {
   console.log(JSON.stringify({setupMs:result.setupMs,updateP99Ms:result.updateP99Ms,
     updateMaxMs:result.updateMaxMs,peak:Math.max(...result.windows.map(w=>w.peak)),
     idleRms:result.windows[1].rms,cruiseRms:result.windows[7].rms,boostRms:result.windows[10].rms,
-    heldRms:result.windows[19].rms,audition:'Captured only; not listened to'},null,2));
+    heldRms:result.windows[19].rms,offlineShell:result.offlineShell,audition:'Captured only; not listened to'},null,2));
 } finally {await browser.close();}

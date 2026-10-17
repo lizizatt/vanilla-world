@@ -217,7 +217,8 @@ Edge (`channel: msedge`), not a downloaded browser. The real-browser check uses
 actual directory-backed File objects, drives using keyboard input, visits both
 maps and reloads saves offline. It does **not** automate the trusted OS directory
 picker dialog. Evidence/screenshots stay ignored in `browser\test-results`.
-The audio check captures the actual production graph using Edge's
+The audio check installs the current offline shell in an isolated browser
+context, disconnects the network, and captures the cached production graph using Edge's
 `OfflineAudioContext` with deterministic idle, acceleration, cruise, boost,
 release, water, airborne, landing, braking, collision hold, pause and mute inputs.
 It checks output level, stereo energy, spectral bands, discontinuities and
@@ -226,8 +227,8 @@ This is captured signal evidence, **not a listening audition** or a substitute
 for the integrated real-time driving check.
 The captured 28-second sequence peaks at 0.133 full scale; idle/cruise/boost/held
 RMS is 0.030/0.035/0.050/0.030, with silence after pause/mute fades. Measured
-envelope/parameter updates are p99 0.1 ms, max 0.6 ms at browser timer resolution;
-initial one-time graph/buffer creation is 22.3 ms. These are isolated CPU captures,
+envelope/parameter updates are p99 0.1 ms, max 0.3 ms at browser timer resolution;
+initial one-time graph/buffer creation is 16.8 ms. These are isolated CPU captures,
 not an end-to-end driving-continuity measurement.
 The distant check compares actual screenshots with models enabled/disabled at
 1400-yard camera altitude on both continents; it asserts visible changed pixels,
@@ -240,6 +241,11 @@ write-failure preservation and offline reload. It also requires four textured
 tiles and the authored Stand craft, verifies the craft survives disabling scenery,
 and checks that flight hides it and driving restores it. It does not claim a
 physical gamepad or subjective listening test.
+
+The named performance routes are internal test paths through the same continuous
+world, not levels or selectable play modes. Passing a p95 cadence check does not
+rule out visible repeated-pose freezes; sustained continuity also needs long-run
+freeze, p99/max and elapsed-simulation-time evidence.
 
 The performance check runs seven 40-second keyboard routes with scenery and
 distant terrain enabled. It records the actual canvas dimensions/DPR, frame and
