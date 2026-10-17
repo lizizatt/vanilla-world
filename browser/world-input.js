@@ -1,4 +1,4 @@
-export const DRIVE_KEYS=new Set(['KeyW','KeyS','KeyA','KeyD','KeyQ','KeyE','KeyC','KeyJ','KeyV',
+export const DRIVE_KEYS=new Set(['KeyW','KeyS','KeyA','KeyD','KeyQ','KeyE','KeyC','KeyJ','KeyV','KeyX',
   'ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','ShiftLeft','ShiftRight','ControlLeft','ControlRight',
   'AltLeft','AltRight','F9']);
 const axis=(value,deadzone)=>Number.isFinite(value) && Math.abs(value)>deadzone
@@ -34,8 +34,8 @@ export class WorldInput {
         reset:!!edges[3],flight:!!edges[9],help:!!edges[8]};
     }
     const down=k=>Number(keys.has(k)),legacy=profile==='legacy';
-    return {...idle,throttle:down('KeyW')-(legacy?down('KeyS'):0),steer:down('KeyA')-down('KeyD'),
-      flags:(down(legacy?'Space':'KeyS'))|((down('ShiftLeft')||down('ShiftRight'))<<1)
+    return {...idle,throttle:down('KeyW')-down('KeyS'),steer:down('KeyA')-down('KeyD'),
+      flags:(down('KeyX')||(legacy && down('Space')))|((down('ShiftLeft')||down('ShiftRight'))<<1)
         |((down('KeyC')||down('ControlLeft')||down('ControlRight'))<<2)
         |((down('KeyJ')||(!legacy && down('Space')))<<3),
       look:[down('ArrowRight')-down('ArrowLeft'),down('ArrowUp')-down('ArrowDown')]};

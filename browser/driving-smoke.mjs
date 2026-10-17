@@ -229,8 +229,8 @@ try{
       if(elapsed%40===20)await page.keyboard.up('ArrowRight');
     }
     if(pulses){
-      await page.waitForTimeout(1000);await page.keyboard.up('KeyW');await page.keyboard.down('KeyS');
-      await page.waitForTimeout(4000);await page.keyboard.up('KeyS');
+      await page.waitForTimeout(1000);await page.keyboard.up('KeyW');await page.keyboard.down('KeyX');
+      await page.waitForTimeout(4000);await page.keyboard.up('KeyX');
       if(elapsed+5<seconds)await page.keyboard.down('KeyW');
     }else await page.waitForTimeout(Math.min(10,seconds-elapsed)*1000);
     const progress=await page.evaluate(()=>({t:Math.round((performance.now()-driveProfile.start)/1000),

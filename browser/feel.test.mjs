@@ -37,10 +37,17 @@ test('camera orbit clamps pitch, wraps yaw and returns behind the craft; flight 
   assert.deepEqual(rig.camera,[0,200,0]);
 });
 const pad=()=>({connected:true,mapping:'standard',index:0,axes:[0,0,0,0],buttons:Array.from({length:17},()=>({pressed:false,value:0}))});
-test('native and legacy keyboard profiles preserve brake/hop intent and input gates',()=>{
+test('both keyboard profiles reverse like the controller, with distinct brake and hop keys',()=>{
   const input=new WorldInput(),keys=new Set(['KeyS','Space','ControlLeft']);
-  assert.deepEqual([input.sample(keys,[],true).throttle,input.sample(keys,[],true).flags],[0,13]);
+  assert.deepEqual([input.sample(keys,[],true).throttle,input.sample(keys,[],true).flags],[-1,12]);
   assert.deepEqual([input.sample(keys,[],true,'legacy').throttle,input.sample(keys,[],true,'legacy').flags],[-1,5]);
+  for(const profile of ['native','legacy']){
+    assert.equal(input.sample(new Set(['KeyS']),[],true,profile).throttle,-1);
+    assert.equal(input.sample(new Set(['KeyS']),[],true,profile).flags,0);
+    assert.equal(input.sample(new Set(['KeyW','KeyS']),[],true,profile).throttle,0);
+    assert.equal(input.sample(new Set(['KeyX']),[],true,profile).flags,1);
+    assert.equal(input.sample(new Set(['KeyJ']),[],true,profile).flags,8);
+  }
   assert.equal(input.sample(new Set(['KeyW','Space']),[],false).flags,1);
   assert.equal(input.sample(new Set(['KeyW']),[],false).throttle,0);
 });
