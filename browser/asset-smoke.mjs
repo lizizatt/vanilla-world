@@ -18,6 +18,31 @@ const catalog = await Promise.all((await readdir(root)).filter(name => /\.mpq$/i
   return { path: name, file };
 }));
 const source = await openDataSource(catalog);
+function chunks(bytes) {
+  const buffer = Buffer.from(bytes), found = new Map();
+  for (let off = 0; off < buffer.length;) {
+    assert(off + 8 <= buffer.length, 'Truncated chunk header');
+    const size = buffer.readUInt32LE(off + 4);
+    assert(off + 8 + size <= buffer.length, 'Truncated chunk payload');
+    found.set(buffer.toString('ascii', off, off + 4).split('').reverse().join(''), buffer.subarray(off + 8, off + 8 + size));
+    off += 8 + size;
+  }
+  return found;
+}
+const strings = bytes => bytes?.toString('utf8').split('\0').filter(Boolean) ?? [];
+function placedNames(chunks, records, stride, ids, names) {
+  const placed = chunks.get(records), offsets = chunks.get(ids), blob = chunks.get(names);
+  if (!placed?.length) return [];
+  assert(offsets && blob);
+  const paths = [];
+  for (let off = 0; off < placed.length; off += stride) {
+    const index = placed.readUInt32LE(off), start = offsets.readUInt32LE(index * 4);
+    const end = blob.indexOf(0, start);
+    assert(end >= start);
+    paths.push(blob.toString('utf8', start, end).replace(/\.mdx$/i, '.m2'));
+  }
+  return [...new Set(paths)];
+}
 const list = new TextDecoder().decode(await source.read('(listfile)')).split(/[;\r\n]/).filter(Boolean);
 const assetPaths = [
   'World\\Maps\\Kalimdor\\Kalimdor.wdt', 'World\\Maps\\Kalimdor\\Kalimdor.wdl',
@@ -40,6 +65,37 @@ for (const extension of ['.m2', '.wmo', '.blp']) {
   }
   assert(found, `No test ${extension} entry discovered`);
   assetPaths.push(found);
+}
+const broad = process.env.ASSET_BROAD === '1';
+if (broad) {
+  const terrain = ['World\\Maps\\Kalimdor\\Kalimdor_39_43.adt'];
+  for (const map of ['Kalimdor', 'Azeroth']) {
+    const main = chunks(await source.read(`World\\Maps\\${map}\\${map}.wdt`)).get('MAIN'), present = [];
+    assert.equal(main.length, 64 * 64 * 8);
+    for (let i = 0; i < 4096; i++) if (main.readUInt32LE(i * 8) & 1) present.push(i);
+    for (const fraction of [.1, .25, .4, .55, .7, .85]) {
+      const index = present[Math.floor((present.length - 1) * fraction)];
+      terrain.push(`World\\Maps\\${map}\\${map}_${index % 64}_${Math.floor(index / 64)}.adt`);
+    }
+  }
+  const roots = new Set();
+  for (const gamePath of terrain) {
+    assetPaths.push(gamePath);
+    const adt = chunks(await source.read(gamePath));
+    assetPaths.push(...placedNames(adt, 'MDDF', 36, 'MMID', 'MMDX').slice(0, 2), ...strings(adt.get('MTEX')).slice(0, 2));
+    for (const root of placedNames(adt, 'MODF', 64, 'MWID', 'MWMO').slice(0, 1)) roots.add(root);
+  }
+  for (const root of roots) {
+    assetPaths.push(root);
+    const wmo = chunks(await source.read(root)), groups = wmo.get('MOHD').readUInt32LE(4);
+    assetPaths.push(...strings(wmo.get('MOTX')).slice(0, 2));
+    for (const group of new Set([0, groups - 1])) {
+      assert(group >= 0, `Placed WMO ${root} has no groups`);
+      assetPaths.push(root.replace(/\.wmo$/i, `_${String(group).padStart(3, '0')}.wmo`));
+    }
+  }
+  const unique = [...new Set(assetPaths.map(name => name.replaceAll('/', '\\').toLowerCase()))];
+  assetPaths.splice(0, assetPaths.length, ...unique);
 }
 const temporary = await mkdtemp(path.join(tmpdir(), 'vanilla-asset-test-'));
 const expected = [], nativeSources = [];
@@ -117,7 +173,7 @@ try {
     return { equal, authorized, forgotten };
   });
   assert.deepEqual(persistence, { equal: true, authorized: true, forgotten: true });
-  console.log(JSON.stringify({ browser: browser.version(), nativeSources, ...result, persistence,
+  console.log(JSON.stringify({ browser: browser.version(), broad, nativeSources, ...result, persistence,
     limits: 'Native picker dialog not automated; directory-backed Files read in actual Edge module worker, handle persistence tested with OPFS' }, null, 2));
 } finally {
   if (browser) await browser.close();

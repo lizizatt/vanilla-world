@@ -97,6 +97,12 @@ cargo build --manifest-path client\Cargo.toml -p benilla-formats --bin mpqx
 $env:WOW_DATA = 'C:\path\to\your\Data'
 $env:MPQX = Join-Path $env:CARGO_TARGET_DIR 'debug\mpqx.exe'
 node browser\asset-smoke.mjs
+# Also sample six geographically spaced WDT-backed ADTs on each map, then actual
+# placed models, WMO roots/first+last groups, and terrain/WMO textures:
+$env:ASSET_BROAD = '1'
+node browser\asset-smoke.mjs
+# Developer-only read-only census of every mounted block and sector method:
+python browser\asset-codec-census.py $env:WOW_DATA
 ```
 
 The smoke test requires the browser project's existing Playwright dependency
@@ -112,3 +118,20 @@ Handle serialization/persistence is exercised with an OPFS directory.
 Native `showDirectoryPicker`'s trusted OS dialog and externally revoked folder
 permissions are not automated; the UI must retain explicit reselection and
 reauthorization paths.
+
+The broad run compared 77 assets / 22,878,641 decoded bytes: 13 geographically
+spaced ADTs across both maps, 13 M2s, 6 WMO roots and 10 groups, 30 BLPs, and the
+two maps' WDT/WDL plus Map.dbc. Actual ADT placements select scene references;
+reads resolve across base model/texture/WMO archives and both patch levels.
+All matched native bytes and Edge worker hashes. Index/window bounds were
+unchanged; cumulative reads were 106,413,448 bytes in 127 slices.
+
+The separate native census inspected all 97,087 block entries in the authorized
+install's 12 mounted archives, including every compressed sector method byte:
+2,389,542 zlib `0x02` sectors, 3,929 stored sectors, 200 stored blocks, and 5,708
+tombstone/empty blocks. Flags were `0x80000200`, `0x84000200` (sector CRC),
+`0x80000000`, and `0x82000000` only: no encrypted, single-unit, IMPLODE, or
+unsupported compression variant was present. This establishes codec coverage
+for that install, not byte-for-byte validation of every payload or every
+different player's installation. The census uses read-only native memory mapping
+for inspection; this is not used by the browser source.
