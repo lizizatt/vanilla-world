@@ -139,7 +139,7 @@ function collisionFixture(clock=performance,instanceDeltas=true) {
     terrain={snapshot:()=>({errors:[]}),retry:async()=>{}};
     stream=async()=>{};
     globalThis.request=handle;
-    globalThis.updateCollision=()=>updateScene(Array.from(world.telemetry().slice(0,3)));
+    globalThis.updateCollision=async()=>updateScene(Array.from(world.telemetry().slice(0,3)));
     globalThis.refreshUnknown=()=>updateCameraUnknown(world.telemetry(),0);
     globalThis.unknown=()=>cameraUnknown.map(i=>i.id);
     globalThis.waiting=()=>objectWait.map(i=>i.id);`,context);
@@ -328,6 +328,95 @@ test('only explicit open capability true enables resource-only instance deltas',
     await assert.rejects(f.request({action:'open',sceneInstanceDeltas:capability}),/Stop after capability/);
     assert.equal(runInContext('sceneInstanceDeltas',f.context),capability===true);
   }
+});
+
+test('post-response visuals require a separate explicit capability',async()=>{
+  for(const capability of [undefined,false,'true',1,true]) {
+    const f=collisionFixture();
+    f.context.openDataSource=async()=>{throw new Error('Stop after capability negotiation');};
+    await assert.rejects(f.request({action:'open',sceneInstanceDeltas:true,postFrameVisuals:capability}),/Stop after capability/);
+    assert.equal(runInContext('postFrameVisuals',f.context),capability===true);
+  }
+});
+
+function frameFixture(deferred=true) {
+  const f=collisionFixture();
+  f.context.dependencies.world.tick=()=>{f.events.push({event:'tick'});};
+  f.context.dependencies.scene.pump=async()=>{f.events.push({event:'pump'});};
+  runInContext(`postFrameVisuals=${deferred};
+    prepareDistant=()=>{};startDistantRead=()=>{};
+    startCraft=()=>{};terrain.pump=async()=>{};
+    globalThis.dispatch=async(data)=>{onmessage({data});await queue;};`,f.context);
+  f.dispatch=f.context.dispatch;
+  f.frame=id=>f.dispatch({id,action:'frame',dt:1/120,throttle:1,steer:0,flags:0});
+  return f;
+}
+
+test('negotiated frames publish collision then real physics response before visuals and decode work',async()=>{
+  const f=frameFixture();
+  f.add(100);
+  await f.frame(1);
+  assert.deepEqual(f.events.map(e=>e.event||`reply:${e.id}`),['collision','tick','reply:1','scene','pump']);
+  assert.equal(f.events.find(e=>e.id===1).result.scene.waitingCollision,0);
+});
+
+test('physics-first frames still block unknown collision and failed BVH admission before responding',async()=>{
+  const f=frameFixture();
+  f.add(100);f.unresolved(2);
+  await f.frame(1);
+  assert.equal(f.events.some(e=>e.event==='tick'),false);
+  assert.equal(f.events.find(e=>e.id===1).result.scene.waitingCollision,1);
+  const failed=frameFixture();
+  failed.add(100);failed.failNext=true;
+  await failed.frame(2);
+  assert.match(failed.events.find(e=>e.id===2).error,/Rejected synthetic collision/);
+  assert.equal(failed.events.some(e=>['tick','scene','pump'].includes(e.event)),false);
+});
+
+test('legacy frames publish visuals before physics and return synchronous publication failures',async()=>{
+  const f=frameFixture(false);
+  f.add(100);
+  const push=f.events.push.bind(f.events);
+  f.events.push=event=>{
+    if(event.event==='scene')throw new Error('Legacy scene publication failed');
+    return push(event);
+  };
+  await f.frame(1);
+  assert.equal(f.events.some(e=>e.event==='tick'),false);
+  assert.match(f.events.find(e=>e.id===1).error,/Legacy scene publication failed/);
+  assert.equal(f.events.some(e=>e.event==='world-error'),false);
+});
+
+test('post-response failure surfaces once, blocks subsequent physics and retries only explicitly',async()=>{
+  const f=frameFixture();
+  f.add(100);
+  const push=f.events.push.bind(f.events);let reject=true;
+  f.events.push=event=>{
+    if(event.event==='scene' && reject){reject=false;throw new Error('Deferred scene publication failed');}
+    return push(event);
+  };
+  await f.frame(1);
+  assert.equal(f.events.filter(e=>e.id===1).length,1);
+  assert(f.events.find(e=>e.id===1).result);
+  assert.match(f.events.find(e=>e.event==='world-error').error,/Deferred scene publication failed/);
+  assert.equal(f.events.some(e=>e.event==='pump'),false);
+  await f.frame(2);
+  assert.match(f.events.find(e=>e.id===2).error,/Deferred scene publication failed/);
+  assert.equal(f.events.filter(e=>e.event==='tick').length,1);
+  assert.equal(f.events.filter(e=>e.event==='world-error').length,1);
+  await f.dispatch({id:3,action:'retry'});
+  const sent=f.events.find(e=>e.event==='scene');
+  assert.deepEqual(Array.from(sent.assets,a=>a.key),['100']);
+  await f.frame(4);
+  assert.equal(f.events.filter(e=>e.event==='tick').length,2);
+});
+
+test('visual tail finishes before the next queued physics request begins',async()=>{
+  const f=frameFixture();
+  f.add(100);
+  await Promise.all([f.frame(1),f.frame(2)]);
+  assert.deepEqual(f.events.map(e=>e.event||`reply:${e.id}`),
+    ['collision','tick','reply:1','scene','pump','tick','reply:2','pump']);
 });
 
 test('fast post-step camera remains covered at the edge of the retained anchor',async()=>{

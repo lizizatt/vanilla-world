@@ -25,6 +25,7 @@ let sentAssets=new Set(),sentTextures=new Set(),sceneState,sceneSignature='';
 let sentInstanceMatrices=new Map();
 let sentSceneRegion;
 let sceneInstanceDeltas=false;
+let postFrameVisuals=false,sceneRegion,frameWorkMs=0;
 let sceneFocus,sceneUpdated=0,sceneRevision=-1;
 let sceneSubmissionPending=true;
 let scenePumpError;
@@ -35,7 +36,7 @@ let collisionToken=0,collisionParts=new Set();
 let collisionFocus;
 const collisionInstances=new Map();
 const timings={frames:0,totalMs:0,maxMs:0,terrainMs:0,sceneMs:0,selectionMs:0,snapshotMs:0,
-  physicsMs:0,cameraUnknownMs:0,postMs:0,scenePostMs:0,scenePosts:0,sceneInstancePosts:0,collisionBuildMs:0,collisionBuilds:0};
+  physicsMs:0,cameraUnknownMs:0,postMs:0,postFrameMs:0,scenePostMs:0,scenePosts:0,sceneInstancePosts:0,collisionBuildMs:0,collisionBuilds:0};
 let distantWanted=[],distantJob,distantLastStart=0,distantLoads=0,distantPeak=0;
 const distantResident=new Set(),distantFailures=new Map();
 let objectWait=[],cameraUnknown=[],lastHoldTime=0,lastHold='clear',holdRun=0;
@@ -197,9 +198,18 @@ function updateCameraUnknown(body,region) {
   cameraUnknown=sceneState.unresolvedCollision.filter(i=>(i.kind==='wmo'&&!i.boundsKnown)
     || boundsWithin(i.bounds,p,84));
 }
-async function updateScene(focus) {
+function sceneFault(error) {
+  if(scenePumpError)return;
+  scenePumpError=error;
+  if(postFrameVisuals)postMessage({event:'world-error',error:`${error.code?`${error.code}: `:''}${error.message || error}`});
+}
+function startScenePump() {
+  void scene.pump(true).catch(sceneFault);
+}
+function updateScene(focus,publish=true) {
   if(scenePumpError)throw scenePumpError;
   const region=focusRegion(focus);
+  sceneRegion=region;
   const body=world.telemetry(),r=manifest.regions[region],signed=body[14] ?? body[5];
   const predicted=[focus[0]-Math.sin(body[3])*signed,focus[1],focus[2]-Math.cos(body[3])*signed];
   const moved=sceneFocus?Math.hypot(...focus.map((v,a)=>v-sceneFocus[a])):Infinity;
@@ -212,7 +222,7 @@ async function updateScene(focus) {
     sceneFocus=focus.slice();sceneUpdated=performance.now();
   }
   // Reads/texture decodes must never suspend the physics request queue.
-  void scene.pump(true).catch(error=>{scenePumpError=error;});
+  if(publish)startScenePump();
   if(changed || sceneRevision!==scene.revision || !sceneState) {
     const start=performance.now();sceneState=scene.snapshot();timings.snapshotMs+=performance.now()-start;
     sceneSubmissionPending=true;
@@ -287,6 +297,10 @@ async function updateScene(focus) {
     collisionParts=new Set(nearby.map(c=>c.token));
     timings.collisionBuildMs+=performance.now()-start;timings.collisionBuilds++;
   }
+  if(publish)publishScene(region);
+}
+function publishScene(region) {
+  if(!sceneSubmissionPending)return;
   const assets=[],textures=[],removedAssets=[],removedTextures=[],transfers=[];
   for(const key of sentAssets)if(!sceneState.assets.has(key))removedAssets.push(key);
   for(const key of sentTextures)if(!sceneState.textures.has(key))removedTextures.push(key);
@@ -320,6 +334,26 @@ async function updateScene(focus) {
   }
   sceneSubmissionPending=false;
 }
+function startOptionalWork(message) {
+  if(message.focus || Array.from(world.required_tiles()).every(i=>resident.has(i)))startDistantRead();
+  if(!objectWait.length) {
+    void terrain.pump();
+    if(Array.from(world.required_tiles()).every(i=>resident.has(i)))startCraft();
+  }
+}
+function finishFrame(message) {
+  const start=performance.now();
+  try {
+    if(scenePumpError)throw scenePumpError;
+    publishScene(sceneRegion);
+    startScenePump();
+    startOptionalWork(message);
+  } finally {
+    const elapsed=performance.now()-start;
+    timings.postFrameMs+=elapsed;timings.totalMs+=elapsed;
+    timings.maxMs=Math.max(timings.maxMs,frameWorkMs+elapsed);
+  }
+}
 function snapshot() {
   horizon.wasmPeakBytes=Math.max(horizon.wasmPeakBytes,wasm.memory.buffer.byteLength);
   const terrainState=terrain.snapshot();
@@ -344,6 +378,7 @@ async function handle(message) {
   await ready;
   if(message.action==='open') {
     sceneInstanceDeltas=message.sceneInstanceDeltas===true;
+    postFrameVisuals=message.postFrameVisuals===true;
     terrainRead=undefined;
     report('Opening local MPQ archives and patch chain');
     source=await openDataSource(message.folder);
@@ -381,7 +416,7 @@ async function handle(message) {
     prepareDistant(focus,message.distant!==false);
     const terrainStart=performance.now();await stream([focus[0],focus[2]],!message.focus);
     timings.terrainMs+=performance.now()-terrainStart;
-    const sceneStart=performance.now();await updateScene(focus);timings.sceneMs+=performance.now()-sceneStart;
+    const sceneStart=performance.now();updateScene(focus,!postFrameVisuals);timings.sceneMs+=performance.now()-sceneStart;
     const physicsStart=performance.now();
     if(!message.focus) {
       const now=performance.now(),elapsed=lastHoldTime?Math.min(now-lastHoldTime,1000):0;lastHoldTime=now;
@@ -397,12 +432,9 @@ async function handle(message) {
     const cameraStart=performance.now();
     updateCameraUnknown(world.telemetry(),focusRegion(focus));
     timings.cameraUnknownMs+=performance.now()-cameraStart;
-    if(message.focus || Array.from(world.required_tiles()).every(i=>resident.has(i)))startDistantRead();
-    if(!objectWait.length) {
-      void terrain.pump();
-      if(Array.from(world.required_tiles()).every(i=>resident.has(i)))startCraft();
-    }
+    if(!postFrameVisuals)startOptionalWork(message);
     const elapsed=performance.now()-started;timings.frames++;timings.totalMs+=elapsed;timings.maxMs=Math.max(timings.maxMs,elapsed);
+    frameWorkMs=elapsed;
   } else if(message.action==='restore') {
     if(!Array.isArray(message.pose)||message.pose.length!==4||!message.pose.every(Number.isFinite))throw new Error('Invalid parked pose');
     await stream([message.pose[0],message.pose[2]],false,true);
@@ -411,6 +443,7 @@ async function handle(message) {
     await stream([manifest.spawn[0],manifest.spawn[2]],false,true);
     world.initialize_spawn();accumulator=0;
   } else if(message.action==='retry') {
+    scenePumpError=undefined;sceneSubmissionPending=true;
     failures.clear();distantFailures.clear();scene.retry();
     if(craft.error)craft={ready:false,pending:false};
     await terrain.retry();
@@ -441,11 +474,18 @@ async function handle(message) {
 }
 onmessage=({data})=>{
   queue=queue.then(async()=>{
+    let responded=false;
     try {
       const result=await handle(data),start=performance.now();
       postMessage({id:data.id,result});
+      responded=true;
       if(data.action==='frame')timings.postMs+=performance.now()-start;
+      // Finish this frame's visuals before the next queued request, but let the client draw its fresh pose first.
+      if(data.action==='frame' && postFrameVisuals)finishFrame(data);
     }
-    catch(error){postMessage({id:data.id,error:`${error.code?`${error.code}: `:''}${error.message || error}`});}
+    catch(error){
+      if(responded)sceneFault(error);
+      else postMessage({id:data.id,error:`${error.code?`${error.code}: `:''}${error.message || error}`});
+    }
   });
 };
