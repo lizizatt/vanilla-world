@@ -43,6 +43,13 @@ There is no decoded-asset cache. Discard stale results at the caller's world
 generation boundary; cancellation of an individual read is not exposed.
 `close()` rejects queued/new reads and releases indexes after an active read ends.
 
+Sector extraction checks a 4 ms work budget and yields to a browser task between
+sectors. Merely awaiting already-resolved promises can starve queued physics
+messages even while the main thread keeps rendering. The active archive read
+remains serialized across these yields; extraction bytes, validation and memory
+bounds do not change. This is cooperative scheduling, not a hard deadline for an
+individual sector decode or a guarantee against all streaming pauses.
+
 The fingerprint is SHA-256 of ordered archive names, sizes, and last-modified
 timestamps. It matches handle and file-input routes to the same install, but is
 not a cryptographic content identity: files modified while preserving size and
