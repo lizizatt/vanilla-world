@@ -148,9 +148,17 @@ Collision uses **BVH-indexed authored collision triangles**, with continuous
 two-sided swept hull tests (half-extents 1.1 east / 0.5 up / 1.1 south yards)
 and four support probes, not foliage cards or a WDL
 floor. Mesh height preserves openings and bridges that whole-building bounds
-previously blocked. The near collision window extends at least 120 yards.
+previously blocked. The collision cache uses a 120-yard radius around a stable
+anchor, recentered after at most 32 yards of motion. It expands when accelerated
+frame travel needs more room to cover physics and the post-step chase camera.
 Its cache has a separate 200,000-triangle
-safety limit and is not hidden by the visual instance budget. Collision does not
+safety limit and is not hidden by the visual instance budget. Per-instance BVHs
+are reused, then flattened into the same tree used by physics and the camera.
+The instance cache and flat tree retain two copies of collision geometry;
+`state.collision[2]` reports their combined buffer bytes, not total process memory.
+Building new parts additionally needs 76 temporary bytes per triangle in Wasm
+(at most 14.5 MiB). The Wasm high-water counter includes these allocations.
+Collision does not
 wait for alpha textures. Unavailable nearby geometry is held explicitly; unresolved M2
 extents use a conservative 32-yard proximity guard, not a proof of empty space.
 Terrain, near-object and solid-contact hold counters are exposed in
@@ -158,6 +166,9 @@ Terrain, near-object and solid-contact hold counters are exposed in
 assets and the player craft. Transformed meshes and the BVH are live caches,
 invalidated by scene membership; no persistent collision bake or silent collision
 disablement is implemented.
+High-speed tuning also checks intermediate expected ADTs, not just the sweep
+endpoints. A footprint that cannot fit the four-tile or collision budget fails
+explicitly instead of crossing unverified geometry.
 
 ## Static NPCs and private data
 
@@ -214,6 +225,14 @@ rate and fresh-pose rate must reach 30 Hz, with p95 moving frame/pose intervals 
 greater than 33.3 ms; high render FPS alone cannot pass. Input timing ends at the
 first changed-pose draw, not physical monitor scanout. `WORLD_URL` overrides the
 default local URL and `RUN_LABEL` selects the ignored evidence filename.
+
+The integrated profiled-selection checkpoint is **not yet smooth-city accepted**.
+On Edge 155 / NVIDIA Ampere, at 1366 x 668 rendered pixels and DPR 1, the city
+traveled 1371 yards in 39.9 moving seconds without collision/terrain holds:
+110.5 render FPS (minimum rolling 87), 66.0 fresh poses/second, but a 49.5 ms
+p95 moving pose interval. Clear raceway and coastal circuit passed at 17.9 ms
+p95 each. These measurements retain full scenery; the city tail still fails the
+33.3 ms gate. Local evidence is `test-results/performance/integrated-profiled-selection.json`.
 
 [ASSETS.md](ASSETS.md) documents the bounded MPQ reader, corruption semantics,
 77-file native/Node/Edge parity and the whole-install codec census. All 2,389,542

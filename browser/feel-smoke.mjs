@@ -86,6 +86,19 @@ try {
   assert.equal(checks.tuning[0],42);assert.equal(checks.tuning[1],80);
   checks.failedWritePreservesActiveTuning=true;
   await page.locator('#tuning-close').click();
+  await page.waitForFunction(()=>worldEvidence.render.texturedTerrainTiles===4
+    && worldEvidence.render.craftReady && worldEvidence.render.craftPose==='stand-frame-0',{},{timeout:120000});
+  await page.locator('#scenery').uncheck();
+  await page.waitForFunction(()=>worldEvidence.render.craftDraws===6 && worldEvidence.render.sceneDraws===6);
+  await page.locator('#fly').click();
+  await page.waitForFunction(()=>worldEvidence.mode==='fly' && worldEvidence.render.craftDraws===0);
+  await page.locator('#drive').click();
+  await page.waitForFunction(()=>worldEvidence.mode==='drive' && worldEvidence.render.craftDraws===6);
+  await page.locator('#scenery').check();
+  await page.waitForFunction(()=>worldEvidence.render.sceneDraws>6
+    && document.getElementById('material-status').textContent.startsWith('Terrain textures 4/4'));
+  checks.craft={pose:'stand-frame-0',independentOfScenery:true,hiddenInFlight:true};
+  assert.equal(await page.evaluate(()=>worldEvidence.render.craftTriangles),1566);
   await page.locator('#save').click();
   await page.waitForFunction(()=>document.getElementById('status').textContent.startsWith('Saved locally'));
   await page.screenshot({path:fileURLToPath(new URL('native-instruments.png',out))});
