@@ -1,15 +1,18 @@
 import init, { Racer } from './pkg/flats_racer_web.js';
 import { RouteClient } from './voyage-client.js';
+import { overview, moveFlight, saveFlight, loadFlight } from './flight.js';
 
 const $ = id => document.getElementById(id);
 const canvas = $('world');
 const keys = new Set();
-const controls = new Set(['KeyW', 'KeyS', 'KeyA', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight', 'KeyC', 'KeyJ']);
+const controls = new Set(['KeyW', 'KeyS', 'KeyA', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight', 'KeyC', 'KeyJ','KeyV','KeyQ','KeyE']);
 let racer, device, context, pipeline, terrainBuffer, terrainCount, bodyBuffer, bodyCount, depth;
 let terrainBytes = new Uint8Array(), terrainName = 'Synthetic flat fixture / no game assets';
 let accumulator = 0, lastTime = 0, frames = 0, ticks = 0, running = false, camera;
 let routeMode = false, routeBusy = false, renderOrigin = [0,0], ocean;
+let flight;
 const routeTiles = new Map();
+const horizonTiles = [], horizonIndices = new Map(), routeSeams = new Map();
 const evidence = { ready: false, frames: 0, ticks: 0, terrainVertices: 0, source: 'synthetic', telemetry: [], errors: [] };
 window.racerEvidence = evidence;
 const report = message => { $('status').textContent = message; };
@@ -48,7 +51,7 @@ async function savedRecord(record) {
 
 function buffer(data, usage) {
   const result = device.createBuffer({ size: data.byteLength, usage, mappedAtCreation: true });
-  new Float32Array(result.getMappedRange()).set(data);
+  new Uint8Array(result.getMappedRange()).set(new Uint8Array(data.buffer,data.byteOffset,data.byteLength));
   result.unmap();
   return result;
 }
@@ -95,6 +98,11 @@ async function load() {
 $('save').onclick = async () => {
   try {
     if (routeMode) {
+      if (flight) {
+        await saveFlight(route.pack,flight);
+        report('Saved free-flight global camera; driving saves unchanged.');
+        return;
+      }
       await route.save();
       report('Saved route v2: global hovercraft pose + offline pack identity.');
       return;
@@ -104,7 +112,23 @@ $('save').onclick = async () => {
     report('Saved locally: terrain + parked pose (momentum resets on load).');
   } catch (error) { fail(error); }
 };
-$('load').onclick = () => routeMode ? routeAction(() => route.load(), 'Loaded route save.') : load().catch(fail);
+$('overview').onclick = () => {
+  if (!routeMode || !route.pack?.manifest.horizons?.length) { report('Import a full-world WDL pack for overview. Legacy corridor remains unchanged.'); return; }
+  flight=overview(route.pack.manifest);camera=undefined;keys.clear();
+  report('Full-world overview / visual-only free flight. No collision or continent clipping.');
+};
+$('fly').onclick = () => {
+  if (!routeMode || !route.state) return;
+  if (route.pack.manifest.version!==2) { report('Import the full-world pack for free flight; the legacy short crossing stays in driving mode.'); return; }
+  const p=route.state.telemetry;
+  flight=[p[0],p[1]+30,p[2],p[3],0];camera=undefined;keys.clear();
+  report('Free flight: W/S forward/back, A/D strafe, Q/E altitude, arrows look, Shift fast. No collision.');
+};
+$('drive').onclick = () => { flight=undefined;camera=undefined;keys.clear();report('Driving resumed at parked hovercraft; WDL does not provide collision.'); };
+$('load').onclick = () => routeMode ? routeAction(async () => {
+  if (flight || route.pack.manifest.version===2) flight=await loadFlight(route.pack);
+  else await route.load();
+}, 'Loaded local save.') : load().catch(fail);
 $('reset').onclick = () => {
   if (routeMode) return routeAction(() => route.reset(), 'Route reset to Kalimdor coast; save was not overwritten.');
   racer.reset(); camera = undefined; keys.clear(); report('Reset. Click the view to drive.');
@@ -144,23 +168,28 @@ struct Vertex { @builtin(position) clip: vec4f, @location(0) world: vec3f, @loca
   let relative = position - u.eye.xyz;
   let z = dot(relative, u.forward.xyz);
   var result: Vertex;
-  result.clip = vec4f(dot(relative, u.right.xyz)/(0.55*u.settings.x), dot(relative, u.up.xyz)/0.55, (z-0.1)*1200.0/1199.9, z);
+  let near = u.settings.w;
+  result.clip = vec4f(dot(relative, u.right.xyz)/(0.55*u.settings.x), dot(relative, u.up.xyz)/0.55, (z-near)*u.eye.w/(u.eye.w-near), z);
   result.world = position;
   result.normal = normal;
   result.material = material;
   return result;
 }
 @fragment fn fs(v: Vertex) -> @location(0) vec4f {
+  let phase=v.world.x*0.16+v.world.z*0.12+u.settings.y;
+  let ripple = 0.5 + 0.5*sin(phase)*(1.0-smoothstep(0.5,3.0,fwidth(phase)));
+  // WDL has no liquid masks. Do not expose its seabed as land or invent distant water.
+  if (v.material == 3.0 && v.world.y < u.tile.w) { discard; }
   let light = 0.35 + 0.65*max(dot(normalize(v.normal), normalize(vec3f(-0.3, 1.0, 0.4))), 0.0);
   let line = min(abs(fract(v.world.x/8.0+0.5)-0.5), abs(fract(v.world.z/8.0+0.5)-0.5));
   let grid = smoothstep(0.0, 0.018, line);
   var color = mix(vec3f(0.31, 0.32, 0.25), vec3f(0.63, 0.59, 0.40), grid)*light;
   if (v.material == 1.0) { color = vec3f(0.10, 0.89, 0.82)*light; }
   if (v.material == 2.0) {
-    let ripple = 0.5 + 0.5*sin(v.world.x*0.16+v.world.z*0.12+u.settings.y);
     color = mix(vec3f(0.025,0.18,0.29),vec3f(0.06,0.36,0.48),ripple);
   }
-  let fog = clamp(length(v.world-u.eye.xyz)/900.0, 0.0, 0.85);
+  if (v.material == 3.0) { color = vec3f(0.60,0.68,0.45)*light; }
+  let fog = clamp(length(v.world-u.eye.xyz)/(u.eye.w*0.75), 0.0, 0.93);
   return vec4f(mix(color, vec3f(0.08, 0.15, 0.20), fog), 1.0);
 }`;
 
@@ -186,12 +215,32 @@ function releaseDrawable(item) { item?.buffer.destroy(); item?.uniform.gpu.destr
 function clearRouteGeometry() {
   for (const item of routeTiles.values()) releaseDrawable(item);
   routeTiles.clear(); releaseDrawable(ocean); ocean = undefined;
+  for (const item of horizonTiles) releaseDrawable(item);
+  horizonTiles.length=0;
+  for (const item of horizonIndices.values()) item.destroy();
+  horizonIndices.clear();
+  for (const item of routeSeams.values()) releaseDrawable(item);
+  routeSeams.clear();
 }
 const route = new RouteClient(data => {
   releaseDrawable(routeTiles.get(data.index));
   routeTiles.set(data.index,{buffer:buffer(data.vertices,GPUBufferUsage.VERTEX),
     count:data.vertices.length/7,placement:data.placement,uniform:uniform()});
-}, index => { releaseDrawable(routeTiles.get(index)); routeTiles.delete(index); },report,fail,clearRouteGeometry);
+}, index => { releaseDrawable(routeTiles.get(index)); routeTiles.delete(index); },report,fail,clearRouteGeometry,
+data => {
+  if (data.event === 'horizon-index') {
+    horizonIndices.get(data.region)?.destroy();
+    horizonIndices.set(data.region,buffer(data.indices,GPUBufferUsage.INDEX));
+  } else horizonTiles.push({...data,vertices:undefined,buffer:buffer(data.vertices,GPUBufferUsage.VERTEX),
+    count:3072,uniform:uniform()});
+}, seams => {
+  for (const item of routeSeams.values()) releaseDrawable(item);
+  routeSeams.clear();
+  for (const {index,vertices} of seams) if (vertices.length) {
+    routeSeams.set(index,{buffer:buffer(vertices,GPUBufferUsage.VERTEX),count:vertices.length/7,
+      placement:routeTiles.get(index).placement,uniform:uniform()});
+  }
+});
 function prepareOcean() {
   releaseDrawable(ocean);
   const [x,z,right,bottom] = route.pack.manifest.ocean, y = route.pack.manifest.sea_level;
@@ -201,11 +250,13 @@ function prepareOcean() {
     0,y,0,0,1,0,2, w,y,h,0,1,0,2, 0,y,h,0,1,0,2,
   ]);
   ocean = {buffer:buffer(vertices,GPUBufferUsage.VERTEX),count:6,placement:[x,z],uniform:uniform()};
-  $('terrain').textContent = route.pack.manifest.label;
+  $('terrain').textContent = `${route.pack.manifest.label} / ${route.pack.manifest.horizons?.length ? 'Both complete WDLs; only four ADTs have collision' : 'legacy pack: no distant WDL'}`;
 }
 function leaveRoute() {
   route.stop(); routeMode = false; clearRouteGeometry(); renderOrigin = [0,0]; camera = undefined;
   delete evidence.route; delete evidence.packId;
+  delete evidence.flight;
+  flight=undefined;
   localStorage.setItem('racer-mode','tile');
   $('journey').textContent = '';
 }
@@ -227,8 +278,9 @@ $('pack').onchange = async event => {
   try {
     await route.import(files);
     routeMode = true;
+    flight=route.pack.manifest.version===2 ? overview(route.pack.manifest) : undefined;
     prepareOcean(); camera = undefined; renderOrigin = [0,0];
-    report('Real coastal corridor ready. W travels east; S returns west. Four tiles, not complete continents.');
+    report(flight ? 'Full authored WDL world. Free-flight is visual only; driveable ADT coverage remains four tiles.' : 'Short coastal corridor ready. W travels east; S returns west.');
   } catch (error) { fail(error); }
   finally { routeBusy = false; event.target.value = ''; }
 };
@@ -288,25 +340,39 @@ function draw(state, dt) {
   }
   let [x,y,z,yaw] = state;
   if (routeMode) {
-    const nextOrigin = [state[11],state[12]];
+    const nextOrigin = flight ? [Math.round(flight[0]),Math.round(flight[2])] : [state[11],state[12]];
     if (camera) { camera[0] -= nextOrigin[0]-renderOrigin[0]; camera[2] -= nextOrigin[1]-renderOrigin[1]; }
     renderOrigin = nextOrigin;
     x -= renderOrigin[0]; z -= renderOrigin[1];
   }
-  const forward = [-Math.sin(yaw), 0, -Math.cos(yaw)];
+  const viewYaw = yaw + (keys.has('KeyV') ? Math.PI : 0);
+  const forward = [-Math.sin(viewYaw), 0, -Math.cos(viewYaw)];
   const desired = [x-forward[0]*13, y+7, z-forward[2]*13];
   camera = camera ? camera.map((v,i) => v+(desired[i]-v)*(1-Math.exp(-dt*6))) : desired;
-  const look = normalize(sub([x+forward[0]*7, y, z+forward[2]*7], camera));
+  let look = normalize(sub([x+forward[0]*7, y, z+forward[2]*7], camera));
+  if (flight) {
+    camera=[flight[0]-renderOrigin[0],flight[1],flight[2]-renderOrigin[1]];
+    look=[-Math.sin(flight[3])*Math.cos(flight[4]),Math.sin(flight[4]),-Math.cos(flight[3])*Math.cos(flight[4])];
+  }
   const right = normalize(cross(look, [0,1,0]));
   const up = cross(right, look);
   function upload(target,offset) {
     device.queue.writeBuffer(target.gpu, 0, new Float32Array([
-      ...camera, 0, ...right, 0, ...up, 0, ...look, 0, x,y,z,yaw, width/height,lastTime/1000,state[4],state[6],...offset,0,
+      ...camera, routeMode && route.pack.manifest.horizons?.length ? 200000 : 1200, ...right, 0, ...up, 0, ...look, 0, x,y,z,yaw,
+      width/height,lastTime/1000,state[4],flight ? Math.max(.1,Math.min(100,Math.abs(flight[1])*.01)) : .1,
+      ...offset,routeMode ? route.pack.manifest.sea_level : 0,
     ]));
   }
   upload(uniforms[1],[0,0,0]);
+  const distant = routeMode && $('horizon').checked ? horizonTiles.filter(item => {
+    if (routeTiles.has(item.near)) return false;
+    return true;
+  }) : [];
+  const drawables = [...distant,...routeTiles.values(),...($('horizon').checked ? routeSeams.values() : []),ocean].filter(Boolean);
+  evidence.horizonDraw = {patches:distant.length,regions:[0,1].map(r => distant.filter(t => t.region===r).length),
+    seamVertices:[...routeSeams.values()].reduce((n,t)=>n+t.count,0),gpuMeshBytes:route.state?.horizon?.gpuBytes || 0};
   if (!routeMode) upload(uniforms[0],[0,0,0]);
-  else for (const item of [...routeTiles.values(),ocean].filter(Boolean)) {
+  else for (const item of drawables) {
     upload(item.uniform,[item.placement[0]-renderOrigin[0],0,item.placement[1]-renderOrigin[1]]);
   }
   const encoder = device.createCommandEncoder();
@@ -317,8 +383,11 @@ function draw(state, dt) {
   pass.setPipeline(pipeline);
   if (!routeMode) {
     pass.setBindGroup(0, uniforms[0].group); pass.setVertexBuffer(0, terrainBuffer); pass.draw(terrainCount);
-  } else for (const item of [...routeTiles.values(),ocean].filter(Boolean)) {
-    pass.setBindGroup(0,item.uniform.group); pass.setVertexBuffer(0,item.buffer); pass.draw(item.count);
+  } else for (const item of drawables) {
+    pass.setBindGroup(0,item.uniform.group); pass.setVertexBuffer(0,item.buffer);
+    if (item.region !== undefined) {
+      pass.setIndexBuffer(horizonIndices.get(item.region),'uint32');pass.drawIndexed(item.count);
+    } else pass.draw(item.count);
   }
   pass.setBindGroup(0, uniforms[1].group); pass.setVertexBuffer(0, bodyBuffer); pass.draw(bodyCount);
   pass.end();
@@ -337,16 +406,17 @@ function frame(now) {
     let state;
     if (routeMode) {
       accumulator = 0;
-      if (!routeBusy) route.frame(dt,throttle,steer,flags);
+      if (flight && !routeBusy) flight=moveFlight(flight,keys,dt);
+      if (!routeBusy) route.frame(dt,throttle,steer,flags,flight ? [flight[0],flight[2]] : undefined);
       state = route.state?.telemetry;
       if (!state) { evidence.ready = false; requestAnimationFrame(frame); return; }
       const stats = route.state;
       const region = state[10] < 0 ? 'Connecting ocean' : route.pack.manifest.regions[state[10]].id;
-      $('journey').textContent = `${region} / ${state[9] ? 'water' : 'ground'} / global ${state[0].toFixed(2)}, ${state[2].toFixed(2)} / tiles ${stats.resident.length}/3 / rebases ${state[13]}`;
+      $('journey').textContent = `${flight ? 'FREE FLIGHT / no collision' : region} / global ${(flight || state)[0].toFixed(2)}, ${(flight || state)[2].toFixed(2)} / detailed ${stats.resident.length}/3 / WDL ${stats.horizon?.patches || 0} / rebases ${state[13]}`;
       if (stats.failures.length) report(`Missing/error: ${stats.failures.join('; ')}. Reimport or Retry tiles; unloaded ground is never safe.`);
-      else if (state[8]) report(state[8] === 1 ? 'Loading hold: required terrain is not resident.' : 'Boundary/solid hold: outside imported corridor, hole or abrupt rise.');
+      else if (state[8] && !flight) report(state[8] === 1 ? 'Loading hold: required terrain is not resident.' : 'Boundary/solid hold: outside imported corridor, hole or abrupt rise.');
       else if ($('status').textContent.startsWith('Loading')) report('Streaming ready; explicit 512 yd connecting ocean, provisional geography.');
-      Object.assign(evidence,{source:'route',route:stats,packId:route.pack.id,terrainVertices:[...routeTiles.values()].reduce((n,t) => n+t.count,0)});
+      Object.assign(evidence,{source:'route',route:stats,flight:flight?.slice(),packId:route.pack.id,terrainVertices:[...routeTiles.values()].reduce((n,t) => n+t.count,0)});
     } else {
       while (accumulator >= 1/120) {
         racer.tick(throttle, steer, flags);
@@ -360,7 +430,7 @@ function frame(now) {
     Object.assign(evidence, { ready: !routeBusy, frames, ticks, telemetry: Array.from(state) });
     $('speed').textContent = state[5].toFixed(1);
     $('boost').textContent = `${Math.round(state[6]*100)}%`;
-    $('contact').textContent = state[8] ? 'HOLD' : state[7] ? (routeMode && state[9] ? 'WATER' : 'HOVER') : 'AIR';
+    $('contact').textContent = flight ? 'FLIGHT' : state[8] ? 'HOLD' : state[7] ? (routeMode && state[9] ? 'WATER' : 'HOVER') : 'AIR';
     requestAnimationFrame(frame);
   } catch (error) { running = false; fail(error); }
 }
@@ -372,6 +442,10 @@ async function start() {
   if (localStorage.getItem('racer-mode') === 'route') {
     routeMode = true;
     await routeAction(() => route.resume(),'Restored global hovercraft route save.');
+    if (route.pack?.manifest.version===2) {
+      flight=overview(route.pack.manifest);
+      try { flight=await loadFlight(route.pack); } catch (error) { fail(error); }
+    }
   }
   for (const id of ['save', 'load', 'reset', 'import', 'pack', 'retry', 'lab']) $(id).disabled = false;
   if (!evidence.errors.length) report('Local simulation ready. Click the view to drive.');

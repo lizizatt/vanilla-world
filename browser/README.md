@@ -8,8 +8,127 @@ it does not reimplement racer dynamics. The native client/server are unchanged.
 
 The default single-tile lab is explicitly **synthetic flat ground**. Importing
 a private vanilla ADT replaces it with that tile's actual height geometry.
-**Route mode** streams a real four-tile coastal corridor with an explicit ocean
-connection. The cyan hovercraft is an original geometric marker, not an imported mount.
+**Full-world mode** displays both complete authored WDL continents, with an
+overview/free-flight camera and an explicit broad ocean. Driving remains limited
+to imported ADTs and the explicit ocean, not WDL collision. The original short
+four-tile coastal crossing is a separate compatible pack. The cyan hovercraft
+is an original geometric marker, not an imported mount.
+
+## Both complete continents: untextured visual MVP
+
+From the repository root, export a **new** private pack:
+
+```powershell
+$env:CARGO_TARGET_DIR = Join-Path (Get-Location) 'target-web'
+Push-Location .\client
+cargo run --release -j 2 -p flats-racer-web --example export_route -- 'C:\path\to\your\install\Data' '..\runtime\browser\full-world'
+Pop-Location
+```
+
+At **http://127.0.0.1:4173**, choose **Import route pack** and select `route.json`,
+four ADTs and both `.wdl` files together. **World overview** frames both complete
+maps, including authored outlying tiles. **Free flight** starts above the parked
+hovercraft. W/S move forward/back, A/D strafe, Q/E change altitude, arrow keys look,
+and Shift increases speed from 1200 to 8000 yards/sec. Click the canvas for input.
+Flight is a visual camera, has **no collision**, and does not move the hovercraft.
+**Drive hovercraft** returns to the parked racer, not to the flying camera's location.
+The camera has its own floating render origin and distance-appropriate near plane.
+
+The full pack uses manifest **version 2**. It keeps both original WDL lattices,
+heights, scale and map orientation, with translation-only region placements.
+There is **no 4000-yard cutoff, missing-tile budget eviction, or clipped continent
+edge**. Both full WDLs remain cached, with their original 545-vertex / 1024-triangle
+fan per authored tile. The far plane is 200,000 yards; the overview contains both
+maps. Normal depth occlusion still hides terrain behind nearer terrain.
+
+The provisional layout puts **8192 yards of explicit ocean between the complete
+authored map bounds**, not between selected coast tiles. This is design space,
+**not canonical geography**. Source bounds are measured by the exporter and checked
+against the parsed WDL during import. In the tested install, global bounds are:
+
+| Map | East X range (yd) | South Z range (yd) |
+|---|---:|---:|
+| Kalimdor | -21866.67 to 5333.33 | -17600 to 12266.67 |
+| Eastern Kingdoms | 13525.33 to 24725.33 | -16533.33 to 5866.67 |
+
+The Eastern Kingdoms region placement is X 15125.33, Z 0; Kalimdor's is 0, 0.
+All authored tiles, even outliers affecting the bounds, are retained.
+The broad-ocean rectangle uses the union of their north/south extents.
+The previous 512-yard crossing **has not been stretched or silently relocated**.
+Full-world traversal is demonstrated by flight, not continuous detailed driving.
+
+### Coarse shores, depth and detailed handoff
+
+WDL is a coarse integer-height terrain model, **not an ADT mesh, water mask or
+building model**. WDL fragments below sea level are hidden rather than shown as
+exposed seabed. This is only a visual sea-level cut, not evidence of liquid;
+below-sea depressions may consequently appear as holes. No water is inferred
+inside either continent. Only imported MCLQ and the explicit between-bounds
+rectangle render water, so dark gaps and rectangular ocean ends are visible.
+Coarse shoreline/near-height discrepancies remain noticeable close up.
+
+The usual max-three ADT streamer follows the camera during flight and the racer
+during driving. WDL never grants collision readiness. A loaded ADT replaces its
+whole corresponding WDL tile; unloaded areas remain coarse visual geometry,
+not safe ground. Tile eviction, arrival and exposed-edge updates reach the renderer
+in one worker message, avoiding a frame with neither representation. Vertical
+visual edge strips join ADT perimeter triangles to neighbouring WDL edge heights;
+they do not fill ADT holes or add collision. These strips can look like short
+walls where coarse and detailed heights disagree, not smooth terrain morphing.
+Both representations use real depth, not a far-background depth override.
+
+### Measured cost and reusable boundary
+
+On the tested private install, the full maps contain 1018 Kalimdor and 687 Azeroth
+tiles: **1705 patches, 929225 vertices, 1745920 triangles**. Source WDL files total
+**1,904,898 bytes**; all seven imported files total roughly 9.2 MB.
+One persistent worker parses each map once per open and meshes four patches per
+yield. It transfers indexed, tile-local geometry, then discards CPU mesh copies.
+The shared index buffer is cached once per map; main-thread code only uploads,
+draws and replaces near buffers. The finite format limit is two 64x64 maps
+(8192 patches), not a visibility cutoff. Import still uses at most one temporary
+validation worker in addition to the active worker.
+
+| Memory component | Measured payload / conservative bound |
+|---|---:|
+| Retained WDL GPU vertices, shared indices and per-tile uniforms | 26,233,836 bytes |
+| Parsed CPU WDL height arrays and patch lists, conservative bound | 9,011,200 bytes |
+| Temporary mesh per patch, excluding allocator overhead | 27,548 bytes |
+| Worker Wasm memory high-water, **including** near ADTs and allocator capacity | 47,185,920 bytes |
+
+The parsed CPU bound is **inside**, not additional to, Wasm memory. Source file
+blobs are retained in IndexedDB; one source ArrayBuffer is read at a time.
+Transferred buffers pending upload/GC can transiently add up to the GPU vertex
+payload on the JS side. Near ADT GPU buffers, edge strips, browser caches, driver
+allocations and process overhead are additional; these are not total process-RSS
+measurements. Native format/physics output uses only this worktree's `target-web`.
+Actual Edge 155/NVIDIA Ampere runs built the horizon in about 2.4 seconds and
+measured about 80 fps in the full overview with streaming enabled; this is a host
+measurement, not a portable performance guarantee.
+
+The reusable pieces are `benilla-formats::WdlFile::parse` and its existing indexed
+source mesher. The browser's concrete upload boundary carries source tile/region,
+global translation, height bounds, local positions/normals/material and indices.
+WGSL bindings, depth and camera remain browser-owned. No speculative UV/alpha
+plugin API was added. Future native M2/WMO geometry can reuse that translation and
+indexed-buffer path, but needs explicit UV/texture/alpha-mask material support.
+The native Bevy renderer and its unvalidated foliage/building changes are **not**
+copied or claimed ported.
+
+### Full-world saves and pack compatibility
+
+In full-world flight, **Save locally** writes a separate version-1 global camera
+record (X/Y/Z/yaw/pitch and pack digest). Offline reload restores it; **World
+overview** followed by Save explicitly replaces an incompatible camera record.
+Driving still uses the existing version-2 parked hovercraft save. These two records
+and the original single-tile save never overwrite each other.
+
+The previously exported **manifest-v1** short-crossing packs remain readable,
+including the folder named `coast-route-v2` (that folder name is not its schema).
+Importing the new layout atomically replaces the single stored pack, not existing
+saves. Reimport the exact old pack and use Load to access its driving save.
+Full-world camera and old driving positions are not implicitly converted between
+layouts. Keep both local exported folders to switch layouts offline.
 
 ## Continuous coastal route
 
@@ -32,7 +151,7 @@ From the repository root:
 ```powershell
 $env:CARGO_TARGET_DIR = Join-Path (Get-Location) 'target-web'
 Push-Location .\client
-cargo run --release -j 2 -p flats-racer-web --example export_route -- 'C:\path\to\your\install\Data' '..\runtime\browser\coast-route'
+cargo run --release -j 2 -p flats-racer-web --example export_route -- 'C:\path\to\your\install\Data' '..\runtime\browser\coast-route' --corridor
 Pop-Location
 ```
 
@@ -188,6 +307,8 @@ $env:ADT_FILE = '..\runtime\browser\Kalimdor_39_43.adt'
 npm test
 $env:ROUTE_PACK = '..\runtime\browser\coast-route'
 npm run test:route
+$env:WORLD_PACK = '..\runtime\browser\full-world'
+npm run test:world
 Pop-Location
 ```
 
@@ -212,10 +333,20 @@ and a billion-yard translated placement with real worker/GPU origin rebasing.
 It also checks unsupported-save recovery and preservation of the old v1 save.
 Its private evidence/screenshots are under `browser\test-results\route`.
 
+The world test verifies all 1705 authored patches/source bounds, both continents'
+overview pixels (including a WDL-off comparison), actual keyboard flight across
+the broad ocean and back, facing-coast/mid-ocean screenshots, near-ADT replacement
+on both sides, offline camera reloads, non-collision WDL, invalid-WDL isolation,
+unsupported camera recovery and legacy pack/driving-save restoration. It reports
+GPU/CPU payloads, Wasm high-water and overview frame rate. Private evidence is
+under `browser\test-results\world`. It assumes the measured vanilla source counts;
+another install/patch chain may require different asserted counts.
+
 ## Deliberate boundary
 
-The lab is one tile; route mode streams only the explicitly listed corridor,
-not whole continents. Collision is conservative terrain/liquid support:
+The lab is one tile; detailed route streaming covers only explicitly listed ADTs.
+Full-world WDL is complete **coarse visual coverage**, not full continent collision,
+ADT detail, liquid coverage or object rendering. Collision is conservative terrain/liquid support:
 outside-pack edges, unsupported holes, impassable chunks and abrupt rises hold
 the hovercraft. It is not the native swept Avian collider. No WMO/M2 buildings,
 props, textured materials, sky system, mount model, audio, Lua or native HUD

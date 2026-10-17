@@ -1,4 +1,5 @@
 //! Translation-only regions keep authored WoW geometry separate from global and local physics.
+use crate::horizon::Horizon;
 use benilla_formats::{adt_to_tile_mesh, triangle_z_at, LiquidKind, TileMesh};
 use flats_racer_physics::{Input, State, Tuning, FIXED_DT, PROBE_OFFSETS};
 use serde::{Deserialize, Serialize};
@@ -53,11 +54,24 @@ pub struct TileEntry {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct HorizonEntry {
+    pub region: usize,
+    pub file: String,
+    pub bytes: usize,
+    pub sha256: String,
+    /// Inclusive minimum, exclusive maximum authored WDL tile coordinates.
+    pub source_bounds: [u32; 4],
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Manifest {
     pub version: u32,
     pub label: String,
     pub regions: Vec<Region>,
     pub tiles: Vec<TileEntry>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub horizons: Vec<HorizonEntry>,
     /// Explicit connecting ocean only, never a fallback for missing continent data.
     pub ocean: [f64; 4],
     pub sea_level: f32,
@@ -71,7 +85,9 @@ fn contains(b: [f64; 4], p: [f64; 2]) -> bool {
 
 impl Manifest {
     pub fn validate(&self) -> Result<(), String> {
-        if self.version != 1
+        if !matches!(self.version, 1 | 2)
+            || (self.version == 1 && !self.horizons.is_empty())
+            || (self.version == 2 && self.horizons.len() != 2)
             || self.regions.len() != 2
             || self.tiles.is_empty()
             || self.tiles.len() > 16
@@ -120,7 +136,29 @@ impl Manifest {
         }
         let a = self.regions[0].bounds();
         let b = self.regions[1].bounds();
-        let expected = [a[2], a[1], b[0], a[3]];
+        let expected = if self.version == 1 {
+            [a[2], a[1], b[0], a[3]]
+        } else {
+            let bounds = |i: usize| {
+                let r = &self.regions[i];
+                let h = &self.horizons[i];
+                [
+                    r.placement[0]
+                        + (f64::from(h.source_bounds[0]) - f64::from(r.tile_origin[0])) * TILE,
+                    r.placement[1]
+                        + (f64::from(h.source_bounds[1]) - f64::from(r.tile_origin[1])) * TILE,
+                    r.placement[0]
+                        + (f64::from(h.source_bounds[2]) - f64::from(r.tile_origin[0])) * TILE,
+                    r.placement[1]
+                        + (f64::from(h.source_bounds[3]) - f64::from(r.tile_origin[1])) * TILE,
+                ]
+            };
+            let (west, east) = (bounds(0), bounds(1));
+            if west[2] >= east[0] {
+                return Err("Full authored continent bounds overlap".into());
+            }
+            [west[2], west[1].min(east[1]), east[0], west[3].max(east[3])]
+        };
         if self.regions[0].id == self.regions[1].id
             || a[2] >= b[0]
             || (a[1] - b[1]).abs() > 0.001
@@ -137,6 +175,23 @@ impl Manifest {
         }
         let mut total = 0usize;
         let mut names = std::collections::HashSet::new();
+        for (index, h) in self.horizons.iter().enumerate() {
+            let r = self.regions.get(h.region).ok_or("Unknown horizon region")?;
+            if h.region != index
+                || h.file != format!("{}.wdl", r.map)
+                || !names.insert(&h.file)
+                || h.bytes == 0
+                || h.bytes > 5 * 1024 * 1024
+                || h.sha256.len() != 64
+                || !h.sha256.bytes().all(|c| c.is_ascii_hexdigit())
+                || h.source_bounds.iter().any(|&n| n > 64)
+                || h.source_bounds[0] >= h.source_bounds[2]
+                || h.source_bounds[1] >= h.source_bounds[3]
+            {
+                return Err("Invalid WDL horizon descriptor".into());
+            }
+            total += h.bytes;
+        }
         for t in &self.tiles {
             let r = self.regions.get(t.region).ok_or("Unknown tile region")?;
             let expected = format!("{}_{}_{}.adt", r.map, t.x, t.y);
@@ -207,8 +262,9 @@ impl Surface {
 
 #[wasm_bindgen]
 pub struct Voyage {
-    manifest: Manifest,
-    resident: HashMap<usize, TileMesh>,
+    pub(crate) manifest: Manifest,
+    pub(crate) resident: HashMap<usize, TileMesh>,
+    pub(crate) horizons: HashMap<usize, Horizon>,
     state: State,
     origin: [f64; 2],
     rebases: u32,
@@ -227,6 +283,7 @@ impl Voyage {
             origin: [manifest.spawn[0], manifest.spawn[2]],
             manifest,
             resident: HashMap::new(),
+            horizons: HashMap::new(),
             rebases: 0,
             hold: 1,
         };
@@ -560,7 +617,7 @@ impl Voyage {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     pub fn fixture(shift: f64) -> Manifest {
@@ -584,6 +641,7 @@ mod tests {
                 },
             ],
             tiles: vec![],
+            horizons: vec![],
             ocean: [shift + TILE, 0.0, shift + 2000.0, TILE],
             sea_level: 0.0,
             spawn: [shift + 200.0, 1.1, 64.0, 0.0],
@@ -648,6 +706,35 @@ mod tests {
         assert!(m.validate().is_err());
         m = fixture(0.0);
         m.regions[0].placement[0] = f64::NAN;
+        assert!(m.validate().is_err());
+    }
+
+    #[test]
+    fn full_world_bounds_bracket_ocean_without_granting_wdl_collision() {
+        let mut m = fixture(0.0);
+        m.version = 2;
+        m.horizons = vec![
+            HorizonEntry {
+                region: 0,
+                file: "Kalimdor.wdl".into(),
+                bytes: 100,
+                sha256: "a".repeat(64),
+                source_bounds: [40, 32, 43, 34],
+            },
+            HorizonEntry {
+                region: 1,
+                file: "Azeroth.wdl".into(),
+                bytes: 100,
+                sha256: "b".repeat(64),
+                source_bounds: [27, 50, 30, 52],
+            },
+        ];
+        m.ocean = [2.0 * TILE, -TILE, 2000.0 - TILE, TILE];
+        m.validate().unwrap();
+        let world = Voyage::from_manifest(m.clone()).unwrap();
+        assert_eq!(world.sample([-100.0, 100.0]).availability, 2);
+        assert_eq!(world.sample([1200.0, 100.0]).water, Some(0.0));
+        m.regions[1].placement[0] = 1000.0;
         assert!(m.validate().is_err());
     }
 }

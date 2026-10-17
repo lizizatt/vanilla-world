@@ -16,13 +16,15 @@
     </section>
     <section class="toolbar" aria-label="Local world and save controls">
       <label class="button">Import local .adt<input id="import" type="file" accept=".adt" aria-label="Import local ADT terrain" disabled></label>
-      <label class="button">Import route pack<input id="pack" type="file" accept=".json,.adt" multiple aria-label="Import route manifest and tiles" disabled></label>
+      <label class="button">Import route pack<input id="pack" type="file" accept=".json,.adt,.wdl" multiple aria-label="Import route manifest, ADT tiles and WDL horizons" disabled></label>
       <button id="save" disabled>Save locally</button><button id="load" disabled>Load save</button><button id="reset" disabled>Reset racer</button>
       <button id="retry" disabled>Retry tiles</button><button id="lab" disabled>Single-tile lab</button>
+      <label><input id="horizon" type="checkbox" checked> Distant terrain</label>
+      <button id="overview">World overview</button><button id="fly">Free flight</button><button id="drive">Drive hovercraft</button>
       <span id="offline">Offline cache pending</span>
     </section>
-    <p class="controls"><kbd>W</kbd><kbd>S</kbd> throttle/reverse &nbsp; <kbd>A</kbd><kbd>D</kbd> steer &nbsp; <kbd>Space</kbd> brake &nbsp; <kbd>Shift</kbd> boost &nbsp; <kbd>C</kbd> drift &nbsp; <kbd>J</kbd> hop</p>
-    <p class="scope">Alternate web rendering adapter using the repository's Rust racer physics, ADT terrain and authored liquid surfaces. Route mode streams a private four-tile Durotar-Westfall corridor with an explicit, provisional 512 yd connecting ocean: not complete continents or canonical geography. W travels east, S returns west. Missing terrain and outside-pack boundaries stop traversal. No buildings, textures, NPCs, Bevy renderer or VMaNGOS. Private packs and versioned global hovercraft saves stay in this browser.</p>
+    <p class="controls"><kbd>W</kbd><kbd>S</kbd> throttle/reverse &nbsp; <kbd>A</kbd><kbd>D</kbd> steer &nbsp; <kbd>Space</kbd> brake &nbsp; <kbd>Shift</kbd> boost &nbsp; <kbd>C</kbd> drift &nbsp; <kbd>J</kbd> hop &nbsp; hold <kbd>V</kbd> look behind</p>
+    <p class="scope">Full-world pack: both complete authored WDL continents at original scale, separated by a provisional 8192 yd broad ocean between their bounds, not canonical geography. World overview shows both; free-flight uses W/S forward/back, A/D strafe, Q/E altitude, arrows look, Shift fast. WDL is coarse visual terrain with no collision or inland water masks. Only four ADTs provide driving collision. The previous 512 yd short-crossing pack remains a separate layout with unchanged saves. No buildings, textures, NPCs, Bevy renderer or VMaNGOS. Assets and saves stay local.</p>
   </main>
   <script type="module" src="./app.js"></script>
 </body>

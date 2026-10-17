@@ -16,10 +16,12 @@ Windows-only, source-build local server bootstrap; the client remains separate.
 
 For the isolated local **browser racer experiment**, see
 [browser/README.md](browser/README.md). It reuses Rust racer physics and terrain
-formats in Wasm with an alternate WebGPU renderer. Route mode streams a private
-four-tile Durotar-to-Westfall corridor across a provisional connecting ocean,
-with global hovercraft saves and offline resume. This is **not** full-continent
-coverage, a Bevy/VMaNGOS port, or a completed singleplayer RPG.
+formats in Wasm with an alternate WebGPU renderer. A full-world pack shows both
+complete authored WDL continents at original scale, with a broad provisional
+ocean, overview/free flight and offline camera saves. Driving collision remains
+four ADTs; the previous short Durotar-to-Westfall crossing is a separate,
+backward-compatible pack. This is **not** full-detail continent ingestion,
+a Bevy/VMaNGOS port, or a completed singleplayer RPG.
 
 Run component commands from their own directories, not the monorepo root.
 See the [Benilla README](client/README.md),

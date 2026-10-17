@@ -2,7 +2,7 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm' };
-const allowed = /^\/(?:index\.html|app\.js|voyage-(?:client|store|worker)\.js|style\.css|sw\.js|pkg\/flats_racer_web(?:_bg\.wasm|\.js))$/;
+const allowed = /^\/(?:index\.html|app\.js|flight\.js|voyage-(?:client|store|worker)\.js|style\.css|sw\.js|pkg\/flats_racer_web(?:_bg\.wasm|\.js))$/;
 const server = http.createServer(async (request, response) => {
   let path;
   try { path = new URL(request.url, 'http://localhost').pathname; }

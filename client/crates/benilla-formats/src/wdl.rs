@@ -51,13 +51,18 @@ fn tile_index(tile_x: u32, tile_y: u32) -> usize {
 }
 
 impl WdlFile {
+    /// Parse already-read WDL bytes, including user-selected browser files.
+    pub fn parse(bytes: &[u8]) -> Result<Self> {
+        parse_wdl(bytes)
+    }
+
     /// Read and parse the map's `.wdl` off the patch chain (`World\Maps\<map>\<map>.wdl`).
     pub fn load(chain: &mut Chain, map: &str) -> Result<Self> {
         let path = format!("World\\Maps\\{map}\\{map}.wdl");
         let bytes = chain
             .read_file(&path)
             .with_context(|| format!("reading {path}"))?;
-        parse_wdl(&bytes).with_context(|| format!("parsing {path}"))
+        Self::parse(&bytes).with_context(|| format!("parsing {path}"))
     }
 
     /// Number of present (non-empty) tiles.
@@ -284,6 +289,13 @@ mod tests {
                                             // 16×16 cells × 4 tris × 3: the reference's draw count.
         assert_eq!(INNER_EDGE * INNER_EDGE * 12, 3072);
         assert!((CHUNK_SIZE - TILE_SIZE / 16.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn byte_entry_rejects_truncated_or_wrong_version_data() {
+        assert!(WdlFile::parse(&[]).is_err());
+        assert!(WdlFile::parse(b"REVM\x04\0\0\0\x11\0\0\0").is_err());
+        assert!(WdlFile::parse(b"REVM\x04\0\0\0\x12\0\0\0").is_err());
     }
 
     /// The tile's last corner row and column belong to the absent neighbour tile in this synthetic

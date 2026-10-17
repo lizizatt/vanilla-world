@@ -3,6 +3,7 @@ use benilla_formats::{adt_to_tile_mesh, TileMesh};
 use flats_racer_physics::{Input, State, FIXED_DT, HOVER_HEIGHT, PROBE_OFFSETS};
 use wasm_bindgen::prelude::*;
 
+mod horizon;
 pub mod voyage;
 
 #[wasm_bindgen]

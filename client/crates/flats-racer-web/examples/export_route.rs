@@ -1,14 +1,15 @@
 //! Private four-tile coastal corridor; no assets or generated pack belong in Git.
-use benilla_formats::{adt_to_tile_mesh, Chain};
-use flats_racer_web::voyage::{Manifest, Region, TileEntry, TILE};
+use benilla_formats::{adt_to_tile_mesh, Chain, WdlFile};
+use flats_racer_web::voyage::{HorizonEntry, Manifest, Region, TileEntry, TILE};
 use sha2::{Digest, Sha256};
 use std::{fs, path::Path};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args().collect();
-    if args.len() != 3 {
-        return Err("usage: export_route DATA OUTPUT_DIRECTORY".into());
+    if !(args.len() == 3 || (args.len() == 4 && args[3] == "--corridor")) {
+        return Err("usage: export_route DATA OUTPUT_DIRECTORY [--corridor]".into());
     }
+    let full = args.len() == 3;
     let data = Path::new(&args[1]).canonicalize()?;
     let out = Path::new(&args[2]);
     fs::create_dir_all(out)?;
@@ -19,8 +20,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
     let mut manifest = Manifest {
-        version: 1,
-        label: "Durotar to Westfall / four-tile test corridor / provisional 512 yd ocean".into(),
+        version: if full {2} else {1},
+        label: if full {"Full authored WDL continents / provisional 8192 yd broad ocean / visual-only free flight"} else {"Durotar to Westfall / four-tile test corridor / provisional 512 yd ocean"}.into(),
         regions: vec![
             Region {
                 id: "kalimdor".into(),
@@ -38,6 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
         ],
         tiles: vec![],
+        horizons: vec![],
         ocean: [2.0 * TILE, 0.0, 2.0 * TILE + 512.0, TILE],
         sea_level: 0.0,
         spawn: [288.0, 0.0, 160.0, -std::f64::consts::FRAC_PI_2],
@@ -45,6 +47,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let chain = Chain::open(&data)?;
     for (region, r) in manifest.regions.iter().enumerate() {
+        if full {
+            let file = format!("{}.wdl", r.map);
+            let bytes = chain.read(&format!("World\\Maps\\{}\\{file}", r.map))?;
+            let wdl = WdlFile::parse(&bytes)?;
+            println!(
+                "{file}: {} bytes; {} authored coarse tiles",
+                bytes.len(),
+                wdl.present_count()
+            );
+            manifest.horizons.push(HorizonEntry {
+                region,
+                file: file.clone(),
+                bytes: bytes.len(),
+                sha256: format!("{:x}", Sha256::digest(&bytes)),
+                source_bounds: wdl.present_tiles().fold([64, 64, 0, 0], |b, (x, y)| {
+                    [b[0].min(x), b[1].min(y), b[2].max(x + 1), b[3].max(y + 1)]
+                }),
+            });
+            fs::write(out.join(file), bytes)?;
+        }
         for x in r.tile_origin[0]..r.tile_origin[0] + r.tile_count[0] {
             let y = r.tile_origin[1];
             let file = format!("{}_{x}_{y}.adt", r.map);
@@ -76,13 +98,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
         }
     }
+    if full {
+        let h0 = manifest.horizons[0].source_bounds;
+        let h1 = manifest.horizons[1].source_bounds;
+        let west_edge = (f64::from(h0[2]) - 41.0) * TILE;
+        let east_local_min = (f64::from(h1[0]) - 27.0) * TILE;
+        manifest.regions[1].placement[0] = west_edge + 8192.0 - east_local_min;
+        manifest.destination[0] = manifest.regions[1].placement[0] + TILE + 96.0;
+        manifest.ocean = [
+            west_edge,
+            ((f64::from(h0[1]) - 33.0) * TILE).min((f64::from(h1[1]) - 51.0) * TILE),
+            west_edge + 8192.0,
+            ((f64::from(h0[3]) - 33.0) * TILE).max((f64::from(h1[3]) - 51.0) * TILE),
+        ];
+        println!(
+            "Full source bounds {:?} / {:?}; ocean {:?}; placements {:?}",
+            h0,
+            h1,
+            manifest.ocean,
+            manifest
+                .regions
+                .iter()
+                .map(|r| r.placement)
+                .collect::<Vec<_>>()
+        );
+    }
     manifest.validate()?;
     fs::write(
         out.join("route.json"),
         serde_json::to_vec_pretty(&manifest)?,
     )?;
     println!(
-        "Private pack: {}. Select route.json and all four ADTs in the browser.",
+        "Private pack: {}. Select route.json, all four ADTs and both WDLs in the browser.",
         out.display()
     );
     println!(

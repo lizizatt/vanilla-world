@@ -9,7 +9,7 @@ if (!process.env.ROUTE_PACK) throw new Error('Set ROUTE_PACK to the private expo
 const folder = path.resolve(process.env.ROUTE_PACK);
 const json = await readFile(path.join(folder,'route.json'),'utf8');
 const manifest = JSON.parse(json);
-const files = [path.join(folder,'route.json'),...manifest.tiles.map(t => path.join(folder,t.file))];
+const files = [path.join(folder,'route.json'),...[...manifest.tiles,...manifest.horizons || []].map(t => path.join(folder,t.file))];
 const output = new URL('./test-results/route/',import.meta.url);
 await mkdir(output,{recursive:true});
 const browser = await chromium.launch({channel:'msedge',headless:process.env.HEADED !== '1'});

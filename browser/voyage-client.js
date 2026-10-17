@@ -1,9 +1,10 @@
 import { importRoute, readRoute, writeRouteSave } from './voyage-store.js';
 
 export class RouteClient {
-  constructor(onGeometry,onEvict,onStatus,onError,onClear) {
+  constructor(onGeometry,onEvict,onStatus,onError,onClear,onHorizon,onSeams) {
     this.onGeometry = onGeometry; this.onEvict = onEvict; this.onStatus = onStatus; this.onError = onError;
     this.onClear = onClear;
+    this.onHorizon = onHorizon; this.onSeams = onSeams;
     this.pending = new Map(); this.next = 0; this.inFlight = false; this.elapsed = 0;
   }
   request(action, fields = {}) {
@@ -34,8 +35,12 @@ export class RouteClient {
       this.stop();
     };
     this.worker.onmessage = ({data}) => {
-      if (data.event === 'tile') this.onGeometry(data);
-      else if (data.event === 'evict') this.onEvict(data.index);
+      if (data.event === 'detail') {
+        for (const index of data.removed) this.onEvict(index);
+        for (const tile of data.tiles) this.onGeometry(tile);
+        this.onSeams(data.seams);
+      }
+      else if (data.event === 'horizon' || data.event === 'horizon-index') this.onHorizon(data);
       else if (data.event === 'loading') this.onStatus(data.text);
       else {
         const request = this.pending.get(data.id);
@@ -68,6 +73,7 @@ export class RouteClient {
   async resume() {
     const pack = await readRoute('meta','pack');
     if (!pack) throw new Error('Route pack is missing; import it again or choose the single-tile lab.');
+    if (pack.manifest.version === 2) { await this.open(pack); return; }
     const save = await readRoute('meta','save');
     if (save) this.validateSave(save,pack);
     await this.open(pack,save?.vehicle.pose);
@@ -97,12 +103,12 @@ export class RouteClient {
       await this.open(pack);
     } else this.state = await this.request('reset');
   }
-  frame(dt,throttle,steer,flags) {
+  frame(dt,throttle,steer,flags,focus) {
     this.elapsed = Math.min(this.elapsed+dt,0.1);
     if (!this.worker || this.inFlight) return;
     this.inFlight = true;
     const elapsed = this.elapsed; this.elapsed = 0;
-    this.request('frame',{dt:elapsed,throttle,steer,flags}).then(state => { this.state = state; })
+    this.request('frame',{dt:elapsed,throttle,steer,flags,focus}).then(state => { this.state = state; })
       .catch(error => { if (error.name !== 'AbortError') this.onError(error); }).finally(() => { this.inFlight = false; });
   }
 }

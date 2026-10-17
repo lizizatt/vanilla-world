@@ -22,16 +22,17 @@ export async function readRoute(store, key) {
   });
 }
 
-export async function writeRouteSave(save) {
+export async function writeRouteSave(save, key = 'save') {
   const db = await database();
   return new Promise((resolve, reject) => {
     const tx = db.transaction('meta', 'readwrite');
-    tx.objectStore('meta').put(save, 'save');
+    tx.objectStore('meta').put(save, key);
     tx.oncomplete = () => { db.close(); resolve(); };
     tx.onabort = () => { db.close(); reject(tx.error || new Error('Route save aborted')); };
     tx.onerror = () => { db.close(); reject(tx.error); };
   });
 }
+export const writeRouteView = view => writeRouteSave(view,'view');
 
 export async function digest(bytes) {
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), b => b.toString(16).padStart(2, '0')).join('');
@@ -44,7 +45,7 @@ export async function importRoute(files, validate) {
     selected.set(file.name, file);
   }
   const descriptor = selected.get('route.json');
-  if (!descriptor || descriptor.size > 64*1024) throw new Error('Select route.json (under 64 KiB) and all its ADT files together.');
+  if (!descriptor || descriptor.size > 64*1024) throw new Error('Select route.json (under 64 KiB) and all its ADT/WDL files together.');
   const json = await descriptor.text();
   await validate(json,files);
   const manifest = JSON.parse(json);
@@ -53,7 +54,7 @@ export async function importRoute(files, validate) {
   await new Promise((resolve, reject) => {
     const tx = db.transaction(['meta','tiles'], 'readwrite');
     tx.objectStore('tiles').clear();
-    for (const tile of manifest.tiles) tx.objectStore('tiles').put(selected.get(tile.file), tile.file);
+    for (const tile of [...manifest.tiles,...manifest.horizons || []]) tx.objectStore('tiles').put(selected.get(tile.file), tile.file);
     tx.objectStore('meta').put(pack, 'pack');
     tx.oncomplete = resolve;
     tx.onabort = () => reject(tx.error || new Error('Pack import aborted; previous pack retained'));
