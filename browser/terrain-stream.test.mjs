@@ -197,8 +197,8 @@ test('one read per pump, shared cache, transferable copies, eviction and reload 
     {SceneTexture:Texture},(message,transfers)=>messages.push(structuredClone(message,{transfer:transfers})));
   const material=fixture(['a.blp','b.blp']);stream.setTile(1,material);
   assert(material.freed);
-  await stream.pump();assert.equal(messages.length,0);assert.equal(reads,1);
-  await stream.pump();assert.equal(messages.length,1);
+  assert.equal(await stream.pump(),true);assert.equal(messages.length,0);assert.equal(reads,1);
+  assert.equal(await stream.pump(),false);assert.equal(messages.length,1);
   assert.deepEqual([...messages[0].layers[0].mips.at(-1)],[11,23,57,255]);
   stream.removeTile(1);stream.setTile(1,fixture(['a.blp','b.blp']));
   await stream.pump();await stream.pump();
@@ -218,7 +218,25 @@ test('late reads cannot resurrect evicted tiles and errors stay explicit',async(
   stream.removeTile(2);resolve(new Uint8Array(1));await pending;
   assert.equal(messages.length,0);
   stream.source={read:async()=>{throw Error('missing local BLP');}};
-  stream.setTile(3,fixture(['missing.blp']));await stream.pump();
+  stream.setTile(3,fixture(['missing.blp']));assert.equal(await stream.pump(),false);
   assert.match(stream.snapshot().errors[0],/missing.blp: missing local BLP/);
   assert.equal(messages.length,0);
+});
+
+test('source reset cancels an in-flight material read without publishing or requesting an idle continuation',async()=>{
+  let resolve;
+  const messages=[],stream=new TerrainStream({read:()=>new Promise(r=>resolve=r)},{SceneTexture:Texture},
+    message=>messages.push(message));
+  stream.setTile(0,fixture());const pending=stream.pump();
+  stream.clear();resolve(new Uint8Array(1));
+  assert.equal(await pending,undefined);assert.equal(messages.length,0);
+  assert.equal(stream.tiles.size,0);assert.equal(stream.snapshot().cache,0);
+});
+
+test('failed material extraction frees its handle without replacing the previous ready-to-load tile',()=>{
+  const stream=new TerrainStream({}, {}, ()=>{});
+  stream.setTile(0,fixture());const previous=stream.tiles.get(0),invalid=fixture();
+  invalid.indices=()=>{throw Error('Invalid material indices');};
+  assert.throws(()=>stream.setTile(0,invalid),/Invalid material indices/);
+  assert(invalid.freed);assert.equal(stream.tiles.get(0),previous);
 });

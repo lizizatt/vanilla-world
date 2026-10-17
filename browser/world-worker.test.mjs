@@ -9,9 +9,17 @@ const worker=(await readFile(new URL('./world-worker.js',import.meta.url),'utf8'
   .replace(/^import .*;\r?$/gm,'');
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 function boot(events=[],clock=performance) {
+  const timers=new Map();let nextTimer=0;
   const context=createContext({init:async()=>({memory:{buffer:new ArrayBuffer(0)}}),performance:clock,postMessage:message=>events.push(message),
+    setTimeout:(callback,delay)=>{const id=++nextTimer;timers.set(id,{callback,delay});return id;},
+    clearTimeout:id=>timers.delete(id),
     transformedBounds,globalCollisionVertices,SCENE_LIMITS,boundsWithin});
   runInContext(worker,context);
+  context.timers=timers;
+  context.fireTimer=async()=>{
+    const [id,timer]=timers.entries().next().value;
+    timers.delete(id);timer.callback();await runInContext('queue',context);await settle();
+  };
   return context;
 }
 function fixture(xs=[0,1,20,21]) {
@@ -28,7 +36,7 @@ function fixture(xs=[0,1,20,21]) {
     }},
     manifest:{regions:[{map:'test'}],tiles:xs.map((x,i)=>({region:0,x,y:0,file:`tile${i}.adt`}))},
     placements:xs.map(x=>[x*1600/3,0]),
-    scene:{setTile(){},removeTile(){}},terrain:{setTile(){},removeTile(){},pump(){}},
+    scene:{setTile(){},removeTile(){}},terrain:{setTile(){},removeTile(){},async pump(){}},
   };
   runInContext(`({world,source,manifest,placements,scene,terrain}=dependencies);
     resident=new Set([0]);
@@ -155,7 +163,7 @@ function collisionFixture(clock=performance,instanceDeltas=true) {
   };
   runInContext(`({world,manifest,scene}=dependencies);
     horizon={wasmPeakBytes:0};source={stats:{}};
-    terrain={snapshot:()=>({errors:[]}),retry:async()=>{}};
+    terrain={snapshot:()=>({errors:[]}),retry:async()=>{},clear:()=>{}};
     stream=async()=>{};
     globalThis.request=handle;
     globalThis.updateCollision=async()=>updateScene(Array.from(world.telemetry().slice(0,3)));
@@ -426,6 +434,113 @@ function frameFixture(deferred=true) {
   f.frame=id=>f.dispatch({id,action:'frame',dt:1/120,throttle:1,steer:0,flags:0});
   return f;
 }
+
+function materialFixture() {
+  const f=frameFixture();
+  f.context.admissions=[];
+  f.context.dependencies.manifest.tiles=Array.from({length:4},(_,i)=>({file:`tile${i}.adt`}));
+  f.context.dependencies.world.terrain_material=i=>({index:i});
+  runInContext(`stream=async()=>{
+    const index=admissions.shift();
+    if(index!==undefined){resident.add(index);terrainMaterials.add(index);loads++;}
+  };
+  terrain.setTile=(index,material)=>postMessage({event:'material',index,material});
+  globalThis.materialState=()=>({pending:[...terrainMaterials],errors:[...terrainErrors.values()]});`,f.context);
+  f.state=()=>JSON.parse(JSON.stringify(f.context.materialState()));
+  return f;
+}
+
+test('admission materials wait for the catch-up reply without skipping readiness pumps',async()=>{
+  const f=materialFixture();f.context.admissions.push(0);
+  await f.frame(1);
+  assert.deepEqual(f.events.map(e=>e.event||`reply:${e.id}`),['collision','tick','reply:1','scene','pump']);
+  assert.deepEqual(f.state().pending,[0]);assert.equal(f.context.timers.size,1);
+  await f.dispatch({id:2,action:'frame',dt:0,throttle:0,steer:0,flags:0});
+  assert.equal(f.events.some(e=>e.event==='material'),false,'A zero-step reply must not trigger catch-up material work');
+  await f.dispatch({id:3,action:'frame',dt:.05,throttle:1,steer:0,flags:0});
+  const reply=f.events.findIndex(e=>e.id===3),material=f.events.findIndex(e=>e.event==='material');
+  assert(reply<material);assert.equal(f.events.filter(e=>e.event==='pump').length,3);
+  assert.deepEqual(f.state().pending,[]);assert.equal(f.context.timers.size,0);
+});
+
+test('consecutive admissions stay bounded and idle timers complete every pending material once',async()=>{
+  const f=materialFixture();f.context.admissions.push(0,1,2,3);
+  for(let i=0;i<4;i++)await f.frame(i+1);
+  assert.equal(f.events.some(e=>e.event==='material'),false);
+  assert.deepEqual(f.state().pending,[0,1,2,3]);assert.equal(f.context.timers.size,1);
+  assert.equal([...f.context.timers.values()][0].delay,25);
+  for(let i=0;i<4;i++)await f.context.fireTimer();
+  assert.deepEqual(f.events.filter(e=>e.event==='material').map(e=>e.index),[0,1,2,3]);
+  assert.equal(f.context.timers.size,0);assert.deepEqual(f.state().errors,[]);
+});
+
+test('idle material work runs behind an already queued catch-up and cancelled callbacks cannot repeat it',async()=>{
+  const f=materialFixture();f.context.admissions.push(0);await f.frame(1);
+  const timer=[...f.context.timers.values()][0];
+  const frame=f.frame(2);timer.callback();await frame;await runInContext('queue',f.context);
+  assert.equal(f.events.filter(e=>e.event==='material').length,1);
+  assert(f.events.findIndex(e=>e.id===2)<f.events.findIndex(e=>e.event==='material'));
+});
+
+test('eviction and reimport cancel stale material callbacks, and source replacement cancels pending work',async()=>{
+  const f=materialFixture();f.context.admissions.push(0);await f.frame(1);
+  const stale=[...f.context.timers.values()][0];
+  runInContext('terrainMaterials.delete(0);resident.delete(0);cancelMaterialTimer();',f.context);
+  f.context.admissions.push(0);await f.frame(2);
+  stale.callback();await runInContext('queue',f.context);
+  assert.equal(f.events.some(e=>e.event==='material'),false);
+  await f.context.fireTimer();assert.equal(f.events.filter(e=>e.event==='material').length,1);
+  f.context.admissions.push(1);await f.frame(3);
+  const oldSource=[...f.context.timers.values()][0];
+  f.context.openDataSource=async()=>{throw Error('Source replacement stopped');};
+  await f.dispatch({id:4,action:'open',postFrameVisuals:true});
+  oldSource.callback();await runInContext('queue',f.context);
+  assert.match(f.events.find(e=>e.id===4).error,/Source replacement stopped/);
+  assert.deepEqual(f.state().pending,[]);assert.equal(f.context.timers.size,0);
+  assert.equal(f.events.filter(e=>e.event==='material').length,1);
+});
+
+test('failed deferred material is reported once and only an explicit retry prepares it again',async()=>{
+  const f=materialFixture();f.context.admissions.push(0);await f.frame(1);
+  f.context.dependencies.world.terrain_material=()=>{throw Error('Bad material');};
+  await f.context.fireTimer();await f.frame(2);
+  assert.deepEqual(f.state().pending,[]);assert.match(f.state().errors[0],/tile0.adt: Bad material/);
+  assert.equal(f.context.timers.size,0);assert.equal(f.events.some(e=>e.event==='material'),false);
+  f.context.dependencies.world.terrain_material=i=>({index:i});
+  await f.dispatch({id:3,action:'retry'});
+  assert.deepEqual(f.state().errors,[]);assert.equal(f.events.filter(e=>e.event==='material').length,1);
+});
+
+test('idle texture completion rearms only bounded unfinished near work',async()=>{
+  const f=materialFixture();let pumps=0;
+  f.context.terrainPump=async()=>++pumps<3;
+  runInContext('terrain.pump=terrainPump;',f.context);
+  f.context.admissions.push(0);await f.frame(1);await settle();
+  await f.context.fireTimer();await f.context.fireTimer();
+  assert.equal(pumps,3);assert.equal(f.context.timers.size,0);
+  assert.equal(f.events.filter(e=>e.event==='material').length,1);
+});
+
+test('an older texture-only timer cannot prepare a newly admitted tile before its catch-up',async()=>{
+  const f=materialFixture();
+  runInContext('scheduleTerrainMaterials(true);',f.context);
+  f.context.admissions.push(0);await f.frame(1);
+  await f.context.fireTimer();
+  assert.equal(f.events.some(e=>e.event==='material'),false);
+  await f.context.fireTimer();
+  assert.equal(f.events.filter(e=>e.event==='material').length,1);
+});
+
+test('late terrain pump completion cannot schedule work after source cancellation',async()=>{
+  const f=materialFixture();let resolve;
+  f.context.terrainPump=()=>new Promise(r=>{resolve=r;});
+  runInContext('terrain.pump=terrainPump;',f.context);
+  await f.frame(1);
+  f.context.openDataSource=async()=>{throw Error('Source replacement stopped');};
+  await f.dispatch({id:2,action:'open',postFrameVisuals:true});
+  resolve(true);await settle();
+  assert.equal(f.context.timers.size,0);
+});
 
 test('negotiated frames publish collision then real physics response before visuals and decode work',async()=>{
   const f=frameFixture();

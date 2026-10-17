@@ -23,6 +23,7 @@ function startCraft() {
 let resident=new Set(),failures=new Map(),loads=0,evictions=0,peak=0,horizon;
 let terrainRead;
 const terrainMaterials=new Set();
+let materialFrameReady=false,materialTimer,materialTimerToken=0,materialGeneration=0;
 let sentAssets=new Set(),sentTextures=new Set(),sceneState,sceneSignature='';
 let sentInstances=new Map();
 let sentSceneRegion;
@@ -106,7 +107,7 @@ async function stream(p,pin,fill=false) {
   }
   for(const index of resident) if(!wanted.includes(index)) {
     world.remove_tile(index);scene.removeTile(tileKey(index));terrain.removeTile(index);terrainErrors.delete(index);
-    terrainMaterials.delete(index);
+    if(terrainMaterials.delete(index) && !terrainMaterials.size)cancelMaterialTimer();
     resident.delete(index);removed.push(index);evictions++;
   }
   let prefetches=0;
@@ -347,16 +348,48 @@ function publishScene(region) {
   }
   sceneSubmissionPending=false;
 }
-function startOptionalWork(message) {
+function cancelMaterialTimer() {
+  materialTimerToken++;
+  if(materialTimer!==undefined)clearTimeout(materialTimer);
+  materialTimer=undefined;
+}
+function prepareTerrainMaterial() {
   const index=terrainMaterials.values().next().value;
   if(index!==undefined) {
     terrainMaterials.delete(index);
     try {terrain.setTile(index,world.terrain_material(index));}
     catch(error) {terrainErrors.set(index,`Terrain material ${manifest.tiles[index].file}: ${error.message || error}`);}
   }
+}
+function pumpTerrainMaterials() {
+  const generation=materialGeneration;
+  void terrain.pump().then(pending=>{
+    if(pending && generation===materialGeneration)scheduleTerrainMaterials(true);
+  }).catch(sceneFault);
+}
+function scheduleTerrainMaterials(pending=false) {
+  if(!postFrameVisuals || materialTimer!==undefined || (!terrainMaterials.size&&!pending))return;
+  const token=materialTimerToken,index=terrainMaterials.values().next().value;
+  // Give the next input reply priority, but finish bounded near-tile work even when input stops.
+  materialTimer=setTimeout(()=>{
+    queue=queue.then(()=>{
+      if(token!==materialTimerToken)return;
+      materialTimer=undefined;
+      if(index!==undefined && terrainMaterials.values().next().value===index)prepareTerrainMaterial();
+      pumpTerrainMaterials();
+      scheduleTerrainMaterials();
+    }).catch(sceneFault);
+  },25);
+}
+function startOptionalWork(message) {
+  if(!postFrameVisuals || materialFrameReady) {
+    cancelMaterialTimer();
+    prepareTerrainMaterial();
+  }
+  scheduleTerrainMaterials();
   if(message.focus || Array.from(world.required_tiles()).every(i=>resident.has(i)))startDistantRead();
   if(!objectWait.length) {
-    void terrain.pump();
+    pumpTerrainMaterials();
     if(Array.from(world.required_tiles()).every(i=>resident.has(i)))startCraft();
   }
 }
@@ -399,6 +432,8 @@ async function handle(message) {
     sceneInstanceDeltas=message.sceneInstanceDeltas===true;
     sceneInstanceUpdates=message.sceneInstanceUpdates===true;
     postFrameVisuals=message.postFrameVisuals===true;
+    materialGeneration++;cancelMaterialTimer();materialFrameReady=false;
+    terrain?.clear();
     terrainRead=undefined;
     poseTime=undefined;
     terrainMaterials.clear();
@@ -437,6 +472,7 @@ async function handle(message) {
     const p=world.telemetry(),focus=message.focus || Array.from(p.slice(0,3));
     if(!Array.isArray(focus)||focus.length!==3||!focus.every(v=>Number.isFinite(v)&&Math.abs(v)<1e12))throw new Error('Invalid world focus');
     prepareDistant(focus,message.distant!==false);
+    const frameLoads=loads;
     const terrainStart=performance.now();await stream([focus[0],focus[2]],!message.focus);
     timings.terrainMs+=performance.now()-terrainStart;
     const sceneStart=performance.now();updateScene(focus,!postFrameVisuals);timings.sceneMs+=performance.now()-sceneStart;
@@ -451,6 +487,7 @@ async function handle(message) {
         measureHold(hold===1?'terrain':hold===3?'solid':hold===2?'unsupported':'clear',elapsed);
       }
     } else {accumulator=0;lastHoldTime=0;lastHold='clear';}
+    materialFrameReady=loads===frameLoads && (advanced || !!message.focus || objectWait.length>0);
     // Stamp the completed fixed tick in the input clock, not its variably delayed delivery time.
     if(message.sampleTime===undefined || message.focus)poseTime=undefined;
     else if(advanced || poseTime===undefined || objectWait.length)poseTime=message.sampleTime-accumulator*1000;
@@ -508,6 +545,7 @@ onmessage=({data})=>{
       if(data.action==='frame')timings.postMs+=performance.now()-start;
       // Finish this frame's visuals before the next queued request, but let the client draw its fresh pose first.
       if(data.action==='frame' && postFrameVisuals)finishFrame(data);
+      else scheduleTerrainMaterials(data.action==='retry');
     }
     catch(error){
       if(responded)sceneFault(error);

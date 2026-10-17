@@ -11,6 +11,7 @@ assert(/^[a-z0-9-]+$/i.test(label));
 const video=process.env.VIDEO==='1',sound=process.env.SOUND==='1',cpuProfile=process.env.PROFILE==='1';
 const presentation=process.env.PRESENTATION || 'confirmed',pulses=process.env.INPUT_PULSES==='1';
 const sceneUpdates=process.env.SCENE_UPDATES!=='0';
+const materialScheduling=process.env.MATERIAL_SCHEDULING!=='0';
 assert(['raw','confirmed'].includes(presentation));
 assert(!pulses || (!process.env.WAYPOINTS && seconds%5===0),'Input pulses require five-second periods without navigation');
 const warmSeconds=Number(process.env.WARM_SECONDS || 0);
@@ -89,12 +90,18 @@ try{
       const previous=body;body=body.replace(search,replacement);
       assert.notEqual(body,previous,`Missing worker profiling hook: ${search}`);
     };
+    if(!materialScheduling){
+      replace('if(!postFrameVisuals || materialFrameReady) {','if(true) {');
+      replace('if(!postFrameVisuals || materialTimer!==undefined','if(true || !postFrameVisuals || materialTimer!==undefined');
+    }
     replace('let world,source,manifest,','const drivingClock={input:0,steps:0,dropped:0,objects:0,batch:0};globalThis.drivingWork=[];\nlet world,source,manifest,');
     replace(/const started=performance.now\(\);\r?\n    const p=world.telemetry\(\)/, 'drivingClock.input+=message.dt;drivingClock.batch=0;\n    const started=performance.now();\n    const p=world.telemetry()');
     replace("if(objectWait.length){accumulator=0;",'if(objectWait.length){drivingClock.objects+=message.dt+accumulator;accumulator=0;');
     replace('accumulator+=Math.min(Math.max(message.dt,0),.1);','drivingClock.dropped+=Math.max(0,message.dt-.1);accumulator+=Math.min(Math.max(message.dt,0),.1);');
     replace('world.tick(message.throttle,message.steer,message.flags);','world.tick(message.throttle,message.steer,message.flags);drivingClock.steps++;drivingClock.batch++;');
     replace('return {telemetry:Array.from(world.telemetry()),','return {drivingClock:{...drivingClock,remainder:accumulator},drivingWork:globalThis.drivingWork.splice(0),telemetry:Array.from(world.telemetry()),');
+    replace('function prepareTerrainMaterial() {',
+      "function prepareTerrainMaterial() {if(terrainMaterials.size)drivingWork.push({kind:'material-preparation-frame',ms:0,frame:timings.frames,steps:drivingClock.batch,loads,index:terrainMaterials.values().next().value});");
     replace('const result=await handle(data),start=performance.now();','const begin=performance.timeOrigin+performance.now();const result=await handle(data),start=performance.now();if(result.telemetry)result.transport={begin,end:performance.timeOrigin+start};');
     replace("postMessage({event:'scene',region,", "const scenePayload={instances:sendInstances?sceneState.instances.length:0,updatedInstances:typeof instancePayload==='undefined'?(sendInstances?sceneState.instances.length:0):(instancePayload.instances?.length??0),geometryBytes:assets.reduce((n,a)=>n+a.vertices.byteLength+a.indices.byteLength,0),textureBytes:textures.reduce((n,t)=>n+t.rgba.byteLength,0)};postMessage({event:'scene',region,");
     replace('timings.scenePostMs+=performance.now()-start;', "const posted=performance.now()-start;drivingWork.push({kind:'scene-message',ms:posted,...scenePayload});timings.scenePostMs+=posted;");
@@ -276,7 +283,7 @@ try{
   data.before=before;data.environment=environment;
   await writeFile(new URL('raw.json',output),JSON.stringify(data));
   if(stopProfiles)await stopProfiles();
-  const settings={video,sound,profile:cpuProfile,presentation,sceneUpdates,inputPulses:pulses,...await page.evaluate(()=>{
+  const settings={video,sound,profile:cpuProfile,presentation,sceneUpdates,materialScheduling,inputPulses:pulses,...await page.evaluate(()=>{
     const canvas=document.getElementById('world'),rect=canvas.getBoundingClientRect();
     return {canvasWidth:canvas.width,canvasHeight:canvas.height,cssWidth:rect.width,cssHeight:rect.height,
       devicePixelRatio};

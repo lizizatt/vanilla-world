@@ -108,6 +108,7 @@ export class TerrainStream {
         }
       }
     }finally{this.busy=false;}
+    return [...this.tiles.values()].some(t=>!t.done&&!this.errors.has(`tile:${t.index}`));
   }
   snapshot() {
     return {pending:[...this.tiles.values()].filter(t=>!t.done).length,cache:this.cache.size,
