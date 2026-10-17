@@ -107,7 +107,7 @@ test('failed prefetched terrain stays unavailable and exposes its error rather t
   assert.deepEqual(f.reads,[1],'Failed expected terrain requires explicit retry');
 });
 
-function collisionFixture(clock=performance) {
+function collisionFixture(clock=performance,instanceDeltas=true) {
   const events=[],context=boot(events,clock),body=Array(15).fill(0),built=[],updates=[],parts=new Map();
   const state={instances:[],collisionInstances:[],unresolvedCollision:[],assets:new Map(),textures:new Map()};
   const f={body,built,updates,events,state,context,sweep:0,failNext:false,spawn:[0,0,0,0]};
@@ -143,7 +143,9 @@ function collisionFixture(clock=performance) {
     globalThis.refreshUnknown=()=>updateCameraUnknown(world.telemetry(),0);
     globalThis.unknown=()=>cameraUnknown.map(i=>i.id);
     globalThis.waiting=()=>objectWait.map(i=>i.id);`,context);
+  if(instanceDeltas)runInContext('sceneInstanceDeltas=true;',context);
   f.update=context.updateCollision;
+  f.invalidate=()=>scene.revision++;
   f.request=context.request;
   f.refreshUnknown=context.refreshUnknown;
   f.unknown=()=>Array.from(context.unknown());
@@ -263,6 +265,69 @@ test('changed transforms replace cached collision and visual instances with the 
   await f.update();
   assert.equal(f.built.length,2);
   assert.equal(f.events.filter(e=>e.event==='scene').length,2);
+});
+
+test('resource-only scene events omit unchanged instances while order and removal send full lists',async()=>{
+  const f=collisionFixture();
+  f.add(100);f.add(110);await f.update();
+  f.state.textures.set('leaf.blp',{width:1,height:1,rgba:new Uint8Array(4)});
+  f.invalidate();await f.update();
+  let sent=f.events.filter(e=>e.event==='scene');
+  assert.equal(Object.hasOwn(sent[1],'instances'),false);
+  assert.deepEqual(Array.from(sent[1].textures,t=>t.key),['leaf.blp']);
+  f.state.instances=f.state.instances.slice().reverse();f.invalidate();await f.update();
+  sent=f.events.filter(e=>e.event==='scene');
+  assert.deepEqual(Array.from(sent[2].instances,i=>i.id),['110','100']);
+  f.state.instances=[];f.invalidate();await f.update();
+  sent=f.events.filter(e=>e.event==='scene');
+  assert.deepEqual(Array.from(sent[3].instances),[],'An empty list explicitly clears the scene');
+});
+
+test('failed resource-only scene post retries resources without marking them uploaded',async()=>{
+  const f=collisionFixture();
+  f.add(100);await f.update();
+  const push=f.events.push.bind(f.events);let reject=true;
+  f.events.push=message=>{
+    if(message.event==='scene' && reject){reject=false;throw new Error('Rejected resource-only scene transfer');}
+    return push(message);
+  };
+  f.state.textures.set('leaf.blp',{width:1,height:1,rgba:new Uint8Array(4)});
+  f.invalidate();
+  await assert.rejects(f.update(),/Rejected resource-only/);
+  await f.update();
+  const sent=f.events.filter(e=>e.event==='scene');
+  assert.equal(sent.length,2);
+  assert.equal(Object.hasOwn(sent[1],'instances'),false);
+  assert.deepEqual(Array.from(sent[1].textures,t=>t.key),['leaf.blp']);
+});
+
+test('region changes always resend a full instance list even when both scenes are empty',async()=>{
+  const f=collisionFixture();
+  f.context.dependencies.manifest.regions.push({placement:[30000,0],tile_origin:[32,32]});
+  await f.update();
+  f.body[0]=30000;await f.update();
+  const sent=f.events.filter(e=>e.event==='scene');
+  assert.deepEqual(sent.map(e=>e.region),[0,1]);
+  assert(sent.every(e=>Array.isArray(e.instances)&&e.instances.length===0));
+});
+
+test('legacy clients receive full instance lists for resource-only scene updates by default',async()=>{
+  const f=collisionFixture(performance,false);
+  f.add(100);await f.update();
+  f.state.textures.set('leaf.blp',{width:1,height:1,rgba:new Uint8Array(4)});
+  f.invalidate();await f.update();
+  const sent=f.events.filter(e=>e.event==='scene');
+  assert.equal(sent.length,2);
+  assert.deepEqual(Array.from(sent[1].instances,i=>i.id),['100']);
+});
+
+test('only explicit open capability true enables resource-only instance deltas',async()=>{
+  for(const capability of [undefined,false,'true',1,true]) {
+    const f=collisionFixture();
+    f.context.openDataSource=async()=>{throw new Error('Stop after capability negotiation');};
+    await assert.rejects(f.request({action:'open',sceneInstanceDeltas:capability}),/Stop after capability/);
+    assert.equal(runInContext('sceneInstanceDeltas',f.context),capability===true);
+  }
 });
 
 test('fast post-step camera remains covered at the edge of the retained anchor',async()=>{

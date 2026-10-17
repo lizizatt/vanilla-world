@@ -23,6 +23,8 @@ let resident=new Set(),failures=new Map(),loads=0,evictions=0,peak=0,horizon;
 let terrainRead;
 let sentAssets=new Set(),sentTextures=new Set(),sceneState,sceneSignature='';
 let sentInstanceMatrices=new Map();
+let sentSceneRegion;
+let sceneInstanceDeltas=false;
 let sceneFocus,sceneUpdated=0,sceneRevision=-1;
 let sceneSubmissionPending=true;
 let scenePumpError;
@@ -33,7 +35,7 @@ let collisionToken=0,collisionParts=new Set();
 let collisionFocus;
 const collisionInstances=new Map();
 const timings={frames:0,totalMs:0,maxMs:0,terrainMs:0,sceneMs:0,selectionMs:0,snapshotMs:0,
-  physicsMs:0,cameraUnknownMs:0,postMs:0,collisionBuildMs:0,collisionBuilds:0};
+  physicsMs:0,cameraUnknownMs:0,postMs:0,scenePostMs:0,scenePosts:0,sceneInstancePosts:0,collisionBuildMs:0,collisionBuilds:0};
 let distantWanted=[],distantJob,distantLastStart=0,distantLoads=0,distantPeak=0;
 const distantResident=new Set(),distantFailures=new Map();
 let objectWait=[],cameraUnknown=[],lastHoldTime=0,lastHold='clear',holdRun=0;
@@ -300,14 +302,21 @@ async function updateScene(focus) {
   }
   const signature=JSON.stringify(sceneState.instances.map(i=>[i.id,i.key,i.distant]));
   const transformsChanged=sceneState.instances.some(i=>sentInstanceMatrices.get(i.id)!==i.matrix);
-  if(signature!==sceneSignature || transformsChanged || assets.length || textures.length || removedAssets.length || removedTextures.length) {
-    postMessage({event:'scene',region,instances:sceneState.instances,assets,textures,removedAssets,removedTextures},transfers);
+  const instancesChanged=signature!==sceneSignature || transformsChanged || sentSceneRegion!==region;
+  if(instancesChanged || assets.length || textures.length || removedAssets.length || removedTextures.length) {
+    const sendInstances=instancesChanged || !sceneInstanceDeltas;
+    const start=performance.now();
+    postMessage({event:'scene',region,...(sendInstances?{instances:sceneState.instances}:{}),
+      assets,textures,removedAssets,removedTextures},transfers);
+    timings.scenePostMs+=performance.now()-start;timings.scenePosts++;
+    if(sendInstances)timings.sceneInstancePosts++;
     for(const key of removedAssets)sentAssets.delete(key);
     for(const key of removedTextures)sentTextures.delete(key);
     for(const {key} of assets)sentAssets.add(key);
     for(const {key} of textures)sentTextures.add(key);
     sceneSignature=signature;
-    sentInstanceMatrices=new Map(sceneState.instances.map(i=>[i.id,i.matrix]));
+    sentSceneRegion=region;
+    if(instancesChanged)sentInstanceMatrices=new Map(sceneState.instances.map(i=>[i.id,i.matrix]));
   }
   sceneSubmissionPending=false;
 }
@@ -334,6 +343,7 @@ function snapshot() {
 async function handle(message) {
   await ready;
   if(message.action==='open') {
+    sceneInstanceDeltas=message.sceneInstanceDeltas===true;
     terrainRead=undefined;
     report('Opening local MPQ archives and patch chain');
     source=await openDataSource(message.folder);
