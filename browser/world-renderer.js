@@ -68,8 +68,10 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
 @fragment fn fs(v:V)->@location(0) vec4f {
   let texel=textureSample(image,imageSampler,v.uv)*v.color;
   if(texel.a<u.material.x){discard;}
+  let distance=length(v.p-u.eye.xyz);
+  if(u.material.z>0.0 && fract(dot(floor(v.clip.xy),vec2f(.754877666,.569840296)))>=1.0-smoothstep(3500.0,6000.0,distance)){discard;}
   let light=mix(.4+.6*max(dot(normalize(v.n),normalize(vec3f(-.3,1.0,.4))),0.0),1.0,u.material.y);
-  let fog=clamp(length(v.p-u.eye.xyz)/150000.0,0.0,.93);
+  let fog=max(clamp(distance/150000.0,0.0,.93),u.material.z*.8*smoothstep(3500.0,6000.0,distance));
   return vec4f(mix(texel.rgb*light,vec3f(.08,.15,.20),fog),texel.a);
 }`;
 
@@ -220,7 +222,7 @@ export class WorldRenderer {
       ...view,...p,state[3],width/height,time,state[4],near,
       item===this.body?0:item.placement[0]-origin[0],0,item===this.body?0:item.placement[1]-origin[1],this.manifest.sea_level,
     ]));
-    const draws=[],selection=sceneSelection(this.instances,this.assets);
+    const draws=[],selection=sceneSelection(this.instances.filter(i=>settings.distant!==false || !i.distant),this.assets);
     if(settings.scenery && this.sceneRegion!==undefined) {
       const r=this.manifest.regions[this.sceneRegion];
       for(const instance of selection.selected) {
@@ -239,8 +241,8 @@ export class WorldRenderer {
               {binding:0,resource:{buffer:uniform}},{binding:1,resource:texture.createView()},{binding:2,resource:sampler}]} )};
             this.items.set(key,item);
           }
-          this.device.queue.writeBuffer(item.uniform,0,new Float32Array([...view,width/height,time,0,near,...m,batch.alphaCutoff||0,batch.emissive?1:0,0,0]));
-          draws.push({asset,batch,item,pipeline:this.scenePipeline(batch),distance:Math.hypot(m[12]-this.camera[0],m[13]-this.camera[1],m[14]-this.camera[2])});
+          this.device.queue.writeBuffer(item.uniform,0,new Float32Array([...view,width/height,time,0,near,...m,batch.alphaCutoff||0,batch.emissive?1:0,instance.distant?1:0,0]));
+          draws.push({asset,batch,item,distant:instance.distant,pipeline:this.scenePipeline(batch),distance:Math.hypot(m[12]-this.camera[0],m[13]-this.camera[1],m[14]-this.camera[2])});
         }
       }
     }
@@ -266,7 +268,8 @@ export class WorldRenderer {
       wmoInstances:this.instances.filter(i=>i.kind==='group').length,
       texturedDraws:draws.filter(d=>d.item.texture!==this.white).length,
       alphaDraws:draws.filter(d=>d.batch.alphaCutoff>0).length,
-      sceneTriangles:selection.triangles,gpuOmittedInstances:selection.omitted,
+      sceneTriangles:draws.reduce((n,d)=>n+d.batch.indexCount/3,0),gpuOmittedInstances:selection.omitted,
+      distantDraws:draws.filter(d=>d.distant).length,distantAlphaDraws:draws.filter(d=>d.distant&&d.batch.alphaCutoff>0).length,
       sceneDraws:draws.length,sceneGpuMeshBytes:[...this.assets.values()].reduce((n,a)=>n+a.bytes,0),origin};
   }
 }

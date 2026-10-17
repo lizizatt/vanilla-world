@@ -9,7 +9,7 @@ const controls=new Set(['KeyW','KeyS','KeyA','KeyD','KeyQ','KeyE','KeyC','KeyJ',
 const evidence={ready:false,frames:0,errors:[],mode:'drive'};
 window.worldEvidence=evidence;
 let renderer,folder,flight,running=false,busy=false,last=0,frames=0,hudTime=0,permissionNeeded=false;
-const settings={horizon:true,scenery:true};
+const settings={horizon:true,scenery:true,distant:true};
 const report=text=>{$('status').textContent=text;};
 function fail(error) {
   if(error.name==='AbortError')return;
@@ -26,7 +26,8 @@ async function restore(save) {
   validateWorldSave(save,client.info.id);
   if(!save)return false;
   client.state=await client.request('restore',{pose:save.vehicle});
-  Object.assign(settings,save.settings);$('horizon').checked=settings.horizon;$('scenery').checked=settings.scenery;
+  Object.assign(settings,{distant:true},save.settings);$('horizon').checked=settings.horizon;$('scenery').checked=settings.scenery;
+  $('distant').checked=settings.distant;
   flight=save.mode==='fly'?save.camera.slice():undefined;
   return true;
 }
@@ -109,6 +110,7 @@ $('overview').addEventListener('click',()=>{if(client.info){flight=overview(clie
 $('drive').addEventListener('click',()=>{flight=undefined;renderer.camera=undefined;canvas.focus();});
 $('horizon').addEventListener('change',()=>{settings.horizon=$('horizon').checked;});
 $('scenery').addEventListener('change',()=>{settings.scenery=$('scenery').checked;});
+$('distant').addEventListener('change',()=>{settings.distant=$('distant').checked;});
 canvas.addEventListener('keydown',event=>{if(controls.has(event.code)){event.preventDefault();keys.add(event.code);}});
 window.addEventListener('keyup',event=>keys.delete(event.code));
 canvas.addEventListener('blur',()=>keys.clear());
@@ -121,7 +123,7 @@ function frame(now) {
     const down=code=>Number(keys.has(code));
     if(flight)flight=moveFlight(flight,keys,dt);
     const flags=down('Space') | ((down('ShiftLeft')||down('ShiftRight'))<<1) | (down('KeyC')<<2) | (down('KeyJ')<<3);
-    client.frame(dt,down('KeyW')-down('KeyS'),down('KeyA')-down('KeyD'),flags,flight?.slice(0,3));
+    client.frame(dt,down('KeyW')-down('KeyS'),down('KeyA')-down('KeyD'),flags,flight?.slice(0,3),settings.distant);
     const stats=renderer.draw(client.state.telemetry,flight,dt,now/1000,settings,keys.has('KeyV'));
     frames++;Object.assign(evidence,{frames,state:client.state,mode:flight?'fly':'drive',camera:flight?.slice(),render:stats,adapter:renderer.adapter});
     if(now-hudTime>250) {
@@ -132,10 +134,10 @@ function frame(now) {
         :['Drive / collision ready','Waiting for detailed terrain','Unsupported surface or terrain hole','Solid bounds or steep ground'][p[8]];
       $('place').textContent=flight?'FREE FLIGHT':p[10]===-1?'THE GREAT SEA':p[10]===1?'EASTERN KINGDOMS':'KALIMDOR';
       $('coordinates').textContent=`${(flight?.[0]??p[0]).toFixed(0)} E / ${(flight?.[2]??p[2]).toFixed(0)} S`;
-      $('resident').textContent=`${s.resident.length}/4 terrain tiles · ${stats.horizonTiles} distant patches · ${scene?.instances||0} nearby instances`;
+      $('resident').textContent=`${s.resident.length}/4 terrain tiles · ${stats.horizonTiles} distant patches · ${scene?.instances||0} scene instances`;
       $('population').textContent=scene?.population || 'Reading static population…';
       $('details').textContent=`${client.info.archiveCount} local archives · ${((scene?.bytes||0)/1048576).toFixed(1)} MiB scene cache · ${scene?.pending||0} pending assets${scene?.capacityBlocked?' · scene capacity reached':''}${!flight&&scene?.waitingCollision?` · waiting for ${scene.waitingCollision} nearby collision assets`:''}${stats.gpuOmittedInstances?` · ${stats.gpuOmittedInstances} meshes beyond GPU budget`:''}`;
-      $('problems').textContent=[...s.failures,...(scene?.errors||[])].map(e=>typeof e==='string'?e:JSON.stringify(e)).join('\n');
+      $('problems').textContent=[...s.failures,...(s.distant?.failures||[]),...(scene?.errors||[])].map(e=>typeof e==='string'?e:JSON.stringify(e)).join('\n');
       $('problems').hidden=!$('problems').textContent;
       evidence.fps=frames*1000/(now-(evidence.started||now));hudTime=now;
     }

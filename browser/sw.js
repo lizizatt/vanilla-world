@@ -1,4 +1,4 @@
-const CACHE = 'racer-shell-v7';
+const CACHE = 'racer-shell-v8';
 const FILES = ['./', './index.html', './world-app.js', './world-client.js', './world-worker.js', './world-renderer.js',
   './world-store.js', './asset-source.js', './asset-folder.js', './scene-stream.js', './flight.js',
   './style.css', './pkg/flats_racer_web.js', './pkg/flats_racer_web_bg.wasm'];

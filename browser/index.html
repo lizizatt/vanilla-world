@@ -21,14 +21,15 @@
       <button id="save" disabled>Save locally</button><button id="load" disabled>Load save</button><button id="reset" disabled>Start at raceway</button>
       <button id="retry" disabled>Retry terrain</button>
       <label><input id="horizon" type="checkbox" checked> Distant terrain</label>
-      <label><input id="scenery" type="checkbox" checked> Nearby scenery</label>
+      <label><input id="scenery" type="checkbox" checked> Models &amp; NPCs</label>
+      <label><input id="distant" type="checkbox" checked> Distant models</label>
       <button id="overview" disabled>World overview</button><button id="fly" disabled>Free flight</button><button id="drive" disabled>Return to vehicle</button>
     </section>
     <p class="controls"><kbd>W</kbd><kbd>S</kbd> throttle/reverse &nbsp; <kbd>A</kbd><kbd>D</kbd> steer &nbsp; <kbd>Space</kbd> brake &nbsp; <kbd>Shift</kbd> boost &nbsp; <kbd>C</kbd> drift &nbsp; <kbd>J</kbd> hop &nbsp; hold <kbd>V</kbd> look behind</p>
     <p class="controls">Flight: <kbd>W</kbd><kbd>S</kbd> forward/back · <kbd>A</kbd><kbd>D</kbd> strafe · <kbd>Q</kbd><kbd>E</kbd> altitude · arrows look · <kbd>Shift</kbd> fast. Return to vehicle leaves your hovercraft where you parked it.</p>
     <p id="error" role="alert" hidden></p><pre id="problems" hidden></pre>
     <p id="population" class="scope">Static NPCs require a private local companion pack; client Data alone has no spawn positions.</p>
-    <details><summary>What this browser MVP includes</summary><p class="scope">An alternate web rendering adapter using actual Rust physics and client formats, not a Bevy/VMaNGOS port or singleplayer RPG. Complete coarse continents, untextured detailed terrain, authored nearby models/textures and optional static bind-pose NPCs. Four detailed tiles stream around you; missing terrain holds the vehicle rather than becoming ocean. Scene collision uses conservative authored hull bounds, not exact interiors. Distant props, animated NPCs, quests and combat are not implemented. The 8192-yard ocean and Eastern Kingdoms' southward placement are provisional geography.</p></details>
+    <details><summary>What this browser MVP includes</summary><p class="scope">An alternate web rendering adapter using actual Rust physics and client formats, not a Bevy/VMaNGOS port or singleplayer RPG. Complete coarse continents, untextured detailed terrain, authored models/textures and optional static bind-pose NPCs. Four collision tiles and up to twelve separate visual metadata tiles stream around you; missing terrain holds the vehicle rather than becoming ocean. Distant models reach up to 6000 yards within shared cache limits, with real alpha and depth. Scene collision uses conservative authored hull bounds, not exact interiors. Animation, quests and combat are not implemented. The 8192-yard ocean and Eastern Kingdoms' southward placement are provisional geography.</p></details>
     <footer><span id="offline"></span><span id="permission"></span><button id="forget">Forget remembered folder</button></footer>
   </main>
   <script type="module" src="./world-app.js"></script>

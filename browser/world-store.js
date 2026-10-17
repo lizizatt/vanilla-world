@@ -29,7 +29,8 @@ export function validateWorldSave(save,sourceId) {
   if (save.version!==1 || save.layout!==LAYOUT_VERSION || save.sourceId!==sourceId
     || !['drive','fly'].includes(save.mode) || !pose(save.vehicle)
     || (save.mode==='fly' && !camera(save.camera))
-    || !save.settings || typeof save.settings.horizon!=='boolean' || typeof save.settings.scenery!=='boolean') {
+    || !save.settings || typeof save.settings.horizon!=='boolean' || typeof save.settings.scenery!=='boolean'
+    || (save.settings.distant!==undefined && typeof save.settings.distant!=='boolean')) {
     throw new Error('Saved world state is incompatible or damaged. It has been retained; choose Start at raceway to recover.');
   }
 }

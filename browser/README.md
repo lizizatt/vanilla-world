@@ -49,6 +49,7 @@ Click the view to capture keyboard input. Flight is deliberately collision-free.
 **Save locally** stores the parked vehicle, flight camera, mode and display
 settings. **Load save** restores them; **Start at raceway** recovers without
 overwriting a saved pose until you explicitly save.
+Display switches do not disable collision.
 
 Save keys include layout version 3 and an SHA-256 fingerprint of ordered archive
 metadata. This is not a full-content archive hash. Different installations/layouts
@@ -86,6 +87,22 @@ total browser/process memory limits: parser temporaries, JavaScript bookkeeping,
 main-thread/GPU copies and driver memory are additional. Capacity/pending counters
 mean some farther content is incomplete, not that it loaded successfully.
 
+The bounded distant-model port reuses the native strict geometry/material
+boundary and complete authored M2 leaf batches rather than copying Bevy's
+clustering/atlas implementation. Up to **12 separate visual metadata tiles**
+retain placements, not terrain meshes, sharing the same 96 MiB asset cache.
+Models can be visible out to **6000 yards**, with authored alpha cutoff, real
+depth, and dither/fog fading from 3500 yards. The nearest metadata tiles and
+active continent are selected; this is not exhaustive residency of every prop
+inside that radius. Near requests win, and dense near content can defer far
+content. Distant metadata supplies neither NPCs nor collision.
+
+Only one distant ADT read is outstanding, started at most twice a second after
+current collision requirements are ready; late results for an evicted selection
+are discarded. Existing near placements are reused without another archive read.
+Combined model drawing retains a nearest-first prefix capped at **two million
+triangles and 4096 draw calls**; any omitted instances are reported in the HUD.
+
 Collision uses **conservative bounds of authored collision meshes**, with swept
 tests, not foliage cards or exact WMO interior triangles. Doorways/interiors and
 large building groups are consequently restrictive. Collision does not wait for
@@ -121,6 +138,7 @@ cargo test --manifest-path .\client\Cargo.toml --release -j 2 -p flats-racer-web
 node --test .\browser\asset-source.test.mjs .\browser\scene-stream.test.mjs .\browser\world.test.mjs
 # With the local preview running and Playwright installed:
 node .\browser\overworld-smoke.mjs
+node .\browser\distant-smoke.mjs
 ```
 
 If Playwright is missing, run `npm ci --prefix .\browser`; tests use installed
@@ -128,13 +146,15 @@ Edge (`channel: msedge`), not a downloaded browser. The real-browser check uses
 actual directory-backed File objects, drives using keyboard input, visits both
 maps and reloads saves offline. It does **not** automate the trusted OS directory
 picker dialog. Evidence/screenshots stay ignored in `browser\test-results`.
+The distant check compares actual screenshots with models enabled/disabled at
+1400-yard camera altitude on both continents; it asserts visible changed pixels,
+real cutout batches, unchanged terrain residency and no distant collision holds.
 
 [ASSETS.md](ASSETS.md) documents the bounded MPQ reader, corruption semantics,
 77-file native/Node/Edge parity and the whole-install codec census. All 2,389,542
 compressed sectors in this installation used supported zlib; other installations
 may require codecs that currently fail explicitly.
 
-Native distant-model clustering/mask-atlas internals are not part of the core
-checkpoint. The native strict WMO geometry/material boundary is reused; porting
-bounded authored props beyond the nearby scene is separate from complete WDL
-terrain and must be demonstrated independently.
+Native Bevy render phases, moving-transport timetables, animation and a server
+simulation are not ported. Detailed terrain remains untextured, building interiors
+use restrictive collision bounds, and coarse/detailed seams remain visible.

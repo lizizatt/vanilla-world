@@ -11,6 +11,8 @@ let resident=new Set(),failures=new Map(),loads=0,evictions=0,peak=0,horizon;
 let sentAssets=new Set(),sentTextures=new Set(),sceneState,sceneSignature='';
 const collisionBounds=new Map();
 let collisionCount=0;
+let distantWanted=[],distantJob,distantLastStart=0,distantLoads=0,distantPeak=0;
+const distantResident=new Set(),distantFailures=new Map();
 let objectWait=[],lastHoldTime=0,lastHold='clear',holdRun=0;
 const holds=Object.fromEntries(['terrain','objects','solid'].map(key=>[key,{episodes:0,ms:0,maxMs:0}]));
 function measureHold(kind,elapsed) {
@@ -28,6 +30,36 @@ function distance(index,p) {
 function tileKey(index) {
   const t=manifest.tiles[index];
   return `${t.region===0?1:0}:${t.x}:${t.y}`;
+}
+function prepareDistant(focus,enabled) {
+  const region=focusRegion(focus),p=[focus[0],focus[2]];
+  distantWanted=enabled?manifest.tiles.map((t,i)=>({t,i})).filter(({t,i})=>t.region===region && distance(i,p)<6000)
+    .sort((a,b)=>distance(a.i,p)-distance(b.i,p)).slice(0,12).map(v=>v.i):[];
+  for(const index of distantResident)if(!distantWanted.includes(index)) {
+    scene.removeDistantTile(tileKey(index));distantResident.delete(index);
+  }
+  for(const index of distantWanted)if(resident.has(index) && !distantResident.has(index)) {
+    // Reuse immutable parsed placements; no extra ADT read or terrain mesh residency.
+    scene.distantTiles.set(tileKey(index),scene.tiles.get(tileKey(index)));
+    distantResident.add(index);
+  }
+  distantPeak=Math.max(distantPeak,distantResident.size);
+}
+function startDistantRead() {
+  if(distantJob || objectWait.length || performance.now()-distantLastStart<500)return;
+  const index=distantWanted.find(i=>!distantResident.has(i) && !distantFailures.has(i));
+  if(index===undefined)return;
+  distantLastStart=performance.now();
+  distantJob=(async()=>{
+    try {
+      const bytes=await source.read(assetPath(manifest.tiles[index]));
+      if(!distantWanted.includes(index) || distantResident.has(index))return;
+      scene.setDistantTile(tileKey(index),bytes);distantResident.add(index);distantLoads++;
+      distantPeak=Math.max(distantPeak,distantResident.size);
+    } catch(error) {
+      distantFailures.set(index,`Distant metadata ${manifest.tiles[index].file}: ${error.code || 'PARSE'} ${error.message || error}`);
+    } finally {distantJob=undefined;}
+  })();
 }
 async function stream(p,pin,fill=false) {
   const required=pin?Array.from(world.required_tiles()):[];
@@ -92,7 +124,7 @@ async function buildHorizon(wdls) {
 function focusRegion(p) {
   if(p[0]<manifest.ocean[0])return 0;
   if(p[0]>=manifest.ocean[2])return 1;
-  return -1;
+  return p[0]<(manifest.ocean[0]+manifest.ocean[2])/2?0:1;
 }
 function sourcePosition(region,p) {
   const r=manifest.regions[region];
@@ -101,12 +133,6 @@ function sourcePosition(region,p) {
 }
 async function updateScene(focus) {
   const region=focusRegion(focus);
-  if(region<0) {
-    if(sceneSignature!=='')postMessage({event:'scene',instances:[],assets:[],textures:[],removedAssets:[],removedTextures:[]});
-    sceneSignature='';
-    world.set_scene_bounds(new Float64Array());collisionCount=0;objectWait=[];
-    return;
-  }
   scene.update(region===0?1:0,sourcePosition(region,focus));
   await scene.pump();
   sceneState=scene.snapshot();
@@ -168,7 +194,9 @@ function snapshot() {
       capacityBlocked:sceneState.capacityBlocked,collisionBounds:collisionCount,
       models:sceneState.cachedModels,textures:sceneState.cachedTextures,waitingCollision:objectWait.length,
       waitingCollisionDetails:objectWait.slice(0,5)}:undefined,
-    holds};
+    holds,distant:{resident:distantResident.size,peak:distantPeak,limit:12,loads:distantLoads,
+      pending:distantWanted.filter(i=>!distantResident.has(i) && !distantFailures.has(i)).length,
+      failures:Array.from(distantFailures.values())}};
 }
 async function handle(message) {
   await ready;
@@ -202,6 +230,7 @@ async function handle(message) {
   if(message.action==='frame') {
     const p=world.telemetry(),focus=message.focus || Array.from(p.slice(0,3));
     if(!Array.isArray(focus)||focus.length!==3||!focus.every(v=>Number.isFinite(v)&&Math.abs(v)<1e12))throw new Error('Invalid world focus');
+    prepareDistant(focus,message.distant!==false);
     await stream([focus[0],focus[2]],!message.focus);
     await updateScene(focus);
     if(!message.focus) {
@@ -214,6 +243,7 @@ async function handle(message) {
         measureHold(hold===1?'terrain':hold===3?'solid':'clear',elapsed);
       }
     } else {accumulator=0;lastHoldTime=0;lastHold='clear';}
+    if(message.focus || Array.from(world.required_tiles()).every(i=>resident.has(i)))startDistantRead();
   } else if(message.action==='restore') {
     if(!Array.isArray(message.pose)||message.pose.length!==4||!message.pose.every(Number.isFinite))throw new Error('Invalid parked pose');
     await stream([message.pose[0],message.pose[2]],false,true);
@@ -222,7 +252,7 @@ async function handle(message) {
     await stream([manifest.spawn[0],manifest.spawn[2]],false,true);
     world.initialize_spawn();accumulator=0;
   } else if(message.action==='retry') {
-    failures.clear();scene.retry();
+    failures.clear();distantFailures.clear();scene.retry();
   } else if(message.action==='population') {
     scene.setPopulation(message.pack);
   } else if(message.action==='probe') {

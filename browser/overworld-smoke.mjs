@@ -81,7 +81,7 @@ try {
   assert(state.state.telemetry[0]>600,'Drive must cross a real ADT boundary');
   checkpoints.at(-1).drive={seconds:24,distance:state.state.telemetry[0]-beforeDrive.telemetry[0],
     holds:Object.fromEntries(Object.entries(state.state.holds).map(([k,v])=>[k,{
-      episodes:v.episodes-beforeDrive.holds[k].episodes,ms:v.ms-beforeDrive.holds[k].ms,maxMs:v.maxMs,
+      episodes:v.episodes-beforeDrive.holds[k].episodes,ms:v.ms-beforeDrive.holds[k].ms,
     }]))};
   await page.locator('#load').click();await page.waitForTimeout(1500);
   state=await page.evaluate(()=>window.worldEvidence);

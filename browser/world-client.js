@@ -35,11 +35,11 @@ export class WorldClient {
     this.info=result.info;this.state=result.state;
     return result;
   }
-  frame(dt,throttle,steer,flags,focus) {
+  frame(dt,throttle,steer,flags,focus,distant=true) {
     this.elapsed=Math.min(.1,this.elapsed+dt);
     if(this.inFlight || !this.worker)return;
     const worker=this.worker,elapsed=this.elapsed;this.elapsed=0;this.inFlight=true;
-    this.request('frame',{dt:elapsed,throttle,steer,flags,focus}).then(state=>{
+    this.request('frame',{dt:elapsed,throttle,steer,flags,focus,distant}).then(state=>{
       if(this.worker===worker)this.state=state;
     }).catch(error=>{if(error.name!=='AbortError')this.onError(error);}).finally(()=>{
       if(this.worker===worker)this.inFlight=false;
