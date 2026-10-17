@@ -1,7 +1,7 @@
 //! Translation-only regions keep authored WoW geometry separate from global and local physics.
 use crate::horizon::Horizon;
-use benilla_formats::{adt_to_tile_mesh, triangle_z_at, LiquidKind, TileMesh};
-use flats_racer_physics::{Input, State, Tuning, FIXED_DT, PROBE_OFFSETS};
+use benilla_formats::{LiquidKind, TileMesh, adt_to_tile_mesh, triangle_z_at};
+use flats_racer_physics::{FIXED_DT, Input, PROBE_OFFSETS, State, Tuning};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
@@ -249,7 +249,7 @@ impl Manifest {
     }
 }
 
-/// Vehicle-neutral surface query. No WMO/M2 solids are imported yet.
+/// Detailed terrain/water plus authored WMO/M2 collision surfaces.
 #[derive(Clone, Copy, Debug)]
 pub struct Surface {
     pub ground: Option<f32>,
@@ -284,7 +284,9 @@ pub struct Voyage {
     pub(crate) grid: Vec<Option<usize>>,
     pub(crate) exterior: Vec<bool>,
     scene_bounds: Vec<[f64; 6]>,
+    scene_mesh: CollisionTree,
     state: State,
+    tuning: Tuning,
     origin: [f64; 2],
     rebases: u32,
     hold: u8,
@@ -307,6 +309,10 @@ impl Voyage {
                 manifest.spawn[3] as f32,
             )
             .map_err(|e| e.to_string())?,
+            tuning: Tuning {
+                air_control: 0.9,
+                ..Tuning::default()
+            },
             origin: [manifest.spawn[0], manifest.spawn[2]],
             manifest,
             resident: HashMap::new(),
@@ -314,6 +320,7 @@ impl Voyage {
             grid,
             exterior,
             scene_bounds: vec![],
+            scene_mesh: CollisionTree::default(),
             rebases: 0,
             hold: 1,
         };
@@ -354,7 +361,21 @@ impl Voyage {
                 return result;
             };
             let wow = self.manifest.regions[region].source(p);
-            for chunk in &tile.chunks {
+            let fast = tile
+                .chunks
+                .first()
+                .and_then(|c| c.positions.first())
+                .and_then(|nw| {
+                    let row = ((nw[0] - wow[0]) / (TILE as f32 / 16.0)).floor();
+                    let col = ((nw[1] - wow[1]) / (TILE as f32 / 16.0)).floor();
+                    if !(0.0..16.0).contains(&row) || !(0.0..16.0).contains(&col) {
+                        return None;
+                    }
+                    tile.chunks
+                        .get(row as usize * 16 + col as usize)
+                        .filter(|c| c.area_at(wow).is_some())
+                });
+            for chunk in fast.map(std::slice::from_ref).unwrap_or(&tile.chunks) {
                 if chunk.area_at(wow).is_none() {
                     continue;
                 }
@@ -393,6 +414,17 @@ impl Voyage {
             }
         }
         if result.availability != 1 {
+            if let Some(height) = self
+                .scene_mesh
+                .height(p, f64::from(self.state.position[1]) + 0.6)
+            {
+                result.ground = Some(
+                    result
+                        .ground
+                        .map_or(height as f32, |g| g.max(height as f32)),
+                );
+                result.availability = 0;
+            }
             for b in &self.scene_bounds {
                 if p[0] >= b[0] && p[0] <= b[3] && p[1] >= b[2] && p[1] <= b[5] {
                     if f64::from(self.state.position[1]) >= b[4] - 0.1 {
@@ -447,10 +479,13 @@ impl Voyage {
         self.state
             .step_with_surface_motion(
                 input,
-                heights.map(|h| Some((before.position[1] - h).max(0.0))),
+                heights.map(|h| {
+                    let distance = (before.position[1] - h).max(0.0);
+                    (distance <= self.tuning.support_reach()).then_some(distance)
+                }),
                 rise,
                 FIXED_DT,
-                &Tuning::default(),
+                &self.tuning,
             )
             .map_err(|e| e.to_string())?;
         let next = [
@@ -458,8 +493,17 @@ impl Voyage {
             p[1] + f64::from(self.state.velocity[2] * FIXED_DT),
         ];
         let swept_start = [p[0], f64::from(before.position[1]), p[1]];
-        let swept_end = [next[0], f64::from(before.position[1] + self.state.velocity[1] * FIXED_DT), next[1]];
-        if self.scene_bounds.iter().any(|b| swept_box(swept_start, swept_end, *b)) {
+        let swept_end = [
+            next[0],
+            f64::from(before.position[1] + self.state.velocity[1] * FIXED_DT),
+            next[1],
+        ];
+        if self
+            .scene_bounds
+            .iter()
+            .any(|b| swept_box(swept_start, swept_end, *b))
+            || self.scene_mesh.swept(swept_start, swept_end)
+        {
             self.state = before;
             self.state.velocity = [0.0; 3];
             self.hold = 3;
@@ -488,6 +532,179 @@ impl Voyage {
     }
 }
 
+#[derive(Default)]
+struct CollisionTree {
+    triangles: Vec<[[f64; 3]; 3]>,
+    nodes: Vec<CollisionNode>,
+}
+
+struct CollisionNode {
+    bounds: [f64; 6],
+    range: std::ops::Range<usize>,
+    children: Option<[usize; 2]>,
+}
+
+impl CollisionTree {
+    fn new(vertices: &[f64]) -> Result<Self, &'static str> {
+        if !vertices.len().is_multiple_of(9)
+            || vertices.len() > 200_000 * 9
+            || vertices.iter().any(|v| !v.is_finite() || v.abs() > 1e12)
+        {
+            return Err("Invalid or oversized authored collision payload");
+        }
+        let triangles = vertices
+            .as_chunks::<9>()
+            .0
+            .iter()
+            .map(|v| std::array::from_fn(|i| std::array::from_fn(|a| v[i * 3 + a])))
+            .collect();
+        let mut tree = Self {
+            triangles,
+            nodes: vec![],
+        };
+        if !tree.triangles.is_empty() {
+            tree.build(0..tree.triangles.len());
+        }
+        Ok(tree)
+    }
+
+    fn build(&mut self, range: std::ops::Range<usize>) -> usize {
+        let mut bounds = [f64::INFINITY; 6];
+        bounds[3..].fill(f64::NEG_INFINITY);
+        for triangle in &self.triangles[range.clone()] {
+            for p in triangle {
+                for a in 0..3 {
+                    bounds[a] = bounds[a].min(p[a]);
+                    bounds[a + 3] = bounds[a + 3].max(p[a]);
+                }
+            }
+        }
+        let index = self.nodes.len();
+        self.nodes.push(CollisionNode {
+            bounds,
+            range: range.clone(),
+            children: None,
+        });
+        if range.len() > 8 {
+            let axis = (0..3)
+                .max_by(|&a, &b| {
+                    (bounds[a + 3] - bounds[a]).total_cmp(&(bounds[b + 3] - bounds[b]))
+                })
+                .unwrap();
+            let half = range.len() / 2;
+            self.triangles[range.clone()].select_nth_unstable_by(half, |a, b| {
+                a.iter()
+                    .map(|v| v[axis])
+                    .sum::<f64>()
+                    .total_cmp(&b.iter().map(|v| v[axis]).sum::<f64>())
+            });
+            let middle = range.start + half;
+            let left = self.build(range.start..middle);
+            let right = self.build(middle..range.end);
+            self.nodes[index].children = Some([left, right]);
+        }
+        index
+    }
+
+    fn any(
+        &self,
+        node: usize,
+        broad: &impl Fn([f64; 6]) -> bool,
+        narrow: &mut impl FnMut(&[[f64; 3]; 3]) -> bool,
+    ) -> bool {
+        let n = &self.nodes[node];
+        if !broad(n.bounds) {
+            return false;
+        }
+        if let Some([a, b]) = n.children {
+            self.any(a, broad, narrow) || self.any(b, broad, narrow)
+        } else {
+            self.triangles[n.range.clone()].iter().any(narrow)
+        }
+    }
+
+    fn height(&self, p: [f64; 2], ceiling: f64) -> Option<f64> {
+        if self.nodes.is_empty() {
+            return None;
+        }
+        let mut height: Option<f64> = None;
+        self.any(
+            0,
+            &|b| p[0] >= b[0] && p[0] <= b[3] && p[1] >= b[2] && p[1] <= b[5] && b[1] <= ceiling,
+            &mut |tri| {
+                // Translate before f32 conversion to retain precision after floating-origin rebases.
+                let local = tri.map(|v| [(v[0] - p[0]) as f32, (v[2] - p[1]) as f32, v[1] as f32]);
+                if let Some(h) = triangle_z_at(&local, 0.0, 0.0)
+                    .map(f64::from)
+                    .filter(|h| *h <= ceiling)
+                {
+                    height = Some(height.map_or(h, |old| old.max(h)));
+                }
+                false
+            },
+        );
+        height
+    }
+
+    fn swept(&self, start: [f64; 3], end: [f64; 3]) -> bool {
+        !self.nodes.is_empty()
+            && self.any(0, &|b| swept_box(start, end, b), &mut |tri| {
+                swept_triangle(start, end, tri)
+            })
+    }
+}
+
+fn swept_triangle(start: [f64; 3], end: [f64; 3], triangle: &[[f64; 3]; 3]) -> bool {
+    let sub = |a: [f64; 3], b: [f64; 3]| std::array::from_fn::<_, 3, _>(|i| a[i] - b[i]);
+    let cross = |a: [f64; 3], b: [f64; 3]| {
+        [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        ]
+    };
+    let dot = |a: [f64; 3], b: [f64; 3]| (0..3).map(|i| a[i] * b[i]).sum::<f64>();
+    let tri = triangle.map(|p| sub(p, start));
+    let edges = [
+        sub(tri[1], tri[0]),
+        sub(tri[2], tri[1]),
+        sub(tri[0], tri[2]),
+    ];
+    let normal = cross(edges[0], edges[1]);
+    if dot(normal, normal) < 1e-20 {
+        return false;
+    }
+    let basis = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    let axes = basis
+        .into_iter()
+        .chain([normal])
+        .chain(edges.into_iter().flat_map(|e| basis.map(|a| cross(e, a))));
+    let motion = sub(end, start);
+    let (mut enter, mut exit) = (0.0_f64, 1.0_f64);
+    for axis in axes {
+        if dot(axis, axis) < 1e-20 {
+            continue;
+        }
+        let values = tri.map(|p| dot(p, axis));
+        let radius = axis[0].abs() * 1.1 + axis[1].abs() * 0.5 + axis[2].abs() * 1.1;
+        let low = values.into_iter().fold(f64::INFINITY, f64::min) - radius;
+        let high = values.into_iter().fold(f64::NEG_INFINITY, f64::max) + radius;
+        let delta = dot(motion, axis);
+        if delta.abs() < 1e-12 {
+            if low > 0.0 || high < 0.0 {
+                return false;
+            }
+        } else {
+            enter = enter.max((low / delta).min(high / delta));
+            exit = exit.min((low / delta).max(high / delta));
+            if enter > exit {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 fn swept_box(start: [f64; 3], end: [f64; 3], bounds: [f64; 6]) -> bool {
     if start[1].min(end[1]) - 0.5 >= bounds[4] {
         return false;
@@ -500,13 +717,17 @@ fn swept_box(start: [f64; 3], end: [f64; 3], bounds: [f64; 6]) -> bool {
         let high = bounds[axis + 3] + margin;
         let delta = end[axis] - start[axis];
         if delta.abs() < 1e-12 {
-            if start[axis] < low || start[axis] > high { return false; }
+            if start[axis] < low || start[axis] > high {
+                return false;
+            }
         } else {
             let a = (low - start[axis]) / delta;
             let b = (high - start[axis]) / delta;
             enter = enter.max(a.min(b));
             exit = exit.min(a.max(b));
-            if enter > exit { return false; }
+            if enter > exit {
+                return false;
+            }
         }
     }
     true
@@ -514,6 +735,117 @@ fn swept_box(start: [f64; 3], end: [f64; 3], bounds: [f64; 6]) -> bool {
 
 #[wasm_bindgen]
 impl Voyage {
+    pub fn tuning(&self) -> Vec<f32> {
+        let t = &self.tuning;
+        vec![
+            t.max_speed,
+            t.boost_max_speed,
+            t.acceleration,
+            t.boost_acceleration,
+            t.braking,
+            t.drag,
+            t.turn_rate,
+            t.turn_response,
+            t.grip,
+            t.drift_grip,
+            t.drift_turn_multiplier,
+            t.hover_height,
+            t.spring,
+            t.damping,
+            t.gravity,
+            t.hop_speed,
+            t.air_control,
+        ]
+    }
+
+    pub fn validate_tuning(&self, values: &[f32]) -> Result<(), JsValue> {
+        Self::parse_tuning(values)
+            .map(|_| ())
+            .map_err(|e| JsValue::from_str(&e))
+    }
+
+    pub fn set_tuning(&mut self, values: &[f32]) -> Result<(), JsValue> {
+        self.tuning = Self::parse_tuning(values).map_err(|e| JsValue::from_str(&e))?;
+        Ok(())
+    }
+
+    /// Indexed authored collision triangles in global east/up/south coordinates.
+    pub fn set_scene_mesh(&mut self, vertices: &[f64]) -> Result<(), JsValue> {
+        self.scene_mesh = CollisionTree::new(vertices).map_err(JsValue::from_str)?;
+        self.scene_bounds.clear();
+        Ok(())
+    }
+
+    fn parse_tuning(values: &[f32]) -> Result<Tuning, String> {
+        let v: &[f32; 17] = values
+            .try_into()
+            .map_err(|_| "Tuning requires exactly 17 values")?;
+        let tuning = Tuning {
+            max_speed: v[0],
+            boost_max_speed: v[1],
+            acceleration: v[2],
+            boost_acceleration: v[3],
+            braking: v[4],
+            drag: v[5],
+            turn_rate: v[6],
+            turn_response: v[7],
+            grip: v[8],
+            drift_grip: v[9],
+            drift_turn_multiplier: v[10],
+            hover_height: v[11],
+            spring: v[12],
+            damping: v[13],
+            gravity: v[14],
+            hop_speed: v[15],
+            air_control: v[16],
+        };
+        tuning.validate().map_err(|e| e.to_string())?;
+        Ok(tuning)
+    }
+
+    pub fn collision_stats(&self) -> Vec<u32> {
+        vec![
+            self.scene_mesh.triangles.len() as u32,
+            self.scene_mesh.nodes.len() as u32,
+            (self.scene_mesh.triangles.capacity() * std::mem::size_of::<[[f64; 3]; 3]>()
+                + self.scene_mesh.nodes.capacity() * std::mem::size_of::<CollisionNode>())
+                as u32,
+        ]
+    }
+
+    pub fn collision_vertices(&self) -> Vec<f64> {
+        self.scene_mesh
+            .triangles
+            .iter()
+            .flatten()
+            .flatten()
+            .copied()
+            .collect()
+    }
+
+    /// minXYZ/maxXYZ/start/end/left/right, ten f64s per node; leaf children are -1.
+    pub fn collision_nodes(&self) -> Vec<f64> {
+        self.scene_mesh
+            .nodes
+            .iter()
+            .flat_map(|n| {
+                let children = n.children.map_or([-1.0; 2], |c| c.map(|i| i as f64));
+                [
+                    n.bounds[0],
+                    n.bounds[1],
+                    n.bounds[2],
+                    n.bounds[3],
+                    n.bounds[4],
+                    n.bounds[5],
+                    n.range.start as f64,
+                    n.range.end as f64,
+                    children[0],
+                    children[1],
+                ]
+            })
+            .collect()
+    }
+
     /// Conservative bounds of authored collision meshes, not exact building interiors.
     pub fn set_scene_bounds(&mut self, bounds: &[f64]) -> Result<(), JsValue> {
         if !bounds.len().is_multiple_of(6)
@@ -528,6 +860,7 @@ impl Voyage {
             return Err(JsValue::from_str("Invalid scene collision bounds"));
         }
         self.scene_bounds = bounds.as_chunks::<6>().0.to_vec();
+        self.scene_mesh = CollisionTree::default();
         Ok(())
     }
 
@@ -620,6 +953,10 @@ impl Voyage {
             self.origin[0],
             self.origin[1],
             f64::from(self.rebases),
+            f64::from(
+                -self.state.velocity[0] * self.state.yaw.sin()
+                    - self.state.velocity[2] * self.state.yaw.cos(),
+            ),
         ]
     }
 
@@ -718,6 +1055,102 @@ impl Voyage {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #[test]
+    fn indexed_authored_collision_keeps_open_interiors_bridges_and_swept_walls() {
+        use super::*;
+        let triangles = [
+            // A raised bridge, with open space underneath rather than an enclosing solid box.
+            [-10.0, 5.0, -10.0, 10.0, 5.0, -10.0, 10.0, 5.0, 10.0],
+            [-10.0, 5.0, -10.0, 10.0, 5.0, 10.0, -10.0, 5.0, 10.0],
+            // Wall beyond the bridge's open center.
+            [8.0, 0.0, -10.0, 8.0, 5.0, -10.0, 8.0, 5.0, 10.0],
+            [8.0, 0.0, -10.0, 8.0, 5.0, 10.0, 8.0, 0.0, 10.0],
+        ];
+        let tree = CollisionTree::new(triangles.as_flattened()).unwrap();
+        assert_eq!(tree.height([0.0, 0.0], 1.6), None);
+        assert_eq!(tree.height([0.0, 0.0], 6.0), Some(5.0));
+        assert!(!tree.swept([-5.0, 1.1, 0.0], [5.0, 1.1, 0.0]));
+        assert!(!tree.swept([-5.0, 6.1, 0.0], [5.0, 6.1, 0.0]));
+        assert!(tree.swept([0.0, 1.1, 0.0], [20.0, 1.1, 0.0]));
+        assert!(tree.swept([0.0, 4.0, 0.0], [0.0, 6.0, 0.0]));
+        assert!(!tree.swept([0.0, 1.1, 20.0], [20.0, 1.1, 20.0]));
+        assert!(CollisionTree::new(&[f64::NAN; 9]).is_err());
+        assert!(CollisionTree::new(&[0.0; 8]).is_err());
+        assert!(!swept_triangle([0.0; 3], [1.0; 3], &[[0.0; 3]; 3]));
+    }
+
+    #[test]
+    fn collision_tree_matches_full_sweep_and_height_walk_after_translation() {
+        use super::*;
+        let mut vertices = vec![];
+        for i in 0..200 {
+            let x = 1_000_000.0 + f64::from(i) * 4.0;
+            vertices.extend([x, 0.0, 0.0, x + 3.0, 0.0, 0.0, x, 0.0, 3.0]);
+        }
+        let tree = CollisionTree::new(&vertices).unwrap();
+        assert!(tree.nodes.len() > 1);
+        let mut visits = 0;
+        tree.any(
+            0,
+            &|b| b[0] <= 1_000_000.25 && b[3] >= 1_000_000.25 && b[2] <= 0.25 && b[5] >= 0.25,
+            &mut |_| {
+                visits += 1;
+                false
+            },
+        );
+        assert!(visits <= 8, "Point query visited {visits}/200 triangles");
+        for i in 0..800 {
+            let x = 1_000_000.0 + f64::from(i);
+            for z in [0.25, 2.0, 4.0] {
+                let start = [x, 1.0, z];
+                let end = [x + 5.0, -1.0, z];
+                let expected = tree.triangles.iter().any(|t| swept_triangle(start, end, t));
+                assert_eq!(tree.swept(start, end), expected, "{start:?}");
+                assert_eq!(
+                    tree.height([x, z], 1.0).is_some(),
+                    tree.triangles.iter().any(|t| {
+                        let local = t.map(|p| [(p[0] - x) as f32, (p[2] - z) as f32, p[1] as f32]);
+                        triangle_z_at(&local, 0.0, 0.0).is_some()
+                    })
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn browser_tuning_uses_native_validation_and_signed_velocity() {
+        use super::*;
+        let mut world = Voyage::from_manifest(fixture(0.0)).unwrap();
+        let initial = world.tuning();
+        assert_eq!(initial.len(), 17);
+        assert_eq!(initial[16], 0.9);
+        assert!(Voyage::parse_tuning(&initial[..16]).is_err());
+        let mut invalid = initial.clone();
+        invalid[0] = -1.0;
+        assert!(Voyage::parse_tuning(&invalid).is_err());
+        assert_eq!(world.tuning(), initial);
+        let mut valid = initial;
+        valid[11] = 10.0;
+        world.tuning = Voyage::parse_tuning(&valid).unwrap();
+        assert!(world.tuning.support_reach() >= 10.8);
+        world.state.yaw = 0.0;
+        world.state.velocity[2] = 4.0;
+        assert_eq!(world.telemetry()[14], -4.0);
+        world.state.velocity[2] = -4.0;
+        assert_eq!(world.telemetry()[14], 4.0);
+    }
+
+    #[test]
+    fn scene_bridge_cannot_turn_an_unloaded_expected_tile_into_ready_ground() {
+        use super::*;
+        let mut world = Voyage::from_manifest(fixture(0.0)).unwrap();
+        world.scene_mesh =
+            CollisionTree::new(&[0.0, 0.0, 0.0, TILE, 0.0, 0.0, 0.0, 0.0, TILE]).unwrap();
+        let surface = world.sample([10.0, 10.0]);
+        assert_eq!(surface.availability, 1);
+        assert!(surface.support().is_none());
+    }
+
     use super::*;
 
     #[test]
