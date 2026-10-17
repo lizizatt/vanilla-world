@@ -379,6 +379,20 @@ test('negotiated frames publish collision then real physics response before visu
   assert.equal(f.events.find(e=>e.id===1).result.scene.waitingCollision,0);
 });
 
+test('pose timestamps describe fixed ticks in the input clock and do not advance on zero-step replies',async()=>{
+  const f=frameFixture();
+  const frame=async(id,dt,sampleTime)=>{
+    await f.dispatch({id,action:'frame',dt,sampleTime,throttle:1,steer:0,flags:0});
+    return f.events.find(e=>e.id===id);
+  };
+  assert.equal((await frame(1,.006,1006)).result.poseTime,1000);
+  assert.equal((await frame(2,.001,1007.2)).result.poseTime,1000);
+  assert(Math.abs((await frame(3,.003,1010)).result.poseTime-(1000+1000/120))<1e-9);
+  assert(Math.abs((await frame(4,.006,1016.2)).result.poseTime-(1000+1000/120))<1e-9);
+  assert.equal((await frame(5,.001,undefined)).result.poseTime,undefined,'Legacy frames do not claim a clock');
+  assert.match((await frame(6,.001,NaN)).error,/Invalid input sample time/);
+});
+
 test('physics-first frames still block unknown collision and failed BVH admission before responding',async()=>{
   const f=frameFixture();
   f.add(100);f.unresolved(2);

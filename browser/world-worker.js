@@ -9,6 +9,7 @@ const TILE=1600/3,LIMIT=4;
 let wasm;
 const ready=init().then(exports=>(wasm=exports));
 let world,source,manifest,placements,scene,terrain,accumulator=0,queue=Promise.resolve();
+let poseTime;
 const terrainErrors=new Map();
 let terrainFocus='';
 let craft={ready:false,pending:false};
@@ -364,7 +365,7 @@ function finishFrame(message) {
 function snapshot() {
   horizon.wasmPeakBytes=Math.max(horizon.wasmPeakBytes,wasm.memory.buffer.byteLength);
   const terrainState=terrain.snapshot();
-  return {telemetry:Array.from(world.telemetry()),resident:Array.from(resident),required:Array.from(world.required_tiles()),
+  return {telemetry:Array.from(world.telemetry()),poseTime,resident:Array.from(resident),required:Array.from(world.required_tiles()),
     failures:Array.from(failures.values()),loads,evictions,peak,limit:LIMIT,horizon,source:source.stats,
     scene:sceneState?{instances:sceneState.instances.length,assets:sceneState.cachedAssets,bytes:sceneState.cachedBytes,
       pending:sceneState.pending,errors:sceneState.errors,population:sceneState.populationStatus,
@@ -387,6 +388,7 @@ async function handle(message) {
     sceneInstanceDeltas=message.sceneInstanceDeltas===true;
     postFrameVisuals=message.postFrameVisuals===true;
     terrainRead=undefined;
+    poseTime=undefined;
     terrainMaterials.clear();
     report('Opening local MPQ archives and patch chain');
     source=await openDataSource(message.folder);
@@ -418,6 +420,7 @@ async function handle(message) {
   }
   if(!world)throw new Error('Local world is not open');
   if(message.action==='frame') {
+    if(message.sampleTime!==undefined && !Number.isFinite(message.sampleTime))throw new Error('Invalid input sample time');
     const started=performance.now();
     const p=world.telemetry(),focus=message.focus || Array.from(p.slice(0,3));
     if(!Array.isArray(focus)||focus.length!==3||!focus.every(v=>Number.isFinite(v)&&Math.abs(v)<1e12))throw new Error('Invalid world focus');
@@ -425,17 +428,20 @@ async function handle(message) {
     const terrainStart=performance.now();await stream([focus[0],focus[2]],!message.focus);
     timings.terrainMs+=performance.now()-terrainStart;
     const sceneStart=performance.now();updateScene(focus,!postFrameVisuals);timings.sceneMs+=performance.now()-sceneStart;
-    const physicsStart=performance.now();
+    const physicsStart=performance.now();let advanced=false;
     if(!message.focus) {
       const now=performance.now(),elapsed=lastHoldTime?Math.min(now-lastHoldTime,1000):0;lastHoldTime=now;
       if(objectWait.length){accumulator=0;measureHold('objects',elapsed);}
       else {
         accumulator+=Math.min(Math.max(message.dt,0),.1);
-        while(accumulator>=1/120){world.tick(message.throttle,message.steer,message.flags);accumulator-=1/120;}
+        while(accumulator>=1/120){world.tick(message.throttle,message.steer,message.flags);advanced=true;accumulator-=1/120;}
         const hold=world.telemetry()[8];
         measureHold(hold===1?'terrain':hold===3?'solid':hold===2?'unsupported':'clear',elapsed);
       }
     } else {accumulator=0;lastHoldTime=0;lastHold='clear';}
+    // Stamp the completed fixed tick in the input clock, not its variably delayed delivery time.
+    if(message.sampleTime===undefined || message.focus)poseTime=undefined;
+    else if(advanced || poseTime===undefined || objectWait.length)poseTime=message.sampleTime-accumulator*1000;
     timings.physicsMs+=performance.now()-physicsStart;
     const cameraStart=performance.now();
     updateCameraUnknown(world.telemetry(),focusRegion(focus));
@@ -446,10 +452,10 @@ async function handle(message) {
   } else if(message.action==='restore') {
     if(!Array.isArray(message.pose)||message.pose.length!==4||!message.pose.every(Number.isFinite))throw new Error('Invalid parked pose');
     await stream([message.pose[0],message.pose[2]],false,true);
-    world.restore(new Float64Array(message.pose));accumulator=0;
+    world.restore(new Float64Array(message.pose));accumulator=0;poseTime=undefined;
   } else if(message.action==='reset') {
     await stream([manifest.spawn[0],manifest.spawn[2]],false,true);
-    world.initialize_spawn();accumulator=0;
+    world.initialize_spawn();accumulator=0;poseTime=undefined;
   } else if(message.action==='retry') {
     scenePumpError=undefined;sceneSubmissionPending=true;
     failures.clear();distantFailures.clear();scene.retry();

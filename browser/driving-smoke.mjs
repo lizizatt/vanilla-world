@@ -9,6 +9,9 @@ assert(Number.isFinite(seconds)&&seconds>=30);
 const label=process.env.RUN_LABEL || 'continuity';
 assert(/^[a-z0-9-]+$/i.test(label));
 const video=process.env.VIDEO==='1',sound=process.env.SOUND==='1',cpuProfile=process.env.PROFILE==='1';
+const presentation=process.env.PRESENTATION || 'confirmed',pulses=process.env.INPUT_PULSES==='1';
+assert(['raw','confirmed'].includes(presentation));
+assert(!pulses || (!process.env.WAYPOINTS && seconds%5===0),'Input pulses require five-second periods without navigation');
 const warmSeconds=Number(process.env.WARM_SECONDS || 0);
 assert(Number.isFinite(warmSeconds)&&warmSeconds>=0,'WARM_SECONDS must be nonnegative');
 const output=new URL(`./test-results/driving/${label}/`,import.meta.url);
@@ -58,6 +61,11 @@ async function startProfiles(){
   };
 }
 try{
+  if(presentation==='raw')await context.route('**/world-app.js',async route=>{
+    const response=await route.fetch(),source=await response.text();
+    assert(source.includes('client.presentation()'),'Raw comparison must override the presentation call');
+    await route.fulfill({response,body:source.replace('client.presentation()','client.state.telemetry')});
+  });
   const metadataSession=await browser.newBrowserCDPSession();
   const {arguments:launchArguments}=await metadataSession.send('Browser.getBrowserCommandLine');
   const version=await metadataSession.send('Browser.getVersion');
@@ -141,12 +149,17 @@ try{
     const request=WorldClient.prototype.request,frame=WorldClient.prototype.frame,draw=WorldRenderer.prototype.draw;
     const pageState=()=>({visibility:document.visibilityState,hidden:document.hidden,
       hasFocus:document.hasFocus(),activeElement:document.activeElement?.id || document.activeElement?.tagName});
-    window.driveProfile={responses:[],draws:[],samples:[],environmentEvents:[],inputs:0,clientDropped:0,start:performance.now()};
+    window.driveProfile={responses:[],draws:[],rawDraws:[],inputOnsets:[],samples:[],environmentEvents:[],inputs:0,clientDropped:0,start:performance.now()};
     const record=type=>driveProfile.environmentEvents.push({t:performance.now(),type,...pageState()});
     record('capture-start');
     for(const type of ['focus','blur','pagehide','pageshow'])window.addEventListener(type,()=>record(type));
     for(const type of ['visibilitychange','freeze','resume'])document.addEventListener(type,()=>record(type));
+    window.addEventListener('keydown',event=>{
+      if(event.code==='KeyW'&&!event.repeat)driveProfile.inputOnsets.push({t:performance.now(),
+        pose:(window.driveClient?.state || worldEvidence.state).telemetry.slice(0,4)});
+    });
     WorldClient.prototype.frame=function(dt,...args){
+      window.driveClient=this;
       driveProfile.inputs+=dt;driveProfile.clientDropped+=Math.max(0,this.elapsed+dt-.1);
       return frame.call(this,dt,...args);
     };
@@ -161,7 +174,9 @@ try{
       });
     };
     WorldRenderer.prototype.draw=function(p,...args){
-      driveProfile.draws.push([performance.now(),p[0],p[1],p[2],p[3],p[5],p[8],worldEvidence.state.scene.waitingCollision]);
+      const t=performance.now(),raw=driveClient.state.telemetry,wait=driveClient.state.scene.waitingCollision;
+      driveProfile.draws.push([t,p[0],p[1],p[2],p[3],p[5],p[8],wait]);
+      driveProfile.rawDraws.push([t,raw[0],raw[1],raw[2],raw[3],raw[5],raw[8],wait]);
       return draw.call(this,p,...args);
     };
     driveProfile.timer=setInterval(()=>driveProfile.samples.push({t:performance.now(),
@@ -200,14 +215,18 @@ try{
   },JSON.parse(process.env.WAYPOINTS));
   const before=await page.evaluate(()=>structuredClone(worldEvidence.state));
   let stopped=0;
-  for(let elapsed=0;elapsed<seconds;elapsed+=10){
-    if(!process.env.WAYPOINTS){
+  for(let elapsed=0;elapsed<seconds;elapsed+=pulses?5:10){
+    if(!process.env.WAYPOINTS && !pulses){
       if(elapsed%30===10)await page.keyboard.down('ShiftLeft');
       if(elapsed%30===20)await page.keyboard.up('ShiftLeft');
       if(elapsed%40===10)await page.keyboard.down('ArrowRight');
       if(elapsed%40===20)await page.keyboard.up('ArrowRight');
     }
-    await page.waitForTimeout(Math.min(10,seconds-elapsed)*1000);
+    if(pulses){
+      await page.waitForTimeout(1000);await page.keyboard.up('KeyW');await page.keyboard.down('KeyS');
+      await page.waitForTimeout(4000);await page.keyboard.up('KeyS');
+      if(elapsed+5<seconds)await page.keyboard.down('KeyW');
+    }else await page.waitForTimeout(Math.min(10,seconds-elapsed)*1000);
     const progress=await page.evaluate(()=>({t:Math.round((performance.now()-driveProfile.start)/1000),
       p:worldEvidence.state.telemetry,wait:worldEvidence.state.scene.waitingCollision,clock:worldEvidence.state.drivingClock}));
     console.log(JSON.stringify(progress));
@@ -224,22 +243,42 @@ try{
   data.before=before;data.environment=environment;
   await writeFile(new URL('raw.json',output),JSON.stringify(data));
   if(stopProfiles)await stopProfiles();
-  const settings={video,sound,profile:cpuProfile,...await page.evaluate(()=>{
+  const settings={video,sound,profile:cpuProfile,presentation,inputPulses:pulses,...await page.evaluate(()=>{
     const canvas=document.getElementById('world'),rect=canvas.getBoundingClientRect();
     return {canvasWidth:canvas.width,canvasHeight:canvas.height,cssWidth:rect.width,cssHeight:rect.height,
       devicePixelRatio};
   })};
   const intervals=rows=>rows.slice(1).map((r,i)=>r.t-rows[i].t);
-  const poseGaps=[],freezes=[],resets=[];
-  let lastChange=data.draws[0],frozen;
-  for(const d of data.draws.slice(1)){
-    const same=d.slice(1,5).every((v,i)=>v===lastChange[i+1]);
-    if(same){frozen??=lastChange;continue;}
-    poseGaps.push(d[0]-lastChange[0]);
-    if(frozen&&d[0]-frozen[0]>=25)freezes.push({at:frozen[0]-data.start,ms:d[0]-frozen[0],speed:frozen[5],hold:frozen[6],wait:frozen[7]});
-    frozen=undefined;lastChange=d;
-  }
-  if(frozen)freezes.push({at:frozen[0]-data.start,ms:data.end-frozen[0],speed:frozen[5],hold:frozen[6],wait:frozen[7]});
+  const motion=rows=>{
+    const poseGaps=[],freezes=[];
+    let lastChange=rows[0],frozen,hold=0,wait=0,repeatedMovingDraws=0;
+    for(const d of rows.slice(1)){
+      const same=d.slice(1,5).every((v,i)=>v===lastChange[i+1]);
+      if(same){
+        frozen??=lastChange;hold=Math.max(hold,d[6]);wait=Math.max(wait,d[7]);
+        if(d[5]>1&&!d[6]&&!d[7])repeatedMovingDraws++;
+        continue;
+      }
+      poseGaps.push(d[0]-lastChange[0]);
+      if(frozen&&d[0]-frozen[0]>=25)freezes.push({at:frozen[0]-data.start,ms:d[0]-frozen[0],
+        speed:frozen[5],hold:Math.max(hold,frozen[6]),wait:Math.max(wait,frozen[7])});
+      frozen=undefined;hold=wait=0;lastChange=d;
+    }
+    if(frozen)freezes.push({at:frozen[0]-data.start,ms:data.end-frozen[0],speed:frozen[5],
+      hold:Math.max(hold,frozen[6]),wait:Math.max(wait,frozen[7])});
+    return {poseGaps,freezes,repeatedMovingDraws};
+  };
+  const {poseGaps,freezes,repeatedMovingDraws}=motion(data.draws),raw=motion(data.rawDraws),resets=[];
+  const rawMovingFreezes=raw.freezes.filter(f=>f.speed>1&&!f.hold&&!f.wait);
+  const inputLatency=data.inputOnsets.map(input=>{
+    const moved=(x,z)=>Math.hypot(x-input.pose[0],z-input.pose[2])>.01;
+    const reply=data.responses.find(r=>r.t>=input.t&&moved(r.p[0],r.p[2]));
+    const drawn=data.draws.find(r=>r[0]>=input.t&&moved(r[1],r[3]));
+    const authoritative=data.rawDraws.find(r=>r[0]>=input.t&&moved(r[1],r[3]));
+    return {at:input.t-data.start,replyMs:reply?reply.t-input.t:null,
+      authoritativeDrawMs:authoritative?authoritative[0]-input.t:null,presentedDrawMs:drawn?drawn[0]-input.t:null,
+      addedDisplayMs:drawn&&authoritative?drawn[0]-authoritative[0]:null};
+  });
   for(let i=1;i<data.responses.length;i++){
     const a=data.responses[i-1],b=data.responses[i];
     if(a.p[5]>2 && b.p[5]<a.p[5]*.5)resets.push({at:b.t-data.start,before:a.p,after:b.p,wait:b.wait});
@@ -258,6 +297,9 @@ try{
     movingSeconds,waypointsReached:data.waypoint,recoveries:data.recoveries?.length,
     movingFreezes:distribution(movingFreezes.map(f=>f.ms)),
     movingFreezesOver50:movingFreezes.filter(f=>f.ms>50).length,
+    repeatedMovingDraws,rawRepeatedMovingDraws:raw.repeatedMovingDraws,inputLatency,
+    rawDrawnPoseMs:distribution(raw.poseGaps),rawMovingFreezes:distribution(rawMovingFreezes.map(f=>f.ms)),
+    rawMovingFreezesOver50:rawMovingFreezes.filter(f=>f.ms>50).length,
     renderMs:distribution(data.draws.slice(1).map((d,i)=>d[0]-data.draws[i][0])),
     stepsPerResponse:distribution(data.responses.map(r=>r.clock.batch)),
     simulationSeconds:(data.after.drivingClock.steps-before.drivingClock.steps)/120,
@@ -270,6 +312,7 @@ try{
   await writeFile(new URL('trace.json',output),JSON.stringify({summary,freezes,resets,...data},null,2));
   console.log(JSON.stringify(summary,null,2));
   assert.deepEqual(summary.errors,[]);
+  if(presentation==='raw')assert.deepEqual(data.draws,data.rawDraws,'Raw comparison must read the current, not previous, client state');
   assert(distance>20,'Held throttle must actually move the vehicle');
   if(process.env.WAYPOINTS && seconds>=120)assert(movingSeconds>seconds*.9,'A stopped vehicle is not sustained driving');
   if(process.env.MAX_MOVING_FREEZE_MS)assert((summary.movingFreezes?.max || 0)<=Number(process.env.MAX_MOVING_FREEZE_MS),

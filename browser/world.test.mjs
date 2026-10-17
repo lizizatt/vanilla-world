@@ -20,7 +20,9 @@ test('worker replies immediately drain one coalesced latest-input frame with the
   assert.equal(calls.length,1);assert(client.inFlight);
   calls[0].resolve({pose:1});await settle();
   assert.equal(calls.length,2);assert.deepEqual(client.state,{pose:1});
-  assert.deepEqual(calls[1].fields,{dt:.05,throttle:-1,steer:.2,flags:2,focus:[4,5,6],distant:false});
+  const {sampleTime,...fields}=calls[1].fields;
+  assert(Number.isFinite(sampleTime));
+  assert.deepEqual(fields,{dt:.05,throttle:-1,steer:.2,flags:2,focus:[4,5,6],distant:false});
   client.frame(.09,1,0,0);client.frame(.09,0,0,1);
   calls[1].resolve({pose:2});await settle();
   assert.equal(calls.length,3);assert.equal(calls[2].fields.dt,.1);assert.equal(calls[2].fields.throttle,0);
@@ -114,6 +116,83 @@ test('reset and restore invalidate unsent input and block draining until the new
     assert.equal(sent.length,3);assert.equal(sent[2].dt,.03);assert.equal(sent[2].throttle,0);
     respond(2,{pose:'new'});await settle();
   }
+});
+
+const poseState=(time,x)=>({poseTime:time,telemetry:[x,10,20,0,0,36,1,1,0,0,0,0,0,0,36],
+  scene:{waitingCollision:0}});
+test('confirmed interpolation removes 144Hz duplicate cadence without extrapolating 120Hz poses',()=>{
+  const client=new WorldClient(()=>{},error=>{throw error;});
+  let previousRaw,previousDraw,rawRepeats=0,drawRepeats=0;
+  for(let i=0;i<145;i++){
+    const now=100+i*1000/144,tick=100+Math.floor((now-100)*120/1000)*1000/120;
+    const state=poseState(tick,tick-100);
+    client.recordPose(state);
+    const drawn=client.presentation(now);
+    if(i>=12){
+      assert(Math.abs(drawn[0]-(now-130))<1e-6,'Exactly 30ms behind the authoritative input clock');
+      assert(drawn[0]<=state.telemetry[0],'Never predict beyond the latest confirmed position');
+      if(previousRaw===state.telemetry[0])rawRepeats++;
+      if(previousDraw===drawn[0])drawRepeats++;
+    }
+    previousRaw=state.telemetry[0];previousDraw=drawn[0];
+    assert(client.poseSamples.length<=32);
+  }
+  assert(rawRepeats>10);assert.equal(drawRepeats,0);
+  assert.strictEqual(client.presentation(2000),client.state.telemetry,'Missing brackets hold the latest pose');
+});
+test('presentation follows shortest yaw and leaves authoritative telemetry untouched',()=>{
+  const client=new WorldClient(()=>{},()=>{}),a=poseState(100,0),b=poseState(120,20);
+  a.telemetry[3]=Math.PI-.1;b.telemetry[3]=-Math.PI+.1;
+  a.telemetry[4]=-.2;b.telemetry[4]=.2;b.telemetry[5]=42;
+  client.recordPose(a);client.recordPose(b);
+  const result=client.presentation(140);
+  assert.equal(result[0],10);assert(Math.abs(result[3]-Math.PI)<1e-9);assert.equal(result[4],0);
+  assert.deepEqual(result.slice(5),b.telemetry.slice(5));assert.equal(b.telemetry[0],20);
+  assert.equal(client.presentation(130)[0],10,'A delayed clock observation never rewinds presented motion');
+  const startup=new WorldClient(()=>{},()=>{});startup.recordPose(b);
+  assert.strictEqual(startup.presentation(130),b.telemetry,'Startup without a bracket holds the latest pose');
+});
+test('holds, origin changes, source replacement, pause and vehicle mode invalidate presentation immediately',()=>{
+  const seed=()=>{
+    const c=new WorldClient(()=>{},()=>{});
+    c.recordPose(poseState(100,0));c.recordPose(poseState(120,20));
+    return c;
+  };
+  for(const hold of [1,2,3,'objects']){
+    const c=seed(),state=poseState(130,21);
+    if(hold==='objects')state.scene.waitingCollision=1;else state.telemetry[8]=hold;
+    c.recordPose(state);assert.strictEqual(c.presentation(140),state.telemetry);assert.equal(c.poseSamples.length,0);
+  }
+  for(const index of [10,11,12,13]){
+    const c=seed(),state=poseState(130,1000);state.telemetry[index]++;
+    c.recordPose(state);assert.strictEqual(c.presentation(140),state.telemetry);assert.equal(c.poseSamples.length,1);
+  }
+  for(const transition of [c=>c.discardFrame(),c=>c.stop(),c=>c.frame(.01,0,0,0,[0,0,0])]){
+    const c=seed();transition(c);assert.equal(c.poseSamples.length,0);assert.strictEqual(c.presentation(140),c.state.telemetry);
+  }
+  const c=seed();c.state=poseState(130,1000);
+  assert.strictEqual(c.presentation(140),c.state.telemetry,'Out-of-band restored state cannot play an old path');
+  assert.equal(c.poseSamples.length,0);
+});
+test('reset and restore clear confirmed history before their worker response',async()=>{
+  for(const action of ['reset','restore']){
+    const c=new WorldClient(()=>{},()=>{});c.worker={postMessage(){},terminate(){}};
+    c.recordPose(poseState(100,0));c.recordPose(poseState(120,20));
+    const pending=c.request(action,{pose:[1000,0,0,0]});
+    assert.equal(c.poseSamples.length,0);
+    c.stop();await assert.rejects(pending,{name:'AbortError'});
+  }
+});
+test('interpolation input onset adds at most 30ms plus one render interval',()=>{
+  const c=new WorldClient(()=>{},()=>{}),step=1000/144;
+  let firstRaw,firstDraw;
+  for(let i=0;i<80;i++){
+    const now=i*step,tick=Math.floor(now*120/1000)*1000/120,state=poseState(tick,Math.max(0,tick-200));
+    c.recordPose(state);const drawn=c.presentation(now);
+    if(state.telemetry[0]>0)firstRaw??=now;
+    if(drawn[0]>0)firstDraw??=now;
+  }
+  assert(firstDraw>=firstRaw);assert(firstDraw-firstRaw<=30+step);
 });
 
 test('source matrix uses the same east/up/south basis and preserves floating-origin precision',()=>{

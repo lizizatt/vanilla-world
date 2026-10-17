@@ -2,6 +2,7 @@ export class WorldClient {
   constructor(onEvent,onError,canFrame=()=>true) {
     this.onEvent=onEvent;this.onError=onError;this.next=0;this.requests=new Map();
     this.elapsed=0;this.inFlight=false;this.canFrame=canFrame;
+    this.poseSamples=[];this.poseFlying=false;
   }
   stop() {
     this.worker?.terminate();this.worker=undefined;
@@ -43,12 +44,49 @@ export class WorldClient {
     return result;
   }
   frame(dt,throttle,steer,flags,focus,distant=true) {
+    if(!!focus!==this.poseFlying){this.clearPose();this.poseFlying=!!focus;}
     this.elapsed=Math.min(.1,this.elapsed+dt);
-    this.pendingFrame={throttle,steer,flags,focus,distant};
+    this.pendingFrame={throttle,steer,flags,focus,distant,sampleTime:performance.now()};
     this.flushFrame();
   }
   discardFrame() {
-    this.pendingFrame=undefined;this.elapsed=0;
+    this.pendingFrame=undefined;this.elapsed=0;this.clearPose();
+  }
+  clearPose() {
+    this.poseSamples.length=0;this.poseState=undefined;this.lastPoseTime=undefined;
+  }
+  recordPose(state) {
+    this.state=state;
+    const p=state.telemetry,time=state.poseTime,previous=this.poseSamples.at(-1);
+    if(time!==undefined && (!Number.isFinite(time) || !Array.isArray(p) || p.length<15
+      || !p.slice(0,5).every(Number.isFinite)))throw new Error('Invalid confirmed vehicle pose');
+    if(time===undefined || this.poseFlying || p[8] || state.scene?.waitingCollision) {
+      this.clearPose();
+    } else {
+      if(previous && (time<previous.time || [10,11,12,13].some(i=>p[i]!==previous.p[i])))this.clearPose();
+      if(this.poseSamples.at(-1)?.time===time)this.poseSamples[this.poseSamples.length-1]={time,p};
+      else this.poseSamples.push({time,p});
+      if(this.poseSamples.length>32)this.poseSamples.shift();
+    }
+    this.poseState=state;
+  }
+  presentation(now=performance.now()) {
+    const p=this.state.telemetry;
+    if(this.state!==this.poseState || p[8] || this.state.scene?.waitingCollision)this.clearPose();
+    if(!this.poseSamples.length)return p;
+    const samples=this.poseSamples,last=samples.at(-1);
+    const time=Math.max(now-30,this.lastPoseTime ?? -Infinity);
+    if(time<samples[0].time || time>=last.time) {
+      this.lastPoseTime=last.time;return p;
+    }
+    while(samples.length>2 && samples[1].time<=time)samples.shift();
+    const [a,b]=samples,alpha=(time-a.time)/(b.time-a.time),out=p.slice();
+    for(let i=0;i<3;i++)out[i]=a.p[i]+(b.p[i]-a.p[i])*alpha;
+    const yaw=b.p[3]-a.p[3];
+    out[3]=a.p[3]+Math.atan2(Math.sin(yaw),Math.cos(yaw))*alpha;
+    out[4]=a.p[4]+(b.p[4]-a.p[4])*alpha;
+    this.lastPoseTime=time;
+    return out;
   }
   flushFrame() {
     if(!this.worker || !this.canFrame()){this.discardFrame();return;}
@@ -57,9 +95,9 @@ export class WorldClient {
     }
     if(this.inFlight || !this.pendingFrame)return;
     const worker=this.worker,fields=this.pendingFrame,elapsed=this.elapsed;
-    this.discardFrame();this.inFlight=true;
+    this.pendingFrame=undefined;this.elapsed=0;this.inFlight=true;
     this.request('frame',{dt:elapsed,...fields}).then(state=>{
-      if(this.worker===worker)this.state=state;
+      if(this.worker===worker)this.recordPose(state);
     }).catch(error=>{
       if(this.worker===worker){
         this.discardFrame();

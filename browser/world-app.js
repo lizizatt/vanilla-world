@@ -241,7 +241,7 @@ function frame(now) {
     }
     if(!frozenPresentation)client.frame(dt,controls.throttle,controls.steer,controls.flags,flight?.slice(0,3),settings.distant);
     cameraCollision.frame(client.state,renderer.sceneRegion ?? client.state.telemetry[10]);
-    const stats=renderer.draw(client.state.telemetry,flight,dt,frozenPresentation?0:now/1000,
+    const stats=renderer.draw(frozenPresentation || flight?client.state.telemetry:client.presentation(),flight,dt,frozenPresentation?0:now/1000,
       {...settings,cameraLook:controls.look,cameraOrbit},keys.has('KeyV')&&!keys.has('AltLeft')&&!keys.has('AltRight'));
     audio.update(client.state,controls,dt,accepts&&!flight&&!frozenPresentation);
     frames++;Object.assign(evidence,{frames,state:client.state,mode:flight?'fly':'drive',camera:flight?.slice(),render:stats,adapter:renderer.adapter});
