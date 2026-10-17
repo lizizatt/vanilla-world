@@ -62,6 +62,18 @@ export function transformedBounds(bounds, matrix) {
   }
   return [min, max];
 }
+export function globalCollisionVertices(vertices, m, region) {
+  const out = new Float64Array(vertices.length), tile = 1600/3;
+  const east = region.placement[0] + (32-region.tile_origin[0])*tile;
+  const south = region.placement[1] + (32-region.tile_origin[1])*tile;
+  for (let i=0; i<vertices.length; i+=3) {
+    const x=vertices[i], y=vertices[i+1], z=vertices[i+2];
+    out[i]=-(m[1]*x+m[5]*y+m[9]*z+m[13])+east;
+    out[i+1]=m[2]*x+m[6]*y+m[10]*z+m[14];
+    out[i+2]=-(m[0]*x+m[4]*y+m[8]*z+m[12])+south;
+  }
+  return out;
+}
 function distance(bounds, p) {
   return Math.hypot(...p.map((v, k) => Math.max(bounds[0][k] - v, 0, v - bounds[1][k])));
 }
@@ -78,8 +90,8 @@ function modelBytes(model) {
 function requestOrder(a, b) {
   if (!!a.distant !== !!b.distant) return a.distant ? 1 : -1;
   const priority = { texture: 0, wmo: 1, group: 2, m2: 3 };
-  const aCritical = !a.distant && a.kind !== 'texture' && a.score < 32;
-  const bCritical = !b.distant && b.kind !== 'texture' && b.score < 32;
+  const aCritical = !a.distant && a.kind !== 'texture' && (a.collisionScore ?? a.score) < 32;
+  const bCritical = !b.distant && b.kind !== 'texture' && (b.collisionScore ?? b.score) < 32;
   if (aCritical !== bCritical) return aCritical ? -1 : 1;
   if (aCritical) return priority[a.kind] - priority[b.kind] || a.score - b.score || a.key.localeCompare(b.key);
   return a.score - b.score || priority[a.kind] - priority[b.kind] || a.key.localeCompare(b.key);
@@ -92,19 +104,24 @@ export class SceneStream {
       if (!Number.isFinite(value) || value <= 0 || value > SCENE_LIMITS[key]) throw new Error(`Invalid scene limit ${key}`);
     }
     this.cache = new Map(); this.failures = new Map(); this.tiles = new Map(); this.distantTiles = new Map();
-    this.requests = new Map(); this.instances = []; this.errors = [];
-    this.bytes = 0; this.clock = 0; this.busy = false; this.generation = 0;
+    this.requests = new Map(); this.instances = []; this.collisionCandidates = []; this.errors = [];
+    this.bytes = 0; this.clock = 0; this.busy = false; this.generation = 0; this.revision = 0;
+    this.selectionRevision = -1;
+    this.expanded = new WeakMap();
+    this.bounds = new WeakMap();
     this.npcs = null; this.populationStatus = 'No local NPC spawn pack; client Data has no spawn positions';
   }
   setTile(key, bytes) {
     if (!this.tiles.has(key) && this.tiles.size >= 4) throw new Error('Remove an old scene tile before loading a fifth');
     this.tiles.set(key, this.parsePlacements(bytes));
+    this.revision++;
   }
   setDistantTile(key, bytes) {
     if (!this.distantTiles.has(key) && this.distantTiles.size >= 12) throw new Error('Remove old distant metadata before loading a thirteenth tile');
     this.distantTiles.set(key, this.parsePlacements(bytes));
+    this.revision++;
   }
-  removeDistantTile(key) { this.distantTiles.delete(key); }
+  removeDistantTile(key) { if(this.distantTiles.delete(key))this.revision++; }
   parsePlacements(bytes) {
     const placements = JSON.parse(this.wasm.scene_placements(bytes));
     for (const p of placements) {
@@ -116,15 +133,18 @@ export class SceneStream {
     }
     return placements;
   }
-  removeTile(key) { this.tiles.delete(key); }
+  removeTile(key) { if(this.tiles.delete(key))this.revision++; }
   setPopulation(pack) {
     this.npcs = validatePopulation(pack);
     this.populationModels = pack.models;
     this.populationStatus = `Static local NPC snapshot: ${pack.provenance.source}; no server behavior`;
+    this.revision++;
   }
-  update(map, position) {
-    if (![0, 1].includes(map) || !finite(position, 3)) throw new Error('Invalid scene observer');
-    this.map = map; this.position = position; this.clock++;
+  update(map, position, predicted = position) {
+    if (![0, 1].includes(map) || !finite(position, 3) || !finite(predicted, 3)) throw new Error('Invalid scene observer');
+    this.map = map; this.position = position; this.predicted = predicted; this.clock++;
+    const collisionDistance = bounds => Math.hypot(...position.map((v, a) =>
+      Math.max(bounds[0][a] - Math.max(v, predicted[a]), 0, Math.min(v, predicted[a]) - bounds[1][a])));
     const candidates = new Map(), requests = new Map();
     const want = (key, request, score, distant) => {
       const previous = requests.get(key);
@@ -139,31 +159,50 @@ export class SceneStream {
       const skins = p.skins || [];
       const key = `${kind}:${path}:${JSON.stringify(skins)}`;
       const asset = this.cache.get(key)?.value;
-      const bounds = p.bounds || (asset?.bounds ? transformedBounds(asset.bounds, matrix) : [matrix.slice(12, 15), matrix.slice(12, 15)]);
+      let bounds = p.bounds;
+      if (!bounds && asset?.bounds) {
+        let transforms = this.bounds.get(asset);
+        if (!transforms) { transforms = new WeakMap(); this.bounds.set(asset, transforms); }
+        bounds = transforms.get(matrix);
+        if (!bounds) { bounds = transformedBounds(asset.bounds, matrix); transforms.set(matrix, bounds); }
+      }
+      bounds ||= [matrix.slice(12, 15), matrix.slice(12, 15)];
       const score = distance(bounds, position);
       const radius = distant ? this.limits.distantRadius : this.limits.radius;
       if ((kind !== 'wmo' || asset || p.bounds) && score > radius) return;
-      want(key, { kind, path, skins }, score, distant);
+      want(key, { kind, path, skins, collisionScore: collisionDistance(bounds) }, score, distant);
       put(id, { id, key, matrix, bounds, boundsKnown: !!p.bounds || !!asset?.bounds, score, kind, distant });
       if (kind === 'wmo' && asset) {
         candidates.delete(id);
+        let placements = this.expanded.get(asset);
+        if (!placements) { placements = new WeakMap(); this.expanded.set(asset, placements); }
+        let expanded = placements.get(matrix);
+        if (!expanded) {
+          const doodads = new Set();
+          for (const setIndex of new Set([0, p.doodadSet || 0])) {
+            const set = asset.sets[setIndex];
+            if (set) for (let i = set.start; i < set.start + set.count; i++) doodads.add(i);
+          }
+          expanded = {
+            groups: asset.groups.map(group => transformedBounds(group.bounds, matrix)),
+            doodads: [...doodads].map(i => {
+              const d = asset.doodads[i];
+              if (!d) throw new Error('WMO doodad set references absent doodad');
+              return {i, d, matrix: multiply(matrix, placementMatrix(d))};
+            }),
+          };
+          placements.set(matrix, expanded);
+        }
         asset.groups.forEach((group, index) => {
-          const groupBounds = transformedBounds(group.bounds, matrix), d = distance(groupBounds, position);
+          const groupBounds = expanded.groups[index], d = distance(groupBounds, position);
           if (d > radius) return;
           const groupKey = `group:${path}:${index}`;
-          want(groupKey, { kind: 'group', path: `${path.slice(0, -4)}_${String(index).padStart(3, '0')}.wmo`, rootKey: key }, d, distant);
+          want(groupKey, { kind: 'group', path: `${path.slice(0, -4)}_${String(index).padStart(3, '0')}.wmo`,
+            rootKey: key, collisionScore: collisionDistance(groupBounds) }, d, distant);
           put(`${id}:group:${index}`, { id: `${id}:group:${index}`, key: groupKey, matrix, bounds: groupBounds, boundsKnown: true, score: d, kind: 'group', distant });
         });
-        const doodads = new Set();
-        for (const setIndex of new Set([0, p.doodadSet || 0])) {
-          const set = asset.sets[setIndex];
-          if (!set) continue;
-          for (let i = set.start; i < set.start + set.count; i++) doodads.add(i);
-        }
-        for (const i of doodads) {
-          const d = asset.doodads[i];
-          if (!d) throw new Error('WMO doodad set references absent doodad');
-          add({ ...d, kind: 'm2' }, `${id}:doodad:${i}`, multiply(matrix, placementMatrix(d)), 'm2', distant);
+        for (const {i, d, matrix: childMatrix} of expanded.doodads) {
+          add({ ...d, kind: 'm2' }, `${id}:doodad:${i}`, childMatrix, 'm2', distant);
         }
       }
     };
@@ -200,7 +239,14 @@ export class SceneStream {
     }
     this.instances = [...candidates.values()].sort((a, b) => Number(a.distant) - Number(b.distant)
       || a.score - b.score || a.id.localeCompare(b.id)).slice(0, this.limits.instances);
+    // Visual admission must not erase an unresolved solid under the vehicle.
+    this.collisionCandidates = [...candidates.values()].filter(i => !i.distant);
     const keep = new Set(this.instances.map(i => i.key));
+    for (const i of this.collisionCandidates) if (collisionDistance(i.bounds) < 32) {
+      keep.add(i.key);
+      const root = requests.get(i.key)?.rootKey;
+      if (root) keep.add(root);
+    }
     for (const i of this.instances) {
       const request = requests.get(i.key);
       if (request?.rootKey) keep.add(request.rootKey);
@@ -217,12 +263,14 @@ export class SceneStream {
     this.requests = new Map([...requests].filter(([key]) => keep.has(key)));
     for (const [key, entry] of this.cache) if (keep.has(key)) entry.used = this.clock;
     for (const key of this.failures.keys()) if (!keep.has(key)) this.failures.delete(key);
+    this.selectionRevision = this.revision;
   }
   async pump() {
     if (this.busy || !this.position) return;
     this.busy = true;
     this.capacityBlocked = false;
     const generation = this.generation;
+    let loaded = false;
     try {
       for (let job = 0; job < this.limits.jobs; job++) {
         const request = [...this.requests.values()].filter(r => !this.cache.has(r.key) && !this.failures.has(r.key))
@@ -251,16 +299,22 @@ export class SceneStream {
             throw Object.assign(new Error('Pinned nearby scene resources exhaust cache budget'), { code: 'LIMIT' });
           }
           this.cache.set(request.key, { ...result, used: this.clock }); this.bytes += result.bytes;
-          this.update(this.map, this.position);
+          this.revision++;
+          loaded = true;
+          if (request.kind === 'wmo') break;
         } catch (error) {
           result?.dispose?.();
           if (generation !== this.generation) continue;
           const failure = { path: request.path, code: error.code || 'CORRUPT', message: String(error.message || error) };
           this.failures.set(request.key, failure);
+          this.revision++;
           this.errors.push(failure); if (this.errors.length > 32) this.errors.shift();
         }
       }
-    } finally { this.busy = false; }
+    } finally {
+      this.busy = false;
+      if (loaded && generation === this.generation)this.update(this.map, this.position, this.predicted);
+    }
   }
   resourceCount(kind) {
     return [...this.cache.keys()].filter(key => key.startsWith('texture:') === (kind === 'texture')).length;
@@ -315,15 +369,20 @@ export class SceneStream {
   }
   snapshot() {
     const assets = new Map(), textures = new Map(), collisionInstances = [], unresolvedCollision = [];
-    const instances = this.instances.filter(i => {
+    for (const i of this.collisionCandidates) {
       const value = this.cache.get(i.key)?.value;
       if (!value?.vertices) {
-        if (!i.distant) unresolvedCollision.push({ id: i.id, key: i.key, kind: i.kind, bounds: i.bounds, boundsKnown: i.boundsKnown,
+        unresolvedCollision.push({ id: i.id, key: i.key, kind: i.kind, bounds: i.bounds, boundsKnown: i.boundsKnown,
           status: this.failures.get(i.key)?.code || 'PENDING' });
-        return false;
+      } else {
+        assets.set(i.key, value);
+        collisionInstances.push(i);
       }
+    }
+    const instances = this.instances.filter(i => {
+      const value = this.cache.get(i.key)?.value;
+      if (!value?.vertices) return false;
       assets.set(i.key, value);
-      if (!i.distant) collisionInstances.push(i);
       for (const b of value.batches) {
         if (!b.texture) continue;
         const path = modelPath(b.texture), texture = this.cache.get(`texture:${path}`)?.value;
@@ -341,14 +400,18 @@ export class SceneStream {
     const entry = this.cache.get(key);
     if (!entry) return;
     entry.dispose?.(); this.bytes -= entry.bytes; this.cache.delete(key);
+    this.revision++;
   }
   retry() {
     this.failures.clear();
     this.errors=[];
+    this.revision++;
   }
   clear() {
     this.generation++; for (const key of this.cache.keys()) this.evict(key);
-    this.tiles.clear(); this.distantTiles.clear(); this.requests.clear(); this.failures.clear(); this.instances = []; this.errors = [];
+    this.tiles.clear(); this.distantTiles.clear(); this.requests.clear(); this.failures.clear();
+    this.instances = []; this.collisionCandidates = []; this.errors = [];
+    this.revision++;
   }
 }
 

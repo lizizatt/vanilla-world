@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { SceneStream, placementMatrix, transformPoint, transformedBounds, validatePopulation, modelPath } from './scene-stream.js';
+import { SceneStream, placementMatrix, transformPoint, transformedBounds, globalCollisionVertices, validatePopulation, modelPath } from './scene-stream.js';
 
 const p = (id, path = 'tree.mdx', x = 0) => ({ kind: 'm2', id, path, position: [x, 0, 0], rotation: [0, 180, 0], scale: 1 });
 const fixture = ({ cutout = false } = {}) => {
@@ -38,6 +38,20 @@ test('ADT rotations preserve source axes, tilted scale, bounds and translation',
   assert.throws(() => placementMatrix({ ...p(1), scale: NaN }));
   assert.throws(() => modelPath('..\\secret'));
   assert.equal(modelPath('WORLD/Tree.MDX'), 'world\\tree.m2');
+});
+
+test('indexed collision vertices retain transformed tilt, scale and translated world precision', () => {
+  const region = {placement: [1e6, -2e6], tile_origin: [12, 23]};
+  const matrix = placementMatrix({...p(1), rotation: [24,73,-31], scale: 2.5, position: [4321,-987,12]});
+  const local = new Float32Array([1,2,3,-4,7,11]);
+  const actual = globalCollisionVertices(local,matrix,region);
+  for(let i=0;i<local.length;i+=3) {
+    const source = transformPoint(matrix,Array.from(local.slice(i,i+3)));
+    const expected = [-source[1]+region.placement[0]+(32-12)*1600/3,source[2],
+      -source[0]+region.placement[1]+(32-23)*1600/3];
+    expected.forEach((v,a)=>assert(Math.abs(actual[i+a]-v)<1e-8));
+  }
+  assert(actual instanceof Float64Array);
 });
 
 test('adjacent ADT duplicates share geometry, bounded jobs and caches evict old demand', async () => {
@@ -79,6 +93,55 @@ test('actual alpha texture gates leaf cards and missing/corrupt are distinct', a
     assert.equal(broken.snapshot().unresolvedCollision[0].status, code);
     assert.equal(broken.snapshot().unresolvedCollision[0].boundsKnown, false);
   }
+});
+
+test('predicted swept-path solids precede current textures without waiting for their I/O', async () => {
+  const f = fixture({cutout: true}), reads = [];
+  let finishTexture;
+  const source = {read: async path => {
+    reads.push(path);
+    if(path === 'leaves.blp') return new Promise(resolve => { finishTexture = resolve; });
+    return new Uint8Array([1]);
+  }};
+  const stream = new SceneStream(source, f.wasm, {jobs: 1});
+  stream.setTile('1:0:0', [p(1), p(2, 'ahead.m2', 80)]);
+  stream.update(1, [0,0,0], [90,0,0]);
+  await stream.pump();
+  await stream.pump();
+  assert.deepEqual(reads, ['tree.m2', 'ahead.m2']);
+  const pending = stream.pump();
+  stream.update(1, [5,0,0], [95,0,0]);
+  assert.equal(stream.snapshot().collisionInstances.length, 2);
+  assert.equal(stream.snapshot().unresolvedCollision.length, 0);
+  assert.equal(stream.snapshot().instances.length, 0);
+  finishTexture(new Uint8Array([1])); await pending;
+  assert.equal(stream.snapshot().instances.length, 2);
+});
+
+test('visual instance cap cannot hide missing nearby collision', async () => {
+  const f = fixture(), stream = new SceneStream(f.source, f.wasm, {instances: 1, jobs: 1});
+  stream.setTile('1:0:0', [p(1), p(2, 'wall.m2', 1)]);
+  stream.update(1, [0,0,0]);
+  await stream.pump();
+  assert.equal(stream.snapshot().instances.length, 1);
+  assert.equal(stream.snapshot().unresolvedCollision.length, 1);
+  await stream.pump();
+  assert.equal(stream.snapshot().collisionInstances.length, 2);
+  assert.equal(stream.snapshot().unresolvedCollision.length, 0);
+  assert.equal(stream.snapshot().instances.length, 1);
+});
+
+test('completed model jobs rebuild selection once, retaining a fresh revision', async () => {
+  const f = fixture(), stream = new SceneStream(f.source,f.wasm);
+  stream.setTile('1:0:0',[p(1),p(2,'other.m2',2)]);
+  stream.update(1,[0,0,0]);
+  let updates = 0;
+  const update = stream.update.bind(stream);
+  stream.update = (...args) => {updates++; return update(...args);};
+  await stream.pump();
+  assert.equal(updates,1);
+  assert.equal(stream.snapshot().collisionInstances.length,2);
+  assert.equal(stream.selectionRevision,stream.revision);
 });
 
 test('late asynchronous completion cannot repopulate a cleared world', async () => {
@@ -128,6 +191,9 @@ test('WMO groups and selected child doodads load as separate jobs', async () => 
   assert.ok(snapshot.instances.some(i => i.id === '0:wmo:7:group:0'));
   const chair = snapshot.instances.find(i => i.id === '0:wmo:7:doodad:0');
   assert.deepEqual(chair.matrix.slice(12, 15), [1, 0, 0]);
+  stream.update(0, [1,0,0]);
+  assert.equal(stream.snapshot().instances.find(i=>i.id===chair.id).matrix,chair.matrix,
+    'Static WMO child transform should be reused while the observer moves');
 });
 
 test('pinned cache limit does not reread resources endlessly and fifth tile is rejected', async () => {

@@ -28,4 +28,6 @@ const server = http.createServer(async (request, response) => {
   }
 });
 server.on('error', error => { console.error(error); process.exitCode = 1; });
-server.listen(4173, '127.0.0.1', () => console.log('Local world: http://127.0.0.1:4173'));
+const port = Number(process.env.PORT ?? 4173);
+if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be an integer from 1 to 65535');
+server.listen(port, '127.0.0.1', () => console.log(`Local world: http://127.0.0.1:${port}`));

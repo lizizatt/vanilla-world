@@ -1,20 +1,37 @@
 import init,{Voyage,world_manifest} from './pkg/flats_racer_web.js';
 import * as wasmTypes from './pkg/flats_racer_web.js';
 import {openDataSource} from './asset-source.js';
-import {SceneStream} from './scene-stream.js';
+import {SceneStream,transformedBounds,globalCollisionVertices} from './scene-stream.js';
+import {TerrainStream} from './terrain-stream.js';
+import {loadCraft} from './craft-stream.js';
 
 const TILE=1600/3,LIMIT=4;
 let wasm;
 const ready=init().then(exports=>(wasm=exports));
-let world,source,manifest,placements,scene,accumulator=0,queue=Promise.resolve();
+let world,source,manifest,placements,scene,terrain,accumulator=0,queue=Promise.resolve();
+const terrainErrors=new Map();
+let terrainFocus='';
+let craft={ready:false,pending:false};
+function startCraft() {
+  if(craft.ready || craft.pending || craft.error)return;
+  craft.pending=true;
+  void loadCraft(source,wasmTypes,(message,transfers)=>postMessage(message,transfers))
+    .then(result=>{craft={...result,pending:false};})
+    .catch(error=>{craft={ready:false,pending:false,error:`Authored craft: ${error.message || error}`};});
+}
 let resident=new Set(),failures=new Map(),loads=0,evictions=0,peak=0,horizon;
 let sentAssets=new Set(),sentTextures=new Set(),sceneState,sceneSignature='';
+let sceneFocus,sceneUpdated=0,sceneRevision=-1;
+let scenePumpError;
 const collisionBounds=new Map();
 let collisionCount=0;
+let collisionSignature='';
+const collisionInstances=new Map();
+const timings={frames:0,totalMs:0,maxMs:0,sceneMs:0,selectionMs:0,snapshotMs:0,physicsMs:0,collisionBuildMs:0,collisionBuilds:0};
 let distantWanted=[],distantJob,distantLastStart=0,distantLoads=0,distantPeak=0;
 const distantResident=new Set(),distantFailures=new Map();
-let objectWait=[],lastHoldTime=0,lastHold='clear',holdRun=0;
-const holds=Object.fromEntries(['terrain','objects','solid'].map(key=>[key,{episodes:0,ms:0,maxMs:0}]));
+let objectWait=[],cameraUnknown=[],lastHoldTime=0,lastHold='clear',holdRun=0;
+const holds=Object.fromEntries(['terrain','objects','solid','unsupported'].map(key=>[key,{episodes:0,ms:0,maxMs:0}]));
 function measureHold(kind,elapsed) {
   if(kind==='clear'){lastHold=kind;holdRun=0;return;}
   const counter=holds[kind];
@@ -33,6 +50,9 @@ function tileKey(index) {
 }
 function prepareDistant(focus,enabled) {
   const region=focusRegion(focus),p=[focus[0],focus[2]];
+  const r=manifest.regions[region],x=Math.floor((p[0]-r.placement[0])/TILE)+r.tile_origin[0],
+    y=Math.floor((p[1]-r.placement[1])/TILE)+r.tile_origin[1],key=`${region}:${x}:${y}`;
+  if(key!==terrainFocus){terrain.prioritize(region,x,y);terrainFocus=key;}
   distantWanted=enabled?manifest.tiles.map((t,i)=>({t,i})).filter(({t,i})=>t.region===region && distance(i,p)<6000)
     .sort((a,b)=>distance(a.i,p)-distance(b.i,p)).slice(0,12).map(v=>v.i):[];
   for(const index of distantResident)if(!distantWanted.includes(index)) {
@@ -41,6 +61,7 @@ function prepareDistant(focus,enabled) {
   for(const index of distantWanted)if(resident.has(index) && !distantResident.has(index)) {
     // Reuse immutable parsed placements; no extra ADT read or terrain mesh residency.
     scene.distantTiles.set(tileKey(index),scene.tiles.get(tileKey(index)));
+    scene.revision++;
     distantResident.add(index);
   }
   distantPeak=Math.max(distantPeak,distantResident.size);
@@ -68,7 +89,7 @@ async function stream(p,pin,fill=false) {
   const wanted=[...required,...nearby.filter(i=>!required.includes(i))].slice(0,LIMIT);
   const tiles=[],removed=[];
   for(const index of resident) if(!wanted.includes(index)) {
-    world.remove_tile(index);scene.removeTile(tileKey(index));
+    world.remove_tile(index);scene.removeTile(tileKey(index));terrain.removeTile(index);terrainErrors.delete(index);
     resident.delete(index);removed.push(index);evictions++;
   }
   let prefetches=0;
@@ -85,6 +106,8 @@ async function stream(p,pin,fill=false) {
       const vertices=world.geometry(index);
       resident.add(index);loads++;peak=Math.max(peak,resident.size);
       tiles.push({index,placement:placements[index],vertices});
+      try {terrain.setTile(index,world.terrain_material(index));}
+      catch(error) {terrainErrors.set(index,`Terrain material ${entry.file}: ${error.message || error}`);}
     } catch(error) {
       world.remove_tile(index);scene.removeTile(tileKey(index));
       failures.set(index,`${entry.file}: ${error.code || 'PARSE'} ${error.message || error}`);
@@ -114,6 +137,7 @@ async function buildHorizon(wdls) {
     for(let i=0;i<patches.length;i+=5) {
       const vertices=world.horizon_vertices(region,i/5);
       horizon.patches++;horizon.vertices+=vertices.length/7;horizon.gpuBytes+=vertices.byteLength+112;
+      terrain.addHorizon(region,patches[i],patches[i+1]);
       postMessage({event:'horizon',region,source:Array.from(patches.slice(i,i+2)),
         placement:Array.from(patches.slice(i+2,i+4)),near:patches[i+4],vertices},[vertices.buffer]);
       if(i%20===15) {report(`Preparing distant terrain: ${horizon.patches} authored tiles`);await new Promise(resolve=>setTimeout(resolve,0));}
@@ -132,22 +156,41 @@ function sourcePosition(region,p) {
     -(p[0]-r.placement[0]+(r.tile_origin[0]-32)*TILE),p[1]];
 }
 async function updateScene(focus) {
+  if(scenePumpError)throw scenePumpError;
   const region=focusRegion(focus);
-  scene.update(region===0?1:0,sourcePosition(region,focus));
-  await scene.pump();
-  sceneState=scene.snapshot();
-  const solids=[],body=world.telemetry(),r=manifest.regions[region];
+  const body=world.telemetry(),r=manifest.regions[region],signed=body[14] ?? body[5];
+  const predicted=[focus[0]-Math.sin(body[3])*signed,focus[1],focus[2]-Math.cos(body[3])*signed];
+  const moved=sceneFocus?Math.hypot(...focus.map((v,a)=>v-sceneFocus[a])):Infinity;
+  const changed=scene.selectionRevision!==scene.revision || moved>=4 || (moved>0 && performance.now()-sceneUpdated>=100);
+  if(changed) {
+    const start=performance.now();
+    scene.update(region===0?1:0,sourcePosition(region,focus),sourcePosition(region,predicted));
+    timings.selectionMs+=performance.now()-start;
+    sceneFocus=focus.slice();sceneUpdated=performance.now();
+  }
+  // Reads/texture decodes must never suspend the physics request queue.
+  void scene.pump().catch(error=>{scenePumpError=error;});
+  if(changed || sceneRevision!==scene.revision || !sceneState) {
+    const start=performance.now();sceneState=scene.snapshot();timings.snapshotMs+=performance.now()-start;
+  }
+  sceneRevision=scene.revision;
   for(const key of collisionBounds.keys())if(!sceneState.assets.has(key))collisionBounds.delete(key);
   const bodySource=sourcePosition(region,body),radius=4+body[5]*.1;
   objectWait=sceneState.unresolvedCollision.filter(i=>{
     if(i.kind==='wmo' && !i.boundsKnown)return true;
     const distance=Math.hypot(...bodySource.map((v,a)=>Math.max(i.bounds[0][a]-v,0,v-i.bounds[1][a])));
     // shortcut: unknown M2 extents use a 32-yard proximity guard until their authored hull is decoded.
-    return distance<(i.boundsKnown?radius:32);
+    return distance<(i.boundsKnown?radius:Math.max(32,radius));
   });
+  cameraUnknown=sceneState.unresolvedCollision.filter(i=>Math.hypot(
+    ...bodySource.map((v,a)=>Math.max(i.bounds[0][a]-v,0,v-i.bounds[1][a])))<84
+    || (i.kind==='wmo'&&!i.boundsKnown));
+  const active=new Set(),nearby=[];
+  const toGlobal=p=>[-p[1]+r.placement[0]+(32-r.tile_origin[0])*TILE,p[2],-p[0]+r.placement[1]+(32-r.tile_origin[1])*TILE];
   for(const instance of sceneState.collisionInstances) {
     const asset=sceneState.assets.get(instance.key);
-    if(!asset?.collisionVertices?.length)continue;
+    if(!asset?.collisionIndices?.length)continue;
+    active.add(instance.id);
     let b=collisionBounds.get(instance.key);
     if(!b) {
       b=[Infinity,Infinity,Infinity,-Infinity,-Infinity,-Infinity];
@@ -156,16 +199,40 @@ async function updateScene(focus) {
       }
       collisionBounds.set(instance.key,b);
     }
-    const m=instance.matrix,global=[Infinity,Infinity,Infinity,-Infinity,-Infinity,-Infinity];
-    for(let corner=0;corner<8;corner++) {
-      const p=[b[corner&1?3:0],b[corner&2?4:1],b[corner&4?5:2]];
-      const source=[0,1,2].map(i=>m[i]*p[0]+m[4+i]*p[1]+m[8+i]*p[2]+m[12+i]);
-      const v=[-source[1]+r.placement[0]+(32-r.tile_origin[0])*TILE,source[2],-source[0]+r.placement[1]+(32-r.tile_origin[1])*TILE];
-      for(let a=0;a<3;a++){global[a]=Math.min(global[a],v[a]);global[a+3]=Math.max(global[a+3],v[a]);}
+    let cached=collisionInstances.get(instance.id);
+    if(!cached || cached.asset!==asset) {
+      const source=transformedBounds([b.slice(0,3),b.slice(3)],instance.matrix);
+      const corners=source.map(toGlobal);
+      cached={asset,instance,bounds:[...corners[0].map((v,a)=>Math.min(v,corners[1][a])),
+        ...corners[0].map((v,a)=>Math.max(v,corners[1][a]))]};
+      collisionInstances.set(instance.id,cached);
     }
-    if(Math.hypot(Math.max(global[0]-body[0],0,body[0]-global[3]),Math.max(global[2]-body[2],0,body[2]-global[5]))<120)solids.push(...global);
+    const global=cached.bounds;
+    if(Math.hypot(Math.max(global[0]-body[0],0,body[0]-global[3]),Math.max(global[2]-body[2],0,body[2]-global[5]))<Math.max(120,radius))nearby.push(cached);
   }
-  world.set_scene_bounds(new Float64Array(solids));collisionCount=solids.length/6;
+  for(const id of collisionInstances.keys())if(!active.has(id))collisionInstances.delete(id);
+  nearby.sort((a,b)=>a.instance.id.localeCompare(b.instance.id));
+  const nextSignature=JSON.stringify(nearby.map(c=>[c.instance.id,c.instance.key]));
+  if(nextSignature!==collisionSignature) {
+    const start=performance.now();
+    const count=nearby.reduce((n,c)=>n+c.asset.collisionIndices.length*3,0);
+    if(count>200000*9)throw new Error('Nearby authored collision exceeds 200000 triangles; driving cannot proceed safely');
+    const vertices=new Float64Array(count);let offset=0;
+    for(const cached of nearby) {
+      const {asset,instance}=cached;
+      cached.vertices ??= globalCollisionVertices(asset.collisionVertices,instance.matrix,r);
+      for(const i of asset.collisionIndices) {
+        vertices[offset++]=cached.vertices[i*3];
+        vertices[offset++]=cached.vertices[i*3+1];
+        vertices[offset++]=cached.vertices[i*3+2];
+      }
+    }
+    world.set_scene_mesh(vertices);
+    const ordered=world.collision_vertices(),nodes=world.collision_nodes();
+    postMessage({event:'collision',vertices:ordered,nodes},[ordered.buffer,nodes.buffer]);
+    collisionSignature=nextSignature;collisionCount=nearby.length;
+    timings.collisionBuildMs+=performance.now()-start;timings.collisionBuilds++;
+  }
   const assets=[],textures=[],removedAssets=[],removedTextures=[],transfers=[];
   for(const key of sentAssets)if(!sceneState.assets.has(key)){removedAssets.push(key);sentAssets.delete(key);}
   for(const key of sentTextures)if(!sceneState.textures.has(key)){removedTextures.push(key);sentTextures.delete(key);}
@@ -179,7 +246,7 @@ async function updateScene(focus) {
     textures.push({key,width:texture.width,height:texture.height,rgba});
     transfers.push(rgba.buffer);sentTextures.add(key);
   }
-  const signature=JSON.stringify(sceneState.instances);
+  const signature=JSON.stringify(sceneState.instances.map(i=>[i.id,i.key,i.distant]));
   if(signature!==sceneSignature || assets.length || textures.length || removedAssets.length || removedTextures.length) {
     sceneSignature=signature;
     postMessage({event:'scene',region,instances:sceneState.instances,assets,textures,removedAssets,removedTextures},transfers);
@@ -187,14 +254,19 @@ async function updateScene(focus) {
 }
 function snapshot() {
   horizon.wasmPeakBytes=Math.max(horizon.wasmPeakBytes,wasm.memory.buffer.byteLength);
+  const terrainState=terrain.snapshot();
   return {telemetry:Array.from(world.telemetry()),resident:Array.from(resident),required:Array.from(world.required_tiles()),
     failures:Array.from(failures.values()),loads,evictions,peak,limit:LIMIT,horizon,source:source.stats,
     scene:sceneState?{instances:sceneState.instances.length,assets:sceneState.cachedAssets,bytes:sceneState.cachedBytes,
       pending:sceneState.pending,errors:sceneState.errors,population:sceneState.populationStatus,
       capacityBlocked:sceneState.capacityBlocked,collisionBounds:collisionCount,
       models:sceneState.cachedModels,textures:sceneState.cachedTextures,waitingCollision:objectWait.length,
-      waitingCollisionDetails:objectWait.slice(0,5)}:undefined,
-    holds,distant:{resident:distantResident.size,peak:distantPeak,limit:12,loads:distantLoads,
+      waitingCollisionDetails:objectWait.slice(0,5),
+      unresolvedCollision:cameraUnknown}:undefined,
+    holds,timings,craft,collision:Array.from(world.collision_stats()),
+    collisionMappedBytes:[...collisionInstances.values()].reduce((n,c)=>n+(c.vertices?.byteLength||0),0),
+    terrain:{...terrainState,errors:[...terrainState.errors,...terrainErrors.values()]},
+    distant:{resident:distantResident.size,peak:distantPeak,limit:12,loads:distantLoads,
       pending:distantWanted.filter(i=>!distantResident.has(i) && !distantFailures.has(i)).length,
       failures:Array.from(distantFailures.values())}};
 }
@@ -217,6 +289,8 @@ async function handle(message) {
       return [r.placement[0]+(t.x-r.tile_origin[0])*TILE,r.placement[1]+(t.y-r.tile_origin[1])*TILE];
     });
     scene=new SceneStream(source,wasmTypes);
+    terrain=new TerrainStream(source,wasmTypes,(message,transfers)=>postMessage(message,transfers));
+    void terrain.init(manifest);
     const population=await fetch('./local/npc-spawns.json');
     if(population.ok)scene.setPopulation(await population.json());
     else if(population.status!==404)throw new Error(`Private NPC companion failed: HTTP ${population.status}`);
@@ -224,15 +298,17 @@ async function handle(message) {
     await stream([manifest.spawn[0],manifest.spawn[2]],true);
     world.initialize_spawn();
     await updateScene(Array.from(world.telemetry().slice(0,3)));
-    return {info:{id:source.fingerprint,manifest,archiveCount:source.archives.length},state:snapshot()};
+    return {info:{id:source.fingerprint,manifest,archiveCount:source.archives.length,tuning:Array.from(world.tuning())},state:snapshot()};
   }
   if(!world)throw new Error('Local world is not open');
   if(message.action==='frame') {
+    const started=performance.now();
     const p=world.telemetry(),focus=message.focus || Array.from(p.slice(0,3));
     if(!Array.isArray(focus)||focus.length!==3||!focus.every(v=>Number.isFinite(v)&&Math.abs(v)<1e12))throw new Error('Invalid world focus');
     prepareDistant(focus,message.distant!==false);
     await stream([focus[0],focus[2]],!message.focus);
-    await updateScene(focus);
+    const sceneStart=performance.now();await updateScene(focus);timings.sceneMs+=performance.now()-sceneStart;
+    const physicsStart=performance.now();
     if(!message.focus) {
       const now=performance.now(),elapsed=lastHoldTime?Math.min(now-lastHoldTime,1000):0;lastHoldTime=now;
       if(objectWait.length){accumulator=0;measureHold('objects',elapsed);}
@@ -240,10 +316,16 @@ async function handle(message) {
         accumulator+=Math.min(Math.max(message.dt,0),.1);
         while(accumulator>=1/120){world.tick(message.throttle,message.steer,message.flags);accumulator-=1/120;}
         const hold=world.telemetry()[8];
-        measureHold(hold===1?'terrain':hold===3?'solid':'clear',elapsed);
+        measureHold(hold===1?'terrain':hold===3?'solid':hold===2?'unsupported':'clear',elapsed);
       }
     } else {accumulator=0;lastHoldTime=0;lastHold='clear';}
     if(message.focus || Array.from(world.required_tiles()).every(i=>resident.has(i)))startDistantRead();
+    if(!objectWait.length) {
+      void terrain.pump();
+      if(Array.from(world.required_tiles()).every(i=>resident.has(i)))startCraft();
+    }
+    timings.physicsMs+=performance.now()-physicsStart;
+    const elapsed=performance.now()-started;timings.frames++;timings.totalMs+=elapsed;timings.maxMs=Math.max(timings.maxMs,elapsed);
   } else if(message.action==='restore') {
     if(!Array.isArray(message.pose)||message.pose.length!==4||!message.pose.every(Number.isFinite))throw new Error('Invalid parked pose');
     await stream([message.pose[0],message.pose[2]],false,true);
@@ -253,8 +335,23 @@ async function handle(message) {
     world.initialize_spawn();accumulator=0;
   } else if(message.action==='retry') {
     failures.clear();distantFailures.clear();scene.retry();
+    if(craft.error)craft={ready:false,pending:false};
+    await terrain.retry();
+    for(const index of terrainErrors.keys()) {
+      try {terrain.setTile(index,world.terrain_material(index));terrainErrors.delete(index);}
+      catch(error) {terrainErrors.set(index,`Terrain material retry: ${error.message || error}`);}
+    }
   } else if(message.action==='population') {
     scene.setPopulation(message.pack);
+  } else if(message.action==='tuning') {
+    if(message.values!==undefined) {
+      if(!Array.isArray(message.values)||message.values.length!==17||!message.values.every(Number.isFinite))throw new Error('Tuning requires exactly 17 finite numbers');
+      const values=new Float32Array(message.values);
+      world.validate_tuning(values);
+      if(!message.validateOnly)world.set_tuning(values);
+      return Array.from(values);
+    }
+    return Array.from(world.tuning());
   } else if(message.action==='probe') {
     return message.points.map(p=>Array.from(world.surface(p[0],p[1])));
   } else if(message.action!=='snapshot')throw new Error('Unknown world operation');
