@@ -10,6 +10,16 @@ Call `setTile("mapId:x:y", bytes)` once per resident ADT (maximum four), and
 most two file reads/decodes, serially; WMO roots and individual groups are separate
 jobs. `clear()` invalidates pending completion and releases retained Wasm roots.
 
+`setDistantTile(key, bytes)` / `removeDistantTile(key)` manage a separate maximum of
+12 visual metadata tiles. Only their parsed placements remain resident, not terrain
+meshes. Their full authored M2/WMO batches and real alpha textures use the same
+bounded model cache out to 6,000 yards. `instance.distant` identifies these visual
+instances; near copies win authored-ID deduplication. Near requests precede distant
+requests, so saturated near residency may defer distant content. Distant metadata
+never creates NPCs, collision instances, or unresolved collision holds. The caller
+must separately bound metadata ADT IO and enforce combined near/far draw budgets
+(the integration uses two million triangles) and distance fog.
+
 `snapshot()` returns `instances`, `assets` and `textures` Maps, bounded error
 history, population status and cache counters. Hard limits are 96 geometry/root
 resources plus 192 dependent textures, 96 MiB shared accounted decoded payload,

@@ -18,12 +18,13 @@ self.onmessage=async({data})=>{
     if(data.population)stream.setPopulation(data.population);
     for(const scenario of [
       {map:1,name:'Kalimdor',tiles:[[39,43]],position:[-6120,-3980,0]},
-      {map:0,name:'Azeroth',tiles:[[30,48],[31,48],[30,49],[31,49]],position:[-8850,500,90]}
+      {map:0,name:'Azeroth',tiles:[[30,48],[31,48],[30,49],[31,49]],position:[-8850,500,90]},
+      {map:1,name:'Kalimdor',tiles:[[39,43]],position:[-6120,-3980,1400],distant:true}
     ]){
       stream.clear();
       for(const [x,y]of scenario.tiles){
         const path='World\\\\Maps\\\\'+scenario.name+'\\\\'+scenario.name+'_'+x+'_'+y+'.adt';
-        stream.setTile(scenario.map+':'+x+':'+y,await source.read(path));
+        stream[scenario.distant?'setDistantTile':'setTile'](scenario.map+':'+x+':'+y,await source.read(path));
       }
       stream.update(scenario.map,scenario.position);
       const start=performance.now(); let pumps=0,snapshot;
@@ -34,7 +35,7 @@ self.onmessage=async({data})=>{
           pending:snapshot.pending,errors:snapshot.errors,lastReads:reads.slice(-12)}));
       }while(snapshot.pending&&!snapshot.capacityBlocked);
       const assets=[...snapshot.assets.values()];
-      results.push({map:scenario.map,pumps,ms:performance.now()-start,
+      results.push({map:scenario.map,distant:!!scenario.distant,pumps,ms:performance.now()-start,
         instances:snapshot.instances.length,npcs:snapshot.instances.filter(i=>i.id.includes(':npc:')).length,
         models:assets.length,triangles:assets.reduce((n,a)=>n+a.indices.length/3,0),
         collisionTriangles:assets.reduce((n,a)=>n+a.collisionIndices.length/3,0),
@@ -42,6 +43,7 @@ self.onmessage=async({data})=>{
         cachedAssets:snapshot.cachedAssets,cachedModels:snapshot.cachedModels,cachedTextures:snapshot.cachedTextures,
         cachedBytes:snapshot.cachedBytes,pending:snapshot.pending,
         capacityBlocked:snapshot.capacityBlocked,errors:snapshot.errors,
+        collisionInstances:snapshot.collisionInstances.length,unresolvedCollision:snapshot.unresolvedCollision.length,
         coverage:[100,250,500].map(radius=>({radius,wanted:stream.instances.filter(i=>i.score<=radius).length,
           drawable:snapshot.instances.filter(i=>i.score<=radius).length,
           npcsWanted:stream.instances.filter(i=>i.score<=radius&&i.id.includes(':npc:')).length,
@@ -84,7 +86,12 @@ try {
     assert(scene.instances > 0 && scene.triangles > 0 && scene.collisionTriangles > 0, JSON.stringify(scene));
     assert(scene.textures > 0, JSON.stringify(scene));
     assert(scene.cachedModels <= 96 && scene.cachedTextures <= 192 && scene.cachedBytes <= 96 * 1024 * 1024, JSON.stringify(scene));
-    if (pack) assert(scene.npcs > 0, JSON.stringify(scene));
+    if (scene.distant) {
+      assert.equal(scene.npcs, 0, 'Distant metadata must not populate distant NPCs');
+      assert.equal(scene.collisionInstances, 0, 'Distant geometry is not collision residency');
+      assert.equal(scene.unresolvedCollision, 0, 'Distant metadata must not hold driving');
+      assert(scene.cutouts > 0, 'Distant authored alpha foliage must survive');
+    } else if (pack) assert(scene.npcs > 0, JSON.stringify(scene));
     assert.equal(scene.coverage[0].drawable, scene.coverage[0].wanted, 'Every requested instance within 100 yards must be admitted');
     assert.equal(scene.coverage[0].npcsDrawable, scene.coverage[0].npcsWanted, 'Near NPCs must not starve behind distant geometry');
     assert.deepEqual(scene.errors, [], 'Real scene decode errors must not be hidden');

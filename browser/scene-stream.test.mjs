@@ -189,3 +189,33 @@ test('unloaded WMO roots retain authored world bounds even with distant placemen
   assert.deepEqual(root.bounds, bounds);
   assert.equal(stream.instances[0].score, 200);
 });
+
+test('distant metadata shares assets, preserves near copies and never claims collision residency', async () => {
+  const f = fixture(), stream = new SceneStream(f.source, f.wasm);
+  stream.setTile('1:0:0', [p(1)]);
+  stream.setDistantTile('1:0:0', [p(1), p(2, 'tree.mdx', 1400)]);
+  stream.update(1, [0, 0, 0]); await stream.pump();
+  const snapshot = stream.snapshot();
+  assert.equal(snapshot.instances.length, 2);
+  assert.equal(snapshot.assets.size, 1);
+  assert.equal(snapshot.instances.find(i => i.id === '1:m2:1').distant, false);
+  assert.equal(snapshot.instances.find(i => i.id === '1:m2:2').distant, true);
+  assert.deepEqual(snapshot.collisionInstances.map(i => i.id), ['1:m2:1']);
+  assert.equal(snapshot.unresolvedCollision.length, 0);
+  stream.removeTile('1:0:0'); stream.update(1, [0, 0, 0]);
+  assert.equal(stream.snapshot().collisionInstances.length, 0);
+  for (let i = 1; i < 12; i++) stream.setDistantTile(`1:${i}:0`, []);
+  assert.throws(() => stream.setDistantTile('1:12:0', []), /thirteenth/);
+  assert.equal(stream.tiles.size, 0);
+  stream.clear(); assert.equal(stream.distantTiles.size, 0);
+});
+
+test('far visual requests never delay nearer collision or texture work', async () => {
+  const f = fixture({ cutout: true }), reads = [];
+  const stream = new SceneStream({ read: async path => { reads.push(path); return f.source.read(path); } }, f.wasm, { jobs: 1 });
+  stream.setTile('1:0:0', [p(1, 'near.m2', 40)]);
+  stream.setDistantTile('1:1:0', [p(2, 'far.m2', 1400)]);
+  stream.update(1, [0, 0, 0]); await stream.pump(); await stream.pump(); await stream.pump();
+  assert.deepEqual(reads, ['near.m2', 'leaves.blp', 'far.m2']);
+  assert.equal(stream.snapshot().unresolvedCollision.length, 0);
+});

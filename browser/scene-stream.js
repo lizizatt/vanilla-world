@@ -1,6 +1,6 @@
 // Static authored geometry only. All matrices are column-major, model -> source WoW world.
 export const SCENE_LIMITS = Object.freeze({
-  assets: 96, textures: 192, bytes: 96 * 1024 * 1024, instances: 1024, jobs: 2, radius: 850,
+  assets: 96, textures: 192, bytes: 96 * 1024 * 1024, instances: 1024, jobs: 2, radius: 850, distantRadius: 6000,
 });
 
 export function modelPath(path) {
@@ -76,9 +76,10 @@ function modelBytes(model) {
     + model.collisionVertices.byteLength + model.collisionIndices.byteLength;
 }
 function requestOrder(a, b) {
+  if (!!a.distant !== !!b.distant) return a.distant ? 1 : -1;
   const priority = { texture: 0, wmo: 1, group: 2, m2: 3 };
-  const aCritical = a.kind !== 'texture' && a.score < 32;
-  const bCritical = b.kind !== 'texture' && b.score < 32;
+  const aCritical = !a.distant && a.kind !== 'texture' && a.score < 32;
+  const bCritical = !b.distant && b.kind !== 'texture' && b.score < 32;
   if (aCritical !== bCritical) return aCritical ? -1 : 1;
   if (aCritical) return priority[a.kind] - priority[b.kind] || a.score - b.score || a.key.localeCompare(b.key);
   return a.score - b.score || priority[a.kind] - priority[b.kind] || a.key.localeCompare(b.key);
@@ -90,13 +91,21 @@ export class SceneStream {
     for (const [key, value] of Object.entries(this.limits)) {
       if (!Number.isFinite(value) || value <= 0 || value > SCENE_LIMITS[key]) throw new Error(`Invalid scene limit ${key}`);
     }
-    this.cache = new Map(); this.failures = new Map(); this.tiles = new Map();
+    this.cache = new Map(); this.failures = new Map(); this.tiles = new Map(); this.distantTiles = new Map();
     this.requests = new Map(); this.instances = []; this.errors = [];
     this.bytes = 0; this.clock = 0; this.busy = false; this.generation = 0;
     this.npcs = null; this.populationStatus = 'No local NPC spawn pack; client Data has no spawn positions';
   }
   setTile(key, bytes) {
     if (!this.tiles.has(key) && this.tiles.size >= 4) throw new Error('Remove an old scene tile before loading a fifth');
+    this.tiles.set(key, this.parsePlacements(bytes));
+  }
+  setDistantTile(key, bytes) {
+    if (!this.distantTiles.has(key) && this.distantTiles.size >= 12) throw new Error('Remove old distant metadata before loading a thirteenth tile');
+    this.distantTiles.set(key, this.parsePlacements(bytes));
+  }
+  removeDistantTile(key) { this.distantTiles.delete(key); }
+  parsePlacements(bytes) {
     const placements = JSON.parse(this.wasm.scene_placements(bytes));
     for (const p of placements) {
       p.path = modelPath(p.path);
@@ -105,7 +114,7 @@ export class SceneStream {
           || p.bounds[0].some((v, i) => v > p.bounds[1][i]))) throw new Error('Invalid authored placement bounds');
       p.matrix = placementMatrix(p);
     }
-    this.tiles.set(key, placements);
+    return placements;
   }
   removeTile(key) { this.tiles.delete(key); }
   setPopulation(pack) {
@@ -117,28 +126,33 @@ export class SceneStream {
     if (![0, 1].includes(map) || !finite(position, 3)) throw new Error('Invalid scene observer');
     this.map = map; this.position = position; this.clock++;
     const candidates = new Map(), requests = new Map();
-    const want = (key, request, score) => {
+    const want = (key, request, score, distant) => {
       const previous = requests.get(key);
-      if (!previous || score < previous.score) requests.set(key, { ...request, key, score });
+      const next = { ...request, key, score, distant };
+      if (!previous || requestOrder(next, previous) < 0) requests.set(key, next);
     };
-    const add = (p, id, matrix, kind = p.kind) => {
+    const put = (id, instance) => {
+      if (!candidates.has(id) || !instance.distant) candidates.set(id, instance);
+    };
+    const add = (p, id, matrix, kind = p.kind, distant = false) => {
       const path = modelPath(p.path);
       const skins = p.skins || [];
       const key = `${kind}:${path}:${JSON.stringify(skins)}`;
       const asset = this.cache.get(key)?.value;
       const bounds = p.bounds || (asset?.bounds ? transformedBounds(asset.bounds, matrix) : [matrix.slice(12, 15), matrix.slice(12, 15)]);
       const score = distance(bounds, position);
-      if ((kind !== 'wmo' || asset) && score > this.limits.radius) return;
-      want(key, { kind, path, skins }, score);
-      candidates.set(id, { id, key, matrix, bounds, boundsKnown: !!p.bounds || !!asset?.bounds, score, kind });
+      const radius = distant ? this.limits.distantRadius : this.limits.radius;
+      if ((kind !== 'wmo' || asset || p.bounds) && score > radius) return;
+      want(key, { kind, path, skins }, score, distant);
+      put(id, { id, key, matrix, bounds, boundsKnown: !!p.bounds || !!asset?.bounds, score, kind, distant });
       if (kind === 'wmo' && asset) {
         candidates.delete(id);
         asset.groups.forEach((group, index) => {
           const groupBounds = transformedBounds(group.bounds, matrix), d = distance(groupBounds, position);
-          if (d > this.limits.radius) return;
+          if (d > radius) return;
           const groupKey = `group:${path}:${index}`;
-          want(groupKey, { kind: 'group', path: `${path.slice(0, -4)}_${String(index).padStart(3, '0')}.wmo`, rootKey: key }, d);
-          candidates.set(`${id}:group:${index}`, { id: `${id}:group:${index}`, key: groupKey, matrix, bounds: groupBounds, boundsKnown: true, score: d, kind: 'group' });
+          want(groupKey, { kind: 'group', path: `${path.slice(0, -4)}_${String(index).padStart(3, '0')}.wmo`, rootKey: key }, d, distant);
+          put(`${id}:group:${index}`, { id: `${id}:group:${index}`, key: groupKey, matrix, bounds: groupBounds, boundsKnown: true, score: d, kind: 'group', distant });
         });
         const doodads = new Set();
         for (const setIndex of new Set([0, p.doodadSet || 0])) {
@@ -149,7 +163,7 @@ export class SceneStream {
         for (const i of doodads) {
           const d = asset.doodads[i];
           if (!d) throw new Error('WMO doodad set references absent doodad');
-          add({ ...d, kind: 'm2' }, `${id}:doodad:${i}`, multiply(matrix, placementMatrix(d)));
+          add({ ...d, kind: 'm2' }, `${id}:doodad:${i}`, multiply(matrix, placementMatrix(d)), 'm2', distant);
         }
       }
     };
@@ -160,6 +174,15 @@ export class SceneStream {
         const id = `${map}:${p.kind}:${p.id}`;
         if (seen.has(id)) continue;
         seen.add(id); add(p, id, p.matrix);
+      }
+    }
+    seen.clear();
+    for (const [tile, placements] of this.distantTiles) {
+      if (!tile.startsWith(`${map}:`)) continue;
+      for (const p of placements) {
+        const id = `${map}:${p.kind}:${p.id}`;
+        if (seen.has(id)) continue;
+        seen.add(id); add(p, id, p.matrix, p.kind, true);
       }
     }
     if (this.npcs) {
@@ -175,7 +198,8 @@ export class SceneStream {
         }
       }
     }
-    this.instances = [...candidates.values()].sort((a, b) => a.score - b.score || a.id.localeCompare(b.id)).slice(0, this.limits.instances);
+    this.instances = [...candidates.values()].sort((a, b) => Number(a.distant) - Number(b.distant)
+      || a.score - b.score || a.id.localeCompare(b.id)).slice(0, this.limits.instances);
     const keep = new Set(this.instances.map(i => i.key));
     for (const i of this.instances) {
       const request = requests.get(i.key);
@@ -184,7 +208,7 @@ export class SceneStream {
       for (const batch of asset?.batches || []) {
         if (!batch.texture) continue;
         const path = modelPath(batch.texture), key = `texture:${path}`;
-        want(key, { kind: 'texture', path }, i.score);
+        want(key, { kind: 'texture', path }, i.score, i.distant);
         keep.add(key);
       }
     }
@@ -294,12 +318,12 @@ export class SceneStream {
     const instances = this.instances.filter(i => {
       const value = this.cache.get(i.key)?.value;
       if (!value?.vertices) {
-        unresolvedCollision.push({ id: i.id, key: i.key, kind: i.kind, bounds: i.bounds, boundsKnown: i.boundsKnown,
+        if (!i.distant) unresolvedCollision.push({ id: i.id, key: i.key, kind: i.kind, bounds: i.bounds, boundsKnown: i.boundsKnown,
           status: this.failures.get(i.key)?.code || 'PENDING' });
         return false;
       }
       assets.set(i.key, value);
-      collisionInstances.push(i);
+      if (!i.distant) collisionInstances.push(i);
       for (const b of value.batches) {
         if (!b.texture) continue;
         const path = modelPath(b.texture), texture = this.cache.get(`texture:${path}`)?.value;
@@ -324,7 +348,7 @@ export class SceneStream {
   }
   clear() {
     this.generation++; for (const key of this.cache.keys()) this.evict(key);
-    this.tiles.clear(); this.requests.clear(); this.failures.clear(); this.instances = []; this.errors = [];
+    this.tiles.clear(); this.distantTiles.clear(); this.requests.clear(); this.failures.clear(); this.instances = []; this.errors = [];
   }
 }
 
