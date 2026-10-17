@@ -10,8 +10,8 @@ async function database() {
     request.onblocked=()=>reject(new Error('World saves are blocked by another tab.'));
   });
 }
-export async function worldSave(sourceId,record) {
-  const db=await database(),key=`${LAYOUT_VERSION}:${sourceId}`;
+async function stored(key,record) {
+  const db=await database();
   return new Promise((resolve,reject)=>{
     const tx=db.transaction('saves',record===undefined?'readonly':'readwrite');
     const store=tx.objectStore('saves');
@@ -21,6 +21,8 @@ export async function worldSave(sourceId,record) {
     tx.onabort=()=>{db.close();reject(tx.error || new Error('World save transaction aborted.'));};
   });
 }
+export const worldSave=(sourceId,record)=>stored(`${LAYOUT_VERSION}:${sourceId}`,record);
+export const worldTuning=(sourceId,record)=>stored(`tuning:${LAYOUT_VERSION}:${sourceId}`,record);
 export function validateWorldSave(save,sourceId) {
   if (!save) return;
   const pose=p=>Array.isArray(p) && p.length===4 && p.every(v=>typeof v==='number' && Number.isFinite(v) && Math.abs(v)<1e12);
@@ -30,7 +32,11 @@ export function validateWorldSave(save,sourceId) {
     || !['drive','fly'].includes(save.mode) || !pose(save.vehicle)
     || (save.mode==='fly' && !camera(save.camera))
     || !save.settings || typeof save.settings.horizon!=='boolean' || typeof save.settings.scenery!=='boolean'
-    || (save.settings.distant!==undefined && typeof save.settings.distant!=='boolean')) {
+    || (save.settings.distant!==undefined && typeof save.settings.distant!=='boolean')
+    || (save.settings.sound!==undefined && typeof save.settings.sound!=='boolean')
+    || (save.settings.controls!==undefined && !['native','legacy'].includes(save.settings.controls))
+    || (save.settings.cameraDistance!==undefined && (typeof save.settings.cameraDistance!=='number'
+      || !Number.isFinite(save.settings.cameraDistance) || save.settings.cameraDistance<0 || save.settings.cameraDistance>50))) {
     throw new Error('Saved world state is incompatible or damaged. It has been retained; choose Start at raceway to recover.');
   }
 }

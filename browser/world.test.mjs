@@ -25,9 +25,11 @@ test('save validation isolates source/layout and rejects malformed flight/vehicl
     vehicle:[0,2,0,0],settings:{horizon:true,scenery:true}};
   assert.doesNotThrow(()=>validateWorldSave(save,'install-a'));
   assert.doesNotThrow(()=>validateWorldSave({...save,settings:{...save.settings,distant:false}},'install-a'));
+  assert.doesNotThrow(()=>validateWorldSave({...save,settings:{...save.settings,controls:'native',cameraDistance:0,sound:true}},'install-a'));
   for(const invalid of [{...save,sourceId:'b'},{...save,layout:2},{...save,vehicle:[0,NaN,0,0]},
     {...save,mode:'fly',camera:[0,200000,0,0,0]},{...save,settings:{}},
-    {...save,settings:{...save.settings,distant:'yes'}}]) {
+    {...save,settings:{...save.settings,distant:'yes'}},{...save,settings:{...save.settings,controls:'unknown'}},
+    {...save,settings:{...save.settings,cameraDistance:Infinity}},{...save,settings:{...save.settings,sound:'yes'}}]) {
     assert.throws(()=>validateWorldSave(invalid,'install-a'),/retained/);
   }
   assert.equal(save.vehicle[1],2);

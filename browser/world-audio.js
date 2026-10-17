@@ -28,8 +28,8 @@ export class WorldAudio {
     if(!globalThis.AudioContext)throw new Error('Web Audio is unavailable in this browser.');
     if(!this.context) {
       this.context=new AudioContext();
-      this.master=this.context.createGain();this.master.gain.value=0;this.master.connect(this.context.destination);
-      this.analyser=this.context.createAnalyser();this.master.connect(this.analyser);
+      this.master=this.context.createGain();this.master.gain.value=0;
+      this.analyser=this.context.createAnalyser();this.master.connect(this.analyser);this.analyser.connect(this.context.destination);
       for(let layer=0;layer<3;layer++) {
         const buffer=this.context.createBuffer(2,48000,24000),left=buffer.getChannelData(0),right=buffer.getChannelData(1);
         for(let i=0;i<left.length;i++){const sample=engineSample(layer,i/24000);left[i]=sample[0];right[i]=sample[1];}
@@ -40,7 +40,8 @@ export class WorldAudio {
       }
     }
     clearTimeout(this.release);
-    await this.context.resume();this.enabled=true;
+    await this.context.resume();this.envelope=new EngineEnvelope();this.active=false;
+    this.master.gain.setValueAtTime(0,this.context.currentTime);this.enabled=true;
   }
   mute() {
     this.enabled=false;this.active=false;

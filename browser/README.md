@@ -40,7 +40,9 @@ The spawn height comes from the ADT, not a guessed sea-level floor.
 
 | Mode | Controls |
 |---|---|
-| Drive | W/S throttle/reverse, A/D steer, Space brake, Shift boost, C drift, J hop, V look behind |
+| Drive, native keys | W thrust, S brake, A/D steer, Space hop, Shift boost, Ctrl drift; C/J aliases, V look behind, F9 reset |
+| Standard controller | Left stick steer, RT thrust minus LT reverse, RB boost, LB drift, A hop, right stick orbit, D-pad zoom, Y reset, Start drive/fly |
+| Chase camera | Right-drag or arrow-key orbit, wheel zoom; 0.5-second position filter by default |
 | Free flight | W/S forward/back, A/D strafe, Q/E altitude, arrows look, Shift fast |
 | World overview | Frames both complete coarse continents |
 | Return to vehicle | Returns to the parked hovercraft; does not teleport it to the flight camera |
@@ -50,6 +52,29 @@ Click the view to capture keyboard input. Flight is deliberately collision-free.
 settings. **Load save** restores them; **Start at raceway** recovers without
 overwriting a saved pose until you explicitly save.
 Display switches do not disable collision.
+The **Controls, camera & sound** panel retains the original browser key profile
+(S reverse / Space brake). Existing saves without a profile keep those bindings;
+new sessions default to native keys. Gamepad inputs use standard browser mappings,
+deadzone rescaling and press edges; disconnect, lost focus and editing controls
+clear thrust instead of leaving a stuck accelerator. Flight retains keyboard
+movement, with right-drag look.
+
+The amber/teal instruments show actual signed motion, airborne/hold state and
+boost reserve. **Procedural engine sound** enables the native original three
+stereo synthesis beds and speed/thrust/boost envelopes through Web Audio, without
+game audio files or Kira. It starts only after interaction, fades outside driving,
+and suspends when muted/hidden. Browser permission policy may require another click
+after restoring a sound-enabled save.
+
+**Handling & camera** edits the 17 existing Rust physics parameters plus camera
+smoothing seconds. Rust validates the complete set; successful writes persist in
+a separate per-install tuning record without overwriting the saved vehicle pose.
+Failed storage leaves active handling unchanged. There are no gameplay upper
+ceilings, but values must fit finite f32 physical domains, and extreme combinations
+can fail simulation explicitly. Brakes are held while the editor is open.
+Camera zoom is separately limited to 0-50 yards. Desired and filtered chase paths
+are clipped against loaded ground and the shared collision BVH; filtered lag cannot
+escape that 50-yard camera query window. This is not a world draw-distance limit.
 
 Save keys include layout version 3 and an SHA-256 fingerprint of ordered archive
 metadata. This is not a full-content archive hash. Different installations/layouts
@@ -67,7 +92,7 @@ Eastern Kingdoms are separated by **8192 yards** between authored bounds.
 Eastern Kingdoms is shifted **11200 yards south**, half its WDL north/south extent.
 This is provisional map layout, not canonical ocean geography.
 
-Detailed, untextured ADTs stream around the driver or flight camera. At most
+Detailed ADTs stream around the driver or flight camera. At most
 **four** are resident: all support/swept-query tiles are pinned before eviction,
 including four-way corners. Prefetch is lower priority. An expected but missing,
 corrupt or still-loading ADT blocks driving; it never becomes substitute ocean.
@@ -87,6 +112,13 @@ total browser/process memory limits: parser temporaries, JavaScript bookkeeping,
 main-thread/GPU copies and driver memory are additional. Capacity/pending counters
 mean some farther content is incomplete, not that it loaded successfully.
 
+Detailed ground uses native ordered layer blending, authored normals, texture
+coordinates, alpha masks, shadow masks and holes. Bounded texture arrays and
+mipchains reuse the local BLP data. Far terrain progressively receives translated
+native minimap colors in two 2048-square atlas pages (32 MiB); missing mappings
+stay explicit. Static sunlight/fog remain an approximation, not DBC time-of-day
+lighting or full native water sheen.
+
 The bounded distant-model port reuses the native strict geometry/material
 boundary and complete authored M2 leaf batches rather than copying Bevy's
 clustering/atlas implementation. Up to **12 separate visual metadata tiles**
@@ -103,10 +135,12 @@ are discarded. Existing near placements are reused without another archive read.
 Combined model drawing retains a nearest-first prefix capped at **two million
 triangles and 4096 draw calls**; any omitted instances are reported in the HUD.
 
-Collision uses **conservative bounds of authored collision meshes**, with swept
-tests, not foliage cards or exact WMO interior triangles. Doorways/interiors and
-large building groups are consequently restrictive. Collision does not wait for
-alpha textures. Unavailable nearby geometry is held explicitly; unresolved M2
+Collision uses **BVH-indexed authored collision triangles**, with continuous
+swept hovercraft-hull tests and four support probes, not foliage cards or a WDL
+floor. Mesh height preserves openings and bridges that whole-building bounds
+previously blocked. The near collision cache has a separate 200,000-triangle
+safety limit and is not hidden by the visual instance budget. Collision does not
+wait for alpha textures. Unavailable nearby geometry is held explicitly; unresolved M2
 extents use a conservative 32-yard proximity guard, not a proof of empty space.
 Terrain, near-object and solid-contact hold counters are exposed in
 `window.worldEvidence.state.holds`. **Retry terrain** also retries failed scene
@@ -139,6 +173,7 @@ node --test .\browser\asset-source.test.mjs .\browser\scene-stream.test.mjs .\br
 # With the local preview running and Playwright installed:
 node .\browser\overworld-smoke.mjs
 node .\browser\distant-smoke.mjs
+node .\browser\feel-smoke.mjs
 ```
 
 If Playwright is missing, run `npm ci --prefix .\browser`; tests use installed
@@ -149,6 +184,12 @@ picker dialog. Evidence/screenshots stay ignored in `browser\test-results`.
 The distant check compares actual screenshots with models enabled/disabled at
 1400-yard camera altitude on both continents; it asserts visible changed pixels,
 real cutout batches, unchanged terrain residency and no distant collision holds.
+It freezes presentation time and settles asset events before comparison so moving
+water and progressive texture uploads cannot masquerade as model pixels.
+The feel check exercises native/legacy inputs, the actual Web Audio output graph,
+synthetic standard-gamepad values through the browser frame path, tuning validation,
+write-failure preservation and offline reload. It does not claim a physical gamepad
+or subjective listening test.
 
 [ASSETS.md](ASSETS.md) documents the bounded MPQ reader, corruption semantics,
 77-file native/Node/Edge parity and the whole-install codec census. All 2,389,542
@@ -156,5 +197,6 @@ compressed sectors in this installation used supported zlib; other installations
 may require codecs that currently fail explicitly.
 
 Native Bevy render phases, moving-transport timetables, animation and a server
-simulation are not ported. Detailed terrain remains untextured, building interiors
-use restrictive collision bounds, and coarse/detailed seams remain visible.
+simulation are not ported. Coarse/detailed seams remain visible. Exact native
+cockpit seating requires a selected rider's head height and animated attachment
+frame; a mount attachment is not a substitute for that missing rider data.

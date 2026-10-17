@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {cameraView} from './world-camera.js';
 import {WorldInput} from './world-input.js';
 import {engineSample,EngineEnvelope} from './world-audio.js';
+import {TUNING_FIELDS,validateTuningRecord} from './world-tuning.js';
+import {CameraCollision} from './camera-collision.js';
 
 test('native chase smoothing is time-based, rebases precisely, and clips after filtering',()=>{
   const state=[100,2,100,0],settings={cameraSeconds:.5,cameraDistance:15};
@@ -65,4 +67,45 @@ test('native engine beds are bounded, seamless stereo; envelopes release boost a
   assert(envelope.boost>.99 && envelope.thrust>.99);
   for(let i=0;i<120;i++)envelope.advance(120,1,true,true,false,1/60);
   assert(envelope.boost<.001 && envelope.thrust<.001 && envelope.speed<.001);
+});
+test('tuning accepts native physical domains without gameplay ceilings and retains malformed records',()=>{
+  const record={version:1,values:TUNING_FIELDS.map(f=>f[1]),cameraSeconds:.5};
+  assert.equal(validateTuningRecord(record),record);
+  record.values[0]=250;record.values[1]=500;record.values[16]=2;
+  assert.doesNotThrow(()=>validateTuningRecord(record));
+  for(const change of [{cameraSeconds:-1},{cameraSeconds:Infinity},{values:[1]},
+    {values:record.values.map((n,i)=>i===1?100:n)},{values:record.values.map((n,i)=>i===14?0:n)},
+    {values:record.values.map((n,i)=>i===8?1e100:n)}])assert.throws(()=>validateTuningRecord({...record,...change}),/retained/);
+  assert.equal(record.values[1],500);
+});
+test('camera uses the shared object BVH and rejects corrupt topology',()=>{
+  const collision=new CameraCollision();
+  collision.event({event:'collision',vertices:new Float64Array([5,0,-10,5,20,-10,5,0,10]),
+    nodes:new Float64Array([5,0,-10,5,20,10,0,1,-1,-1])});
+  collision.frame({},0);
+  assert(collision.clip([0,3,0],[10,3,0],[0,0])[0]<5);
+  assert(collision.ready);
+  assert.deepEqual(collision.clip([0,30,0],[10,30,0],[0,0]),[10,30,0]);
+  collision.tree.nodes[8]=0;collision.tree.nodes[9]=0;
+  assert.throws(()=>collision.clip([0,3,0],[10,3,0],[0,0]),/topology/);
+});
+test('camera terrain buckets clip ground, skip water and guard expected unloaded tiles',()=>{
+  const collision=new CameraCollision(),size=1600/3;
+  const manifest={regions:[{placement:[0,0],tile_origin:[32,32]}],
+    tiles:[{region:0,x:32,y:32},{region:0,x:33,y:32}]};
+  collision.configure(manifest);
+  collision.event({event:'collision',vertices:new Float64Array(),nodes:new Float64Array()});
+  const ground=new Float32Array([0,3,0,0,1,0,0, size,3,0,0,1,0,0, 0,3,size,0,1,0,0]);
+  collision.event({event:'detail',removed:[],tiles:[{index:0,placement:[0,0],vertices:ground}]});
+  collision.frame({},0);
+  assert(collision.clip([1,1,1],[1,5,1],[0,0])[1]<3);
+  assert(collision.ready);
+  assert(collision.clip([530,8,1],[540,8,1],[0,0])[0]<size);assert(!collision.ready);
+  ground[6]=ground[13]=ground[20]=2;
+  collision.event({event:'detail',removed:[],tiles:[{index:0,placement:[0,0],vertices:ground}]});
+  collision.frame({},0);
+  assert.deepEqual(collision.clip([1,1,1],[1,5,1],[0,0]),[1,5,1]);
+  collision.frame({scene:{unresolvedCollision:[{bounds:[[-2,-6,0],[2,-5,20]],boundsKnown:true}]}},0);
+  assert(collision.clip([0,5,0],[10,5,0],[0,0])[0]<5);assert(!collision.ready);
+  collision.event({event:'detail',removed:[0],tiles:[]});assert.equal(collision.tiles.size,0);
 });

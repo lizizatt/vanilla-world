@@ -38,7 +38,7 @@ try {
   await page.waitForFunction(()=>window.worldEvidence.state.scene.waitingCollision===0,{},{timeout:30000});
   const start=state.state.telemetry;
   await page.locator('#world').focus();await page.keyboard.down('KeyW');await page.waitForTimeout(2600);await page.keyboard.up('KeyW');
-  await page.keyboard.down('Space');await page.waitForTimeout(500);await page.keyboard.up('Space');
+  await page.keyboard.down('KeyS');await page.waitForTimeout(500);await page.keyboard.up('KeyS');
   state=await page.evaluate(()=>window.worldEvidence);
   assert(Math.hypot(state.state.telemetry[0]-start[0],state.state.telemetry[2]-start[2])>20,
     `Actual keyboard drive must move on real raceway ground: ${JSON.stringify(state.state)}`);

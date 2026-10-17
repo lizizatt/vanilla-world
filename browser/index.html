@@ -10,10 +10,15 @@
   <header><div><span class="eyebrow">VANILLA WORLD / LOCAL FIRST</span><h1>The long way home.</h1></div><span class="badge">RUST + WEBGPU</span></header>
   <main>
     <section class="viewport" aria-label="Interactive racer view">
-      <canvas id="world" tabindex="0" aria-label="Local world. W S drive, A D steer; flight uses Q E altitude and arrow keys to look."></canvas>
-      <div class="overlay"><span id="place">TWO CONTINENTS. ONE LOCAL WORLD.</span><span id="status" role="status">Preparing WebGPU...</span><span id="coordinates"></span><span id="motion"></span></div>
+      <canvas id="world" tabindex="0" aria-label="Local world. Native controls: W thrust, S brake, A D steer, Space hop. Flight uses Q E altitude and arrow keys to look."></canvas>
+      <div class="overlay"><span id="place">TWO CONTINENTS. ONE LOCAL WORLD.</span><span id="status" role="status">Preparing WebGPU...</span><span id="coordinates"></span></div>
       <div id="welcome"><h2>Your Azeroth.<br>No server required.</h2><p>Select the <strong>Data</strong> folder from your own Classic 1.12 installation. Start at the Thousand Needles raceway, then drive or fly across both continents.</p><p>No upload. No account. Read-only archives.</p></div>
-      <div class="meters"><div><strong id="speed">0</strong><span>YARDS / SEC</span></div><div><strong id="resident">LOCAL OVERWORLD</strong><span id="details">Waiting for Data folder</span></div></div>
+      <div class="meters" aria-label="Hover telemetry">
+        <div class="speed-instrument"><span>TWIN DRIVE / VELOCITY</span><strong id="speed">000</strong><span><b id="direction">IDLE</b> / YD/S</span><progress id="speed-meter" max="1" value="0" aria-label="Fraction of boost speed"></progress></div>
+        <div class="state-instrument"><strong id="drive-state">STANDBY</strong><span id="motion">Select your local Data folder</span><span id="input-device">KEYBOARD</span></div>
+        <div class="boost-instrument"><span>BOOST RESERVE</span><strong id="boost">100%</strong><progress id="boost-meter" max="1" value="1" aria-label="Boost reserve"></progress></div>
+        <div class="stream-instrument"><strong id="resident">LOCAL OVERWORLD</strong><span id="details">Waiting for Data folder</span></div>
+      </div>
     </section>
     <section class="toolbar" aria-label="Local world and save controls">
       <button id="select" class="primary" disabled>Select Data folder</button><button id="fallback" disabled>Choose folder as files</button>
@@ -24,9 +29,21 @@
       <label><input id="scenery" type="checkbox" checked> Models &amp; NPCs</label>
       <label><input id="distant" type="checkbox" checked> Distant models</label>
       <button id="overview" disabled>World overview</button><button id="fly" disabled>Free flight</button><button id="drive" disabled>Return to vehicle</button>
+      <button id="tuning" disabled>Handling &amp; camera</button><button id="cockpit" disabled title="Requires an authored rider seat">Cockpit</button>
     </section>
-    <p class="controls"><kbd>W</kbd><kbd>S</kbd> throttle/reverse &nbsp; <kbd>A</kbd><kbd>D</kbd> steer &nbsp; <kbd>Space</kbd> brake &nbsp; <kbd>Shift</kbd> boost &nbsp; <kbd>C</kbd> drift &nbsp; <kbd>J</kbd> hop &nbsp; hold <kbd>V</kbd> look behind</p>
+    <details id="preferences"><summary>Controls, camera &amp; sound</summary><div class="preferences">
+      <label>Keyboard profile <select id="control-profile"><option value="native">Native: S brake / Space hop</option><option value="legacy">Browser MVP: S reverse / Space brake</option></select></label>
+      <label>Chase distance <input id="camera-distance" type="range" min="0" max="50" step="0.5" value="15" aria-label="Chase distance in yards"></label><span id="camera-status">Chase collision initializing</span>
+      <label><input id="sound" type="checkbox"> Procedural engine sound</label><span id="sound-status">Sound off</span>
+    </div></details>
+    <p id="keyboard-guide" class="controls">W thrust · S brake · A/D steer · Shift boost · Ctrl drift · Space hop. C/J remain drift/hop aliases. F9 returns to raceway without overwriting your save.</p>
+    <p class="controls">Camera: right-drag or arrows to orbit · wheel to zoom · V look behind. Controller: left stick steer, RT thrust / LT reverse, right stick orbit, RB boost, LB drift, A hop, D-pad zoom, Y reset, Start drive/fly, Back controls.</p>
     <p class="controls">Flight: <kbd>W</kbd><kbd>S</kbd> forward/back · <kbd>A</kbd><kbd>D</kbd> strafe · <kbd>Q</kbd><kbd>E</kbd> altitude · arrows look · <kbd>Shift</kbd> fast. Return to vehicle leaves your hovercraft where you parked it.</p>
+    <dialog id="tuning-panel" aria-labelledby="tuning-title"><form id="tuning-form">
+      <h2 id="tuning-title">Handling &amp; camera</h2><p>Brakes held while open. Apply validates and saves all fields together for this Data installation. No gameplay upper ceilings.</p>
+      <div id="tuning-fields"></div><p id="tuning-status" role="status"></p>
+      <div class="toolbar"><button type="submit">Apply &amp; save</button><button id="tuning-defaults" type="button">Restore defaults</button><button id="tuning-close" type="button">Close</button></div>
+    </form></dialog>
     <p id="error" role="alert" hidden></p><pre id="problems" hidden></pre>
     <p id="population" class="scope">Static NPCs require a private local companion pack; client Data alone has no spawn positions.</p>
     <details><summary>What this browser MVP includes</summary><p class="scope">An alternate web rendering adapter using actual Rust physics and client formats, not a Bevy/VMaNGOS port or singleplayer RPG. Complete coarse continents, untextured detailed terrain, authored models/textures and optional static bind-pose NPCs. Four collision tiles and up to twelve separate visual metadata tiles stream around you; missing terrain holds the vehicle rather than becoming ocean. Distant models reach up to 6000 yards within shared cache limits, with real alpha and depth. Scene collision uses conservative authored hull bounds, not exact interiors. Animation, quests and combat are not implemented. The 8192-yard ocean and Eastern Kingdoms' southward placement are provisional geography.</p></details>

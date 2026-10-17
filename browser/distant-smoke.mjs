@@ -17,7 +17,7 @@ const pixels=async()=>{
     const image=await createImageBitmap(new Blob([Uint8Array.from(atob(encoded),c=>c.charCodeAt(0))],{type:'image/png'}));
     const canvas=new OffscreenCanvas(640,360),ctx=canvas.getContext('2d');
     ctx.drawImage(image,0,0,640,360);image.close();
-    return [...ctx.getImageData(5,70,630,220).data];
+    return [...ctx.getImageData(5,70,630,170).data];
   },bytes.toString('base64'));
 };
 try {
@@ -37,6 +37,14 @@ try {
     await page.waitForFunction(loads=>worldEvidence.render?.distantAlphaDraws>0 && worldEvidence.state.distant.resident===12
       && worldEvidence.state.distant.loads>loads,loads,{timeout:120000});
     await page.waitForTimeout(7000);
+    await page.evaluate(()=>worldTest.freezePresentation(true));
+    let revision=-1,stable=0;
+    for(let attempt=0;attempt<30 && stable<3;attempt++) {
+      await page.waitForTimeout(200);
+      const current=await page.evaluate(()=>worldEvidence.eventRevision);
+      stable=current===revision?stable+1:0;revision=current;
+    }
+    assert.equal(stable,3,'Asset events must settle before the fixed-time geometry comparison');
     const enabled=await page.evaluate(()=>worldEvidence);
     const on=await pixels();
     await page.screenshot({path:fileURLToPath(new URL(`${name}-authored-models.png`,out))});
@@ -60,6 +68,7 @@ try {
     assert(changedPixels>100,`Expected visible distant geometry, found ${changedPixels} changed pixels`);
     assert.deepEqual(errors,[]);
     comparisons.push({name,changedPixels,enabled:{render:enabled.render,state:enabled.state},disabled});
+    await page.evaluate(()=>worldTest.freezePresentation(false));
   }
   await page.locator('#distant').check();
   await page.locator('#drive').click();
