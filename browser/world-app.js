@@ -43,7 +43,7 @@ function syncSettings() {
   for(const key of ['horizon','scenery','distant','sound'])$(key).checked=settings[key];
   $('control-profile').value=settings.controls;$('camera-distance').value=settings.cameraDistance;
   $('keyboard-guide').textContent=settings.controls==='legacy'
-    ?'Browser MVP keys retained: W/S thrust/reverse · A/D steer · Space brake · Shift boost · C/Ctrl drift · J hop.'
+    ?'Legacy keys: W/S thrust/reverse · A/D steer · Space brake · Shift boost · C/Ctrl drift · J hop.'
     :'Native keys: W thrust · S brake · A/D steer · Shift boost · Ctrl drift · Space hop. C/J remain drift/hop aliases. F9 resets without overwriting your save.';
 }
 async function resumeAudio() {

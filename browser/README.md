@@ -278,6 +278,15 @@ unchanged-source run with 655 moving freezes, 384 ms maximum and 4.56 seconds of
 discarded time. That failing trace remains retained. Raw fixed-step presentation
 also repeats poses between physics ticks; further continuity work is pending.
 
+The subsequent camera-allocation fix (`dfa2b2f`) replaces the temporary growing
+JavaScript positions array with exact typed storage, preserving every land
+triangle and spatial bucket while excluding water as before. In matched peer
+180-second captures, ADT-admission return delay p50/p95 fell from 8.4/17.9 ms to
+5.3/7.8 ms. Moving freezes over 50 ms fell from 11 to 6, but maximum gap was
+71.2/73.0 ms: this is **not a maximum-tail fix**. Both discarded zero time;
+physical trajectories differed. The integrated 103-test suite and actual Edge
+controls/audio/camera/save/offline check pass with shell cache v16.
+
 The audio check installs the current offline shell in an isolated browser
 context, disconnects the network, and captures the cached production graph using Edge's
 `OfflineAudioContext` with deterministic idle, acceleration, cruise, boost,

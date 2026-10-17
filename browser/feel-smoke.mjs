@@ -33,6 +33,7 @@ try {
   await page.waitForFunction(()=>worldEvidence.state.telemetry[7]===1);
   await page.locator('#preferences').evaluate(e=>e.open=true);
   await page.locator('#control-profile').selectOption('legacy');await page.locator('#world').focus();
+  assert.match(await page.locator('#keyboard-guide').innerText(),/^Legacy keys:/);
   await page.keyboard.down('KeyS');
   await page.waitForFunction(()=>worldEvidence.input.throttle===-1 && !(worldEvidence.input.flags&1));
   await page.keyboard.up('KeyS');checks.legacyReverse=true;
