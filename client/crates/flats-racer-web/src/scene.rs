@@ -238,6 +238,10 @@ impl SceneModel {
     }
 
     fn from_m2(bytes: &[u8], path: &str, skins: &str) -> Result<Self, String> {
+        Self::decode_m2(bytes, path, skins, false)
+    }
+
+    fn decode_m2(bytes: &[u8], path: &str, skins: &str, stand: bool) -> Result<Self, String> {
         bounded(bytes)?;
         let skins: Vec<Option<String>> = serde_json::from_str(skins).map_err(|e| e.to_string())?;
         if skins.len() > 4 || path.len() > 1024 {
@@ -245,6 +249,11 @@ impl SceneModel {
         }
         let dir = path.rsplit_once(['\\', '/']).map_or("", |(dir, _)| dir);
         let mut subs = parse_m2_render_submeshes(bytes, dir, &skins).map_err(|e| e.to_string())?;
+        let posed_seat = if stand {
+            benilla_formats::bake_m2_stand_pose(bytes, &mut subs).map_err(|e| e.to_string())?
+        } else {
+            None
+        };
         let mut omitted_character_batches = 0;
         if let Some(Some(body)) = skins.get(3) {
             for sub in &mut subs {
@@ -259,11 +268,19 @@ impl SceneModel {
         }
         let collision = parse_m2_collision_hull(bytes).map_err(|e| e.to_string())?;
         let mut model = Self::build(subs, collision)?;
-        if omitted_character_batches > 0 {
+        if omitted_character_batches > 0 || stand {
             let mut metadata: serde_json::Value =
                 serde_json::from_str(&model.metadata).map_err(|e| e.to_string())?;
-            metadata["omittedCharacterBatches"] = omitted_character_batches.into();
-            metadata["appearance"] = "baked-body-only".into();
+            if omitted_character_batches > 0 {
+                metadata["omittedCharacterBatches"] = omitted_character_batches.into();
+                metadata["appearance"] = "baked-body-only".into();
+            }
+            if stand {
+                metadata["animation"] = "stand-frame-0".into();
+                metadata["posedAttachment0"] = posed_seat
+                    .map(|a| json!({"bone":a.bone,"position":a.position,"space":"model-local","pose":"stand-frame-0"}))
+                    .unwrap_or(serde_json::Value::Null);
+            }
             model.metadata = metadata.to_string();
         }
         Ok(model)
@@ -288,6 +305,10 @@ fn validate_mesh(positions: &[[f32; 3]], indices: &[u32]) -> Result<(), String> 
 impl SceneModel {
     pub fn m2(bytes: &[u8], path: &str, skins: &str) -> Result<SceneModel, JsValue> {
         Self::from_m2(bytes, path, skins).map_err(js)
+    }
+
+    pub fn craft(bytes: &[u8], path: &str, skins: &str) -> Result<SceneModel, JsValue> {
+        Self::decode_m2(bytes, path, skins, true).map_err(js)
     }
     pub fn metadata(&self) -> String {
         self.metadata.clone()
@@ -567,6 +588,137 @@ mod tests {
     }
 
     #[test]
+    fn actual_craft_stand_uses_sequence_start_and_each_weighted_root_not_a_mesh_yaw() {
+        use benilla_formats::{bake_m2_stand_pose, parse_m2_animations, parse_m2_skeleton};
+        let data = benilla_formats::wow_data_or_skip!();
+        let mut chain = benilla_formats::Chain::open(&data).unwrap();
+        let path = "Creature\\GoblinRocketCar\\GoblinRocketCar.m2";
+        let bytes = chain.read_file(path).unwrap();
+        let skeleton = parse_m2_skeleton(&bytes).unwrap();
+        let animations = parse_m2_animations(&bytes);
+        let stand = animations.iter().find(|a| a.anim_id == 0).unwrap();
+        assert_eq!(
+            (stand.seq_index, stand.start_ms, stand.end_ms),
+            (0, 3333, 6667)
+        );
+        let root0 = stand.bones.iter().find(|k| k.bone == 0).unwrap();
+        let root1 = stand.bones.iter().find(|k| k.bone == 1).unwrap();
+        assert_eq!(root0.rotation[0].0, 0.0);
+        assert!((root0.rotation[0].1[2] - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-6);
+        assert_eq!(root1.translation[0], (0.0, [-3.1643076, 0.0, 0.8874265]));
+
+        // Independent point walk: child pivot/keys first, then its ancestors in raw M2 axes.
+        let reference = |mut p: [f32; 3], mut bone: usize, point: bool| {
+            loop {
+                let b = skeleton.bones[bone];
+                let keys = stand.bones.iter().find(|k| k.bone as usize == bone);
+                let scale = keys.and_then(|k| k.scale.first()).map_or([1.0; 3], |k| k.1);
+                let translation = keys
+                    .and_then(|k| k.translation.first())
+                    .map_or([0.0; 3], |k| k.1);
+                let mut q = keys
+                    .and_then(|k| k.rotation.first())
+                    .map_or([0.0, 0.0, 0.0, 1.0], |k| k.1);
+                let length = q.iter().map(|x| x * x).sum::<f32>().sqrt();
+                for x in &mut q {
+                    *x /= length;
+                }
+                for i in 0..3 {
+                    p[i] = (p[i] - if point { b.pivot[i] } else { 0.0 }) * scale[i];
+                }
+                let cross = |a: [f32; 3], b: [f32; 3]| {
+                    [
+                        a[1] * b[2] - a[2] * b[1],
+                        a[2] * b[0] - a[0] * b[2],
+                        a[0] * b[1] - a[1] * b[0],
+                    ]
+                };
+                let v = [q[0], q[1], q[2]];
+                let c = cross(v, p);
+                let cc = cross(v, c);
+                for i in 0..3 {
+                    p[i] += 2.0 * (q[3] * c[i] + cc[i])
+                        + if point {
+                            b.pivot[i] + translation[i]
+                        } else {
+                            0.0
+                        };
+                }
+                if b.parent < 0 {
+                    return p;
+                }
+                bone = b.parent as usize;
+            }
+        };
+        let raw = parse_m2_render_submeshes(&bytes, "Creature\\GoblinRocketCar", &[]).unwrap();
+        let mut baked = raw.clone();
+        let seat = bake_m2_stand_pose(&bytes, &mut baked).unwrap().unwrap();
+        let mut weighted = 0;
+        for (raw, baked) in raw.iter().zip(&baked) {
+            assert_eq!(raw.indices, baked.indices);
+            assert_eq!(raw.uvs, baked.uvs);
+            assert_eq!(raw.texture, baked.texture);
+            for i in 0..raw.positions.len() {
+                weighted += usize::from(raw.weights[i].iter().filter(|&&w| w > 0.0).count() > 1);
+                for (input, actual, point) in [
+                    (raw.positions[i], baked.positions[i], true),
+                    (raw.normals[i], baked.normals[i], false),
+                ] {
+                    let mut expected = [0.0; 3];
+                    for (&bone, &weight) in raw.joints[i].iter().zip(&raw.weights[i]) {
+                        if weight == 0.0 {
+                            continue;
+                        }
+                        let p = reference(input, bone as usize, point);
+                        for j in 0..3 {
+                            expected[j] += p[j] * weight;
+                        }
+                    }
+                    if !point {
+                        let length = expected.iter().map(|x| x * x).sum::<f32>().sqrt();
+                        for x in &mut expected {
+                            *x /= length;
+                        }
+                    }
+                    for j in 0..3 {
+                        assert!(
+                            (expected[j] - actual[j]).abs() < 1e-4,
+                            "{expected:?} != {actual:?}"
+                        );
+                    }
+                }
+            }
+        }
+        assert!(
+            weighted > 100,
+            "Exercise the goblin's multi-bone skin, not only rigid chassis"
+        );
+        let model = SceneModel::decode_m2(&bytes, path, "[]", true).unwrap();
+        let metadata: serde_json::Value = serde_json::from_str(&model.metadata).unwrap();
+        assert_eq!(metadata["animation"], "stand-frame-0");
+        assert_eq!(model.indices.len() / 3, 1566);
+        let bounds = &metadata["bounds"];
+        let length = bounds[1][0].as_f64().unwrap() - bounds[0][0].as_f64().unwrap();
+        let width = bounds[1][1].as_f64().unwrap() - bounds[0][1].as_f64().unwrap();
+        assert!(
+            length > width * 1.5,
+            "Posed chassis must run along model X: {bounds}"
+        );
+        let raw_seat = benilla_formats::parse_m2_attachments(&bytes)
+            .unwrap()
+            .into_iter()
+            .find(|a| a.id == 0)
+            .unwrap();
+        let expected = reference(raw_seat.position, raw_seat.bone as usize, true);
+        for (actual, expected) in seat.position.iter().zip(expected) {
+            assert!((actual - expected).abs() < 1e-5);
+        }
+        let mut malformed = raw.clone();
+        malformed[0].joints[0] = [255; 4];
+        assert!(bake_m2_stand_pose(&bytes, &mut malformed).is_err());
+    }
+
+    #[test]
     fn rejects_corrupt_and_oversize_inputs() {
         assert!(placements(b"bad").is_err());
         assert!(SceneModel::from_m2(b"bad", "bad.m2", "[]").is_err());
@@ -653,7 +805,9 @@ mod tests {
                 colored_textures += usize::from(
                     texture
                         .rgba
-                        .as_chunks::<4>().0.iter()
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
                         .any(|p| p[0] != p[1] || p[1] != p[2]),
                 );
             }

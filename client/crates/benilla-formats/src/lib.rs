@@ -264,7 +264,7 @@ pub use models::{
     parse_m2_cch_marker, parse_m2_collision_hull, parse_m2_event_markers,
     parse_m2_global_sequence_bones, parse_m2_lights, parse_m2_pane_cameras,
     parse_m2_playable_animation_lookup, parse_m2_portrait_camera, parse_m2_render_submeshes,
-    parse_m2_skeleton, parse_m2_string_anchors, parse_wmo_fogs, parse_wmo_lights,
+    parse_m2_skeleton, bake_m2_stand_pose, parse_m2_string_anchors, parse_wmo_fogs, parse_wmo_lights,
     parse_wmo_portals, parse_wmo_root, rotation_2x2, shipped_glue_art_extent, uv_transform,
     wmo_group_doodad_refs, wmo_group_fixed_colors, wmo_group_footprint_tris, wmo_group_header,
     wmo_group_light_refs, wmo_group_liquid_mesh, wmo_group_raw_colors, wmo_group_submeshes,

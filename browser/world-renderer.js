@@ -477,7 +477,7 @@ export class WorldRenderer {
       terrainGpuBytes:[...this.tiles.values()].reduce((n,t)=>n+(t.material?.bytes||0),0),
       terrainUploadPending:this.materialPending.size,minimapGpuBytes:this.minimapAtlases.length*(64*MINIMAP_SIZE)**2*4,
       uniformUploads:uniformCount?1:0,uniformBytes:uniformCount*256,
-      craftDraws:draws.filter(d=>d.craft).length,craftPose:this.craft?'bind-pose':'placeholder',craftGpuBytes:this.craft?.bytes||0,
+      craftDraws:draws.filter(d=>d.craft).length,craftPose:this.craft?.metadata.pose||'placeholder',craftGpuBytes:this.craft?.bytes||0,
       craftReady:!!this.craft,craftStatus:this.craft?'ready':this.craftError?'failed':'loading',
       craftTriangles:this.craft?this.craft.asset.count/3:0,craftError:this.craftError,
       npcInstances:this.instances.filter(i=>i.id.includes(':npc:')).length,

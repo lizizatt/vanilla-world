@@ -6,10 +6,13 @@ export async function loadCraft(source,wasm,emit) {
   const displays=await source.read('DBFilesClient\\CreatureDisplayInfo.dbc');
   const display=JSON.parse(wasm.scene_craft_display(models,displays)),path=modelPath(display.path);
   const encoded=await source.read(path),metadata={...display,...JSON.parse(wasm.scene_craft_metadata(encoded))};
-  const model=wasm.SceneModel.m2(encoded,path,JSON.stringify(display.skins));
+  const model=wasm.SceneModel.craft(encoded,path,JSON.stringify(display.skins));
   let asset;
   try{
-    asset={vertices:model.vertices(),indices:model.indices(),batches:JSON.parse(model.metadata()).batches};
+    const posed=JSON.parse(model.metadata());
+    asset={vertices:model.vertices(),indices:model.indices(),batches:posed.batches};
+    metadata.pose=posed.animation;
+    metadata.posedAttachment0=posed.posedAttachment0;
   }finally{model.free();}
   let bytes=asset.vertices.byteLength+asset.indices.byteLength;
   if(bytes>2*1024*1024||asset.indices.length>60000)throw Error('Authored craft exceeds mesh budget');

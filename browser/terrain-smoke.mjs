@@ -76,6 +76,19 @@ self.onmessage=async({data})=>{
    world.initialize_spawn();
    send({event:'craft-state',telemetry:Array.from(world.telemetry())});
    await loadCraft(source,wasm,send);
+  }else if(data.action==='craft-heading'){
+   world.initialize_spawn();const p=world.telemetry();
+   world.restore(new Float64Array([p[0],p[1]+1,p[2],data.yaw]));
+   send({event:'craft-state',telemetry:Array.from(world.telemetry())});
+  }else if(data.action==='craft-drive'){
+   const trace=[Array.from(world.telemetry())];
+   for(let i=0;i<90;i++){
+    world.tick(1,0,0);world.tick(1,0,0);
+    const telemetry=Array.from(world.telemetry());trace.push(telemetry);
+    send({event:'craft-state',telemetry});
+    await new Promise(resolve=>setTimeout(resolve,16));
+   }
+   send({event:'craft-motion',trace});
   }else if(data.action==='overview'){
    while(materials.snapshot().farPending)await materials.pump();
   }
@@ -84,7 +97,7 @@ self.onmessage=async({data})=>{
 };`;
 const html=`<!doctype html><style>body{margin:0}canvas{width:1280px;height:720px}input{display:none}</style>
 <input id="data" type="file" webkitdirectory><canvas></canvas><script type="module">
-import {WorldRenderer} from '/world-renderer.js';
+import {WorldRenderer,craftMatrix} from '/world-renderer.js';
 import {terrainMips} from '/terrain-stream.js';
 window.errors=[];window.renderer=await WorldRenderer.create(document.querySelector('canvas'),e=>errors.push(String(e)));
 let next=0,pending=new Map(),manifest,site,worker=new Worker('/worker.js',{type:'module'});
@@ -93,9 +106,14 @@ worker.onmessage=({data})=>{
  else if(data.event==='done'||data.event==='failed'){const callback=pending.get(data.id);pending.delete(data.id);callback(data);}
  else if(data.event==='site-ready'){site=data;window.site=data;}
  else if(data.event==='craft-state')window.vehicle=data.telemetry;
+ else if(data.event==='craft-motion')window.motion=data.trace;
  else {if(data.event==='terrain-material')window.lastMaterial=data;renderer.event(data);}
 };
 window.request=message=>new Promise(resolve=>{message.id=++next;pending.set(next,resolve);worker.postMessage(message);});
+window.craftHeading=()=>{
+ const m=craftMatrix(vehicle,renderer.origin,1);
+ return {state:vehicle,matrix:Array.from(m),forward:[m[0],m[1],m[2]],stats,errors,trace:window.motion};
+};
 window.openData=async()=>{
  const result=await request({action:'open',catalog:[...document.querySelector('input').files].map(file=>({path:file.webkitRelativePath,file}))});
  manifest=window.pendingManifest;window.manifest=manifest;renderer.configure(manifest);return result;
@@ -160,11 +178,12 @@ try{
   const artifact=resolve(process.env.TERRAIN_ARTIFACTS||'terrain-evidence');
   await mkdir(artifact,{recursive:true});
   const results=[];
-  for(const site of [
+  const sites=[
     {name:'raceway',region:0,x:39,y:43},{name:'elwynn',region:1,x:32,y:49},
     {name:'stormwind',region:1,x:30,y:48},{name:'durotar',region:0,x:40,y:30},
     {name:'raceway-reload',region:0,x:39,y:43},
-  ]){
+  ];
+  for(const site of process.env.TERRAIN_CRAFT_ONLY?sites.slice(0,1):sites){
     const result=await page.evaluate(s=>request({action:'site',...s}),site);
     assert(!result.error,JSON.stringify(result));
     assert.deepEqual(result.snapshot.errors.filter(e=>e.startsWith('Terrain texture')),[]);
@@ -196,28 +215,54 @@ try{
       assert.equal(craftEvidence.stats.sceneDraws,6,'Craft renders with scenery off, in its own residency namespace');
       assert.equal(craftEvidence.metadata.attachment0.bone,74);
       assert.equal(craftEvidence.metadata.cockpitAvailable,false);
+      assert.equal(craftEvidence.stats.craftPose,'stand-frame-0');
+      assert.equal(craftEvidence.metadata.posedAttachment0.pose,'stand-frame-0');
       assert.deepEqual(craftEvidence.errors,[]);
       await page.screenshot({path:resolve(artifact,'authored-craft-scenery-off.png')});
       results.push({site:'authored-craft-scenery-off',...craftEvidence});
+      for(const [name,yaw] of [['north',0],['west',Math.PI/2],['south',Math.PI],['east',Math.PI*1.5]]){
+        const start=await page.evaluate(yaw=>request({action:'craft-heading',yaw}),yaw);
+        assert(!start.error,JSON.stringify(start));
+        await page.evaluate(()=>{renderer.camera=undefined;});
+        await page.waitForTimeout(200);
+        await page.screenshot({path:resolve(artifact,'craft-'+name+'-before.png')});
+        const driven=await page.evaluate(()=>request({action:'craft-drive'}));
+        assert(!driven.error,JSON.stringify(driven));
+        const heading=await page.evaluate(()=>craftHeading());
+        const initial=heading.trace[0],end=heading.trace.at(-1);
+        const dx=end[0]-initial[0],dz=end[2]-initial[2],fx=-Math.sin(yaw),fz=-Math.cos(yaw);
+        const forwardDistance=dx*fx+dz*fz,lateralDistance=dx*fz-dz*fx;
+        assert(forwardDistance>1,JSON.stringify({name,forwardDistance,heading}));
+        assert(Math.abs(lateralDistance)<.01,JSON.stringify({name,lateralDistance}));
+        assert(heading.forward[0]*fx+heading.forward[2]*fz>.99999);
+        assert.equal(heading.stats.craftDraws,6);assert.equal(heading.stats.craftTriangles,1566);
+        assert.equal(heading.stats.craftPose,'stand-frame-0');
+        assert.deepEqual(heading.errors,[]);
+        await page.screenshot({path:resolve(artifact,'craft-'+name+'-after.png')});
+        results.push({site:'craft-heading-'+name,forwardDistance,lateralDistance,...heading});
+      }
       await page.evaluate(()=>{flight=window.previousFlight;window.showScenery=true;});
       await page.waitForTimeout(100);
       assert.equal(await page.evaluate(()=>stats.craftDraws),0,'Flight hides the vehicle');
     }
   }
-  const far=await page.evaluate(()=>request({action:'overview'}));
+  let far,oracle;
+  if(!process.env.TERRAIN_CRAFT_ONLY){
+  far=await page.evaluate(()=>request({action:'overview'}));
   assert(!far.error,JSON.stringify(far));assert(far.snapshot.minimaps>1000);
   await page.evaluate(()=>{
     const r=manifest.regions[1];flight=[manifest.ocean[0]+4096,55000,r.placement[1]+32*1600/3,0,-Math.PI/2+.001];frames=[];
   });
   await page.waitForTimeout(1500);
   await page.screenshot({path:resolve(artifact,'two-continent-overview.png')});
-  const oracle=await page.evaluate(()=>window.oracle());
+  oracle=await page.evaluate(()=>window.oracle());
   const oraclePng=await page.screenshot({path:resolve(artifact,'layer-blend-oracle.png')});
   oracle.pixel=(await page.evaluate(url=>window.pixels(url),'data:image/png;base64,'+oraclePng.toString('base64'))).center;
   assert(oracle.expected.every((value,i)=>Math.abs(value-oracle.pixel[i])<=2),JSON.stringify(oracle));
+  }
   assert.deepEqual(await page.evaluate(()=>errors),[]);
   assert.deepEqual(pageErrors,[]);
-  const summary={browser:browser.version(),resolution:[1280,720],results,overview:far.snapshot,oracle,
+  const summary={browser:browser.version(),resolution:[1280,720],results,overview:far?.snapshot,oracle,
     limits:'Isolated terrain + authored scene hardware renderer; no NPC pack. Physics/streaming driving FPS measured by integrated performance harness.'};
   await writeFile(resolve(artifact,'results.json'),JSON.stringify(summary,null,2));
   console.log(JSON.stringify(summary,null,2));
