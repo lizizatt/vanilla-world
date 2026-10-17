@@ -8,11 +8,12 @@ const seconds=Number(process.env.DRIVE_SECONDS || 180);
 assert(Number.isFinite(seconds)&&seconds>=30);
 const label=process.env.RUN_LABEL || 'continuity';
 assert(/^[a-z0-9-]+$/i.test(label));
+const video=process.env.VIDEO==='1',sound=process.env.SOUND==='1',cpuProfile=process.env.PROFILE==='1';
 const output=new URL(`./test-results/driving/${label}/`,import.meta.url);
 await mkdir(output,{recursive:true});
 const browser=await chromium.launch({channel:'msedge',headless:true});
 const context=await browser.newContext({viewport:{width:1280,height:800},serviceWorkers:'block',
-  ...(process.env.VIDEO?{recordVideo:{dir:fileURLToPath(output),size:{width:960,height:600}}}:{})});
+  ...(video?{recordVideo:{dir:fileURLToPath(output),size:{width:960,height:600}}}:{})});
 const page=await context.newPage(),errors=[];
 // Service-worker-owned fetches bypass route instrumentation; offline behavior has a separate smoke test.
 await context.addInitScript(()=>{delete Navigator.prototype.serviceWorker;});
@@ -22,6 +23,38 @@ const distribution=values=>{
   const a=values.toSorted((a,b)=>a-b),at=p=>a[Math.min(a.length-1,Math.floor(a.length*p))];
   return {count:a.length,p50:at(.5),p95:at(.95),p99:at(.99),max:a.at(-1)};
 };
+async function startProfiles(){
+  const root=await browser.newBrowserCDPSession();
+  const {targetInfos}=await root.send('Target.getTargets');
+  const target=targetInfos.find(t=>t.type==='worker'&&t.url.includes('world-worker.js'));
+  assert(target,'Dedicated world worker target is required for CPU attribution');
+  const {sessionId}=await root.send('Target.attachToTarget',{targetId:target.targetId,flatten:false});
+  let next=0;
+  const pending=new Map();
+  root.on('Target.receivedMessageFromTarget',event=>{
+    if(event.sessionId!==sessionId)return;
+    const message=JSON.parse(event.message),request=pending.get(message.id);
+    if(!request)return;
+    pending.delete(message.id);
+    if(message.error)request.reject(new Error(message.error.message));else request.resolve(message.result);
+  });
+  const worker={send:(method,params={})=>new Promise((resolve,reject)=>{
+    const id=++next;pending.set(id,{resolve,reject});
+    root.send('Target.sendMessageToTarget',{sessionId,message:JSON.stringify({id,method,params})}).catch(reject);
+  })};
+  const main=await context.newCDPSession(page);
+  for(const session of [main,worker]){
+    await session.send('Profiler.enable');
+    await session.send('Profiler.start');
+  }
+  return async ()=>{
+    for(const [name,session] of [['main',main],['worker',worker]]){
+      const {profile}=await session.send('Profiler.stop');
+      await writeFile(new URL(`${name}.cpuprofile`,output),JSON.stringify(profile));
+    }
+    await root.detach();await main.detach();
+  };
+}
 try{
   // Instrument the original simulation time path, without changing scheduling or adding per-tick queries.
   await context.route('**/world-worker.js',async route=>{
@@ -34,7 +67,7 @@ try{
     body=body.replace('world.tick(message.throttle,message.steer,message.flags);','world.tick(message.throttle,message.steer,message.flags);drivingClock.steps++;drivingClock.batch++;');
     body=body.replace('return {telemetry:Array.from(world.telemetry()),','return {drivingClock:{...drivingClock,remainder:accumulator},drivingWork:globalThis.drivingWork.splice(0),telemetry:Array.from(world.telemetry()),');
     body=body.replace('const result=await handle(data),start=performance.now();','const begin=performance.timeOrigin+performance.now();const result=await handle(data),start=performance.now();if(result.telemetry)result.transport={begin,end:performance.timeOrigin+start};');
-    for(const call of ['world.add_tile(index,bytes)','scene.setTile(tileKey(index),bytes)','world.geometry(index)',
+    for(const call of ['world.add_tile(index,bytes)','scene.setTile(tileKey(index),bytes,world.tile_placements(index,bytes))','world.geometry(index)',
       'terrain.setTile(index,world.terrain_material(index))','world.horizon_seams(index)']){
       body=body.replaceAll(call,`(()=>{const started=performance.now();try{return ${call};}finally{drivingWork.push({kind:${JSON.stringify(call)},ms:performance.now()-started});}})()`);
     }
@@ -72,12 +105,13 @@ try{
   }
   await page.locator('#drive').click();
   if(process.env.WARM_SECONDS)await page.waitForTimeout(Number(process.env.WARM_SECONDS)*1000);
-  if(process.env.SOUND){
+  if(sound){
     await page.locator('#preferences').evaluate(e=>e.open=true);
     await page.locator('#sound').check();
     await page.waitForFunction(()=>worldEvidence.audio.state==='running');
     await page.locator('#preferences').evaluate(e=>e.open=false);
   }
+  const stopProfiles=cpuProfile?await startProfiles():undefined;
   await page.evaluate(async ()=>{
     const {WorldClient}=await import('./world-client.js');
     const {WorldRenderer}=await import('./world-renderer.js');
@@ -98,7 +132,7 @@ try{
       });
     };
     WorldRenderer.prototype.draw=function(p,...args){
-      driveProfile.draws.push([performance.now(),p[0],p[1],p[2],p[3],p[5],p[8]]);
+      driveProfile.draws.push([performance.now(),p[0],p[1],p[2],p[3],p[5],p[8],worldEvidence.state.scene.waitingCollision]);
       return draw.call(this,p,...args);
     };
     driveProfile.timer=setInterval(()=>driveProfile.samples.push({t:performance.now(),
@@ -157,6 +191,12 @@ try{
     end:performance.now(),after:structuredClone(worldEvidence.state),errors:worldEvidence.errors,
     audio:worldEvidence.audio,adapter:worldEvidence.adapter};});
   await writeFile(new URL('raw.json',output),JSON.stringify(data));
+  if(stopProfiles)await stopProfiles();
+  const settings={video,sound,profile:cpuProfile,...await page.evaluate(()=>{
+    const canvas=document.getElementById('world'),rect=canvas.getBoundingClientRect();
+    return {canvasWidth:canvas.width,canvasHeight:canvas.height,cssWidth:rect.width,cssHeight:rect.height,
+      devicePixelRatio};
+  })};
   const intervals=rows=>rows.slice(1).map((r,i)=>r.t-rows[i].t);
   const poseGaps=[],freezes=[],resets=[];
   let lastChange=data.draws[0],frozen;
@@ -164,10 +204,10 @@ try{
     const same=d.slice(1,5).every((v,i)=>v===lastChange[i+1]);
     if(same){frozen??=lastChange;continue;}
     poseGaps.push(d[0]-lastChange[0]);
-    if(frozen&&d[0]-frozen[0]>=25)freezes.push({at:frozen[0]-data.start,ms:d[0]-frozen[0],speed:frozen[5],hold:frozen[6]});
+    if(frozen&&d[0]-frozen[0]>=25)freezes.push({at:frozen[0]-data.start,ms:d[0]-frozen[0],speed:frozen[5],hold:frozen[6],wait:frozen[7]});
     frozen=undefined;lastChange=d;
   }
-  if(frozen)freezes.push({at:frozen[0]-data.start,ms:data.end-frozen[0],speed:frozen[5],hold:frozen[6]});
+  if(frozen)freezes.push({at:frozen[0]-data.start,ms:data.end-frozen[0],speed:frozen[5],hold:frozen[6],wait:frozen[7]});
   for(let i=1;i<data.responses.length;i++){
     const a=data.responses[i-1],b=data.responses[i];
     if(a.p[5]>2 && b.p[5]<a.p[5]*.5)resets.push({at:b.t-data.start,before:a.p,after:b.p,wait:b.wait});
@@ -178,8 +218,8 @@ try{
     const a=data.responses[i];
     return n+(r.p[5]>1&&!r.p[8]&&!r.wait&&a.p[5]>1&&!a.p[8]&&!a.wait?(r.t-a.t)/1000:0);
   },0);
-  const movingFreezes=freezes.filter(f=>f.speed>1&&!f.hold);
-  const summary={seconds:(data.end-data.start)/1000,distance,inputs:data.inputs,clientDropped:data.clientDropped,
+  const movingFreezes=freezes.filter(f=>f.speed>1&&!f.hold&&!f.wait);
+  const summary={settings,seconds:(data.end-data.start)/1000,distance,inputs:data.inputs,clientDropped:data.clientDropped,
     movingSeconds,waypointsReached:data.waypoint,recoveries:data.recoveries?.length,
     movingFreezes:distribution(movingFreezes.map(f=>f.ms)),
     movingFreezesOver50:movingFreezes.filter(f=>f.ms>50).length,
