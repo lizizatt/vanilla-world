@@ -91,6 +91,26 @@ test('patches win, deleted files never fall back, queue survives errors', async 
   const corrupt = await openDataSource([base, entry('patch.MPQ', fixture(path, 'a'.repeat(9000), { corruptOffsets: true }))]);
   await assert.rejects(corrupt.read(path), code('CORRUPT'));
 });
+test('sector extraction yields a task to physics without interleaving archive reads', async () => {
+  const path='file',bytes=Buffer.from('bounded sector work'.repeat(2000));
+  const source=await openDataSource([entry('terrain.MPQ',fixture(path,bytes))]);
+  const original=Object.getOwnPropertyDescriptor(globalThis,'performance');
+  let now=0,finished=false,observedPending=false;
+  Object.defineProperty(globalThis,'performance',{configurable:true,value:{now:()=>now+=5}});
+  const timer=setInterval(()=>{if(!finished)observedPending=true;},0);
+  try {
+    const first=source.read(path),second=source.read(path);
+    assert.deepEqual(Buffer.from(await first),bytes);
+    assert.deepEqual(Buffer.from(await second),bytes);
+    finished=true;
+    assert(observedPending,'A real task must run before extraction completes');
+    assert(source.stats.extractionYields>=4,'Repeated sectors must continue yielding');
+  } finally {
+    clearInterval(timer);
+    Object.defineProperty(globalThis,'performance',original);
+    await source.close();
+  }
+});
 test('unsupported codec, truncated archive, oversized asset and indexes fail explicitly', async () => {
   const path = 'file';
   const unsupported = await openDataSource([entry('dbc.MPQ', fixture(path, 'a'.repeat(8000), { method: 8 }))]);

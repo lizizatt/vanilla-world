@@ -242,7 +242,14 @@ class Archive {
       if (flags & ENCRYPTED) decrypt(offsets, (key - 1) >>> 0);
       if (u32(offsets, 0) < tableBytes) fail('CORRUPT', `${path}: sectors overlap offset table`);
     } else if (packed !== size) fail('CORRUPT', `${path}: stored size mismatch`);
+    let yielded = performance.now();
     for (let i = 0; i < count; i++) {
+      // Resolved sector promises otherwise starve the worker's queued physics messages.
+      if (performance.now() - yielded >= 4) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+        this.stats.extractionYields++;
+        yielded = performance.now();
+      }
       const want = Math.min(this.sectorSize, size - i * this.sectorSize);
       const start = offsets ? u32(offsets, i * 4) : i * this.sectorSize;
       const end = offsets ? u32(offsets, (i + 1) * 4) : start + want;
@@ -269,7 +276,7 @@ export async function openDataSource(input) {
     catalog = catalog.map(entry => ({ ...entry, path: entry.path.replaceAll('\\', '/').slice(root[0].length + 1) }));
   const selected = mountOrder(catalog);
   if (!selected.length) fail('INVALID_FOLDER', 'No known WoW 1.12 MPQs in this folder; select Data, not the install parent');
-  const stats = { indexBytes: 0, readBytes: 0, readCalls: 0, maxReadBytes: 0, windowBytes: 0 };
+  const stats = { indexBytes: 0, readBytes: 0, readCalls: 0, maxReadBytes: 0, windowBytes: 0, extractionYields: 0 };
   const archives = [];
   for (const entry of selected) {
     const archive = new Archive(entry, stats);
