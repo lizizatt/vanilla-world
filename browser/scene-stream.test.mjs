@@ -144,6 +144,18 @@ test('completed model jobs rebuild selection once, retaining a fresh revision', 
   assert.equal(stream.selectionRevision,stream.revision);
 });
 
+test('deferred visual dependency refresh never delays a decoded collision mesh', async () => {
+  const f = fixture({cutout:true}), stream = new SceneStream(f.source,f.wasm,{jobs:1});
+  stream.setTile('1:0:0',[p(1)]);stream.update(1,[0,0,0]);
+  await stream.pump(true);
+  assert.equal(stream.snapshot().collisionInstances.length,1);
+  assert.equal(stream.snapshot().unresolvedCollision.length,0);
+  assert.equal(stream.snapshot().instances.length,0);
+  assert.notEqual(stream.selectionRevision,stream.revision);
+  stream.update(1,[0,0,0]);await stream.pump(true);
+  assert.equal(stream.snapshot().instances.length,1);
+});
+
 test('late asynchronous completion cannot repopulate a cleared world', async () => {
   const f = fixture(); let resolve;
   const stream = new SceneStream({ read: () => new Promise(r => { resolve = r; }) }, f.wasm);

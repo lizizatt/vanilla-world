@@ -107,6 +107,7 @@ export class SceneStream {
     this.requests = new Map(); this.instances = []; this.collisionCandidates = []; this.errors = [];
     this.bytes = 0; this.clock = 0; this.busy = false; this.generation = 0; this.revision = 0;
     this.selectionRevision = -1;
+    this.timings = {readMs: 0, decodeMs: 0, loads: 0};
     this.expanded = new WeakMap();
     this.bounds = new WeakMap();
     this.npcs = null; this.populationStatus = 'No local NPC spawn pack; client Data has no spawn positions';
@@ -265,12 +266,12 @@ export class SceneStream {
     for (const key of this.failures.keys()) if (!keep.has(key)) this.failures.delete(key);
     this.selectionRevision = this.revision;
   }
-  async pump() {
+  async pump(deferSelection = false) {
     if (this.busy || !this.position) return;
     this.busy = true;
     this.capacityBlocked = false;
     const generation = this.generation;
-    let loaded = false;
+    let loaded = false, loadedRoot = false;
     try {
       for (let job = 0; job < this.limits.jobs; job++) {
         const request = [...this.requests.values()].filter(r => !this.cache.has(r.key) && !this.failures.has(r.key))
@@ -301,7 +302,7 @@ export class SceneStream {
           this.cache.set(request.key, { ...result, used: this.clock }); this.bytes += result.bytes;
           this.revision++;
           loaded = true;
-          if (request.kind === 'wmo') break;
+          if (request.kind === 'wmo') { loadedRoot = true; break; }
         } catch (error) {
           result?.dispose?.();
           if (generation !== this.generation) continue;
@@ -313,7 +314,8 @@ export class SceneStream {
       }
     } finally {
       this.busy = false;
-      if (loaded && generation === this.generation)this.update(this.map, this.position, this.predicted);
+      if (loaded && generation === this.generation && (!deferSelection || loadedRoot))
+        this.update(this.map, this.position, this.predicted);
     }
   }
   resourceCount(kind) {
@@ -334,8 +336,13 @@ export class SceneStream {
       })[0]?.[0];
   }
   async load(request) {
-    const bytes = await this.source.read(request.path);
+    const readStart = performance.now();
+    let bytes;
+    try { bytes = await this.source.read(request.path); }
+    finally { this.timings.readMs += performance.now()-readStart; }
     if (bytes.length > 64 * 1024 * 1024) throw new Error('Encoded scene resource exceeds 64 MiB');
+    const decodeStart = performance.now();
+    try {
     if (request.kind === 'texture') {
       const handle = new this.wasm.SceneTexture(bytes);
       try {
@@ -366,6 +373,7 @@ export class SceneStream {
       : this.wasm.SceneModel.m2(bytes, request.path, JSON.stringify(request.skins));
     const value = extractModel(handle);
     return { value, bytes: modelBytes(value) };
+    } finally { this.timings.decodeMs += performance.now()-decodeStart; this.timings.loads++; }
   }
   snapshot() {
     const assets = new Map(), textures = new Map(), collisionInstances = [], unresolvedCollision = [];
@@ -392,7 +400,7 @@ export class SceneStream {
       return !value.batches.some(b => b.alphaCutoff > 0 && (!b.texture || !this.cache.has(`texture:${modelPath(b.texture)}`)));
     });
     return { instances, collisionInstances, unresolvedCollision, assets, textures, errors: [...this.errors], populationStatus: this.populationStatus,
-      cachedAssets: this.cache.size, cachedBytes: this.bytes, capacityBlocked: !!this.capacityBlocked,
+      cachedAssets: this.cache.size, cachedBytes: this.bytes, capacityBlocked: !!this.capacityBlocked, timings: {...this.timings},
       cachedModels: this.resourceCount('m2'), cachedTextures: this.resourceCount('texture'),
       pending: [...this.requests.keys()].filter(k => !this.cache.has(k) && !this.failures.has(k)).length };
   }

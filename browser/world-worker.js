@@ -27,7 +27,8 @@ const collisionBounds=new Map();
 let collisionCount=0;
 let collisionSignature='';
 const collisionInstances=new Map();
-const timings={frames:0,totalMs:0,maxMs:0,sceneMs:0,selectionMs:0,snapshotMs:0,physicsMs:0,collisionBuildMs:0,collisionBuilds:0};
+const timings={frames:0,totalMs:0,maxMs:0,terrainMs:0,sceneMs:0,selectionMs:0,snapshotMs:0,
+  physicsMs:0,postMs:0,collisionBuildMs:0,collisionBuilds:0};
 let distantWanted=[],distantJob,distantLastStart=0,distantLoads=0,distantPeak=0;
 const distantResident=new Set(),distantFailures=new Map();
 let objectWait=[],cameraUnknown=[],lastHoldTime=0,lastHold='clear',holdRun=0;
@@ -103,6 +104,7 @@ async function stream(p,pin,fill=false) {
       const bytes=await source.read(assetPath(entry));
       world.add_tile(index,bytes);
       scene.setTile(tileKey(index),bytes);
+      sceneFocus=undefined;
       const vertices=world.geometry(index);
       resident.add(index);loads++;peak=Math.max(peak,resident.size);
       tiles.push({index,placement:placements[index],vertices});
@@ -161,7 +163,8 @@ async function updateScene(focus) {
   const body=world.telemetry(),r=manifest.regions[region],signed=body[14] ?? body[5];
   const predicted=[focus[0]-Math.sin(body[3])*signed,focus[1],focus[2]-Math.cos(body[3])*signed];
   const moved=sceneFocus?Math.hypot(...focus.map((v,a)=>v-sceneFocus[a])):Infinity;
-  const changed=scene.selectionRevision!==scene.revision || moved>=4 || (moved>0 && performance.now()-sceneUpdated>=100);
+  // Static 850-yard candidates outlive this bounded visual refresh; readiness and the swept hull run every frame.
+  const changed=moved>=16 || ((moved>0 || scene.selectionRevision!==scene.revision) && performance.now()-sceneUpdated>=250);
   if(changed) {
     const start=performance.now();
     scene.update(region===0?1:0,sourcePosition(region,focus),sourcePosition(region,predicted));
@@ -169,7 +172,7 @@ async function updateScene(focus) {
     sceneFocus=focus.slice();sceneUpdated=performance.now();
   }
   // Reads/texture decodes must never suspend the physics request queue.
-  void scene.pump().catch(error=>{scenePumpError=error;});
+  void scene.pump(true).catch(error=>{scenePumpError=error;});
   if(changed || sceneRevision!==scene.revision || !sceneState) {
     const start=performance.now();sceneState=scene.snapshot();timings.snapshotMs+=performance.now()-start;
   }
@@ -259,6 +262,7 @@ function snapshot() {
     failures:Array.from(failures.values()),loads,evictions,peak,limit:LIMIT,horizon,source:source.stats,
     scene:sceneState?{instances:sceneState.instances.length,assets:sceneState.cachedAssets,bytes:sceneState.cachedBytes,
       pending:sceneState.pending,errors:sceneState.errors,population:sceneState.populationStatus,
+      decoder:{...scene.timings},
       capacityBlocked:sceneState.capacityBlocked,collisionBounds:collisionCount,
       models:sceneState.cachedModels,textures:sceneState.cachedTextures,waitingCollision:objectWait.length,
       waitingCollisionDetails:objectWait.slice(0,5),
@@ -306,7 +310,8 @@ async function handle(message) {
     const p=world.telemetry(),focus=message.focus || Array.from(p.slice(0,3));
     if(!Array.isArray(focus)||focus.length!==3||!focus.every(v=>Number.isFinite(v)&&Math.abs(v)<1e12))throw new Error('Invalid world focus');
     prepareDistant(focus,message.distant!==false);
-    await stream([focus[0],focus[2]],!message.focus);
+    const terrainStart=performance.now();await stream([focus[0],focus[2]],!message.focus);
+    timings.terrainMs+=performance.now()-terrainStart;
     const sceneStart=performance.now();await updateScene(focus);timings.sceneMs+=performance.now()-sceneStart;
     const physicsStart=performance.now();
     if(!message.focus) {
@@ -319,12 +324,12 @@ async function handle(message) {
         measureHold(hold===1?'terrain':hold===3?'solid':hold===2?'unsupported':'clear',elapsed);
       }
     } else {accumulator=0;lastHoldTime=0;lastHold='clear';}
+    timings.physicsMs+=performance.now()-physicsStart;
     if(message.focus || Array.from(world.required_tiles()).every(i=>resident.has(i)))startDistantRead();
     if(!objectWait.length) {
       void terrain.pump();
       if(Array.from(world.required_tiles()).every(i=>resident.has(i)))startCraft();
     }
-    timings.physicsMs+=performance.now()-physicsStart;
     const elapsed=performance.now()-started;timings.frames++;timings.totalMs+=elapsed;timings.maxMs=Math.max(timings.maxMs,elapsed);
   } else if(message.action==='restore') {
     if(!Array.isArray(message.pose)||message.pose.length!==4||!message.pose.every(Number.isFinite))throw new Error('Invalid parked pose');
@@ -359,7 +364,11 @@ async function handle(message) {
 }
 onmessage=({data})=>{
   queue=queue.then(async()=>{
-    try {postMessage({id:data.id,result:await handle(data)});}
+    try {
+      const result=await handle(data),start=performance.now();
+      postMessage({id:data.id,result});
+      if(data.action==='frame')timings.postMs+=performance.now()-start;
+    }
     catch(error){postMessage({id:data.id,error:`${error.code?`${error.code}: `:''}${error.message || error}`});}
   });
 };
