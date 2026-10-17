@@ -155,8 +155,14 @@ try{
     for(const type of ['focus','blur','pagehide','pageshow'])window.addEventListener(type,()=>record(type));
     for(const type of ['visibilitychange','freeze','resume'])document.addEventListener(type,()=>record(type));
     window.addEventListener('keydown',event=>{
-      if(event.code==='KeyW'&&!event.repeat)driveProfile.inputOnsets.push({t:performance.now(),
-        pose:(window.driveClient?.state || worldEvidence.state).telemetry.slice(0,4)});
+      if(event.code==='KeyW'&&!event.repeat){
+        const state=window.driveClient?.state || worldEvidence.state;
+        driveProfile.inputOnsets.push({t:performance.now(),pose:state.telemetry.slice(0,4),
+          speed:state.telemetry[5],hold:state.telemetry[8],wait:state.scene.waitingCollision});
+      }
+    });
+    window.addEventListener('keyup',event=>{
+      if(event.code==='KeyW'&&driveProfile.inputOnsets.length)driveProfile.inputOnsets.at(-1).end=performance.now();
     });
     WorldClient.prototype.frame=function(dt,...args){
       window.driveClient=this;
@@ -272,10 +278,12 @@ try{
   const rawMovingFreezes=raw.freezes.filter(f=>f.speed>1&&!f.hold&&!f.wait);
   const inputLatency=data.inputOnsets.map(input=>{
     const moved=(x,z)=>Math.hypot(x-input.pose[0],z-input.pose[2])>.01;
-    const reply=data.responses.find(r=>r.t>=input.t&&moved(r.p[0],r.p[2]));
-    const drawn=data.draws.find(r=>r[0]>=input.t&&moved(r[1],r[3]));
-    const authoritative=data.rawDraws.find(r=>r[0]>=input.t&&moved(r[1],r[3]));
-    return {at:input.t-data.start,replyMs:reply?reply.t-input.t:null,
+    const end=Math.min(input.t+1000,input.end ?? Infinity);
+    const reply=data.responses.find(r=>r.t>=input.t&&r.t<end&&moved(r.p[0],r.p[2]));
+    const drawn=data.draws.find(r=>r[0]>=input.t&&r[0]<end&&moved(r[1],r[3]));
+    const authoritative=data.rawDraws.find(r=>r[0]>=input.t&&r[0]<end&&moved(r[1],r[3]));
+    return {at:input.t-data.start,windowMs:end-input.t,startedAtRest:input.speed<.001,
+      initialHold:input.hold,initialWait:input.wait,replyMs:reply?reply.t-input.t:null,
       authoritativeDrawMs:authoritative?authoritative[0]-input.t:null,presentedDrawMs:drawn?drawn[0]-input.t:null,
       addedDisplayMs:drawn&&authoritative?drawn[0]-authoritative[0]:null};
   });
@@ -313,6 +321,12 @@ try{
   console.log(JSON.stringify(summary,null,2));
   assert.deepEqual(summary.errors,[]);
   if(presentation==='raw')assert.deepEqual(data.draws,data.rawDraws,'Raw comparison must read the current, not previous, client state');
+  if(pulses){
+    assert.equal(inputLatency.length,seconds/5,'Every requested throttle pulse must be captured');
+    assert(inputLatency.every(p=>p.startedAtRest&&!p.initialHold&&!p.initialWait),'Latency pulses must start at rest without a hold');
+    assert(inputLatency.every(p=>p.replyMs!==null&&p.authoritativeDrawMs!==null&&p.presentedDrawMs!==null),
+      'Every pulse must visibly move inside its own throttle window');
+  }
   assert(distance>20,'Held throttle must actually move the vehicle');
   if(process.env.WAYPOINTS && seconds>=120)assert(movingSeconds>seconds*.9,'A stopped vehicle is not sustained driving');
   if(process.env.MAX_MOVING_FREEZE_MS)assert((summary.movingFreezes?.max || 0)<=Number(process.env.MAX_MOVING_FREEZE_MS),
