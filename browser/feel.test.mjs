@@ -153,6 +153,10 @@ test('audio uses authoritative holds, fuel and focus without replaying boost on 
   p[6]=1;p[7]=1;p[8]=0;state.scene.waitingCollision=0;input.throttle=0;input.flags=0;
   audio.update(state,input,1/60,true);
   assert.equal(audio.envelope.boost,0);assert.equal(audio.envelope.landing,0);
+  input.throttle=-1;input.flags=2;p[14]=-60;
+  for(let i=0;i<180;i++)audio.update(state,input,1/60,true);
+  assert(audio.envelope.thrust>.99,'Reverse thrust still loads the engine');
+  assert.equal(audio.envelope.boost,0,'Reverse thrust must not sound like forward boost');
   audio.enabled=false;audio.update(state,input,1/60,false);
   assert.equal(audio.active,true);
 });
@@ -160,7 +164,9 @@ test('muting cancels a delayed audio resume without preventing the next activati
   const previous=globalThis.AudioContext,audio=new WorldAudio();
   let resumed;
   globalThis.AudioContext=function(){};
-  audio.context={currentTime:0,resume:()=>new Promise(resolve=>{resumed=resolve;}),suspend:async()=>{}};
+  audio.context={state:'suspended',currentTime:0,resume:()=>new Promise(resolve=>{
+    resumed=()=>{audio.context.state='running';resolve();};
+  }),suspend:async()=>{}};
   audio.master={gain:{setValueAtTime(){},setTargetAtTime(){}}};
   try {
     const pending=audio.enable();audio.mute();resumed();await pending;
@@ -169,6 +175,37 @@ test('muting cancels a delayed audio resume without preventing the next activati
     assert.equal(audio.enabled,true);
   } finally {
     clearTimeout(audio.release);
+    if(previous===undefined)delete globalThis.AudioContext;else globalThis.AudioContext=previous;
+  }
+});
+test('audio retries suspended/interrupted contexts, rejects incomplete resume and reuses voices',async()=>{
+  const previous=globalThis.AudioContext,audio=new WorldAudio();
+  let starts=0,resumes=0;
+  const parameter=()=>({value:0,setValueAtTime(value){this.value=value;},setTargetAtTime(value){this.value=value;}});
+  globalThis.AudioContext=class {
+    constructor(){this.state='suspended';this.currentTime=0;this.destination={};}
+    createGain(){return {gain:parameter(),connect(){}};}
+    createAnalyser(){return {connect(){}};}
+    createBiquadFilter(){return {frequency:parameter(),Q:parameter(),connect(){}};}
+    createBuffer(channels,length,sampleRate){const data=Array.from({length:channels},()=>new Float32Array(length));
+      return {sampleRate,getChannelData:i=>data[i]};}
+    createBufferSource(){return {playbackRate:parameter(),connect(){},start(){starts++;}};}
+    async resume(){resumes++;this.state='running';}
+  };
+  try {
+    await audio.enable();const voices=audio.voices.slice();
+    await audio.enable();assert.equal(resumes,1);
+    for(const state of ['suspended','interrupted']) {
+      audio.context.state=state;await audio.enable();
+      assert(audio.enabled);assert.equal(audio.context.state,'running');
+      assert(audio.voices.every((voice,i)=>voice===voices[i]));
+    }
+    assert.equal(starts,3);
+    audio.context.state='suspended';audio.context.resume=async()=>{};
+    await assert.rejects(audio.enable(),/Sound is suspended/);assert(!audio.enabled);
+    audio.context.state='closed';await audio.enable();
+    assert.equal(starts,6);assert.equal(audio.voices.length,3);assert(audio.enabled);
+  } finally {
     if(previous===undefined)delete globalThis.AudioContext;else globalThis.AudioContext=previous;
   }
 });

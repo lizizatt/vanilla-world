@@ -155,7 +155,8 @@ try {
       results.push({name: route.name, blocked: error.message, surface});
       continue;
     }
-    await page.locator('#drive').click();
+    if(await page.locator('#drive').isVisible())await page.locator('#drive').click();
+    else await page.locator('#world').click();
     const before = await page.evaluate(() => structuredClone(worldEvidence.state));
     const cpuBefore = await cdp.send('Performance.getMetrics');
     await page.evaluate(() => {

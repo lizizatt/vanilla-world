@@ -18,8 +18,8 @@ Open **http://127.0.0.1:4173** and select the **Data** directory in your own Cla
 1.12 installation. The browser reads the local MPQ patch chain directly. No
 exported terrain pack, login, upload or whole-archive copy into Wasm is needed.
 The native directory picker remembers a handle; a later session may require
-**Reconnect Data folder** to grant read permission again. **Choose folder as files**
-is the fallback and must be reselected after reload.
+**Reconnect Data** to grant read permission again. **Choose folder as files**
+under **Controls & settings** is the fallback and must be reselected after reload.
 
 If the build reports a missing target or binding generator, install those exact
 prerequisites, then rerun it:
@@ -40,7 +40,7 @@ The spawn height comes from the ADT, not a guessed sea-level floor.
 
 | Mode | Controls |
 |---|---|
-| Drive, native keys | W thrust, S brake, A/D steer, Space hop, Shift boost, Ctrl drift; C/J aliases, V look behind, F9 reset |
+| Drive | W thrust, S reverse, A/D steer, X brake, Space/J hop, Shift boost, Ctrl/C drift, V look behind, F9 reset |
 | Standard controller | Left stick steer, RT thrust minus LT reverse, RB boost, LB drift, A hop, right stick orbit, D-pad zoom, Y reset, Start drive/fly |
 | Chase camera | Right-drag or arrow-key orbit, wheel zoom; 0.5-second position filter by default |
 | Free flight | W/S forward/back, A/D strafe, Q/E altitude, arrows look, Shift fast |
@@ -48,27 +48,37 @@ The spawn height comes from the ADT, not a guessed sea-level floor.
 | Return to vehicle | Returns to the parked hovercraft; does not teleport it to the flight camera |
 
 Click the view to capture keyboard input. Flight is deliberately collision-free.
-**Save locally** stores the parked vehicle, flight camera, mode and display
-settings. **Load save** restores them; **Start at raceway** recovers without
+**Save** stores the parked vehicle, flight camera, mode and display
+settings. **Load** restores them; **Reset** recovers without
 overwriting a saved pose until you explicitly save.
 Display switches do not disable collision.
-The **Controls, camera & sound** panel retains the original browser key profile
-(S reverse / Space brake). Existing saves without a profile keep those bindings;
-new sessions default to native keys. Gamepad inputs use standard browser mappings,
+**Controls & settings** keeps the existing **Space key** choice: hop (default) or
+brake (legacy saves); J always hops. **S reverses and X brakes in both profiles**,
+matching the controller's signed throttle without applying brake to reverse.
+Gamepad inputs use standard browser mappings,
 deadzone rescaling and press edges; disconnect, lost focus and editing controls
 clear thrust instead of leaving a stuck accelerator. Flight retains keyboard
 movement, with right-drag look.
 
 The amber/teal instruments show actual signed motion, airborne/hold state and
-boost reserve. **Procedural engine sound** enables an original low twin-engine
+boost reserve. The visible **Sound** control enables an original low twin-engine
 core, filtered stereo airflow and a building/releasing boost wash through three
 reused Web Audio voices. Pitch/load follow actual speed and controls; collision
 holds release thrust/boost rather than suggesting forward acceleration.
 Airborne, actual water contact, lift/landing and brake edges subtly change the
 same layers without spawning extra sounds. There are no sampled game sounds,
-music or audio dependencies. It starts only after interaction, fades outside driving,
-and suspends when muted/hidden. Browser permission policy may require another click
-after restoring a sound-enabled save.
+music or audio dependencies. Sound is opt-in and its saved on/off preference is
+preserved, including when resuming fails. **Resume sound** is shown when an enabled
+preference has no running audio context; actual errors stay visible next to it.
+Canvas clicks/keys can also retry. Ordinary toolbar/help focus no longer silences
+the foreground engine. Flight, editing, backgrounding and explicit mute still
+pause it; returning focus retries an existing wanted context without unmuting a
+saved-off preference. Output-device audibility is not inferred from analyser RMS.
+
+The default view keeps driving instruments and folder/save/sound/flight controls.
+Instructions and configuration are collapsed under **Controls & settings**;
+stream/cache counters update only while **Diagnostics** is open. Actual loading
+failures remain separately discoverable under **Loading issues**.
 
 The player craft resolves local display **10318** and renders its authored M2 and
 textures independently of scenery visibility. Its weighted **Stand frame 0**
@@ -79,7 +89,7 @@ explicit craft error, and the craft is hidden during free flight. The mount's ra
 and posed attachment 0 are available, but do not supply a selected rider's head
 height or an animated cockpit.
 
-**Handling & camera** edits the 17 existing Rust physics parameters plus camera
+**Handling** edits the 17 existing Rust physics parameters plus camera
 smoothing seconds. Rust validates the complete set; successful writes persist in
 a separate per-install tuning record without overwriting the saved vehicle pose.
 Failed storage leaves active handling unchanged. There are no gameplay upper
@@ -147,12 +157,20 @@ Only one distant ADT read is outstanding, started at most twice a second after
 current collision requirements are ready; late results for an evicted selection
 are discarded. Existing near placements are reused without another archive read.
 Combined model drawing retains a nearest-first prefix capped at **two million
-triangles and 4096 draw calls**; any omitted instances are reported in the HUD.
+triangles and 4096 draw calls**; any omitted instances are reported in Diagnostics.
 Terrain and opaque/cutout commands reuse bounded WebGPU render bundles without
 omitting draws. Membership, material, resource or uniform-offset changes rebuild
 them; transparent batches still sort back-to-front every frame. Batch paths and
 pipelines are prepared once, static instance transforms retain floating-origin
 precision, and each frame writes directly into the existing uniform buffer.
+
+The worker separately negotiates `sceneInstanceUpdates`: a complete nearest-first
+`instanceOrder` plus only changed `id/key/matrix/kind/distant` descriptors.
+The renderer retains unchanged objects and transform caches, validates IDs before
+changing resources, and drops removed instances. Region transitions resend every
+descriptor; sender caches advance only after a successful post. Older full-instance
+and asset-only message behavior remains supported. This changes visual transport,
+not collision readiness, physics timing or presentation delay.
 
 Collision uses **BVH-indexed authored collision triangles**, with continuous
 two-sided swept hull tests (half-extents 1.1 east / 0.5 up / 1.1 south yards)
@@ -172,7 +190,7 @@ Collision does not
 wait for alpha textures. Unavailable nearby geometry is held explicitly; unresolved M2
 extents use a conservative 32-yard proximity guard, not a proof of empty space.
 Terrain, near-object and solid-contact hold counters are exposed in
-`window.worldEvidence.state.holds`. **Retry terrain** also retries failed scene
+`window.worldEvidence.state.holds`. **Retry loading** also retries failed scene
 assets and the player craft. Transformed meshes and the BVH are live caches,
 invalidated by scene membership; no persistent collision bake or silent collision
 disablement is implemented.
@@ -209,6 +227,7 @@ npm --prefix .\browser test
 node .\browser\overworld-smoke.mjs
 node .\browser\distant-smoke.mjs
 node .\browser\feel-smoke.mjs
+node .\browser\sound-smoke.mjs # Defaults to isolated http://127.0.0.1:4183; BASE_URL overrides it
 node .\browser\audio-smoke.mjs
 node .\browser\performance-smoke.mjs
 ```
@@ -364,6 +383,25 @@ initial one-time graph/buffer creation takes about 17-22 ms across repeats.
 The real-time lifecycle capture measures p99/max update cost of 0.2 ms.
 These are isolated CPU captures,
 not an end-to-end driving-continuity measurement.
+
+The separate `sound-smoke.mjs` exercises normal `/` onboarding with actual Sound,
+Resume and canvas clicks, without an autoplay bypass or browser mute flag.
+Its retained before/after capture reproduces settings-focus silence (RMS 0)
+and an enabled-but-suspended context that ignored clicks. After recovery changes,
+settings-focus output is 0.033 RMS and a canvas click resumes the same three
+voices. It also checks failed/pending resume retries, flight pause, explicit
+mute, loading a muted save and saved on/off preferences across reloads.
+Suspension/failure injection never manually starts a context. Headless tab
+activation did not change document focus/visibility: that failed precondition
+is retained, and the focus-handler check is explicitly **injected blur/focus
+events**, not an OS-focus test. Analyser samples can remain stale while suspended;
+nonzero samples alone do not establish output. No subjective listening or
+user-device/per-tab mute check is claimed.
+Integrated validation passes 114 JavaScript tests and the Edge sound/feel/offline
+checks with shell cache v18. Onboarding evidence is retained under
+`test-results/sound-onboarding/{before,after}`. The sound run's CPU snapshot was
+85%; these functional checks are not a performance comparison.
+
 The distant check compares actual screenshots with models enabled/disabled at
 1400-yard camera altitude on both continents; it asserts visible changed pixels,
 real cutout batches, unchanged terrain residency and no distant collision holds.
@@ -422,9 +460,8 @@ sample. Already accumulated unsent time drains on the reply instead of waiting
 for another display frame; the existing 0.1-second catch-up cap remains. Pose/mode
 transitions and pauses discard pending input, and old-world replies cannot drain
 into a replacement world. This advances real simulation, not interpolated poses.
-New clients also negotiate resource-only scene updates: unchanged ordered
-instance graphs remain in the renderer, preserving their local caches. Geometry,
-ordering, transforms and region changes still publish full current lists.
+Resource-only scene events retain unchanged instances and local render caches.
+Membership/transform changes use the negotiated scene protocol described above.
 Required collision selection, snapshots, BVH updates and camera data stay ahead
 of physics; optional visual packing/publication and job starts follow the real
 pose response within the same serialized queue. Publication failure immediately
@@ -436,6 +473,32 @@ Admitted detailed terrain supplies scene placements from its resident Rust
 terrain/collision readiness remains before physics. Terrain material construction
 is visual-only work after the pose reply; removing a tile invalidates its pending
 material work. These changes preserve authored placement data and collision geometry.
+
+### Remaining scene-transfer and terrain hitches
+
+The ordered-scene optimization's matched 45-second cold-start captures reduced
+scene-post total time **613 to 54.3 ms**, p99 **5.6 to 0.3 ms**, and maximum
+**24.7 to 2.8 ms**. Descriptors fell from 335390 to 1932, while 331054 ordered IDs
+were still sent. Both runs covered about 1605 yards without discarded time/errors.
+Presented freezes over 50 ms stayed **2 versus 2**; maximum was 76.2/66.8 ms.
+This establishes a transport-cost reduction, **not fewer overall cold-run freezes**.
+
+The subsequent unprofiled 180-second run covered 6010 yards, with 179.2 seconds
+moving, but had **15 presented freezes over 50 ms, maximum 117.9 ms, and 57.4 ms
+client-discarded time**. It failed the strict gate and was worse than the prior
+180-second capture. No cause is inferred from CPU snapshots (66%, 63%, 53%);
+sound/video were off, and the operating-system file cache was uncontrolled.
+Headless Edge 155 rendered at 1206 x 534 CSS/backing pixels, DPR 1; all 45/45/180
+samples were focused/visible with no recorded transitions (not an OS-focus check).
+The short runs used profiling with no warmup; sustained used no profiler and
+15 seconds of warmup. All used confirmed 30 ms presentation and fresh contexts.
+All 29 held draws matched raw poses; ten rebases and four physical reversals
+occurred, with no runtime errors or worker-discarded time.
+Thirteen tails overlap terrain admission/visual work; the largest overlaps a
+134.6 ms worker handler (77.9 ms terrain, 56 ms scene including a 38 ms snapshot).
+Two pre-handler waits remain unexplained. Traces/profiles are retained in the
+peer's `ordered-scene-{before,after,sustained}` evidence folders; no tuning loop
+followed. `SCENE_UPDATES=0` is a harness-only same-source comparison switch.
 
 [ASSETS.md](ASSETS.md) documents the bounded MPQ reader, corruption semantics,
 77-file native/Node/Edge parity and the whole-install codec census. All 2,389,542

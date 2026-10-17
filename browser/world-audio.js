@@ -64,9 +64,12 @@ export class EngineEnvelope {
 export class WorldAudio {
   constructor(){this.envelope=new EngineEnvelope();this.enabled=false;this.voices=[];this.active=false;this.activation=0;}
   async enable() {
+    if(this.enabled && this.context?.state==='running')return;
     const activation=++this.activation;
+    this.enabled=false;
     if(!globalThis.AudioContext)throw new Error('Web Audio is unavailable in this browser.');
-    if(!this.context) {
+    if(!this.context || this.context.state==='closed') {
+      this.voices=[];
       this.context=new AudioContext();
       this.master=this.context.createGain();this.master.gain.value=0;
       this.analyser=this.context.createAnalyser();this.master.connect(this.analyser);this.analyser.connect(this.context.destination);
@@ -83,6 +86,7 @@ export class WorldAudio {
     clearTimeout(this.release);
     await this.context.resume();
     if(activation!==this.activation)return;
+    if(this.context.state!=='running')throw new Error(`Sound is ${this.context.state}. Try Resume sound.`);
     this.envelope.reset();this.active=false;
     for(const voice of this.voices)voice.gain.gain.setValueAtTime(0,this.context.currentTime);
     this.master.gain.setValueAtTime(0,this.context.currentTime);this.enabled=true;
@@ -90,10 +94,13 @@ export class WorldAudio {
   mute() {
     this.activation++;
     this.enabled=false;this.active=false;
-    if(!this.context)return;
-    this.master.gain.setTargetAtTime(0,this.context.currentTime,.06);
     clearTimeout(this.release);
-    this.release=setTimeout(()=>this.context.suspend().catch(error=>console.error('Engine audio suspension failed',error)),200);
+    const context=this.context;
+    if(!context || context.state==='closed')return;
+    this.master.gain.setTargetAtTime(0,context.currentTime,.06);
+    this.release=setTimeout(()=>{
+      if(context.state!=='closed')context.suspend().catch(error=>console.error('Engine audio suspension failed',error));
+    },200);
   }
   update(state,input,dt,active) {
     if(!this.enabled || this.context?.state!=='running')return;

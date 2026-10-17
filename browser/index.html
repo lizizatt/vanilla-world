@@ -3,53 +3,59 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Vanilla World | Your local overworld</title>
+  <title>Vanilla World</title>
   <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-  <header><div><span class="eyebrow">VANILLA WORLD / LOCAL FIRST</span><h1>The long way home.</h1></div><span class="badge">RUST + WEBGPU</span></header>
+  <h1 class="sr-only">Vanilla World</h1>
   <main>
     <section class="viewport" aria-label="Interactive racer view">
-      <canvas id="world" tabindex="0" aria-label="Local world. Native controls: W thrust, S brake, A D steer, Space hop. Flight uses Q E altitude and arrow keys to look."></canvas>
-      <div class="overlay"><span id="place">TWO CONTINENTS. ONE LOCAL WORLD.</span><span id="status" role="status">Preparing WebGPU...</span><span id="coordinates"></span></div>
-      <div id="welcome"><h2>Your Azeroth.<br>No server required.</h2><p>Select the <strong>Data</strong> folder from your own Classic 1.12 installation. Drive or fly across one continuous world; terrain streams around you. The Thousand Needles raceway is only your starting point.</p><p>No upload. No account. Read-only archives.</p></div>
-      <div class="meters" aria-label="Hover telemetry">
-        <div class="speed-instrument"><span>TWIN DRIVE / VELOCITY</span><strong id="speed">000</strong><span><b id="direction">IDLE</b> / YD/S</span><progress id="speed-meter" max="1" value="0" aria-label="Fraction of boost speed"></progress></div>
-        <div class="state-instrument"><strong id="drive-state">STANDBY</strong><span id="motion">Select your local Data folder</span><span id="input-device">KEYBOARD</span></div>
-        <div class="boost-instrument"><span>BOOST RESERVE</span><strong id="boost">100%</strong><progress id="boost-meter" max="1" value="1" aria-label="Boost reserve"></progress></div>
-        <div class="stream-instrument"><strong id="resident">LOCAL OVERWORLD</strong><span id="details">Waiting for Data folder</span></div>
+      <canvas id="world" tabindex="0" aria-label="World. W thrust, S reverse, A D steer, X brake, Space or J hop. More controls below."></canvas>
+      <div class="overlay"><span id="status" role="status">Preparing graphics...</span></div>
+      <div id="welcome"><p>Choose your Classic 1.12 <strong>Data</strong> folder. Files stay on your computer.</p></div>
+      <div class="meters" aria-label="Hover telemetry" hidden>
+        <div class="speed-instrument"><span>Speed</span><strong id="speed">000</strong><span><b id="direction">IDLE</b> / YD/S</span><progress id="speed-meter" max="1" value="0" aria-label="Fraction of boost speed"></progress></div>
+        <div class="state-instrument"><strong id="drive-state">PARKED</strong><span id="motion"></span></div>
+        <div class="boost-instrument"><span>Boost</span><strong id="boost">100%</strong><progress id="boost-meter" max="1" value="1" aria-label="Boost reserve"></progress></div>
       </div>
     </section>
     <section class="toolbar" aria-label="Local world and save controls">
-      <button id="select" class="primary" disabled>Select Data folder</button><button id="fallback" disabled>Choose folder as files</button>
+      <button id="select" class="primary" disabled>Choose Data</button>
       <input id="files" type="file" webkitdirectory multiple hidden aria-label="Select Classic Data folder">
-      <button id="save" disabled>Save locally</button><button id="load" disabled>Load save</button><button id="reset" disabled>Start at raceway</button>
-      <button id="retry" disabled>Retry terrain</button>
-      <label><input id="horizon" type="checkbox" checked> Distant terrain</label>
-      <label><input id="scenery" type="checkbox" checked> Models &amp; NPCs</label>
-      <label><input id="distant" type="checkbox" checked> Distant models</label>
-      <button id="overview" disabled>World overview</button><button id="fly" disabled>Free flight</button><button id="drive" disabled>Return to vehicle</button>
-      <button id="tuning" disabled>Handling &amp; camera</button><button id="cockpit" disabled title="Requires an authored rider seat">Cockpit</button>
+      <button id="save" disabled>Save</button><button id="load" disabled>Load</button>
+      <label class="sound-control"><input id="sound" type="checkbox"> Sound</label>
+      <button id="resume-sound" hidden>Resume sound</button><span id="sound-status" role="status"></span>
+      <button id="fly" disabled title="Free camera; your vehicle stays parked">Fly</button><button id="drive" disabled hidden>Drive</button>
     </section>
-    <details id="preferences"><summary>Controls, camera &amp; sound</summary><div class="preferences">
-      <label>Keyboard profile <select id="control-profile"><option value="native">Native: S brake / Space hop</option><option value="legacy">Legacy: S reverse / Space brake</option></select></label>
-      <label>Chase distance <input id="camera-distance" type="range" min="0" max="50" step="0.5" value="15" aria-label="Chase distance in yards"></label><span id="camera-status">Chase collision initializing</span>
-      <label><input id="sound" type="checkbox"> Procedural engine sound</label><span id="sound-status">Sound off</span>
-    </div></details>
-    <p id="keyboard-guide" class="controls">W thrust · S brake · A/D steer · Shift boost · Ctrl drift · Space hop. C/J remain drift/hop aliases. F9 returns to raceway without overwriting your save.</p>
-    <p class="controls">Camera: right-drag or arrows to orbit · wheel to zoom · V look behind. Controller: left stick steer, RT thrust / LT reverse, right stick orbit, RB boost, LB drift, A hop, D-pad zoom, Y reset, Start drive/fly, Back controls.</p>
-    <p class="controls">Flight: <kbd>W</kbd><kbd>S</kbd> forward/back · <kbd>A</kbd><kbd>D</kbd> strafe · <kbd>Q</kbd><kbd>E</kbd> altitude · arrows look · <kbd>Shift</kbd> fast. Return to vehicle leaves your hovercraft where you parked it.</p>
+    <details id="preferences"><summary>Controls &amp; settings</summary>
+      <p id="keyboard-guide" class="controls">W/S thrust/reverse · A/D steer · X brake · Space/J hop · Shift boost · Ctrl/C drift · F9 reset.</p>
+      <p class="controls">Camera: right-drag/arrows orbit · wheel zoom · V look back. Flight: W/S forward/back · A/D strafe · Q/E altitude · Shift fast.</p>
+      <p class="controls">Controller: left stick steer · RT/LT thrust/reverse · RB boost · LB drift · A hop · right stick orbit · D-pad zoom · Y reset · Start fly/drive · Back help.</p>
+      <div class="preferences">
+        <label>Space key <select id="control-profile"><option value="native">Hop</option><option value="legacy">Brake</option></select></label>
+        <label>Camera distance <input id="camera-distance" type="range" min="0" max="50" step="0.5" value="15" aria-label="Chase distance in yards"></label>
+        <label><input id="horizon" type="checkbox" checked> Distant terrain</label>
+        <label><input id="scenery" type="checkbox" checked> Scenery</label>
+        <label><input id="distant" type="checkbox" checked> Distant models</label>
+      </div>
+      <div class="toolbar">
+        <button id="reset" disabled title="Return to raceway without overwriting your save">Reset</button><button id="retry" disabled>Retry loading</button>
+        <button id="overview" disabled>Overview</button><button id="tuning" disabled>Handling</button><button id="cockpit" disabled title="Unavailable without a selected rider model">Cockpit</button>
+        <button id="fallback" disabled>Choose folder as files</button>
+      </div>
+      <footer><span id="offline"></span><span id="permission"></span><button id="forget">Forget folder</button></footer>
+    </details>
     <dialog id="tuning-panel" aria-labelledby="tuning-title"><form id="tuning-form">
-      <h2 id="tuning-title">Handling &amp; camera</h2><p>Brakes held while open. Apply validates and saves all fields together for this Data installation. No gameplay upper ceilings.</p>
+      <h2 id="tuning-title">Handling</h2><p>Brakes held while editing.</p>
       <div id="tuning-fields"></div><p id="tuning-status" role="status"></p>
       <div class="toolbar"><button type="submit">Apply &amp; save</button><button id="tuning-defaults" type="button">Restore defaults</button><button id="tuning-close" type="button">Close</button></div>
     </form></dialog>
-    <p id="error" role="alert" hidden></p><pre id="problems" hidden></pre>
-    <p id="material-status" class="scope">Terrain materials stream from your local Data archives.</p>
-    <p id="population" class="scope">Static NPCs require a private local companion pack; client Data alone has no spawn positions.</p>
-    <p id="craft-status" class="scope">Player craft loads from authored local model data.</p>
-    <details><summary>About this local world</summary><p class="scope">An alternate web rendering adapter using actual Rust physics and client formats, not a Bevy/VMaNGOS port or singleplayer RPG. Complete coarse continents, layered detailed terrain, authored models/textures and optional static NPCs. Four collision tiles and up to twelve separate visual metadata tiles stream around you; missing terrain holds the vehicle rather than becoming ocean. Distant models reach up to 6000 yards within shared cache limits, with real alpha and depth. Collision uses authored triangles, independently of visual texture arrival. Native-style controls, instruments, tuning and procedural engine sound remain fully local. Exact rider cockpit, full animation, quests and combat are not implemented. The 8192-yard ocean and Eastern Kingdoms' southward placement are provisional geography.</p></details>
-    <footer><span id="offline"></span><span id="permission"></span><button id="forget">Forget remembered folder</button></footer>
+    <p id="error" role="alert" hidden></p>
+    <details id="resource-problems" hidden><summary>Loading issues</summary><pre id="problems"></pre></details>
+    <details id="diagnostics"><summary>Diagnostics</summary>
+      <p id="place"></p><p id="coordinates"></p><p id="input-device"></p><p id="camera-status"></p>
+      <p id="resident"></p><p id="details"></p><p id="material-status"></p><p id="population"></p><p id="craft-status"></p>
+    </details>
   </main>
   <script type="module" src="./world-app.js"></script>
 </body>

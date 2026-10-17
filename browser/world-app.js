@@ -14,10 +14,13 @@ const cameraCollision=new CameraCollision();
 const evidence={ready:false,frames:0,errors:[],mode:'drive'};
 window.worldEvidence=evidence;
 let renderer,folder,flight,running=false,busy=false,last=0,frames=0,hudTime=0,hudFrames=0,permissionNeeded=false;
-let orbit=[0,0],dragging=false,soundStarting=false,testPads,frozenPresentation=false,tuningValues=TUNING_FIELDS.map(f=>f[1]);
+let orbit=[0,0],dragging=false,soundAttempt=0,soundError='',soundTime=0,reportTimer,testPads,frozenPresentation=false,tuningValues=TUNING_FIELDS.map(f=>f[1]);
 const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:false};
 const settings={...defaults};
-const report=text=>{$('status').textContent=text;};
+const report=(text,temporary=false)=>{
+  clearTimeout(reportTimer);if($('status').textContent!==text)$('status').textContent=text;
+  if(temporary)reportTimer=setTimeout(()=>$('status').textContent='',4000);
+};
 function fail(error) {
   if(error.name==='AbortError')return;
   const message=error.message || String(error);
@@ -26,7 +29,7 @@ function fail(error) {
 const client=new WorldClient(data=>{
   try {
     evidence.eventRevision=(evidence.eventRevision||0)+1;
-    if(data.event==='progress')report(data.text);
+    if(data.event==='progress'){if(!evidence.ready)report('Loading world...');}
     else {
       cameraCollision.event(data);
       if(data.event==='collision')renderer.clipCamera=(pivot,point,origin)=>cameraCollision.clip(pivot,point,origin);
@@ -35,6 +38,7 @@ const client=new WorldClient(data=>{
   } catch(error){running=false;fail(error);}
 },error=>{running=false;fail(error);},()=>running&&!busy&&!document.hidden&&!frozenPresentation);
 function enabled(value) {
+  document.querySelector('.meters').hidden=!value;
   for(const id of ['save','load','reset','retry','overview','fly','drive'])$(id).disabled=!value;
   $('tuning').disabled=!value || !Array.isArray(client.info?.tuning);
   $('cockpit').disabled=!value;
@@ -43,21 +47,36 @@ function syncSettings() {
   for(const key of ['horizon','scenery','distant','sound'])$(key).checked=settings[key];
   $('control-profile').value=settings.controls;$('camera-distance').value=settings.cameraDistance;
   $('keyboard-guide').textContent=settings.controls==='legacy'
-    ?'Legacy keys: W/S thrust/reverse · A/D steer · Space brake · Shift boost · C/Ctrl drift · J hop.'
-    :'Native keys: W thrust · S brake · A/D steer · Shift boost · Ctrl drift · Space hop. C/J remain drift/hop aliases. F9 resets without overwriting your save.';
+    ?'W/S thrust/reverse · A/D steer · X/Space brake · J hop · Shift boost · Ctrl/C drift · F9 reset.'
+    :'W/S thrust/reverse · A/D steer · X brake · Space/J hop · Shift boost · Ctrl/C drift · F9 reset.';
+  canvas.setAttribute('aria-label',`World. ${$('keyboard-guide').textContent} More controls below.`);
+  syncSound();
 }
-async function resumeAudio() {
-  if(!settings.sound || audio.enabled || soundStarting)return;
-  soundStarting=true;
-  try {await audio.enable();}catch(error){settings.sound=false;$('sound').checked=false;fail(error);}
-  finally {soundStarting=false;}
+function syncSound() {
+  const paused=audio.context?.state!=='running' || !audio.enabled;
+  evidence.audio={wanted:settings.sound,enabled:audio.enabled,state:audio.context?.state || 'off',voices:audio.voices.length,
+    active:audio.active&&!paused,masterGain:audio.master?.gain.value || 0,error:soundError};
+  $('sound').checked=settings.sound;
+  $('resume-sound').hidden=!settings.sound || !paused;
+  $('sound-status').textContent=!settings.sound?'':soundError || (paused?'':flight?'Paused in flight':!audio.active?'Paused':'');
+}
+function pauseAudio() {
+  soundAttempt++;audio.mute();soundError='';syncSound();
+}
+async function resumeAudio(gesture=false) {
+  if(!settings.sound || (!gesture&&!audio.context) || (audio.enabled&&audio.context?.state==='running'))return;
+  const attempt=++soundAttempt;soundError='';
+  try {await audio.enable();}
+  catch(error){
+    if(attempt===soundAttempt){soundError=error.message || String(error);console.error('Sound could not start',error);}
+  } finally {if(attempt===soundAttempt)syncSound();}
 }
 function zoom(steps) {
   settings.cameraDistance=Math.max(0,Math.min(50,settings.cameraDistance-steps));
   $('camera-distance').value=settings.cameraDistance;
 }
 function cockpit() {
-  report('Cockpit unavailable: no rider model is selected, so its head height and animated seat frame are unavailable.');
+  report('Cockpit unavailable: no rider model is selected.',true);
   evidence.cockpit={available:false,reason:'Selected rider head height and animated seat frame unavailable'};
 }
 function fillTuning(values,seconds) {
@@ -71,24 +90,25 @@ async function applyTuning(record) {
   await client.request('tuning',{values:canonical.values});
   tuningValues=canonical.values;settings.cameraSeconds=canonical.cameraSeconds;
   running=true;$('error').hidden=true;
-  fillTuning(tuningValues,settings.cameraSeconds);$('tuning-status').textContent='Applied and saved for this Data installation.';
+  fillTuning(tuningValues,settings.cameraSeconds);$('tuning-status').textContent='Saved.';
 }
 async function restore(save) {
   validateWorldSave(save,client.info.id);
   if(!save)return false;
   client.state=await client.request('restore',{pose:save.vehicle});
   Object.assign(settings,{distant:true,controls:'legacy',cameraDistance:15,sound:false},save.settings);syncSettings();
+  if(!settings.sound)pauseAudio();else resumeAudio();
   flight=save.mode==='fly'?save.camera.slice():undefined;
   renderer.camera=undefined;
   return true;
 }
 async function open(selection,remember=false) {
   if(busy)return;
-  busy=true;running=false;enabled(false);$('error').hidden=true;$('welcome').hidden=false;
+  busy=true;running=false;enabled(false);$('error').hidden=true;$('welcome').hidden=true;report('Loading world...');
   $('select').disabled=true;evidence.ready=false;
   let opened=false;
   try {
-    renderer.reset();renderer.clipCamera=undefined;cameraCollision.reset();flight=undefined;audio.mute();Object.assign(settings,defaults);syncSettings();
+    renderer.reset();renderer.clipCamera=undefined;cameraCollision.reset();flight=undefined;pauseAudio();Object.assign(settings,defaults);syncSettings();
     const result=await client.open(selection);
     renderer.configure(result.info.manifest);
     cameraCollision.configure(result.info.manifest);
@@ -98,19 +118,18 @@ async function open(selection,remember=false) {
     evidence.info=result.info;evidence.source='local Data archives';
     $('welcome').hidden=true;enabled(true);running=true;
     const save=await worldSave(result.info.id);
-    if(await restore(save))report('Restored your local world save.');
-    else report('Thousand Needles raceway. Your world is read directly from local Data.');
+    const restored=await restore(save);
     const tune=await worldTuning(result.info.id);
     if(tune) {
       validateTuningRecord(tune);
       await client.request('tuning',{values:tune.values});
       tuningValues=tune.values.slice();settings.cameraSeconds=tune.cameraSeconds;
     }
-    evidence.ready=true;canvas.focus();
+    evidence.ready=true;report(restored?'Loaded.':'',restored);canvas.focus();
   } catch(error) {
-    fail(error);
+    fail(error);report('');
     if(opened){enabled(true);running=true;evidence.ready=true;}
-    else client.stop();
+    else {client.stop();$('welcome').hidden=false;}
   } finally {busy=false;$('select').disabled=false;}
 }
 async function select() {
@@ -118,7 +137,7 @@ async function select() {
   try {
     if(permissionNeeded && folder) {
       if(!await authorizeDataFolder(folder,{request:true}))throw new Error('Read permission was not granted. Choose another Data folder or try again.');
-      permissionNeeded=false;$('select').textContent='Change Data folder';await open(folder,true);return;
+      permissionNeeded=false;$('select').textContent='Choose Data';await open(folder,true);return;
     }
     if(!window.showDirectoryPicker){$('files').click();return;}
     const handle=await showDirectoryPicker({id:'vanilla-world-data',mode:'read'});
@@ -130,13 +149,13 @@ $('fallback').addEventListener('click',()=>$('files').click());
 $('files').addEventListener('change',()=>{
   const files=[...$('files').files];
   if(files.length) {
-    $('permission').textContent='Directory-file mode: reselect Data after reload. Saves remain local.';
+    $('permission').textContent='Reselect Data after reload. Saves stay local.';
     open(files.map(file=>({path:file.webkitRelativePath || file.name,file})));
   }
 });
 $('forget').addEventListener('click',async()=>{
-  try {await forgetDataFolder();folder=undefined;permissionNeeded=false;$('select').textContent='Select Data folder';
-    $('permission').textContent='Folder no longer remembered. The current world stays open; saves are retained.';}
+  try {await forgetDataFolder();folder=undefined;permissionNeeded=false;$('select').textContent='Choose Data';
+    $('permission').textContent='Folder forgotten. World and saves retained.';}
   catch(error){fail(error);}
 });
 async function operation(action) {
@@ -149,18 +168,18 @@ $('save').addEventListener('click',()=>operation(async()=>{
   const {cameraSeconds,...displaySettings}=settings;
   await worldSave(client.info.id,{version:1,layout:LAYOUT_VERSION,sourceId:client.info.id,
     mode:flight?'fly':'drive',vehicle:[p[0],p[1],p[2],p[3]],camera:flight?.slice(),settings:displaySettings});
-  report('Saved locally: vehicle, flight camera and display settings.');
+  report('Saved.',true);
 }));
 $('load').addEventListener('click',()=>operation(async()=>{
   if(!await restore(await worldSave(client.info.id)))throw new Error('No save for this Data installation yet.');
-  report('Local save restored.');running=true;
+  report('Loaded.',true);running=true;
 }));
 $('reset').addEventListener('click',()=>operation(async()=>{
   flight=undefined;client.state=await client.request('reset');renderer.camera=undefined;running=true;
-  $('error').hidden=true;report('Returned to the Thousand Needles raceway. Existing save retained until you save.');
+  $('error').hidden=true;report('Reset. Save unchanged.',true);
 }));
 $('retry').addEventListener('click',()=>operation(async()=>{
-  client.state=await client.request('retry');running=true;report('Retrying unavailable terrain, scene assets and player craft.');$('error').hidden=true;
+  client.state=await client.request('retry');running=true;report('Retrying loading...',true);$('error').hidden=true;
 }));
 $('fly').addEventListener('click',()=>{
   const p=client.state?.telemetry;if(!p)return;
@@ -173,7 +192,8 @@ $('scenery').addEventListener('change',()=>{settings.scenery=$('scenery').checke
 $('distant').addEventListener('change',()=>{settings.distant=$('distant').checked;});
 $('control-profile').addEventListener('change',()=>{settings.controls=$('control-profile').value;keys.clear();input.keyboard();syncSettings();});
 $('camera-distance').addEventListener('input',()=>{settings.cameraDistance=Number($('camera-distance').value);});
-$('sound').addEventListener('change',async()=>{settings.sound=$('sound').checked;if(settings.sound)await resumeAudio();else audio.mute();canvas.focus();});
+$('sound').addEventListener('change',()=>{settings.sound=$('sound').checked;if(settings.sound)resumeAudio(true);else pauseAudio();canvas.focus();});
+$('resume-sound').addEventListener('click',()=>{canvas.focus();resumeAudio(true);});
 $('cockpit').addEventListener('click',cockpit);
 for(const [i,field] of [...TUNING_FIELDS,['Camera smoothing (s)',.5]].entries()) {
   const label=document.createElement('label'),box=document.createElement('input');
@@ -202,11 +222,11 @@ canvas.addEventListener('keydown',event=>{
     event.preventDefault();keys.add(event.code);if(!event.repeat)input.keyboard();
     if(!event.repeat && event.code==='F9')$('reset').click();
     if(!event.repeat && event.code==='KeyV' && event.ctrlKey && event.altKey && !event.shiftKey)cockpit();
-    resumeAudio();
+    resumeAudio(true);
   }
 });
 canvas.addEventListener('pointerdown',event=>{
-  canvas.focus();resumeAudio();
+  canvas.focus();resumeAudio(true);
   if(event.button===2){dragging=true;canvas.setPointerCapture(event.pointerId);}
 });
 canvas.addEventListener('pointermove',event=>{if(dragging){orbit[0]+=event.movementX;orbit[1]+=event.movementY;}});
@@ -216,10 +236,12 @@ canvas.addEventListener('contextmenu',event=>event.preventDefault());
 canvas.addEventListener('wheel',event=>{if(running && !$('tuning-panel').open){event.preventDefault();zoom(-Math.sign(event.deltaY));}},{passive:false});
 window.addEventListener('keyup',event=>keys.delete(event.code));
 canvas.addEventListener('blur',()=>{keys.clear();orbit=[0,0];dragging=false;});
-window.addEventListener('blur',()=>{keys.clear();audio.mute();});
-document.addEventListener('visibilitychange',()=>{keys.clear();last=0;if(document.hidden)audio.mute();});
+window.addEventListener('blur',()=>{keys.clear();pauseAudio();});
+window.addEventListener('focus',()=>resumeAudio());
+document.addEventListener('visibilitychange',()=>{keys.clear();last=0;if(document.hidden)pauseAudio();else resumeAudio();});
 function frame(now) {
   requestAnimationFrame(frame);
+  if(now-soundTime>250){syncSound();soundTime=now;}
   const dt=last?Math.min((now-last)/1000,.1):0;last=now;
   if(!running || !client.state || busy || document.hidden) {
     client.discardFrame();
@@ -243,27 +265,26 @@ function frame(now) {
     cameraCollision.frame(client.state,renderer.sceneRegion ?? client.state.telemetry[10]);
     const stats=renderer.draw(frozenPresentation || flight?client.state.telemetry:client.presentation(),flight,dt,frozenPresentation?0:now/1000,
       {...settings,cameraLook:controls.look,cameraOrbit},keys.has('KeyV')&&!keys.has('AltLeft')&&!keys.has('AltRight'));
-    audio.update(client.state,controls,dt,accepts&&!flight&&!frozenPresentation);
+    audio.update(client.state,controls,dt,document.hasFocus()&&!$('tuning-panel').open&&!flight&&!frozenPresentation);
     frames++;Object.assign(evidence,{frames,state:client.state,mode:flight?'fly':'drive',camera:flight?.slice(),render:stats,adapter:renderer.adapter});
     evidence.input={...controls,device:input.device};evidence.view=renderer.camera?.slice();
-    evidence.audio={enabled:audio.enabled,state:audio.context?.state || 'off',voices:audio.voices.length};
     evidence.cameraCollision={ready:cameraCollision.ready,terrainTiles:cameraCollision.tiles.size,triangles:(cameraCollision.tree?.vertices.length||0)/9};
     if(now-hudTime>250) {
       const s=client.state,p=s.telemetry,scene=s.scene;
       const held=!!scene?.waitingCollision || !!p[8];
       $('speed').textContent=flight?'FLY':p[5]<10000?p[5].toFixed(0).padStart(3,'0'):p[5].toExponential(1);
       $('direction').textContent=flight?'FREE':p[14]<-.1?'REV':p[14]>.1?'FWD':p[5]<.1?'IDLE':'--';
-      $('drive-state').textContent=flight?'FREE FLIGHT':scene?.waitingCollision||p[8]===1?'COLLISION HOLD':p[8]===3?'SOLID CONTACT':p[8]===2?'NO SUPPORT':p[7]?'HOVER':'AIRBORNE';
+      $('drive-state').textContent=flight?'FLIGHT':scene?.waitingCollision||p[8]===1?'WAIT':p[8]===3?'CONTACT':p[8]===2?'NO GROUND':p[7]?'HOVER':'AIR';
       document.querySelector('.meters').dataset.held=String(held);
       $('boost').textContent=`${Math.round(p[6]*100)}%`;$('boost-meter').value=p[6];
       $('speed-meter').value=Math.min(1,p[5]/tuningValues[1]);
-      $('input-device').textContent=input.device==='controller'?'STANDARD CONTROLLER':settings.controls==='native'?'NATIVE KEYBOARD':'LEGACY KEYBOARD';
-      $('sound-status').textContent=!settings.sound?'Sound off':audio.enabled?`Engine audio ${audio.context.state}`:'Click the view to resume saved sound';
+      $('drive').hidden=!flight;$('fly').hidden=!!flight;
+      $('motion').textContent=flight?'':scene?.waitingCollision||p[8]===1?'Loading nearby ground'
+        :p[8]===2?'Unsupported surface':p[8]===3?'Obstacle or steep ground':'';
+      if($('diagnostics').open) {
+      $('input-device').textContent=input.device==='controller'?'Controller':'Keyboard';
       $('camera-status').textContent=flight?'Flight camera is collision-free':!cameraCollision.ready?'Chase clearance waiting for geometry'
         :cameraCollision.coverageLimited?'Camera lag limited to its collision window':'Chase collision ready';
-      $('motion').textContent=flight?'Free flight / vehicle remains parked':scene?.waitingCollision
-        ?'Waiting for nearby collision geometry (not textures)'
-        :['Drive / collision ready','Waiting for detailed terrain','Unsupported surface or terrain hole','Solid geometry or steep ground'][p[8]];
       $('place').textContent=flight?'FREE FLIGHT':p[10]===-1?'THE GREAT SEA':p[10]===1?'EASTERN KINGDOMS':'KALIMDOR';
       $('coordinates').textContent=`${(flight?.[0]??p[0]).toFixed(0)} E / ${(flight?.[2]??p[2]).toFixed(0)} S`;
       $('resident').textContent=`${s.resident.length}/4 terrain tiles · ${stats.horizonTiles} distant patches · ${scene?.instances||0} scene instances`;
@@ -274,9 +295,10 @@ function frame(now) {
       $('details').textContent=`${client.info.archiveCount} local archives · ${((scene?.bytes||0)/1048576).toFixed(1)} MiB scene cache · ${scene?.pending||0} pending assets${scene?.capacityBlocked?' · scene capacity reached':''}${!flight&&scene?.waitingCollision?` · waiting for ${scene.waitingCollision} nearby collision assets`:''}${stats.gpuOmittedInstances?` · ${stats.gpuOmittedInstances} meshes beyond GPU budget`:''}`;
       $('craft-status').textContent=stats.craftReady?`Authored racer display 10318 / ${stats.craftPose}`
         :stats.craftStatus==='failed'?'Player craft failed to load; temporary body remains':'Loading authored player craft; temporary body shown';
+      }
       $('problems').textContent=[...s.failures,...(s.distant?.failures||[]),...(s.terrain?.errors||[]),...(scene?.errors||[]),
         ...(stats.craftError?[`Player craft: ${stats.craftError}`]:[])].map(e=>typeof e==='string'?e:JSON.stringify(e)).join('\n');
-      $('problems').hidden=!$('problems').textContent;
+      $('resource-problems').hidden=!$('problems').textContent;
       evidence.fps=(frames-hudFrames)*1000/(now-hudTime);hudFrames=frames;hudTime=now;
     }
   } catch(error){running=false;fail(error);}
@@ -285,16 +307,16 @@ async function start() {
   try {
     renderer=await WorldRenderer.create(canvas,error=>{running=false;fail(error);});
     $('select').disabled=false;$('fallback').disabled=false;evidence.started=performance.now();
-    report('Select your Classic 1.12 Data folder. Archives stay on your computer.');
+    report('');
     if('serviceWorker' in navigator) {
       await navigator.serviceWorker.register('./sw.js');
-      $('offline').textContent='Offline app shell enabled; local Data access still required.';
+      $('offline').textContent='Offline ready.';
     }
     folder=await restoreDataFolder();
     if(folder) {
       if(await authorizeDataFolder(folder))await open(folder);
-      else {permissionNeeded=true;$('select').textContent='Reconnect Data folder';
-        $('permission').textContent='Your folder is remembered. Reconnect grants read permission for this session.';}
+      else {permissionNeeded=true;$('select').textContent='Reconnect Data';
+        $('permission').textContent='Reconnect to allow reading your remembered folder.';}
     }
     if(new URLSearchParams(location.search).has('test'))window.worldTest={
       focus:pose=>{flight=pose.slice();},

@@ -43,7 +43,8 @@ try {
   assert(Math.hypot(state.state.telemetry[0]-start[0],state.state.telemetry[2]-start[2])>20,
     `Actual keyboard drive must move on real raceway ground: ${JSON.stringify(state.state)}`);
   await capture('driven-raceway');
-  await page.locator('#save').click();await page.waitForFunction(()=>document.getElementById('status').textContent.startsWith('Saved locally'));
+  await page.locator('#save').click();await page.waitForFunction(()=>document.getElementById('status').textContent.startsWith('Saved'));
+  await page.locator('#preferences > summary').click();
   await page.locator('#overview').click();await page.waitForTimeout(1500);
   state=await capture('complete-continents');
   assert.equal(state.render.horizonTiles,1705);
@@ -52,7 +53,7 @@ try {
   await page.keyboard.down('KeyE');await page.waitForTimeout(500);await page.keyboard.up('KeyE');
   const flown=await page.evaluate(()=>window.worldEvidence.camera);
   assert(flown[1]>state.camera[1]+300,'Actual keyboard flight must move');
-  await page.locator('#save').click();await page.waitForFunction(()=>document.getElementById('status').textContent.startsWith('Saved locally'));
+  await page.locator('#save').click();await page.waitForFunction(()=>document.getElementById('status').textContent.startsWith('Saved'));
   const savedCamera=await page.evaluate(()=>window.worldEvidence.camera);
   const parked=await page.evaluate(async()=>{
     const {worldSave}=await import('./world-store.js');

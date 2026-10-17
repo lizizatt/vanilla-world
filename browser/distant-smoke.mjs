@@ -25,6 +25,7 @@ try {
   await page.waitForFunction(()=>!document.getElementById('select').disabled);
   await page.locator('#files').setInputFiles(process.env.WOW_DATA);
   await page.waitForFunction(()=>worldEvidence.ready || worldEvidence.errors.length,{},{timeout:180000});
+  await page.locator('#preferences > summary').click();
   const poses=await page.evaluate(()=>{
     const m=worldEvidence.info.manifest,p=m.spawn,r=m.regions[1],t=1600/3;
     return [['raceway',[p[0],1400,p[2],0,-1.5]],['elwynn',[100+r.placement[0]+32*t,1400,9450+r.placement[1]+32*t,0,-1.5]]];
