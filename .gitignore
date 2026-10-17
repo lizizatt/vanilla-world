@@ -15,6 +15,7 @@
 /_install/
 /target-racer/
 /target-web/
+/target-nearby/
 /browser/pkg/
 /browser/node_modules/
 /browser/test-results/

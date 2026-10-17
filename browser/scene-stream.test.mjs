@@ -1,0 +1,133 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { SceneStream, placementMatrix, transformPoint, transformedBounds, validatePopulation, modelPath } from './scene-stream.js';
+
+const p = (id, path = 'tree.mdx', x = 0) => ({ kind: 'm2', id, path, position: [x, 0, 0], rotation: [0, 180, 0], scale: 1 });
+const fixture = ({ cutout = false } = {}) => {
+  let reads = 0, freed = 0;
+  const model = () => ({
+    metadata: () => JSON.stringify({ bounds: [[-1, -1, 0], [1, 1, 2]], batches: [{
+      texture: cutout ? 'leaves.blp' : null, alphaCutoff: cutout ? 224 / 255 : 0,
+    }] }),
+    vertices: () => new Float32Array(36), indices: () => new Uint32Array([0, 1, 2]),
+    collision_vertices: () => new Float32Array(9), collision_indices: () => new Uint32Array([0, 1, 2]),
+    free: () => freed++,
+  });
+  return {
+    source: { read: async () => { reads++; return new Uint8Array([1]); } },
+    wasm: { scene_placements: data => JSON.stringify(data), SceneModel: { m2: model },
+      SceneTexture: class {
+        metadata() { return '{"width":1,"height":1}'; }
+        rgba() { return new Uint8Array([20, 80, 30, 0]); }
+        free() { freed++; }
+      } },
+    reads: () => reads, freed: () => freed,
+  };
+};
+
+test('ADT rotations preserve source axes, tilted scale, bounds and translation', () => {
+  const identity = placementMatrix(p(1));
+  assert.deepEqual(transformPoint(identity, [1, 2, 3]).map(v => Math.round(v)), [1, 2, 3]);
+  const heading = placementMatrix({ ...p(1), rotation: [0, 270, 0] });
+  const point = transformPoint(heading, [1, 0, 0]);
+  assert.ok(Math.abs(point[0]) < 1e-10 && Math.abs(point[1] - 1) < 1e-10);
+  const tilted = placementMatrix({ ...p(1), rotation: [32, 73, -24], scale: 2, position: [20, -9, 7] });
+  const delta = transformPoint(tilted, [1, 2, 3]).map((v, i) => v - [20, -9, 7][i]);
+  assert.ok(Math.abs(Math.hypot(...delta) - Math.sqrt(14) * 2) < 1e-9);
+  assert.deepEqual(transformedBounds([[-1, -2, -3], [1, 2, 3]], identity), [[-1, -2, -3], [1, 2, 3]]);
+  assert.throws(() => placementMatrix({ ...p(1), scale: NaN }));
+  assert.throws(() => modelPath('..\\secret'));
+  assert.equal(modelPath('WORLD/Tree.MDX'), 'world\\tree.m2');
+});
+
+test('adjacent ADT duplicates share geometry, bounded jobs and caches evict old demand', async () => {
+  const f = fixture(), stream = new SceneStream(f.source, f.wasm, { assets: 2, jobs: 1 });
+  stream.setTile('1:0:0', [p(1), p(2)]);
+  stream.setTile('1:1:0', [p(1)]);
+  stream.update(1, [0, 0, 0]); await stream.pump();
+  assert.equal(f.reads(), 1); assert.equal(f.freed(), 1);
+  assert.equal(stream.snapshot().instances.length, 2);
+  assert.equal(stream.snapshot().assets.size, 1);
+  stream.removeTile('1:0:0'); stream.removeTile('1:1:0');
+  stream.setTile('1:3:0', [p(3, 'other.m2'), p(4, 'third.m2')]);
+  stream.update(1, [0, 0, 0]); await stream.pump();
+  assert.equal(f.reads(), 2);
+  await stream.pump();
+  assert.equal(stream.snapshot().cachedAssets, 2);
+  assert.ok(stream.snapshot().cachedBytes < stream.limits.bytes);
+  assert.ok(!stream.cache.has('m2:tree.m2:[]'));
+  stream.update(0, [0, 0, 0]);
+  assert.equal(stream.snapshot().instances.length, 0);
+  stream.clear(); assert.equal(stream.bytes, 0);
+});
+
+test('actual alpha texture gates leaf cards and missing/corrupt are distinct', async () => {
+  const f = fixture({ cutout: true }), stream = new SceneStream(f.source, f.wasm, { jobs: 1 });
+  stream.setTile('1:0:0', [p(1)]); stream.update(1, [0, 0, 0]); await stream.pump();
+  assert.equal(stream.snapshot().instances.length, 0);
+  await stream.pump();
+  assert.equal(stream.snapshot().instances.length, 1);
+  assert.equal(stream.snapshot().textures.get('leaves.blp').rgba[3], 0);
+  for (const code of ['NOT_FOUND', 'CORRUPT']) {
+    const broken = new SceneStream({ read: async () => { throw Object.assign(new Error('asset failed'), { code }); } }, f.wasm);
+    broken.setTile('1:0:0', [p(1)]); broken.update(1, [0, 0, 0]); await broken.pump();
+    assert.equal(broken.snapshot().errors[0].code, code);
+    assert.equal(broken.snapshot().instances.length, 0);
+  }
+});
+
+test('late asynchronous completion cannot repopulate a cleared world', async () => {
+  const f = fixture(); let resolve;
+  const stream = new SceneStream({ read: () => new Promise(r => { resolve = r; }) }, f.wasm);
+  stream.setTile('1:0:0', [p(1)]); stream.update(1, [0, 0, 0]);
+  const pump = stream.pump(); stream.clear(); resolve(new Uint8Array([1])); await pump;
+  assert.equal(stream.snapshot().cachedAssets, 0);
+});
+
+test('private NPC provenance, corruption and bounded local residency', async () => {
+  assert.throws(() => validatePopulation(null));
+  const pack = { version: 1, provenance: { source: 'synthetic-test-only', redistribution: 'private-local-only' },
+    models: { 7: { path: 'creature.m2', scale: 1, skins: [] } },
+    spawns: [{ id: 9, map: 1, displayId: 7, position: [0, 0, 0], orientation: 0, scale: 1 }] };
+  const f = fixture(), stream = new SceneStream(f.source, f.wasm);
+  stream.setPopulation(pack); stream.update(1, [0, 0, 0]); await stream.pump();
+  assert.equal(stream.snapshot().instances[0].id, '1:npc:9');
+  stream.update(1, [9000, 9000, 0]);
+  assert.equal(stream.snapshot().instances.length, 0);
+  assert.throws(() => validatePopulation({ ...pack, spawns: [...pack.spawns, ...pack.spawns] }));
+  assert.throws(() => validatePopulation({ ...pack, provenance: {} }));
+});
+
+test('WMO groups and selected child doodads load as separate jobs', async () => {
+  const f = fixture();
+  const rootMetadata = { groupCount: 1, groups: [{ bounds: [[-2, -2, 0], [2, 2, 5]] }],
+    doodads: [{ path: 'chair.mdx', position: [1, 0, 0], orientation: [0, 0, 0, 1], scale: 1 }],
+    sets: [{ start: 0, count: 1 }] };
+  f.wasm.SceneRoot = class {
+    metadata() { return JSON.stringify(rootMetadata); }
+    group() { return f.wasm.SceneModel.m2(); }
+    free() {}
+  };
+  const stream = new SceneStream(f.source, f.wasm, { jobs: 1 });
+  stream.setTile('0:0:0', [{ ...p(7, 'inn.wmo'), kind: 'wmo' }]);
+  stream.update(0, [0, 0, 0]); await stream.pump();
+  assert.equal(f.reads(), 1);
+  assert.equal(stream.snapshot().instances.length, 0);
+  await stream.pump(); await stream.pump();
+  assert.equal(f.reads(), 3);
+  const snapshot = stream.snapshot();
+  assert.equal(snapshot.instances.length, 2);
+  assert.ok(snapshot.instances.some(i => i.id === '0:wmo:7:group:0'));
+  const chair = snapshot.instances.find(i => i.id === '0:wmo:7:doodad:0');
+  assert.deepEqual(chair.matrix.slice(12, 15), [1, 0, 0]);
+});
+
+test('pinned cache limit does not reread resources endlessly and fifth tile is rejected', async () => {
+  const f = fixture(), stream = new SceneStream(f.source, f.wasm, { assets: 1 });
+  for (let i = 0; i < 4; i++) stream.setTile(`1:${i}:0`, [p(i, `tree${i}.m2`)]);
+  assert.throws(() => stream.setTile('1:4:0', []), /fifth/);
+  stream.update(1, [0, 0, 0]); await stream.pump(); await stream.pump();
+  assert.equal(f.reads(), 1);
+  assert.equal(stream.snapshot().capacityBlocked, true);
+  assert.equal(stream.snapshot().cachedAssets, 1);
+});
