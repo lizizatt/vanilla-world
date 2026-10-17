@@ -9,6 +9,8 @@ assert(Number.isFinite(seconds)&&seconds>=30);
 const label=process.env.RUN_LABEL || 'continuity';
 assert(/^[a-z0-9-]+$/i.test(label));
 const video=process.env.VIDEO==='1',sound=process.env.SOUND==='1',cpuProfile=process.env.PROFILE==='1';
+const warmSeconds=Number(process.env.WARM_SECONDS || 0);
+assert(Number.isFinite(warmSeconds)&&warmSeconds>=0,'WARM_SECONDS must be nonnegative');
 const output=new URL(`./test-results/driving/${label}/`,import.meta.url);
 await mkdir(output,{recursive:true});
 const browser=await chromium.launch({channel:'msedge',headless:true});
@@ -56,6 +58,15 @@ async function startProfiles(){
   };
 }
 try{
+  const metadataSession=await browser.newBrowserCDPSession();
+  const {arguments:launchArguments}=await metadataSession.send('Browser.getBrowserCommandLine');
+  const version=await metadataSession.send('Browser.getVersion');
+  await metadataSession.detach();
+  const environment={browser:version.product,headless:true,
+    osForegroundWindow:'Not applicable to this headless browser; document state is sampled separately',
+    schedulingFlags:launchArguments.filter(arg=>/background|occluded|headless|throttl|frame-rate|vsync/.test(arg)),
+    caches:{browserContext:'new',worker:'new',osFileCache:'uncontrolled; prior test reads may be cached',warmSeconds}};
+  const startup=Date.now();
   // Instrument the original simulation time path, without changing scheduling or adding per-tick queries.
   await context.route('**/world-worker.js',async route=>{
     const response=await route.fetch();
@@ -104,7 +115,7 @@ try{
     },Number(process.env.YAW));
   }
   await page.locator('#drive').click();
-  if(process.env.WARM_SECONDS)await page.waitForTimeout(Number(process.env.WARM_SECONDS)*1000);
+  if(warmSeconds)await page.waitForTimeout(warmSeconds*1000);
   if(sound){
     await page.locator('#preferences').evaluate(e=>e.open=true);
     await page.locator('#sound').check();
@@ -116,7 +127,13 @@ try{
     const {WorldClient}=await import('./world-client.js');
     const {WorldRenderer}=await import('./world-renderer.js');
     const request=WorldClient.prototype.request,frame=WorldClient.prototype.frame,draw=WorldRenderer.prototype.draw;
-    window.driveProfile={responses:[],draws:[],samples:[],inputs:0,clientDropped:0,start:performance.now()};
+    const pageState=()=>({visibility:document.visibilityState,hidden:document.hidden,
+      hasFocus:document.hasFocus(),activeElement:document.activeElement?.id || document.activeElement?.tagName});
+    window.driveProfile={responses:[],draws:[],samples:[],environmentEvents:[],inputs:0,clientDropped:0,start:performance.now()};
+    const record=type=>driveProfile.environmentEvents.push({t:performance.now(),type,...pageState()});
+    record('capture-start');
+    for(const type of ['focus','blur','pagehide','pageshow'])window.addEventListener(type,()=>record(type));
+    for(const type of ['visibilitychange','freeze','resume'])document.addEventListener(type,()=>record(type));
     WorldClient.prototype.frame=function(dt,...args){
       driveProfile.inputs+=dt;driveProfile.clientDropped+=Math.max(0,this.elapsed+dt-.1);
       return frame.call(this,dt,...args);
@@ -136,8 +153,9 @@ try{
       return draw.call(this,p,...args);
     };
     driveProfile.timer=setInterval(()=>driveProfile.samples.push({t:performance.now(),
-      state:structuredClone(worldEvidence.state),render:structuredClone(worldEvidence.render)}),1000);
+      environment:pageState(),state:structuredClone(worldEvidence.state),render:structuredClone(worldEvidence.render)}),1000);
   });
+  environment.startupAndWarmMs=Date.now()-startup;
   await page.locator('#world').focus();
   await page.keyboard.down('KeyW');
   if(process.env.STEER)await page.keyboard.down(process.env.STEER);
@@ -189,7 +207,9 @@ try{
   const data=await page.evaluate(()=>{clearInterval(driveProfile.timer);clearInterval(driveProfile.navigation);worldTest.gamepads([]);
     return {...driveProfile,timer:undefined,navigation:undefined,
     end:performance.now(),after:structuredClone(worldEvidence.state),errors:worldEvidence.errors,
-    audio:worldEvidence.audio,adapter:worldEvidence.adapter};});
+    audio:worldEvidence.audio,adapter:worldEvidence.adapter,
+    environmentEnd:{visibility:document.visibilityState,hidden:document.hidden,hasFocus:document.hasFocus()}};});
+  data.before=before;data.environment=environment;
   await writeFile(new URL('raw.json',output),JSON.stringify(data));
   if(stopProfiles)await stopProfiles();
   const settings={video,sound,profile:cpuProfile,...await page.evaluate(()=>{
@@ -219,7 +239,10 @@ try{
     return n+(r.p[5]>1&&!r.p[8]&&!r.wait&&a.p[5]>1&&!a.p[8]&&!a.wait?(r.t-a.t)/1000:0);
   },0);
   const movingFreezes=freezes.filter(f=>f.speed>1&&!f.hold&&!f.wait);
-  const summary={settings,seconds:(data.end-data.start)/1000,distance,inputs:data.inputs,clientDropped:data.clientDropped,
+  const summary={settings,environment:{...environment,final:data.environmentEnd,
+    sampleCount:data.samples.length,focusedSamples:data.samples.filter(s=>s.environment.hasFocus).length,
+    hiddenSamples:data.samples.filter(s=>s.environment.hidden).length,events:data.environmentEvents},
+    seconds:(data.end-data.start)/1000,distance,inputs:data.inputs,clientDropped:data.clientDropped,
     movingSeconds,waypointsReached:data.waypoint,recoveries:data.recoveries?.length,
     movingFreezes:distribution(movingFreezes.map(f=>f.ms)),
     movingFreezesOver50:movingFreezes.filter(f=>f.ms>50).length,
