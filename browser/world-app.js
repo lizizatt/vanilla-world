@@ -243,7 +243,7 @@ function frame(now) {
     cameraCollision.frame(client.state,renderer.sceneRegion ?? client.state.telemetry[10]);
     const stats=renderer.draw(client.state.telemetry,flight,dt,frozenPresentation?0:now/1000,
       {...settings,cameraLook:controls.look,cameraOrbit},keys.has('KeyV')&&!keys.has('AltLeft')&&!keys.has('AltRight'));
-    audio.update(client.state,controls,dt,accepts&&!flight);
+    audio.update(client.state,controls,dt,accepts&&!flight&&!frozenPresentation);
     frames++;Object.assign(evidence,{frames,state:client.state,mode:flight?'fly':'drive',camera:flight?.slice(),render:stats,adapter:renderer.adapter});
     evidence.input={...controls,device:input.device};evidence.view=renderer.camera?.slice();
     evidence.audio={enabled:audio.enabled,state:audio.context?.state || 'off',voices:audio.voices.length};
@@ -257,7 +257,7 @@ function frame(now) {
       document.querySelector('.meters').dataset.held=String(held);
       $('boost').textContent=`${Math.round(p[6]*100)}%`;$('boost-meter').value=p[6];
       $('speed-meter').value=Math.min(1,p[5]/tuningValues[1]);
-      $('input-device').textContent=input.device==='controller'?'STANDARD CONTROLLER':settings.controls==='native'?'NATIVE KEYBOARD':'BROWSER MVP KEYS';
+      $('input-device').textContent=input.device==='controller'?'STANDARD CONTROLLER':settings.controls==='native'?'NATIVE KEYBOARD':'LEGACY KEYBOARD';
       $('sound-status').textContent=!settings.sound?'Sound off':audio.enabled?`Engine audio ${audio.context.state}`:'Click the view to resume saved sound';
       $('camera-status').textContent=flight?'Flight camera is collision-free':!cameraCollision.ready?'Chase clearance waiting for geometry'
         :cameraCollision.coverageLimited?'Camera lag limited to its collision window':'Chase collision ready';

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {cameraView} from './world-camera.js';
 import {WorldInput} from './world-input.js';
-import {engineSample,EngineEnvelope,WorldAudio} from './world-audio.js';
+import {fillEngineBuffer,EngineEnvelope,WorldAudio} from './world-audio.js';
 import {TUNING_FIELDS,validateTuningRecord} from './world-tuning.js';
 import {CameraCollision} from './camera-collision.js';
 
@@ -56,17 +56,98 @@ test('gamepad triggers subtract, noisy sticks never steal input, edges and disco
   assert.equal(input.sample(keys,[],true).throttle,1);
   assert.equal(input.device,'keyboard');
 });
-test('native engine beds are bounded, seamless stereo; envelopes release boost and suppress held thrust',()=>{
+test('original engine and noise beds are bounded stereo with periodic seams',()=>{
   for(let layer=0;layer<3;layer++) {
-    for(let i=0;i<2400;i++)assert(engineSample(layer,i/1200).every(n=>Number.isFinite(n)&&Math.abs(n)<=1));
-    assert(engineSample(layer,2).every(n=>Math.abs(n)<1e-10));
+    const channels=[new Float32Array(48000),new Float32Array(48000)];
+    fillEngineBuffer({sampleRate:24000,getChannelData:i=>channels[i]},layer);
+    for(const channel of channels) {
+      let energy=0,maxStep=0;
+      for(let i=0;i<channel.length;i++){
+        assert(Number.isFinite(channel[i]) && Math.abs(channel[i])<=1);
+        energy+=channel[i]*channel[i];
+        if(i)maxStep=Math.max(maxStep,Math.abs(channel[i]-channel[i-1]));
+      }
+      assert(energy/channel.length>.001);
+      assert(Math.abs(channel[0]-channel.at(-1))<=maxStep);
+    }
+    assert.notDeepEqual(channels[0],channels[1]);
   }
-  assert.notEqual(engineSample(0,.13)[0],engineSample(0,.13)[1]);
+});
+test('engine envelopes reuse records, build and release boost, and suppress held thrust',()=>{
   const envelope=new EngineEnvelope();
-  for(let i=0;i<120;i++)envelope.advance(120,1,true,false,false,1/60);
+  const layers=envelope.layers;
+  for(let i=0;i<180;i++)assert.equal(envelope.advance(120,1,true,false,false,1/60),layers);
   assert(envelope.boost>.99 && envelope.thrust>.99);
-  for(let i=0;i<120;i++)envelope.advance(120,1,true,true,false,1/60);
+  for(let i=0;i<180;i++)envelope.advance(120,1,true,true,false,1/60);
   assert(envelope.boost<.001 && envelope.thrust<.001 && envelope.speed<.001);
+  assert(envelope.layers[2][0]<.0001);
+});
+test('air and brake transients follow contact edges, never startup, held or repeated frames',()=>{
+  const envelope=new EngineEnvelope();
+  envelope.advance(60,1,false,false,false,.1);
+  assert.equal(envelope.landing,0);assert.equal(envelope.lift,0);
+  envelope.advance(60,1,false,false,false,.1,false);
+  assert(envelope.lift>0);
+  for(let i=0;i<5;i++)envelope.advance(60,1,false,false,false,.1,false);
+  envelope.advance(60,1,false,false,false,.1,true);
+  const landing=envelope.landing;assert(landing>0);
+  envelope.advance(60,1,false,false,false,.1,true);
+  assert(envelope.landing<landing);
+  envelope.advance(60,0,false,false,true,.1,true);
+  const brake=envelope.braking;assert(brake>0);
+  envelope.advance(60,0,false,false,true,.1,true);
+  assert(envelope.braking<brake);
+  envelope.reset();
+  envelope.advance(60,1,true,true,false,.1,false);
+  envelope.advance(60,1,true,true,true,.1,true);
+  assert.equal(envelope.landing,0);assert.equal(envelope.braking,0);
+});
+test('sound envelopes remain time-based and bounded under invalid dt and extreme tuning',()=>{
+  const run=fps=>{
+    const envelope=new EngineEnvelope();
+    for(let i=0;i<fps*2;i++)envelope.advance(1e100,1,true,false,false,1/fps);
+    return envelope;
+  };
+  const slow=run(30),fast=run(144);
+  for(const field of ['speed','thrust','boost','air'])assert(Math.abs(slow[field]-fast[field])<1e-10);
+  for(const dt of [NaN,Infinity,-1,0,1e10]) {
+    for(const layer of fast.advance(1e100,1,true,false,false,dt)) {
+      assert(layer.every(Number.isFinite));assert(layer[0]<.2);assert(layer[1]<2);
+    }
+  }
+});
+test('water contact warms airflow without inventing motion or wet airborne audio',()=>{
+  const dry=new EngineEnvelope(),wet=new EngineEnvelope();
+  for(let i=0;i<120;i++){
+    dry.advance(60,.5,false,false,false,1/60,true,false);
+    wet.advance(60,.5,false,false,false,1/60,true,true);
+  }
+  assert(wet.layers[1][0]>dry.layers[1][0]);assert(wet.layers[1][2]<dry.layers[1][2]);
+  assert.equal(wet.layers[0][1],dry.layers[0][1]);
+  for(let i=0;i<120;i++)wet.advance(60,1,true,true,false,1/60,false,true);
+  assert(wet.water<.001 && wet.speed<.001 && wet.thrust<.001);
+});
+test('audio uses authoritative holds, fuel and focus without replaying boost on resume',()=>{
+  const audio=new WorldAudio(),parameter=()=>({value:0,setTargetAtTime(value){this.value=value;}});
+  audio.context={state:'running',currentTime:0};audio.enabled=true;
+  audio.master={gain:parameter()};
+  audio.voices=Array.from({length:3},()=>({gain:{gain:parameter()},source:{playbackRate:parameter()},filter:{frequency:parameter()}}));
+  const state={telemetry:new Float64Array(15),scene:{waitingCollision:0}},p=state.telemetry,input={throttle:1,flags:2};
+  p[5]=60;p[6]=1;p[7]=1;
+  for(let i=0;i<120;i++)audio.update(state,input,1/60,true);
+  assert(audio.envelope.boost>.99);
+  for(const change of [()=>{p[6]=0;},()=>{p[7]=0;},()=>{p[8]=1;},
+    ()=>{p[8]=2;},()=>{p[8]=3;},()=>{state.scene.waitingCollision=1;},()=>{input.flags=3;}]) {
+    p[6]=1;p[7]=1;p[8]=0;state.scene.waitingCollision=0;input.flags=2;change();
+    for(let i=0;i<180;i++)audio.update(state,input,1/60,true);
+    assert(audio.envelope.boost<.001);
+  }
+  audio.update(state,input,1/60,false);assert.equal(audio.master.gain.value,0);
+  p[6]=1;p[7]=1;p[8]=0;state.scene.waitingCollision=0;input.throttle=0;input.flags=0;
+  audio.update(state,input,1/60,true);
+  assert.equal(audio.envelope.boost,0);assert.equal(audio.envelope.landing,0);
+  audio.enabled=false;audio.update(state,input,1/60,false);
+  assert.equal(audio.active,true);
 });
 test('muting cancels a delayed audio resume without preventing the next activation',async()=>{
   const previous=globalThis.AudioContext,audio=new WorldAudio();

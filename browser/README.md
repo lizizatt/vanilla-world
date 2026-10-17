@@ -60,9 +60,13 @@ clear thrust instead of leaving a stuck accelerator. Flight retains keyboard
 movement, with right-drag look.
 
 The amber/teal instruments show actual signed motion, airborne/hold state and
-boost reserve. **Procedural engine sound** enables the native original three
-stereo synthesis beds and speed/thrust/boost envelopes through Web Audio, without
-game audio files or Kira. It starts only after interaction, fades outside driving,
+boost reserve. **Procedural engine sound** enables an original low twin-engine
+core, filtered stereo airflow and a building/releasing boost wash through three
+reused Web Audio voices. Pitch/load follow actual speed and controls; collision
+holds release thrust/boost rather than suggesting forward acceleration.
+Airborne, actual water contact, lift/landing and brake edges subtly change the
+same layers without spawning extra sounds. There are no sampled game sounds,
+music or audio dependencies. It starts only after interaction, fades outside driving,
 and suspends when muted/hidden. Browser permission policy may require another click
 after restoring a sound-enabled save.
 
@@ -204,6 +208,7 @@ npm --prefix .\browser test
 node .\browser\overworld-smoke.mjs
 node .\browser\distant-smoke.mjs
 node .\browser\feel-smoke.mjs
+node .\browser\audio-smoke.mjs
 node .\browser\performance-smoke.mjs
 ```
 
@@ -212,6 +217,18 @@ Edge (`channel: msedge`), not a downloaded browser. The real-browser check uses
 actual directory-backed File objects, drives using keyboard input, visits both
 maps and reloads saves offline. It does **not** automate the trusted OS directory
 picker dialog. Evidence/screenshots stay ignored in `browser\test-results`.
+The audio check captures the actual production graph using Edge's
+`OfflineAudioContext` with deterministic idle, acceleration, cruise, boost,
+release, water, airborne, landing, braking, collision hold, pause and mute inputs.
+It checks output level, stereo energy, spectral bands, discontinuities and
+envelope-update cost, and saves an original stereo WAV under `test-results/audio`.
+This is captured signal evidence, **not a listening audition** or a substitute
+for the integrated real-time driving check.
+The captured 28-second sequence peaks at 0.133 full scale; idle/cruise/boost/held
+RMS is 0.030/0.035/0.050/0.030, with silence after pause/mute fades. Measured
+envelope/parameter updates are p99 0.1 ms, max 0.6 ms at browser timer resolution;
+initial one-time graph/buffer creation is 22.3 ms. These are isolated CPU captures,
+not an end-to-end driving-continuity measurement.
 The distant check compares actual screenshots with models enabled/disabled at
 1400-yard camera altitude on both continents; it asserts visible changed pixels,
 real cutout batches, unchanged terrain residency and no distant collision holds.
