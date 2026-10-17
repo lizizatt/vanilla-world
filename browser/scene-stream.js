@@ -138,6 +138,7 @@ export class SceneStream {
   setPopulation(pack) {
     this.npcs = validatePopulation(pack);
     this.populationModels = pack.models;
+    this.npcMatrices = new WeakMap();
     this.populationStatus = `Static local NPC snapshot: ${pack.provenance.source}; no server behavior`;
     this.revision++;
   }
@@ -233,10 +234,15 @@ export class SceneStream {
       for (let x = tx - 2; x <= tx + 2; x++) for (let y = ty - 2; y <= ty + 2; y++) {
         for (const npc of this.npcs.get(`${map}:${x}:${y}`) || []) {
           const model = this.populationModels[npc.displayId];
-          add({ ...model, kind: 'm2' }, `${map}:npc:${npc.id}`, placementMatrix({
-            position: npc.position, orientation: [0, 0, Math.sin(npc.orientation / 2), Math.cos(npc.orientation / 2)],
-            scale: npc.scale * model.scale,
-          }));
+          let matrix = this.npcMatrices.get(npc);
+          if (!matrix) {
+            matrix = placementMatrix({
+              position: npc.position, orientation: [0, 0, Math.sin(npc.orientation / 2), Math.cos(npc.orientation / 2)],
+              scale: npc.scale * model.scale,
+            });
+            this.npcMatrices.set(npc, matrix);
+          }
+          add({ ...model, kind: 'm2' }, `${map}:npc:${npc.id}`, matrix);
         }
       }
     }

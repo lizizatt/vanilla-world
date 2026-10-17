@@ -190,6 +190,13 @@ test('private NPC provenance, corruption and bounded local residency', async () 
   const f = fixture(), stream = new SceneStream(f.source, f.wasm);
   stream.setPopulation(pack); stream.update(1, [0, 0, 0]); await stream.pump();
   assert.equal(stream.snapshot().instances[0].id, '1:npc:9');
+  const matrix=stream.snapshot().instances[0].matrix;
+  stream.update(1,[1,0,0]);
+  assert.equal(stream.snapshot().instances[0].matrix,matrix,'Static spawn transforms retain the bounds cache');
+  stream.setPopulation({...pack,spawns:[{...pack.spawns[0],position:[2,0,0]}]});
+  stream.update(1,[1,0,0]);
+  assert.notEqual(stream.snapshot().instances[0].matrix,matrix);
+  assert.deepEqual(stream.snapshot().instances[0].matrix.slice(12,15),[2,0,0]);
   stream.update(1, [9000, 9000, 0]);
   assert.equal(stream.snapshot().instances.length, 0);
   assert.throws(() => validatePopulation({ ...pack, spawns: [...pack.spawns, ...pack.spawns] }));
