@@ -33,7 +33,7 @@ let collisionToken=0,collisionParts=new Set();
 let collisionFocus;
 const collisionInstances=new Map();
 const timings={frames:0,totalMs:0,maxMs:0,terrainMs:0,sceneMs:0,selectionMs:0,snapshotMs:0,
-  physicsMs:0,postMs:0,collisionBuildMs:0,collisionBuilds:0};
+  physicsMs:0,cameraUnknownMs:0,postMs:0,collisionBuildMs:0,collisionBuilds:0};
 let distantWanted=[],distantJob,distantLastStart=0,distantLoads=0,distantPeak=0;
 const distantResident=new Set(),distantFailures=new Map();
 let objectWait=[],cameraUnknown=[],lastHoldTime=0,lastHold='clear',holdRun=0;
@@ -384,8 +384,10 @@ async function handle(message) {
         measureHold(hold===1?'terrain':hold===3?'solid':hold===2?'unsupported':'clear',elapsed);
       }
     } else {accumulator=0;lastHoldTime=0;lastHold='clear';}
-    updateCameraUnknown(world.telemetry(),focusRegion(focus));
     timings.physicsMs+=performance.now()-physicsStart;
+    const cameraStart=performance.now();
+    updateCameraUnknown(world.telemetry(),focusRegion(focus));
+    timings.cameraUnknownMs+=performance.now()-cameraStart;
     if(message.focus || Array.from(world.required_tiles()).every(i=>resident.has(i)))startDistantRead();
     if(!objectWait.length) {
       void terrain.pump();

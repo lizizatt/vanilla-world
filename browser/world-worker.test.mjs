@@ -8,8 +8,8 @@ import {transformedBounds,globalCollisionVertices,SCENE_LIMITS,placementMatrix,b
 const worker=(await readFile(new URL('./world-worker.js',import.meta.url),'utf8'))
   .replace(/^import .*;\r?$/gm,'');
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
-function boot(events=[]) {
-  const context=createContext({init:async()=>({memory:{buffer:new ArrayBuffer(0)}}),performance,postMessage:message=>events.push(message),
+function boot(events=[],clock=performance) {
+  const context=createContext({init:async()=>({memory:{buffer:new ArrayBuffer(0)}}),performance:clock,postMessage:message=>events.push(message),
     transformedBounds,globalCollisionVertices,SCENE_LIMITS,boundsDistance});
   runInContext(worker,context);
   return context;
@@ -107,10 +107,10 @@ test('failed prefetched terrain stays unavailable and exposes its error rather t
   assert.deepEqual(f.reads,[1],'Failed expected terrain requires explicit retry');
 });
 
-function collisionFixture() {
-  const events=[],context=boot(events),body=Array(15).fill(0),built=[],updates=[],parts=new Map();
+function collisionFixture(clock=performance) {
+  const events=[],context=boot(events,clock),body=Array(15).fill(0),built=[],updates=[],parts=new Map();
   const state={instances:[],collisionInstances:[],unresolvedCollision:[],assets:new Map(),textures:new Map()};
-  const f={body,built,updates,events,state,sweep:0,failNext:false,spawn:[0,0,0,0]};
+  const f={body,built,updates,events,state,context,sweep:0,failNext:false,spawn:[0,0,0,0]};
   const scene={revision:0,selectionRevision:0,update(){this.selectionRevision=this.revision;},
     async pump(){},snapshot:()=>state,retry(){
       this.revision++;
@@ -299,4 +299,18 @@ test('restore, reset and retry return camera unknown bounds matching the immedia
   const retried=await f.request({action:'retry'});
   assert.equal(retried.telemetry[0],50);
   assert.deepEqual(Array.from(retried.scene.unresolvedCollision,i=>[i.id,i.status]),[['100','PENDING']]);
+});
+
+test('frame timing separates post-tick camera scanning from physics queries',async()=>{
+  let now=1000;
+  const f=collisionFixture({now:()=>now});
+  f.unresolved(50);
+  f.context.boundsDistance=(...args)=>{now+=5;return boundsDistance(...args);};
+  f.context.dependencies.world.tick=()=>{now+=2;};
+  runInContext(`prepareDistant=()=>{};startDistantRead=()=>{};startCraft=()=>{};
+    terrain.pump=async()=>{};`,f.context);
+  const result=await f.request({action:'frame',dt:1/120,throttle:0,steer:0,flags:0});
+  assert.equal(result.timings.physicsMs,2);
+  assert.equal(result.timings.cameraUnknownMs,5);
+  assert.equal(result.timings.sceneMs,5);
 });
