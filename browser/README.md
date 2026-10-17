@@ -202,7 +202,8 @@ than drawing fake opaque cards.
 $env:CARGO_TARGET_DIR = Join-Path (Get-Location) 'target-web'
 $env:WOW_DATA = 'C:\path\to\your\install\Data'
 $env:BENILLA_REQUIRE_DATA = '1'
-cargo test --manifest-path .\client\Cargo.toml --release -j 2 -p flats-racer-web
+Push-Location .\client
+try { cargo test --release -j 2 -p flats-racer-web } finally { Pop-Location }
 npm --prefix .\browser test
 # With the local preview running and Playwright installed:
 node .\browser\overworld-smoke.mjs
@@ -217,6 +218,66 @@ Edge (`channel: msedge`), not a downloaded browser. The real-browser check uses
 actual directory-backed File objects, drives using keyboard input, visits both
 maps and reloads saves offline. It does **not** automate the trusted OS directory
 picker dialog. Evidence/screenshots stay ignored in `browser\test-results`.
+Run Rust commands from `client` so its pinned toolchain applies; passing
+`--manifest-path` from the repository root alone does not select that toolchain.
+
+For sustained driving, run the isolated test server without another benchmark
+using the GPU, then run both sound states sequentially:
+
+```powershell
+$env:WORLD_URL = 'http://127.0.0.1:4183/?test' # Your isolated server
+$env:DRIVE_SECONDS = '180'
+$env:WARM_SECONDS = '15'
+$env:YAW = '0'
+$env:WAYPOINTS = '[[0,-250],[-350,-400],[-550,-150],[-350,-150]]'
+$env:MAX_MOVING_FREEZE_MS = '' # Set '50' for the optional strict maximum-gap gate
+$env:VIDEO = ''
+$env:PROFILE = ''
+$env:SOUND = ''
+$env:RUN_LABEL = 'continuity-silent'
+node .\browser\driving-smoke.mjs
+$env:SOUND = '1'
+$env:RUN_LABEL = 'continuity-sound'
+node .\browser\driving-smoke.mjs
+```
+
+This uses the standard-controller input path to steer and physically reverse
+around obstacles, not teleport between test points. It records raw response and
+drawn poses, physical holds, simulation steps, discarded time, and p99/max gaps.
+Long waypoint runs require over 90% moving time; stopped-car FPS cannot pass.
+The optional freeze limit deliberately fails a run with longer moving-pose
+freezes. Service workers are disabled only in this profiling context so they
+cannot bypass worker instrumentation; offline functionality is checked separately.
+`SOUND`, `VIDEO` and `PROFILE` enable their feature only when exactly `1`.
+`PROFILE=1` additionally saves main/worker CPU profiles. Every run records actual
+canvas dimensions/DPR, browser scheduling flags, document focus/visibility samples
+and lifecycle events. Each has a fresh browser/worker and the declared warmup;
+the operating-system file cache is **uncontrolled**, not claimed cold.
+
+At source checkpoint `2dee228`, the controlled 180-second captures on headless
+Edge 155, 1206 x 534 pixels, DPR 1 produced:
+
+| Sound | Moving seconds / yards | Drawn-pose p99 / max | Moving freezes over 50 ms | Client time discarded |
+| --- | --- | --- | --- | --- |
+| Off | 177.8 / 5614 | 20.6 / 69.9 ms | 10 | 0 ms |
+| On | 178.9 / 5968 | 20.5 / 100.1 ms | 10 | 11.2 ms |
+
+Both used 15-second warmup, raw main/worker tracing, no video or CPU profiler,
+and passed the live input/step/transport instrumentation checks. All 180 samples
+per run were visible and focused, with no focus/visibility transitions during
+capture; the browser's actual launch flags disabled background throttling.
+Headless runs have no OS foreground window. No user tab was focused or reloaded.
+Navigation used the same waypoint controller but followed different physical
+trajectories (eight versus three reverse recoveries); this is not an identical
+trajectory or proof that sound caused the maximum-gap difference.
+Evidence is in `test-results/driving/integrated-{silent,sound}-controlled`.
+
+These runs reproduce the faster regime, **not a complete fix for catching**:
+they exceed the optional 50 ms maximum gate, and do not explain the earlier
+unchanged-source run with 655 moving freezes, 384 ms maximum and 4.56 seconds of
+discarded time. That failing trace remains retained. Raw fixed-step presentation
+also repeats poses between physics ticks; further continuity work is pending.
+
 The audio check installs the current offline shell in an isolated browser
 context, disconnects the network, and captures the cached production graph using Edge's
 `OfflineAudioContext` with deterministic idle, acceleration, cruise, boost,
@@ -263,7 +324,7 @@ default local URL and `RUN_LABEL` selects the ignored evidence filename.
 Changed-pose draw cadence must meet the same rate/p95 gate, so multiple worker
 responses between renders cannot masquerade as visible motion updates.
 
-The integrated physics-first checkpoint **passes response, render and drawn-pose gates** on Edge 155 /
+The earlier `bcb4c8f` physics-first checkpoint passed response, render and drawn-pose gates on Edge 155 /
 NVIDIA Ampere at 1366 x 668 rendered pixels and DPR 1, with full scenery:
 
 | Sustained route | Moving seconds / yards | Changed-pose draws/s | p95 drawn-pose interval | Minimum rolling render FPS |
@@ -300,6 +361,12 @@ of physics; optional visual packing/publication and job starts follow the real
 pose response within the same serialized queue. Publication failure immediately
 surfaces an error and blocks further physics until explicit retry. Legacy clients
 retain full instance lists and synchronous publication errors.
+
+Admitted detailed terrain supplies scene placements from its resident Rust
+`TileMesh`, rather than parsing the same ADT again for scene admission. Required
+terrain/collision readiness remains before physics. Terrain material construction
+is visual-only work after the pose reply; removing a tile invalidates its pending
+material work. These changes preserve authored placement data and collision geometry.
 
 [ASSETS.md](ASSETS.md) documents the bounded MPQ reader, corruption semantics,
 77-file native/Node/Edge parity and the whole-install codec census. All 2,389,542
