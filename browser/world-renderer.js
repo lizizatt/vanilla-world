@@ -158,6 +158,7 @@ export class WorldRenderer {
     this.assets=new Map();this.textures=new Map();this.items=new Map();this.instances=[];this.pipelines=new Map();
     this.materialPending=new Map();this.minimapAtlases=[];
     this.pendingEvents=[];
+    this.terrainBundleBuilds=0;this.sceneBundleBuilds=0;
     this.uniformData=new Float32Array(16384*64);
     this.frameUniforms=device.createBuffer({size:this.uniformData.byteLength,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
   }
@@ -240,6 +241,8 @@ export class WorldRenderer {
     this.craft=undefined;
   }
   reset() {
+    this.terrainBundle=undefined;this.terrainBundleBuilds=0;
+    this.sceneBundle=undefined;this.sceneBundleBuilds=0;
     this.releaseCraft();
     this.craftError=undefined;
     for(const item of [...this.tiles.values(),...this.seams.values(),...this.horizon,...this.water])this.release(item);
@@ -276,15 +279,19 @@ export class WorldRenderer {
         data.asset.indices.length>60000||data.textures.length>16)throw Error('Invalid authored craft payload');
       const bytes=data.asset.vertices.byteLength+data.asset.indices.byteLength+data.textures.reduce((n,t)=>n+t.rgba.byteLength,0);
       if(bytes>32*1024*1024)throw Error('Authored craft exceeds GPU budget');
+      const batches=this.prepareBatches(data.asset.batches);
       this.releaseCraft();
       this.craftError=undefined;
       this.craft={asset:{vertices:this.buffer(data.asset.vertices,GPUBufferUsage.VERTEX),
-        indices:this.buffer(data.asset.indices,GPUBufferUsage.INDEX),batches:data.asset.batches,count:data.asset.indices.length},
+        indices:this.buffer(data.asset.indices,GPUBufferUsage.INDEX),batches,count:data.asset.indices.length},
         textures:new Map(data.textures.map(t=>[t.key,this.texture(t.width,t.height,t.rgba)])),
-        metadata:data.metadata,items:new Map(),bytes};
+        metadata:data.metadata,items:new Map(),instance:{id:'player-craft',key:'10318',craft:true},bytes};
     }
     else if(data.event==='craft-error')this.craftError=data.error;
-    else if(data.event==='horizon-index')this.indices.set(data.region,this.buffer(data.indices,GPUBufferUsage.INDEX));
+    else if(data.event==='horizon-index'){
+      this.indices.set(data.region,this.buffer(data.indices,GPUBufferUsage.INDEX));
+      this.terrainBundle=undefined;
+    }
     else if(data.event==='horizon')this.horizon.push({...this.drawable(data.vertices,data.placement,this.minimapAtlases[data.region]),
       region:data.region,near:data.near,cell:data.source[0]+64*data.source[1]});
     else if(data.event==='horizon-material'){
@@ -325,8 +332,11 @@ export class WorldRenderer {
     } else if(data.event==='scene') {
       for(const key of data.removedAssets){const a=this.assets.get(key);a?.vertices.destroy();a?.indices.destroy();this.assets.delete(key);}
       for(const key of data.removedTextures){this.textures.get(key)?.destroy();this.textures.delete(key);}
-      for(const a of data.assets)this.assets.set(a.key,{vertices:this.buffer(a.vertices,GPUBufferUsage.VERTEX),
-        indices:this.buffer(a.indices,GPUBufferUsage.INDEX),batches:a.batches,bytes:a.vertices.byteLength+a.indices.byteLength});
+      for(const a of data.assets){
+        const batches=this.prepareBatches(a.batches);
+        this.assets.set(a.key,{vertices:this.buffer(a.vertices,GPUBufferUsage.VERTEX),
+          indices:this.buffer(a.indices,GPUBufferUsage.INDEX),batches,bytes:a.vertices.byteLength+a.indices.byteLength});
+      }
       for(const t of data.textures)this.textures.set(t.key,this.texture(t.width,t.height,t.rgba));
       this.instances=data.instances;this.sceneRegion=data.region;
       const wanted=new Set(data.instances.map(i=>i.id));
@@ -397,6 +407,61 @@ export class WorldRenderer {
     });
     this.pipelines.set(key,pipeline);return pipeline;
   }
+  prepareBatches(batches) {
+    return batches.map(batch=>({...batch,texture:batch.texture?modelPath(batch.texture):null,
+      transparent:['alpha','add','mod','mod2x'].includes(batch.blend),pipeline:this.scenePipeline(batch)}));
+  }
+  sceneMatrix(instance,region,origin) {
+    const cached=instance.rendered;
+    if(!cached || cached.source!==instance.matrix || cached.region!==region ||
+      cached.x!==origin[0] || cached.z!==origin[1])
+      instance.rendered={source:instance.matrix,region,x:origin[0],z:origin[1],matrix:renderMatrix(instance.matrix,region,origin)};
+    return instance.rendered.matrix;
+  }
+  drawTerrain(pass,terrain) {
+    const cached=this.terrainBundle;
+    if(!cached || cached.items.length!==terrain.length ||
+      terrain.some((item,i)=>cached.items[i]!==item || cached.materials[i]!==item.material)) {
+      const encoder=this.device.createRenderBundleEncoder({colorFormats:[this.format],depthStencilFormat:'depth24plus'});
+      encoder.setPipeline(this.pipeline);
+      for(const item of terrain){
+        encoder.setBindGroup(0,item.group,[item.offset]);encoder.setVertexBuffer(0,item.buffer);
+        if(item.region!==undefined){encoder.setIndexBuffer(this.indices.get(item.region),'uint32');encoder.drawIndexed(3072);}
+        else encoder.draw(item.count);
+      }
+      encoder.setPipeline(this.splatPipeline);
+      for(const tile of terrain)if(tile.material){
+        const material=tile.material;
+        encoder.setBindGroup(0,material.group,[tile.offset]);encoder.setVertexBuffer(0,material.vertices);
+        encoder.setIndexBuffer(material.indices,'uint32');encoder.drawIndexed(material.count);
+      }
+      this.terrainBundle={items:terrain.slice(),materials:terrain.map(item=>item.material),bundle:encoder.finish()};
+      this.terrainBundleBuilds++;
+    }
+    // Uniform bytes and atlas pixels remain live; only membership/material changes replace commands.
+    pass.executeBundles([this.terrainBundle.bundle]);
+  }
+  drawScene(pass,draws) {
+    const firstTransparent=draws.findIndex(draw=>draw.batch.transparent);
+    const count=firstTransparent<0?draws.length:firstTransparent,cached=this.sceneBundle;
+    const encode=(encoder,{asset,batch,item,pipeline})=>{
+      encoder.setPipeline(pipeline);encoder.setBindGroup(0,item.group,[item.offset]);
+      encoder.setVertexBuffer(0,asset.vertices);encoder.setIndexBuffer(asset.indices,'uint32');
+      encoder.drawIndexed(batch.indexCount,1,batch.firstIndex);
+    };
+    if(!cached || cached.draws.length!==count || cached.draws.some((draw,i)=>
+      draw.asset!==draws[i].asset || draw.batch!==draws[i].batch || draw.item!==draws[i].item ||
+      draw.offset!==draws[i].item.offset)) {
+      const encoder=this.device.createRenderBundleEncoder({colorFormats:[this.format],depthStencilFormat:'depth24plus'});
+      for(let i=0;i<count;i++)encode(encoder,draws[i]);
+      this.sceneBundle={draws:draws.slice(0,count).map(({asset,batch,item})=>({asset,batch,item,offset:item.offset})),
+        bundle:encoder.finish()};
+      this.sceneBundleBuilds++;
+    }
+    pass.executeBundles([this.sceneBundle.bundle]);
+    // Transparent batches retain their camera-dependent back-to-front order.
+    for(let i=count;i<draws.length;i++)encode(pass,draws[i]);
+  }
   draw(state,flight,dt,time,settings,lookBack=false) {
     this.uploadMaterials();
     const canvas=this.canvas,width=Math.max(1,Math.round(canvas.clientWidth*Math.min(devicePixelRatio,2)));
@@ -414,69 +479,69 @@ export class WorldRenderer {
     const terrain=[...distant,...this.tiles.values(),...(settings.horizon?this.seams.values():[]),...this.water];
     if(!flight&&!this.craft)terrain.push(this.body);
     let uniformCount=0;
-    const writeUniform=(item,data)=>{
+    const u=this.uniformData,aspect=width/height;
+    const writeUniform=item=>{
       if(uniformCount>=16384)throw Error('World draw uniform budget exceeded');
-      item.offset=uniformCount*256;this.uniformData.set(data,uniformCount++*64);
+      const base=uniformCount++*64;
+      item.offset=base*4;u.set(view,base);return base;
     };
-    for(const item of terrain)writeUniform(item,[
-      ...view,...p,item===this.body?state[3]:(item.edgeMask||0),width/height,time,state[4],near,
-      item===this.body?0:item.placement[0]-origin[0],0,item===this.body?0:item.placement[1]-origin[1],item.cell??-1,
-    ]);
+    for(const item of terrain){
+      const base=writeUniform(item),body=item===this.body;
+      u.set(p,base+16);u[base+19]=body?state[3]:(item.edgeMask||0);
+      u[base+20]=aspect;u[base+21]=time;u[base+22]=state[4];u[base+23]=near;
+      u[base+24]=body?0:item.placement[0]-origin[0];u[base+25]=0;
+      u[base+26]=body?0:item.placement[1]-origin[1];u[base+27]=item.cell??-1;
+    }
     const draws=[],selection=sceneSelection(this.instances.filter(i=>settings.distant!==false || !i.distant),this.assets);
     const append=(asset,instance,m,textures,items)=>{
+        const distance=Math.hypot(m[12]-this.camera[0],m[13]-this.camera[1],m[14]-this.camera[2]);
+        const cached=instance.drawItems || (instance.drawItems=[]);
         for(let b=0;b<asset.batches.length;b++) {
-          const batch=asset.batches[b],key=`${instance.id}:${instance.key}:${b}`;
-          const texture=(batch.texture&&textures.get(modelPath(batch.texture)))||this.white;
-          let item=items.get(key);
-          if(!item || item.texture!==texture) {
-            const sampler=this.device.createSampler({minFilter:'linear',magFilter:'linear',
-              addressModeU:batch.wrapX?'repeat':'clamp-to-edge',addressModeV:batch.wrapY?'repeat':'clamp-to-edge'});
-            item={id:instance.id,key:instance.key,texture,group:this.device.createBindGroup({layout:this.sceneLayout,entries:[
-              {binding:0,resource:{buffer:this.frameUniforms,size:160}},{binding:1,resource:texture.createView()},{binding:2,resource:sampler}]} )};
-            items.set(key,item);
+          const batch=asset.batches[b];
+          const texture=(batch.texture&&textures.get(batch.texture))||this.white;
+          let item=cached[b];
+          if(!item || item.texture!==texture || item.asset!==asset) {
+            const key=`${instance.id}:${instance.key}:${b}`;
+            item=items.get(key);
+            if(!item || item.texture!==texture || item.asset!==asset) {
+              const sampler=this.device.createSampler({minFilter:'linear',magFilter:'linear',
+                addressModeU:batch.wrapX?'repeat':'clamp-to-edge',addressModeV:batch.wrapY?'repeat':'clamp-to-edge'});
+              item={id:instance.id,key:instance.key,asset,texture,group:this.device.createBindGroup({layout:this.sceneLayout,entries:[
+                {binding:0,resource:{buffer:this.frameUniforms,size:160}},{binding:1,resource:texture.createView()},{binding:2,resource:sampler}]} )};
+              items.set(key,item);
+            }
+            cached[b]=item;
           }
-          writeUniform(item,[...view,width/height,time,0,near,...m,batch.alphaCutoff||0,batch.emissive?1:0,instance.distant?1:0,0]);
-          draws.push({asset,batch,item,distant:instance.distant,craft:instance.craft,pipeline:this.scenePipeline(batch),distance:Math.hypot(m[12]-this.camera[0],m[13]-this.camera[1],m[14]-this.camera[2])});
+          const base=writeUniform(item);
+          u[base+16]=aspect;u[base+17]=time;u[base+18]=0;u[base+19]=near;u.set(m,base+20);
+          u[base+36]=batch.alphaCutoff||0;u[base+37]=batch.emissive?1:0;u[base+38]=instance.distant?1:0;u[base+39]=0;
+          draws.push({asset,batch,item,distant:instance.distant,craft:instance.craft,pipeline:batch.pipeline,distance});
         }
     };
     if(settings.scenery && this.sceneRegion!==undefined) {
       const r=this.manifest.regions[this.sceneRegion];
       for(const instance of selection.selected) {
         const asset=this.assets.get(instance.key);if(!asset)continue;
-        append(asset,instance,renderMatrix(instance.matrix,r,origin),this.textures,this.items);
+        append(asset,instance,this.sceneMatrix(instance,r,origin),this.textures,this.items);
       }
     }
-    if(!flight&&this.craft)append(this.craft.asset,{id:'player-craft',key:'10318',craft:true},
+    if(!flight&&this.craft)append(this.craft.asset,this.craft.instance,
       craftMatrix(state,origin,this.craft.metadata.scale),this.craft.textures,this.craft.items);
-    const transparent=batch=>['alpha','add','mod','mod2x'].includes(batch.blend);
-    draws.sort((a,b)=>transparent(a.batch)-transparent(b.batch) || (transparent(a.batch)?b.distance-a.distance:0));
+    draws.sort((a,b)=>a.batch.transparent-b.batch.transparent || (a.batch.transparent?b.distance-a.distance:0));
     if(uniformCount)this.device.queue.writeBuffer(this.frameUniforms,0,this.uniformData.buffer,0,uniformCount*256);
     const encoder=this.device.createCommandEncoder(),pass=encoder.beginRenderPass({
       colorAttachments:[{view:this.context.getCurrentTexture().createView(),clearValue:SKY,loadOp:'clear',storeOp:'store'}],
       depthStencilAttachment:{view:this.depth.createView(),depthClearValue:1,depthLoadOp:'clear',depthStoreOp:'store'},
     });
-    pass.setPipeline(this.pipeline);
-    for(const item of terrain){
-      pass.setBindGroup(0,item.group,[item.offset]);pass.setVertexBuffer(0,item.buffer);
-      if(item.region!==undefined){pass.setIndexBuffer(this.indices.get(item.region),'uint32');pass.drawIndexed(3072);}
-      else pass.draw(item.count);
-    }
-    pass.setPipeline(this.splatPipeline);
-    for(const tile of this.tiles.values())if(tile.material){
-      const material=tile.material;
-      pass.setBindGroup(0,material.group,[tile.offset]);pass.setVertexBuffer(0,material.vertices);
-      pass.setIndexBuffer(material.indices,'uint32');pass.drawIndexed(material.count);
-    }
-    for(const {asset,batch,item,pipeline} of draws){
-      pass.setPipeline(pipeline);pass.setBindGroup(0,item.group,[item.offset]);pass.setVertexBuffer(0,asset.vertices);pass.setIndexBuffer(asset.indices,'uint32');
-      pass.drawIndexed(batch.indexCount,1,batch.firstIndex);
-    }
+    this.drawTerrain(pass,terrain);
+    this.drawScene(pass,draws);
     pass.end();this.device.queue.submit([encoder.finish()]);
     return {horizonTiles:distant.length,detailedTiles:this.tiles.size,sceneInstances:this.instances.length,
       texturedTerrainTiles:[...this.tiles.values()].filter(t=>t.material).length,
       terrainGpuBytes:[...this.tiles.values()].reduce((n,t)=>n+(t.material?.bytes||0),0),
       terrainUploadPending:this.materialPending.size,minimapGpuBytes:this.minimapAtlases.length*(64*MINIMAP_SIZE)**2*4,
-      uniformUploads:uniformCount?1:0,uniformBytes:uniformCount*256,
+      uniformUploads:uniformCount?1:0,uniformBytes:uniformCount*256,terrainBundleBuilds:this.terrainBundleBuilds,
+      sceneBundleBuilds:this.sceneBundleBuilds,
       craftDraws:draws.filter(d=>d.craft).length,craftPose:this.craft?.metadata.pose||'placeholder',craftGpuBytes:this.craft?.bytes||0,
       craftReady:!!this.craft,craftStatus:this.craft?'ready':this.craftError?'failed':'loading',
       craftTriangles:this.craft?this.craft.asset.count/3:0,craftError:this.craftError,

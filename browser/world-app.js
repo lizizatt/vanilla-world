@@ -33,7 +33,7 @@ const client=new WorldClient(data=>{
       else renderer.event(data);
     }
   } catch(error){running=false;fail(error);}
-},error=>{running=false;fail(error);});
+},error=>{running=false;fail(error);},()=>running&&!busy&&!document.hidden&&!frozenPresentation);
 function enabled(value) {
   for(const id of ['save','load','reset','retry','overview','fly','drive'])$(id).disabled=!value;
   $('tuning').disabled=!value || !Array.isArray(client.info?.tuning);
@@ -141,7 +141,7 @@ $('forget').addEventListener('click',async()=>{
 });
 async function operation(action) {
   if(busy || !client.info)return;
-  busy=true;
+  busy=true;client.discardFrame();
   try {await action();canvas.focus();}catch(error){fail(error);}finally{busy=false;}
 }
 $('save').addEventListener('click',()=>operation(async()=>{
@@ -186,12 +186,12 @@ $('tuning').addEventListener('click',()=>operation(async()=>{
 }));
 $('tuning-form').addEventListener('submit',event=>{
   event.preventDefault();if(busy)return;
-  busy=true;
+  busy=true;client.discardFrame();
   applyTuning({version:1,values:TUNING_FIELDS.map((_,i)=>Number($(`tune-${i}`).value)),cameraSeconds:Number($('tune-17').value)})
     .catch(error=>{$('tuning-status').textContent=error.message;}).finally(()=>{busy=false;});
 });
 $('tuning-defaults').addEventListener('click',()=>{
-  if(busy)return;busy=true;
+  if(busy)return;busy=true;client.discardFrame();
   applyTuning({version:1,values:TUNING_FIELDS.map(f=>f[1]),cameraSeconds:.5})
     .catch(error=>{$('tuning-status').textContent=error.message;}).finally(()=>{busy=false;});
 });
@@ -222,6 +222,7 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt=last?Math.min((now-last)/1000,.1):0;last=now;
   if(!running || !client.state || busy || document.hidden) {
+    client.discardFrame();
     if(client.state)audio.update(client.state,{throttle:0,flags:1},0,false);
     return;
   }
@@ -301,7 +302,7 @@ async function start() {
       npcs:()=>renderer.instances.filter(i=>i.id.includes(':npc:')).slice(0,5),
       request:async(action,fields)=>{const s=await client.request(action,fields);if(s.telemetry)client.state=s;return s;},
       gamepads:pads=>{testPads=pads;},
-      freezePresentation:value=>{frozenPresentation=value;},
+      freezePresentation:value=>{frozenPresentation=value;if(value)client.discardFrame();},
       audioRms:()=>{if(!audio.analyser)return 0;const samples=new Float32Array(audio.analyser.fftSize);audio.analyser.getFloatTimeDomainData(samples);
         return Math.sqrt(samples.reduce((n,s)=>n+s*s,0)/samples.length);},
     };

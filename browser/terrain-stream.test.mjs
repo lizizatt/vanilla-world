@@ -25,6 +25,88 @@ test('only exposed detail boundaries fade; adjacent terrain and other continents
   assert.equal(terrainEdgeMask(tile,[{region:1,x:21,y:30}]),15);
 });
 
+test('scene and craft batches validate paths and prepare invariant draw state once',()=>{
+  const renderer=Object.create(WorldRenderer.prototype),pipelines=[];
+  renderer.scenePipeline=batch=>{const pipeline={blend:batch.blend};pipelines.push(pipeline);return pipeline;};
+  const input=[{texture:'Textures/Test.BLP',blend:'opaque',indexCount:3},
+    {texture:null,blend:'alpha',indexCount:6},{texture:'leaf.blp',blend:'cutout',indexCount:9}];
+  const prepared=renderer.prepareBatches(input);
+  assert.deepEqual(prepared.map(b=>b.texture),['textures\\test.blp',null,'leaf.blp']);
+  assert.deepEqual(prepared.map(b=>b.transparent),[false,true,false]);
+  assert.deepEqual(prepared.map(b=>b.indexCount),[3,6,9]);
+  assert.equal(prepared[0].pipeline,pipelines[0]);
+  assert.equal(input[0].texture,'Textures/Test.BLP');
+  assert.throws(()=>renderer.prepareBatches([{texture:'..\\outside.blp'}]));
+  assert.equal(pipelines.length,3);
+});
+
+test('terrain bundles preserve draws and refresh on residency, order and material changes',()=>{
+  const renderer=Object.create(WorldRenderer.prototype),executed=[];
+  Object.assign(renderer,{format:'bgra8unorm',pipeline:'terrain',splatPipeline:'splat',
+    indices:new Map([[0,'horizon-indices']]),terrainBundleBuilds:0});
+  renderer.device={createRenderBundleEncoder:descriptor=>{
+    assert.deepEqual(descriptor,{colorFormats:['bgra8unorm'],depthStencilFormat:'depth24plus'});
+    const calls=[],encoder={finish:()=>calls};
+    for(const name of ['setPipeline','setBindGroup','setVertexBuffer','setIndexBuffer','draw','drawIndexed'])
+      encoder[name]=(...args)=>calls.push([name,...args]);
+    return encoder;
+  }};
+  const pass={executeBundles:bundles=>executed.push(bundles[0])};
+  const horizon={region:0,group:'far',buffer:'far-vertices',offset:0};
+  const detail={group:'near',buffer:'near-vertices',offset:256,count:6};
+  renderer.drawTerrain(pass,[horizon,detail]);
+  assert.deepEqual(executed[0],[
+    ['setPipeline','terrain'],['setBindGroup',0,'far',[0]],['setVertexBuffer',0,'far-vertices'],
+    ['setIndexBuffer','horizon-indices','uint32'],['drawIndexed',3072],
+    ['setBindGroup',0,'near',[256]],['setVertexBuffer',0,'near-vertices'],['draw',6],['setPipeline','splat'],
+  ]);
+  renderer.drawTerrain(pass,[horizon,detail]);
+  assert.equal(executed[1],executed[0]);assert.equal(renderer.terrainBundleBuilds,1);
+  detail.material={group:'layers',vertices:'layer-vertices',indices:'layer-indices',count:12};
+  renderer.drawTerrain(pass,[horizon,detail]);
+  assert.deepEqual(executed[2].slice(-4),[
+    ['setBindGroup',0,'layers',[256]],['setVertexBuffer',0,'layer-vertices'],
+    ['setIndexBuffer','layer-indices','uint32'],['drawIndexed',12],
+  ]);
+  detail.offset=0;horizon.offset=256;
+  renderer.drawTerrain(pass,[detail,horizon]);
+  assert.equal(renderer.terrainBundleBuilds,3);
+  assert.deepEqual(executed[3][1],['setBindGroup',0,'near',[0]]);
+  renderer.drawTerrain(pass,[detail]);
+  assert.equal(renderer.terrainBundleBuilds,4);
+  assert(!executed[4].some(call=>call[0]==='drawIndexed'&&call[1]===3072));
+});
+
+test('opaque bundles track live resources and offsets without freezing transparent order',()=>{
+  const renderer=Object.create(WorldRenderer.prototype);
+  const encoder=()=>{
+    const calls=[],value={calls,finish:()=>calls,executeBundles:bundles=>calls.push(...bundles.flat())};
+    for(const name of ['setPipeline','setBindGroup','setVertexBuffer','setIndexBuffer','drawIndexed'])
+      value[name]=(...args)=>calls.push([name,...args]);
+    return value;
+  };
+  Object.assign(renderer,{format:'bgra8unorm',sceneBundleBuilds:0,device:{createRenderBundleEncoder:encoder}});
+  const draw=(id,transparent=false)=>({asset:{vertices:`v${id}`,indices:`i${id}`},
+    batch:{transparent,indexCount:3,firstIndex:id},item:{group:`g${id}`,offset:id*256},pipeline:`p${id}`});
+  const a=draw(0),b=draw(1),near=draw(2,true),far=draw(3,true);
+  const render=draws=>{const pass=encoder();renderer.drawScene(pass,draws);return pass.calls.filter(c=>c[0]==='drawIndexed').map(c=>c[3]);};
+  assert.deepEqual(render([a,b,far,near]),[0,1,3,2]);
+  assert.deepEqual(render([{...a},{...b},near,far]),[0,1,2,3]);
+  assert.equal(renderer.sceneBundleBuilds,1);
+  a.item.offset=1024;render([a,b,near,far]);
+  assert.equal(renderer.sceneBundleBuilds,2);
+  a.asset={vertices:'replacement',indices:'replacement-indices'};render([a,b,near,far]);
+  assert.equal(renderer.sceneBundleBuilds,3);
+  a.item={group:'new-texture',offset:1024};render([a,b,near,far]);
+  assert.equal(renderer.sceneBundleBuilds,4);
+  assert.deepEqual(render([b,a,near,far]),[1,0,2,3]);
+  assert.equal(renderer.sceneBundleBuilds,5);
+  assert.deepEqual(render([near,far]),[2,3]);
+  assert.equal(renderer.sceneBundleBuilds,6);
+  assert.deepEqual(render([]),[]);
+  assert.equal(renderer.sceneBundleBuilds,6);
+});
+
 test('authored gamma bytes are averaged, not sRGB-decoded, and complete mips retain color',()=>{
   const rgba=new Uint8Array([0,40,200,255,100,60,100,255,200,80,0,255,100,20,100,255]);
   assert.deepEqual([...resizeRgba(2,2,rgba,1)],[100,50,100,255]);

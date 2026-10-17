@@ -1,19 +1,21 @@
 export class WorldClient {
-  constructor(onEvent,onError) {
+  constructor(onEvent,onError,canFrame=()=>true) {
     this.onEvent=onEvent;this.onError=onError;this.next=0;this.requests=new Map();
-    this.elapsed=0;this.inFlight=false;
+    this.elapsed=0;this.inFlight=false;this.canFrame=canFrame;
   }
   stop() {
     this.worker?.terminate();this.worker=undefined;
     for(const request of this.requests.values()) request.reject(new DOMException('World closed','AbortError'));
-    this.requests.clear();this.inFlight=false;this.elapsed=0;
+    this.requests.clear();this.inFlight=false;this.discardFrame();
   }
   request(action,fields={}) {
     if(!this.worker) return Promise.reject(new Error('Select the local Data folder first.'));
+    if(action==='reset' || action==='restore')this.discardFrame();
     return new Promise((resolve,reject)=>{
       const id=++this.next;
-      this.requests.set(id,{resolve,reject});
-      this.worker.postMessage({id,action,...fields});
+      this.requests.set(id,{resolve,reject,action});
+      try{this.worker.postMessage({id,action,...fields});}
+      catch(error){this.requests.delete(id);reject(error);}
     });
   }
   async open(folder) {
@@ -37,12 +39,29 @@ export class WorldClient {
   }
   frame(dt,throttle,steer,flags,focus,distant=true) {
     this.elapsed=Math.min(.1,this.elapsed+dt);
-    if(this.inFlight || !this.worker)return;
-    const worker=this.worker,elapsed=this.elapsed;this.elapsed=0;this.inFlight=true;
-    this.request('frame',{dt:elapsed,throttle,steer,flags,focus,distant}).then(state=>{
+    this.pendingFrame={throttle,steer,flags,focus,distant};
+    this.flushFrame();
+  }
+  discardFrame() {
+    this.pendingFrame=undefined;this.elapsed=0;
+  }
+  flushFrame() {
+    if(!this.worker || !this.canFrame()){this.discardFrame();return;}
+    for(const request of this.requests.values())if(request.action==='reset' || request.action==='restore'){
+      this.discardFrame();return;
+    }
+    if(this.inFlight || !this.pendingFrame)return;
+    const worker=this.worker,fields=this.pendingFrame,elapsed=this.elapsed;
+    this.discardFrame();this.inFlight=true;
+    this.request('frame',{dt:elapsed,...fields}).then(state=>{
       if(this.worker===worker)this.state=state;
-    }).catch(error=>{if(error.name!=='AbortError')this.onError(error);}).finally(()=>{
-      if(this.worker===worker)this.inFlight=false;
+    }).catch(error=>{
+      if(this.worker===worker){
+        this.discardFrame();
+        if(error.name!=='AbortError')this.onError(error);
+      }
+    }).finally(()=>{
+      if(this.worker===worker){this.inFlight=false;this.flushFrame();}
     });
   }
 }

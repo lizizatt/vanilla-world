@@ -144,6 +144,11 @@ current collision requirements are ready; late results for an evicted selection
 are discarded. Existing near placements are reused without another archive read.
 Combined model drawing retains a nearest-first prefix capped at **two million
 triangles and 4096 draw calls**; any omitted instances are reported in the HUD.
+Terrain and opaque/cutout commands reuse bounded WebGPU render bundles without
+omitting draws. Membership, material, resource or uniform-offset changes rebuild
+them; transparent batches still sort back-to-front every frame. Batch paths and
+pipelines are prepared once, static instance transforms retain floating-origin
+precision, and each frame writes directly into the existing uniform buffer.
 
 Collision uses **BVH-indexed authored collision triangles**, with continuous
 two-sided swept hull tests (half-extents 1.1 east / 0.5 up / 1.1 south yards)
@@ -228,14 +233,36 @@ rate and fresh-pose rate must reach 30 Hz, with p95 moving frame/pose intervals 
 greater than 33.3 ms; high render FPS alone cannot pass. Input timing ends at the
 first changed-pose draw, not physical monitor scanout. `WORLD_URL` overrides the
 default local URL and `RUN_LABEL` selects the ignored evidence filename.
+Changed-pose draw cadence must meet the same rate/p95 gate, so multiple worker
+responses between renders cannot masquerade as visible motion updates.
 
-The integrated profiled-selection checkpoint is **not yet smooth-city accepted**.
-On Edge 155 / NVIDIA Ampere, at 1366 x 668 rendered pixels and DPR 1, the city
-traveled 1371 yards in 39.9 moving seconds without collision/terrain holds:
-110.5 render FPS (minimum rolling 87), 66.0 fresh poses/second, but a 49.5 ms
-p95 moving pose interval. Clear raceway and coastal circuit passed at 17.9 ms
-p95 each. These measurements retain full scenery; the city tail still fails the
-33.3 ms gate. Local evidence is `test-results/performance/integrated-profiled-selection.json`.
+The integrated coalesced-transport checkpoint **passes the response/render gates** on Edge 155 /
+NVIDIA Ampere at 1366 x 668 rendered pixels and DPR 1, with full scenery:
+
+| Sustained route | Moving seconds / yards | Fresh poses/s | p95 pose interval | Minimum rolling render FPS |
+| --- | --- | --- | --- | --- |
+| Clear raceway | 39.5 / 1214 | 111.9 | 15.2 ms | 138 |
+| Coastal circuit | 39.9 / 689 | 119.9 | 14.5 ms | 143 |
+| Stormwind | 39.9 / 1389 | 88.0 | 30.0 ms | 140 |
+
+The circuit crosses a real ADT boundary. City and circuit have zero terrain,
+object or solid holds. The clear route records 28 ms of brief solid contacts;
+the other routes eventually encounter real obstacles and are not sustained-motion
+proofs. This is a p95 target, not a stutter-free claim: city p99/max pose intervals
+are 69.9/159.9 ms, and the clear route has a 235.9 ms outlier. City first-W to
+changed-pose draw is 29.2 ms. Full-run Wasm high-water is 67.3 MiB; sampled combined
+collision buffers peak at 12.5 MiB. Local evidence is
+`test-results/performance/integrated-coalesced-transport.json`.
+The additional drawn-pose diagnostic is not yet within the 33.3 ms target:
+`integrated-drawn-cadence.json` records city p95 34.6 ms at 84.1 changed-pose
+draws/second. Coalesced responses can arrive between renders, so their cadence
+alone is not a complete visible-motion proof.
+
+The client keeps one in-flight simulation request and one coalesced latest-input
+sample. Already accumulated unsent time drains on the reply instead of waiting
+for another display frame; the existing 0.1-second catch-up cap remains. Pose/mode
+transitions and pauses discard pending input, and old-world replies cannot drain
+into a replacement world. This advances real simulation, not interpolated poses.
 
 [ASSETS.md](ASSETS.md) documents the bounded MPQ reader, corruption semantics,
 77-file native/Node/Edge parity and the whole-install codec census. All 2,389,542

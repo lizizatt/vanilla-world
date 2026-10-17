@@ -56,7 +56,7 @@ try {
     const request = WorldClient.prototype.request;
     const submit = GPUQueue.prototype.submit;
     window.profile = {frames: [], movingMs: [], draws: [], submits: [], worker: [], freshStates: [],
-      freshPoses: [], movingPoseMs: [], inputs: [], tasks: [], samples: [], active: false};
+      freshPoses: [], movingPoseMs: [], drawnPoses: [], movingDrawnPoseMs: [], inputs: [], tasks: [], samples: [], active: false};
     document.addEventListener('keydown', event => {
       if(!profile.active || event.repeat || !['KeyW','KeyA','KeyD'].includes(event.code))return;
       const p = worldEvidence.state.telemetry;
@@ -98,7 +98,16 @@ try {
         }
         profile.draws.push(performance.now()-start);
         const state = worldEvidence.state;
-        const moving = state.telemetry[5]>1 && !state.telemetry[8] && !state.scene.waitingCollision;
+        const moving = p[5]>1 && !p[8] && !state.scene.waitingCollision;
+        const pose = [p[0],p[2],p[3]], changed = profile.lastDrawnPose && pose.some((v,i)=>v!==profile.lastDrawnPose[i]);
+        if(changed) {
+          profile.drawnPoses.push(start);
+          if(moving && profile.previousDrawnMoving && profile.lastDrawnAt!==undefined)
+            profile.movingDrawnPoseMs.push(start-profile.lastDrawnAt);
+          profile.lastDrawnAt=start;
+        }
+        if(!moving)profile.lastDrawnAt=undefined;
+        profile.previousDrawnMoving=moving;profile.lastDrawnPose=pose;
         if(moving && profile.wasMoving && profile.frames.length)profile.movingMs.push(start-profile.frames.at(-1));
         profile.wasMoving = moving;
         profile.frames.push(start);
@@ -151,7 +160,8 @@ try {
     const cpuBefore = await cdp.send('Performance.getMetrics');
     await page.evaluate(() => {
       Object.assign(profile, {frames: [], movingMs: [], draws: [], submits: [], worker: [], freshStates: [],
-        freshPoses: [], movingPoseMs: [], inputs: [], tasks: [], samples: [], wasMoving: false,
+        freshPoses: [], movingPoseMs: [], drawnPoses: [], movingDrawnPoseMs: [], inputs: [], tasks: [], samples: [], wasMoving: false,
+        previousDrawnMoving: false, lastDrawnPose: undefined, lastDrawnAt: undefined,
         previousMoving: false, lastPose: undefined, lastPoseAt: undefined, active: true});
     });
     await page.locator('#world').focus();
@@ -200,6 +210,7 @@ try {
       workerRoundTripMs: distribution(data.worker),
       freshStateHz: data.freshStates.length/seconds, freshPoseHz: data.freshPoses.length/seconds,
       movingPoseUpdateMs: distribution(data.movingPoseMs), inputToVisible: data.inputs,
+      freshDrawnPoseHz: data.drawnPoses.length/seconds, movingDrawnPoseMs: distribution(data.movingDrawnPoseMs),
       averageFps: (data.frames.length-1)*1000/(data.frames.at(-1)-data.frames[0]),
       minRollingFps: rolling.length ? Math.min(...rolling) : 0,
       holds: Object.fromEntries(Object.entries(after.holds).map(([k,v]) => [k, {
@@ -222,5 +233,7 @@ try {
     assert(route.minRollingFps>=30 && route.movingFrameMs?.p95<=1000/30, `${name}: render cadence below 30 FPS`);
     assert(route.freshPoseHz>=30 && route.movingPoseUpdateMs?.p95<=1000/30,
       `${name}: fresh simulation poses fail the 30 Hz / 33.3 ms p95 gate`);
+    assert(route.freshDrawnPoseHz>=30 && route.movingDrawnPoseMs?.p95<=1000/30,
+      `${name}: actually drawn poses fail the 30 Hz / 33.3 ms p95 gate`);
   }
 } finally { await browser.close(); }
