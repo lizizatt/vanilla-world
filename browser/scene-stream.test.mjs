@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { SceneStream, placementMatrix, transformPoint, transformedBounds, globalCollisionVertices, validatePopulation, modelPath, boundsDistance } from './scene-stream.js';
+import { SceneStream, placementMatrix, transformPoint, transformedBounds, globalCollisionVertices, validatePopulation, modelPath, boundsDistance, boundsWithin } from './scene-stream.js';
 
 const p = (id, path = 'tree.mdx', x = 0) => ({ kind: 'm2', id, path, position: [x, 0, 0], rotation: [0, 180, 0], scale: 1 });
 const fixture = ({ cutout = false, texture = 'leaves.blp' } = {}) => {
@@ -51,6 +51,17 @@ test('scalar bounds distance preserves point and swept-box distances on every ax
       assert.equal(boundsDistance(bounds, low, high), Math.hypot(...start.map((v, a) =>
         Math.max(bounds[0][a] - Math.max(v, end[a]), 0, Math.min(v, end[a]) - bounds[1][a]))));
     }
+  }
+});
+
+test('axis rejection preserves exact spherical bounds thresholds, including corners and large coordinates', () => {
+  const bounds = [[-2, -3, -4], [5, 6, 7]];
+  const points = [[0,0,0], [8,10,7], [-5,-7,-4], [89,6,7], [5,90,7], [5,6,91], [1e200,-1e200,1e200]];
+  for (let i=0;i<1000;i++) points.push([Math.sin(i)*100,Math.cos(i*3)*100,Math.sin(i*7)*100]);
+  for (const p of points) {
+    const d = boundsDistance(bounds,p);
+    for (const radius of [0,4,5,32,84,850,d,d*(1-Number.EPSILON),d*(1+Number.EPSILON),1e201])
+      assert.equal(boundsWithin(bounds,p,radius),d<radius,`${p} at radius ${radius}`);
   }
 });
 

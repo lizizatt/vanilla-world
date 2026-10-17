@@ -82,6 +82,14 @@ export function boundsDistance(bounds, low, high = low) {
     Math.max(bounds[0][1] - high[1], 0, low[1] - bounds[1][1]),
     Math.max(bounds[0][2] - high[2], 0, low[2] - bounds[1][2]));
 }
+export function boundsWithin(bounds, p, radius) {
+  const x = Math.max(bounds[0][0] - p[0], 0, p[0] - bounds[1][0]);
+  if (x >= radius) return false;
+  const y = Math.max(bounds[0][1] - p[1], 0, p[1] - bounds[1][1]);
+  if (y >= radius) return false;
+  const z = Math.max(bounds[0][2] - p[2], 0, p[2] - bounds[1][2]);
+  return z < radius && Math.hypot(x, y, z) < radius;
+}
 function extractModel(handle) {
   try {
     const metadata = JSON.parse(handle.metadata());

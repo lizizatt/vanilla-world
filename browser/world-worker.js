@@ -1,7 +1,7 @@
 import init,{Voyage,world_manifest} from './pkg/flats_racer_web.js';
 import * as wasmTypes from './pkg/flats_racer_web.js';
 import {openDataSource} from './asset-source.js';
-import {SceneStream,SCENE_LIMITS,transformedBounds,globalCollisionVertices,boundsDistance} from './scene-stream.js';
+import {SceneStream,SCENE_LIMITS,transformedBounds,globalCollisionVertices,boundsWithin} from './scene-stream.js';
 import {TerrainStream} from './terrain-stream.js';
 import {loadCraft} from './craft-stream.js';
 
@@ -193,7 +193,7 @@ function sourcePosition(region,p) {
 function updateCameraUnknown(body,region) {
   const p=sourcePosition(region,body);
   cameraUnknown=sceneState.unresolvedCollision.filter(i=>(i.kind==='wmo'&&!i.boundsKnown)
-    || boundsDistance(i.bounds,p)<84);
+    || boundsWithin(i.bounds,p,84));
 }
 async function updateScene(focus) {
   if(scenePumpError)throw scenePumpError;
@@ -220,9 +220,8 @@ async function updateScene(focus) {
   if(radius>SCENE_LIMITS.radius)throw new Error('Frame sweep exceeds the streamed scene collision coverage');
   objectWait=sceneState.unresolvedCollision.filter(i=>{
     if(i.kind==='wmo' && !i.boundsKnown)return true;
-    const distance=boundsDistance(i.bounds,bodySource);
     // shortcut: unknown M2 extents use a 32-yard proximity guard until their authored hull is decoded.
-    return distance<(i.boundsKnown?radius:Math.max(32,radius));
+    return boundsWithin(i.bounds,bodySource,i.boundsKnown?radius:Math.max(32,radius));
   });
   const reach=Math.max(120,32+52+sweep);
   if(!collisionFocus || collisionFocus.region!==region || reach>collisionFocus.reach ||

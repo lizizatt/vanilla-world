@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {readFile} from 'node:fs/promises';
 import {createContext,runInContext} from 'node:vm';
-import {transformedBounds,globalCollisionVertices,SCENE_LIMITS,placementMatrix,boundsDistance} from './scene-stream.js';
+import {transformedBounds,globalCollisionVertices,SCENE_LIMITS,placementMatrix,boundsWithin} from './scene-stream.js';
 
 // Exercise the actual worker queue with synthetic archive/Wasm boundaries, without starting WebGPU.
 const worker=(await readFile(new URL('./world-worker.js',import.meta.url),'utf8'))
@@ -10,7 +10,7 @@ const worker=(await readFile(new URL('./world-worker.js',import.meta.url),'utf8'
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 function boot(events=[],clock=performance) {
   const context=createContext({init:async()=>({memory:{buffer:new ArrayBuffer(0)}}),performance:clock,postMessage:message=>events.push(message),
-    transformedBounds,globalCollisionVertices,SCENE_LIMITS,boundsDistance});
+    transformedBounds,globalCollisionVertices,SCENE_LIMITS,boundsWithin});
   runInContext(worker,context);
   return context;
 }
@@ -305,7 +305,7 @@ test('frame timing separates post-tick camera scanning from physics queries',asy
   let now=1000;
   const f=collisionFixture({now:()=>now});
   f.unresolved(50);
-  f.context.boundsDistance=(...args)=>{now+=5;return boundsDistance(...args);};
+  f.context.boundsWithin=(...args)=>{now+=5;return boundsWithin(...args);};
   f.context.dependencies.world.tick=()=>{now+=2;};
   runInContext(`prepareDistant=()=>{};startDistantRead=()=>{};startCraft=()=>{};
     terrain.pump=async()=>{};`,f.context);
