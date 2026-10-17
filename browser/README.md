@@ -474,6 +474,14 @@ terrain/collision readiness remains before physics. Terrain material constructio
 is visual-only work after the pose reply; removing a tile invalidates its pending
 material work. These changes preserve authored placement data and collision geometry.
 
+New admissions now defer optional material construction until a subsequent
+non-admitting frame has advanced catch-up physics (or is flying/object-held).
+One 25 ms fallback task, serialized behind queued requests, finishes near materials
+when input stops. The FIFO holds at most four resident tiles. Eviction/source
+changes cancel stale callbacks; texture continuation stops on completion/error,
+and failed preparation requires explicit retry. Required terrain, scene selection,
+collision and model-readiness pumps are unchanged.
+
 ### Remaining scene-transfer and terrain hitches
 
 The ordered-scene optimization's matched 45-second cold-start captures reduced
@@ -499,6 +507,32 @@ Thirteen tails overlap terrain admission/visual work; the largest overlaps a
 Two pre-handler waits remain unexplained. Traces/profiles are retained in the
 peer's `ordered-scene-{before,after,sustained}` evidence folders; no tuning loop
 followed. `SCENE_UPDATES=0` is a harness-only same-source comparison switch.
+
+The later material-scheduling comparison used two new 180-second captures on the
+same integrated source (`MATERIAL_SCHEDULING=0` disables only the candidate in the
+harness). Presented freezes over 50 ms fell **8 to 1**, maximum **81.7 to 59 ms**,
+p99 **12.5 to 10 ms**, and repeated moving draws **366 to 195**. Raw freezes fell
+24 to 13; neither run discarded client/worker time or reported a runtime error.
+All 16 baseline material preparations occurred on admitting frames; all 22
+candidate preparations followed exactly one later frame with 3-7 catch-up ticks.
+Admission-to-next-handler wait median fell 16.7 to 2.2 ms (maximum 41 to 30.6 ms).
+Both near-material queues drained, with no tile failures/new terrain errors and
+the same 18 known missing-minimap notices.
+
+This still **fails the strict 50 ms gate**: the remaining 59 ms gap overlaps
+initial synchronous admission, not the deferred material tail. Paths differed
+(5611/6001 yards, 10/4 reverse recoveries, 16/22 admissions), and launch CPU
+snapshots were 79%/100%; these are limits on causal comparison, not explanations.
+All 33/22 held draws exactly matched raw poses. Both runs used headless Edge
+155.0.4283.45, 1280 x 800 browser viewport, 1206 x 534 CSS/backing canvas, DPR 1,
+15-second warmup, confirmed presentation and ordered scene updates; sound/video/
+profiling were off. All 180 samples per run were focused/visible without recorded
+transitions. Browser/worker contexts were fresh; OS cache was uncontrolled.
+Evidence remains in the peer's `material-catchup-{before,after}` folders alongside
+the older, worse retained traces. No Rust/Wasm or collision-policy change is made.
+Integration passes 124 JavaScript tests plus the Edge controls/audio/material/
+save/offline check with shell cache v19; that functional check is not another
+performance comparison.
 
 [ASSETS.md](ASSETS.md) documents the bounded MPQ reader, corruption semantics,
 77-file native/Node/Edge parity and the whole-install codec census. All 2,389,542

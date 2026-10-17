@@ -543,7 +543,7 @@ onmessage=({data})=>{
       postMessage({id:data.id,result});
       responded=true;
       if(data.action==='frame')timings.postMs+=performance.now()-start;
-      // Finish this frame's visuals before the next queued request, but let the client draw its fresh pose first.
+      // Publish visuals after replying; newly admitted materials wait for catch-up.
       if(data.action==='frame' && postFrameVisuals)finishFrame(data);
       else scheduleTerrainMaterials(data.action==='retry');
     }
