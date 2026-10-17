@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
 pub const TILE: f64 = 1600.0 / 3.0;
-pub const MAX_RESIDENT: usize = 3;
+pub const MAX_RESIDENT: usize = 4;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -72,6 +72,8 @@ pub struct Manifest {
     pub tiles: Vec<TileEntry>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub horizons: Vec<HorizonEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub world_bounds: Option<[[u32; 4]; 2]>,
     /// Explicit connecting ocean only, never a fallback for missing continent data.
     pub ocean: [f64; 4],
     pub sea_level: f32,
@@ -85,12 +87,28 @@ fn contains(b: [f64; 4], p: [f64; 2]) -> bool {
 
 impl Manifest {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.version, 1 | 2)
+        if let Some(bounds) = self.world_bounds {
+            if bounds
+                .iter()
+                .any(|b| b.iter().any(|&n| n > 64) || b[0] >= b[2] || b[1] >= b[3])
+                || self.horizons.iter().enumerate().any(|(i, h)| {
+                    i >= 2
+                        || h.source_bounds[0] < bounds[i][0]
+                        || h.source_bounds[1] < bounds[i][1]
+                        || h.source_bounds[2] > bounds[i][2]
+                        || h.source_bounds[3] > bounds[i][3]
+                })
+            {
+                return Err("Invalid combined authored world bounds".into());
+            }
+        }
+        if !matches!(self.version, 1..=3)
             || (self.version == 1 && !self.horizons.is_empty())
-            || (self.version == 2 && self.horizons.len() != 2)
+            || (self.version >= 2 && self.horizons.len() != 2)
+            || (self.version == 3 && self.world_bounds.is_none())
             || self.regions.len() != 2
             || self.tiles.is_empty()
-            || self.tiles.len() > 16
+            || self.tiles.len() > if self.version == 3 { 8192 } else { 16 }
             || self.label.len() > 120
             || self.spawn[1].abs() > 10_000.0
             || !self.sea_level.is_finite()
@@ -109,7 +127,9 @@ impl Manifest {
                 || r.id.len() > 64
                 || !matches!(r.map.as_str(), "Kalimdor" | "Azeroth")
                 || r.tile_count.contains(&0)
-                || r.tile_count.iter().any(|&n| n > 4)
+                || r.tile_count
+                    .iter()
+                    .any(|&n| n > if self.version == 3 { 64 } else { 4 })
                 || r.tile_origin
                     .iter()
                     .zip(r.tile_count)
@@ -120,16 +140,18 @@ impl Manifest {
             {
                 return Err("Invalid region dimensions or placement".into());
             }
-            for y in r.tile_origin[1]..r.tile_origin[1] + r.tile_count[1] {
-                for x in r.tile_origin[0]..r.tile_origin[0] + r.tile_count[0] {
-                    if self
-                        .tiles
-                        .iter()
-                        .filter(|t| t.region == i && t.x == x && t.y == y)
-                        .count()
-                        != 1
-                    {
-                        return Err("Every corridor tile must be listed exactly once".into());
+            if self.version < 3 {
+                for y in r.tile_origin[1]..r.tile_origin[1] + r.tile_count[1] {
+                    for x in r.tile_origin[0]..r.tile_origin[0] + r.tile_count[0] {
+                        if self
+                            .tiles
+                            .iter()
+                            .filter(|t| t.region == i && t.x == x && t.y == y)
+                            .count()
+                            != 1
+                        {
+                            return Err("Every corridor tile must be listed exactly once".into());
+                        }
                     }
                 }
             }
@@ -141,16 +163,18 @@ impl Manifest {
         } else {
             let bounds = |i: usize| {
                 let r = &self.regions[i];
-                let h = &self.horizons[i];
+                let source_bounds = self
+                    .world_bounds
+                    .map_or(self.horizons[i].source_bounds, |b| b[i]);
                 [
                     r.placement[0]
-                        + (f64::from(h.source_bounds[0]) - f64::from(r.tile_origin[0])) * TILE,
+                        + (f64::from(source_bounds[0]) - f64::from(r.tile_origin[0])) * TILE,
                     r.placement[1]
-                        + (f64::from(h.source_bounds[1]) - f64::from(r.tile_origin[1])) * TILE,
+                        + (f64::from(source_bounds[1]) - f64::from(r.tile_origin[1])) * TILE,
                     r.placement[0]
-                        + (f64::from(h.source_bounds[2]) - f64::from(r.tile_origin[0])) * TILE,
+                        + (f64::from(source_bounds[2]) - f64::from(r.tile_origin[0])) * TILE,
                     r.placement[1]
-                        + (f64::from(h.source_bounds[3]) - f64::from(r.tile_origin[1])) * TILE,
+                        + (f64::from(source_bounds[3]) - f64::from(r.tile_origin[1])) * TILE,
                 ]
             };
             let (west, east) = (bounds(0), bounds(1));
@@ -160,9 +184,8 @@ impl Manifest {
             [west[2], west[1].min(east[1]), east[0], west[3].max(east[3])]
         };
         if self.regions[0].id == self.regions[1].id
-            || a[2] >= b[0]
-            || (a[1] - b[1]).abs() > 0.001
-            || (a[3] - b[3]).abs() > 0.001
+            || (self.version < 3
+                && (a[2] >= b[0] || (a[1] - b[1]).abs() > 0.001 || (a[3] - b[3]).abs() > 0.001))
             || self
                 .ocean
                 .iter()
@@ -197,9 +220,9 @@ impl Manifest {
             let expected = format!("{}_{}_{}.adt", r.map, t.x, t.y);
             if t.file != expected
                 || !names.insert(&t.file)
-                || t.bytes == 0
+                || (self.version < 3 && t.bytes == 0)
                 || t.bytes > 16 * 1024 * 1024
-                || t.sha256.len() != 64
+                || (self.version < 3 && t.sha256.len() != 64)
                 || !t.sha256.bytes().all(|c| c.is_ascii_hexdigit())
                 || t.x < r.tile_origin[0]
                 || t.x >= r.tile_origin[0] + r.tile_count[0]
@@ -223,13 +246,6 @@ impl Manifest {
             r.placement[0] + f64::from(t.x - r.tile_origin[0]) * TILE,
             r.placement[1] + f64::from(t.y - r.tile_origin[1]) * TILE,
         ]
-    }
-
-    fn locate(&self, p: [f64; 2]) -> Option<usize> {
-        self.tiles.iter().enumerate().find_map(|(i, _)| {
-            let a = self.tile_placement(i);
-            contains([a[0], a[1], a[0] + TILE, a[1] + TILE], p).then_some(i)
-        })
     }
 }
 
@@ -265,6 +281,9 @@ pub struct Voyage {
     pub(crate) manifest: Manifest,
     pub(crate) resident: HashMap<usize, TileMesh>,
     pub(crate) horizons: HashMap<usize, Horizon>,
+    pub(crate) grid: Vec<Option<usize>>,
+    pub(crate) exterior: Vec<bool>,
+    scene_bounds: Vec<[f64; 6]>,
     state: State,
     origin: [f64; 2],
     rebases: u32,
@@ -274,6 +293,14 @@ pub struct Voyage {
 impl Voyage {
     pub fn from_manifest(manifest: Manifest) -> Result<Self, String> {
         manifest.validate()?;
+        let mut grid = vec![None; 8192];
+        for (index, tile) in manifest.tiles.iter().enumerate() {
+            let cell = tile.region * 4096 + tile.y as usize * 64 + tile.x as usize;
+            if grid[cell].replace(index).is_some() {
+                return Err("Duplicate world topology tile".into());
+            }
+        }
+        let exterior = crate::world::exterior_cells(&grid);
         let mut world = Self {
             state: State::new(
                 [0.0, manifest.spawn[1] as f32, 0.0],
@@ -284,6 +311,9 @@ impl Voyage {
             manifest,
             resident: HashMap::new(),
             horizons: HashMap::new(),
+            grid,
+            exterior,
+            scene_bounds: vec![],
             rebases: 0,
             hold: 1,
         };
@@ -316,7 +346,7 @@ impl Voyage {
             availability: 2,
             region: -2,
         };
-        if let Some(index) = self.manifest.locate(p) {
+        if let Some(index) = self.locate(p) {
             let region = self.manifest.tiles[index].region;
             result.region = region as i32;
             let Some(tile) = self.resident.get(&index) else {
@@ -355,6 +385,25 @@ impl Voyage {
             result.water = Some(self.manifest.sea_level);
             result.availability = 0;
             result.region = -1;
+        } else if self.manifest.version == 3 {
+            if let Some(region) = self.exterior_ocean(p) {
+                result.water = Some(self.manifest.sea_level);
+                result.availability = 0;
+                result.region = region as i32;
+            }
+        }
+        if result.availability != 1 {
+            for b in &self.scene_bounds {
+                if p[0] >= b[0] && p[0] <= b[3] && p[1] >= b[2] && p[1] <= b[5] {
+                    if f64::from(self.state.position[1]) >= b[4] - 0.1 {
+                        result.ground =
+                            Some(result.ground.map_or(b[4] as f32, |g| g.max(b[4] as f32)));
+                        result.availability = 0;
+                    } else if f64::from(self.state.position[1]) + 0.6 >= b[1] {
+                        result.solid = true;
+                    }
+                }
+            }
         }
         result
     }
@@ -374,7 +423,7 @@ impl Voyage {
         Ok(heights)
     }
 
-    fn advance(&mut self, input: Input) -> Result<(), String> {
+    pub(crate) fn advance(&mut self, input: Input) -> Result<(), String> {
         if !input.throttle.is_finite() || !input.steer.is_finite() {
             return Err("Throttle and steer must be finite".into());
         }
@@ -408,6 +457,14 @@ impl Voyage {
             p[0] + f64::from(self.state.velocity[0] * FIXED_DT),
             p[1] + f64::from(self.state.velocity[2] * FIXED_DT),
         ];
+        let swept_start = [p[0], f64::from(before.position[1]), p[1]];
+        let swept_end = [next[0], f64::from(before.position[1] + self.state.velocity[1] * FIXED_DT), next[1]];
+        if self.scene_bounds.iter().any(|b| swept_box(swept_start, swept_end, *b)) {
+            self.state = before;
+            self.state.velocity = [0.0; 3];
+            self.hold = 3;
+            return Ok(());
+        }
         match self.heights(next, self.state.yaw) {
             Ok(hs) if hs.iter().zip(heights).all(|(h, old)| h - old < 0.6) => {
                 for i in 0..3 {
@@ -431,8 +488,49 @@ impl Voyage {
     }
 }
 
+fn swept_box(start: [f64; 3], end: [f64; 3], bounds: [f64; 6]) -> bool {
+    if start[1].min(end[1]) - 0.5 >= bounds[4] {
+        return false;
+    }
+    let mut enter: f64 = 0.0;
+    let mut exit: f64 = 1.0;
+    for axis in 0..3 {
+        let margin = if axis == 1 { 0.5 } else { 1.1 };
+        let low = bounds[axis] - margin;
+        let high = bounds[axis + 3] + margin;
+        let delta = end[axis] - start[axis];
+        if delta.abs() < 1e-12 {
+            if start[axis] < low || start[axis] > high { return false; }
+        } else {
+            let a = (low - start[axis]) / delta;
+            let b = (high - start[axis]) / delta;
+            enter = enter.max(a.min(b));
+            exit = exit.min(a.max(b));
+            if enter > exit { return false; }
+        }
+    }
+    true
+}
+
 #[wasm_bindgen]
 impl Voyage {
+    /// Conservative bounds of authored collision meshes, not exact building interiors.
+    pub fn set_scene_bounds(&mut self, bounds: &[f64]) -> Result<(), JsValue> {
+        if !bounds.len().is_multiple_of(6)
+            || bounds.len() > 1024 * 6
+            || bounds.iter().any(|v| !v.is_finite() || v.abs() > 1e12)
+            || bounds
+                .as_chunks::<6>()
+                .0
+                .iter()
+                .any(|b| (0..3).any(|i| b[i] > b[i + 3]))
+        {
+            return Err(JsValue::from_str("Invalid scene collision bounds"));
+        }
+        self.scene_bounds = bounds.as_chunks::<6>().0.to_vec();
+        Ok(())
+    }
+
     #[wasm_bindgen(constructor)]
     pub fn new(json: &str) -> Result<Voyage, JsValue> {
         let manifest: Manifest =
@@ -447,7 +545,9 @@ impl Voyage {
             .tiles
             .get(index)
             .ok_or_else(|| fail("Unknown tile"))?;
-        if bytes.len() != entry.bytes
+        if (entry.bytes != 0 && bytes.len() != entry.bytes)
+            || bytes.is_empty()
+            || bytes.len() > 16 * 1024 * 1024
             || (!self.resident.contains_key(&index) && self.resident.len() >= MAX_RESIDENT)
         {
             return Err(fail("Tile size/resident limit rejected"));
@@ -620,6 +720,14 @@ impl Voyage {
 pub(crate) mod tests {
     use super::*;
 
+    #[test]
+    fn authored_bounds_block_swept_thin_walls_but_not_rooftop_support() {
+        let wall = [5.0, 0.0, -2.0, 5.01, 4.0, 2.0];
+        assert!(swept_box([0.0, 1.0, 0.0], [10.0, 1.0, 0.0], wall));
+        assert!(!swept_box([0.0, 5.1, 0.0], [10.0, 5.1, 0.0], wall));
+        assert!(!swept_box([0.0, 1.0, 5.0], [10.0, 1.0, 5.0], wall));
+    }
+
     pub fn fixture(shift: f64) -> Manifest {
         let mut m = Manifest {
             version: 1,
@@ -642,6 +750,7 @@ pub(crate) mod tests {
             ],
             tiles: vec![],
             horizons: vec![],
+            world_bounds: None,
             ocean: [shift + TILE, 0.0, shift + 2000.0, TILE],
             sea_level: 0.0,
             spawn: [shift + 200.0, 1.1, 64.0, 0.0],

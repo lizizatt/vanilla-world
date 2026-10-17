@@ -24,4 +24,18 @@ input[type=file] { position: absolute; inset: 0; width: 100%; opacity: 0; cursor
 .controls { margin-top: 22px; color: #a5bac4; }
 kbd { font: 11px system-ui; border: 1px solid #35515e; padding: 2px 5px; border-radius: 4px; }
 .scope { font-size: 12px; color: #8199a6; max-width: 1050px; }
+#welcome { position: absolute; inset: 22% auto auto 7%; max-width: 440px; padding-right: 25px; }
+#welcome h2 { font-size: clamp(26px, 4vw, 48px); font-weight: 550; line-height: 1.1; letter-spacing: -1.4px; margin: 0 0 20px; }
+#welcome p { color: #a8c1cb; }
+#place { color: #b8eeeb; font-weight: 650; font-size: 12px; letter-spacing: 1px; }
+#resident { font-size: 14px; }
+#coordinates { font-size: 11px; color: #b8cbd2; }
+.primary { background: #38736f; border-color: #65a49d; }
+footer { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 20px; color: #8199a6; font-size: 11px; }
+footer button { font-size: 11px; padding: 5px 8px; }
+footer #offline { margin-left: 0; }
+#error, #problems { border-left: 3px solid #e3a85e; padding: 10px 15px; background: #392c20; color: #ffe1b5; }
+#problems { white-space: pre-wrap; max-height: 130px; overflow: auto; font-size: 11px; }
+summary { cursor: pointer; color: #a5bac4; }
+[hidden] { display: none !important; }
 @media (max-width: 700px) { body { padding: 16px; } .badge { display: none; } .meters { gap: 10px; padding: 8px; left: 10px; } .meters strong { font-size: 18px; } }

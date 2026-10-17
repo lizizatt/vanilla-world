@@ -14,14 +14,13 @@ Windows-only, source-build local server bootstrap; the client remains separate.
 
 ## Building and running
 
-For the isolated local **browser racer experiment**, see
+For the local **browser overworld explorer**, see
 [browser/README.md](browser/README.md). It reuses Rust racer physics and terrain
-formats in Wasm with an alternate WebGPU renderer. A full-world pack shows both
-complete authored WDL continents at original scale, with a broad provisional
-ocean, overview/free flight and offline camera saves. Driving collision remains
-four ADTs; the previous short Durotar-to-Westfall crossing is a separate,
-backward-compatible pack. This is **not** full-detail continent ingestion,
-a Bevy/VMaNGOS port, or a completed singleplayer RPG.
+formats in Wasm with an alternate WebGPU renderer. Select your own Data folder
+to start at the Thousand Needles raceway, with complete coarse continents,
+streamed detailed terrain/scenery, optional private static NPCs and local
+drive/flight saves. Four collision-critical ADTs remain resident at a time.
+This is **not** a Bevy/VMaNGOS port or a completed singleplayer RPG.
 
 Run component commands from their own directories, not the monorepo root.
 See the [Benilla README](client/README.md),

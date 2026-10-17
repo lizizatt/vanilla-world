@@ -70,6 +70,11 @@ fn vertices(mesh: &WdlTileMesh) -> Vec<f32> {
 }
 
 impl Horizon {
+    pub(crate) fn above_sea(&self, source: [f32; 3], sea: f32) -> bool {
+        self.wdl
+            .height_at(source[0], source[1])
+            .is_some_and(|h| h > sea)
+    }
     fn parse(m: &Manifest, region: usize, bytes: &[u8]) -> Result<Self, String> {
         let entry = m.horizons.get(region).ok_or("No horizon descriptor")?;
         if bytes.len() != entry.bytes {

@@ -1,5 +1,3 @@
-import { readRoute, writeRouteView } from './voyage-store.js';
-
 export function worldBounds(manifest) {
   return manifest.horizons.map(h => {
     const r=manifest.regions[h.region],s=1600/3;
@@ -26,17 +24,4 @@ export function moveFlight(pose,keys,dt) {
   p[2]+=(-Math.cos(p[3])*Math.cos(p[4])*f-Math.sin(p[3])*s)*speed;
   p[1]=Math.max(-10000,Math.min(150000,p[1]+(Math.sin(p[4])*f+down('KeyE')-down('KeyQ'))*speed));
   return p;
-}
-export async function saveFlight(pack,pose) {
-  await writeRouteView({version:1,packId:pack.id,pose});
-}
-export async function loadFlight(pack) {
-  const view=await readRoute('meta','view');
-  if (!view) return overview(pack.manifest);
-  if (view.version!==1 || view.packId!==pack.id || !Array.isArray(view.pose) || view.pose.length!==5
-    || !view.pose.every(v=>typeof v==='number' && Number.isFinite(v) && Math.abs(v)<1e12)
-    || view.pose[1]<-10000 || view.pose[1]>150000 || Math.abs(view.pose[4])>1.55) {
-    throw new Error('Free-flight save incompatible or damaged. Overview then Save replaces it explicitly; driving saves are untouched.');
-  }
-  return view.pose;
 }

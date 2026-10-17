@@ -88,7 +88,7 @@ Unresolved hair/cape material batches are omitted from a baked-body NPC, with
 the whole NPC disappear or drawing opaque substitute cards.
 
 Focused checks: `node --test browser\scene-stream.test.mjs` and
-`cargo test --manifest-path client\Cargo.toml -p flats-racer-web --test scene`.
+`cargo test --manifest-path client\Cargo.toml -p flats-racer-web scene::tests`.
 Set `WOW_DATA` and `BENILLA_REQUIRE_DATA=1` for the real both-continent placements,
 complete Elwynn pine/alpha and Goldshire inn checks.
 After building the Wasm exports, `node browser\scene-smoke.mjs` checks real MPQ

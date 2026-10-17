@@ -3,29 +3,34 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Vanilla World | Local racer lab</title>
+  <title>Vanilla World | Your local overworld</title>
   <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-  <header><div><span class="eyebrow">VANILLA WORLD / EXPERIMENT 01</span><h1>Local racer lab</h1></div><span class="badge">RUST WASM + WEBGPU</span></header>
+  <header><div><span class="eyebrow">VANILLA WORLD / LOCAL FIRST</span><h1>The long way home.</h1></div><span class="badge">RUST + WEBGPU</span></header>
   <main>
     <section class="viewport" aria-label="Interactive racer view">
-      <canvas id="world" tabindex="0" aria-label="Racer. W or up to accelerate, A and D to steer."></canvas>
-      <div class="overlay"><span id="terrain">Synthetic flat fixture / no game assets</span><span id="status" role="status">Starting WebAssembly...</span><span id="journey"></span></div>
-      <div class="meters"><div><strong id="speed">0</strong><span>YARDS / SEC</span></div><div><strong id="boost">100%</strong><span>BOOST RESERVE</span></div><div><strong id="contact">PARKED</strong><span>LOCAL SIMULATION</span></div></div>
+      <canvas id="world" tabindex="0" aria-label="Local world. W S drive, A D steer; flight uses Q E altitude and arrow keys to look."></canvas>
+      <div class="overlay"><span id="place">TWO CONTINENTS. ONE LOCAL WORLD.</span><span id="status" role="status">Preparing WebGPU...</span><span id="coordinates"></span></div>
+      <div id="welcome"><h2>Your Azeroth.<br>No server required.</h2><p>Select the <strong>Data</strong> folder from your own Classic 1.12 installation. Start at the Thousand Needles raceway, then drive or fly across both continents.</p><p>No upload. No account. Read-only archives.</p></div>
+      <div class="meters"><div><strong id="speed">0</strong><span>YARDS / SEC</span></div><div><strong id="resident">LOCAL OVERWORLD</strong><span id="details">Waiting for Data folder</span></div></div>
     </section>
     <section class="toolbar" aria-label="Local world and save controls">
-      <label class="button">Import local .adt<input id="import" type="file" accept=".adt" aria-label="Import local ADT terrain" disabled></label>
-      <label class="button">Import route pack<input id="pack" type="file" accept=".json,.adt,.wdl" multiple aria-label="Import route manifest, ADT tiles and WDL horizons" disabled></label>
-      <button id="save" disabled>Save locally</button><button id="load" disabled>Load save</button><button id="reset" disabled>Reset racer</button>
-      <button id="retry" disabled>Retry tiles</button><button id="lab" disabled>Single-tile lab</button>
+      <button id="select" class="primary" disabled>Select Data folder</button><button id="fallback" disabled>Choose folder as files</button>
+      <input id="files" type="file" webkitdirectory multiple hidden aria-label="Select Classic Data folder">
+      <button id="save" disabled>Save locally</button><button id="load" disabled>Load save</button><button id="reset" disabled>Start at raceway</button>
+      <button id="retry" disabled>Retry terrain</button>
       <label><input id="horizon" type="checkbox" checked> Distant terrain</label>
-      <button id="overview">World overview</button><button id="fly">Free flight</button><button id="drive">Drive hovercraft</button>
-      <span id="offline">Offline cache pending</span>
+      <label><input id="scenery" type="checkbox" checked> Nearby scenery</label>
+      <button id="overview" disabled>World overview</button><button id="fly" disabled>Free flight</button><button id="drive" disabled>Return to vehicle</button>
     </section>
     <p class="controls"><kbd>W</kbd><kbd>S</kbd> throttle/reverse &nbsp; <kbd>A</kbd><kbd>D</kbd> steer &nbsp; <kbd>Space</kbd> brake &nbsp; <kbd>Shift</kbd> boost &nbsp; <kbd>C</kbd> drift &nbsp; <kbd>J</kbd> hop &nbsp; hold <kbd>V</kbd> look behind</p>
-    <p class="scope">Full-world pack: both complete authored WDL continents at original scale, separated by a provisional 8192 yd broad ocean between their bounds, not canonical geography. World overview shows both; free-flight uses W/S forward/back, A/D strafe, Q/E altitude, arrows look, Shift fast. WDL is coarse visual terrain with no collision or inland water masks. Only four ADTs provide driving collision. The previous 512 yd short-crossing pack remains a separate layout with unchanged saves. No buildings, textures, NPCs, Bevy renderer or VMaNGOS. Assets and saves stay local.</p>
+    <p class="controls">Flight: <kbd>W</kbd><kbd>S</kbd> forward/back · <kbd>A</kbd><kbd>D</kbd> strafe · <kbd>Q</kbd><kbd>E</kbd> altitude · arrows look · <kbd>Shift</kbd> fast. Return to vehicle leaves your hovercraft where you parked it.</p>
+    <p id="error" role="alert" hidden></p><pre id="problems" hidden></pre>
+    <p id="population" class="scope">Static NPCs require a private local companion pack; client Data alone has no spawn positions.</p>
+    <details><summary>What this browser MVP includes</summary><p class="scope">An alternate web rendering adapter using actual Rust physics and client formats, not a Bevy/VMaNGOS port or singleplayer RPG. Complete coarse continents, untextured detailed terrain, authored nearby models/textures and optional static bind-pose NPCs. Four detailed tiles stream around you; missing terrain holds the vehicle rather than becoming ocean. Scene collision uses conservative authored hull bounds, not exact interiors. Distant props, animated NPCs, quests and combat are not implemented. The 8192-yard ocean and Eastern Kingdoms' southward placement are provisional geography.</p></details>
+    <footer><span id="offline"></span><span id="permission"></span><button id="forget">Forget remembered folder</button></footer>
   </main>
-  <script type="module" src="./app.js"></script>
+  <script type="module" src="./world-app.js"></script>
 </body>
 </html>
