@@ -62,7 +62,7 @@ export class TerrainStream {
   }
   decode(bytes) {
     const texture=new this.wasm.SceneTexture(bytes);
-    try{return {width:texture.width(),height:texture.height(),rgba:texture.rgba()};}
+    try{return {...JSON.parse(texture.metadata()),rgba:texture.rgba()};}
     finally{texture.free();}
   }
   async pump() {

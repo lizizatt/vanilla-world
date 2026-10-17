@@ -23,7 +23,7 @@ function fixture(paths=['a.blp']) {
     masks:()=>new Uint8Array(16384),free(){freed=true;},get freed(){return freed;}};
 }
 class Texture {
-  width(){return 1;}height(){return 1;}rgba(){return new Uint8Array([11,23,57,255]);}free(){}
+  metadata(){return '{"width":1,"height":1}';}rgba(){return new Uint8Array([11,23,57,255]);}free(){}
 }
 test('one read per pump, shared cache, transferable copies, eviction and reload are bounded',async()=>{
   let reads=0;
