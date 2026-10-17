@@ -1,5 +1,5 @@
 //! Visual-only WDL adapter. Source terrain never participates in the vehicle surface query.
-use crate::voyage::{Manifest, Voyage, TILE};
+use crate::voyage::{Manifest, TILE, Voyage};
 use benilla_formats::{WdlFile, WdlTileMesh};
 use wasm_bindgen::prelude::*;
 
@@ -221,7 +221,15 @@ impl Voyage {
                 };
                 at(i) + (at(i + 1) - at(i)) * (t - i as f64) as f32
             };
+            let axis = if edge < 2 { 0 } else { 2 };
+            let source_axis = if edge < 2 { 1 } else { 0 };
+            let border = if edge % 2 == 0 { 0.0 } else { TILE as f32 };
             for chunk in &tile.chunks {
+                if !chunk.positions.iter().any(|p| {
+                    ((nw[source_axis] - f64::from(p[source_axis])) as f32 - border).abs() <= 0.02
+                }) {
+                    continue;
+                }
                 for tri in chunk.indices.as_chunks::<3>().0 {
                     for pair in [(tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])] {
                         let local = |i: u32| {
@@ -233,8 +241,6 @@ impl Voyage {
                             ]
                         };
                         let (mut a, mut b) = (local(pair.0), local(pair.1));
-                        let axis = if edge < 2 { 0 } else { 2 };
-                        let border = if edge % 2 == 0 { 0.0 } else { TILE as f32 };
                         if (a[axis] - border).abs() > 0.02 || (b[axis] - border).abs() > 0.02 {
                             continue;
                         }
@@ -259,6 +265,90 @@ impl Voyage {
 mod tests {
     use super::*;
     use crate::voyage::tests::fixture;
+
+    #[test]
+    fn seam_chunk_pruning_preserves_every_authored_border_triangle() {
+        let data = benilla_formats::wow_data_or_skip!();
+        let mut chain = benilla_formats::Chain::open(&data).unwrap();
+        for (map, x, y) in [("Kalimdor", 39, 43), ("Azeroth", 32, 48)] {
+            let bytes = chain
+                .read_file(&format!("World\\Maps\\{map}\\{map}_{x}_{y}.adt"))
+                .unwrap();
+            let mut tile = benilla_formats::adt_to_tile_mesh(&bytes).unwrap();
+            // Include holes: only surviving triangle edges, never a filled rectangular skirt.
+            tile.chunks[0].indices.clear();
+            let bytes = chain
+                .read_file(&format!("World\\Maps\\{map}\\{map}.wdl"))
+                .unwrap();
+            let wdl = WdlFile::parse(&bytes).unwrap();
+            let mut expected = Vec::new();
+            let nw = [-(y as f64 - 32.0) * TILE, -(x as f64 - 32.0) * TILE];
+            for (edge, (dx, dy)) in [(-1, 0), (1, 0), (0, -1), (0, 1)].into_iter().enumerate() {
+                if wdl
+                    .tile_mesh((x as i32 + dx) as u32, (y as i32 + dy) as u32)
+                    .is_none()
+                {
+                    continue;
+                }
+                let axis = if edge < 2 { 0 } else { 2 };
+                let border = if edge % 2 == 0 { 0.0 } else { TILE as f32 };
+                for chunk in &tile.chunks {
+                    for tri in chunk.indices.chunks_exact(3) {
+                        for (a, b) in [(tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])] {
+                            let local = |i: u32| {
+                                let p = chunk.positions[i as usize];
+                                [
+                                    (nw[1] - p[1] as f64) as f32,
+                                    p[2],
+                                    (nw[0] - p[0] as f64) as f32,
+                                ]
+                            };
+                            let (mut a, mut b) = (local(a), local(b));
+                            if (a[axis] - border).abs() <= 0.02 && (b[axis] - border).abs() <= 0.02
+                            {
+                                a[axis] = border;
+                                b[axis] = border;
+                                expected.push([a, b]);
+                            }
+                        }
+                    }
+                }
+            }
+            assert!(!expected.is_empty());
+            let mut world = Voyage::from_manifest(fixture(0.0)).unwrap();
+            world.manifest.tiles[0].x = x;
+            world.manifest.tiles[0].y = y;
+            world.manifest.horizons.push(crate::voyage::HorizonEntry {
+                region: 0,
+                file: String::new(),
+                bytes: bytes.len(),
+                sha256: String::new(),
+                source_bounds: [0, 0, 64, 64],
+            });
+            world.horizons.insert(
+                0,
+                Horizon {
+                    wdl,
+                    patches: vec![],
+                },
+            );
+            world.resident.insert(0, tile);
+            let seams = world.horizon_seams(0).unwrap();
+            let actual: Vec<_> = seams
+                .chunks_exact(42)
+                .map(|quad| {
+                    [
+                        <[f32; 3]>::try_from(&quad[..3]).unwrap(),
+                        <[f32; 3]>::try_from(&quad[7..10]).unwrap(),
+                    ]
+                })
+                .collect();
+            assert_eq!(
+                actual, expected,
+                "{map}: optimized seams differ from full triangle traversal"
+            );
+        }
+    }
 
     fn wdl() -> Vec<u8> {
         let mut bytes = b"REVM\x04\0\0\0\x12\0\0\0FOAM\0\x40\0\0".to_vec();

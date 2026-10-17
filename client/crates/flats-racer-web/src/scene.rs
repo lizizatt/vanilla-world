@@ -915,7 +915,10 @@ mod tests {
             let tile = adt_to_tile_mesh(&bytes).unwrap();
             let reused: Vec<serde_json::Value> =
                 serde_json::from_str(&tile_placements(&tile, &bytes).unwrap()).unwrap();
-            assert_eq!(refs, reused, "Resident tile reuse must preserve every authored placement");
+            assert_eq!(
+                refs, reused,
+                "Resident tile reuse must preserve every authored placement"
+            );
             assert!(!refs.is_empty(), "{map} has authored placements");
             let mut seen = std::collections::HashSet::new();
             let mut decoded = 0;
