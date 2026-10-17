@@ -107,6 +107,35 @@ test('opaque bundles track live resources and offsets without freezing transpare
   assert.equal(renderer.sceneBundleBuilds,6);
 });
 
+test('resource-only scene updates preserve instance caches, replace resources and require full region transitions',()=>{
+  const renderer=Object.create(WorldRenderer.prototype);
+  const resource=()=>({destroyed:0,destroy(){this.destroyed++;}});
+  const vertices=resource(),indices=resource(),skin=resource(),instance={id:'actor',key:'model',rendered:{matrix:[]},drawItems:[]};
+  Object.assign(renderer,{manifest:{},sceneRegion:0,instances:[instance],
+    assets:new Map([['model',{vertices,indices}]]),textures:new Map([['skin',skin]]),
+    items:new Map([['batch',{id:'actor',key:'model'}]]),
+    buffer:resource,texture:resource,prepareBatches:batches=>batches});
+  const delta={event:'scene',region:0,removedAssets:[],removedTextures:[],assets:[],textures:[]};
+  const list=renderer.instances,cached=instance.rendered;
+  const old=globalThis.GPUBufferUsage;globalThis.GPUBufferUsage={VERTEX:1,INDEX:2};
+  try{
+    renderer.event({...delta,assets:[{key:'model',vertices:new Float32Array(12),indices:new Uint32Array([0]),batches:[]}],
+      textures:[{key:'skin',width:1,height:1,rgba:new Uint8Array(4)}]});
+    assert.equal(renderer.instances,list);assert.equal(renderer.instances[0],instance);
+    assert.equal(instance.rendered,cached);assert.equal(renderer.items.size,1);
+    assert.equal(vertices.destroyed,1);assert.equal(indices.destroyed,1);assert.equal(skin.destroyed,1);
+    const replacement=renderer.assets.get('model');
+    assert.throws(()=>renderer.event({...delta,region:1,removedAssets:['model']}),/region changed without instances/);
+    assert.equal(renderer.assets.get('model'),replacement);assert.equal(replacement.vertices.destroyed,0);
+    assert.throws(()=>renderer.event({...delta,instances:null}),/Invalid scene instances/);
+    renderer.event({...delta,removedAssets:['model']});
+    assert.equal(renderer.instances,list);assert.equal(renderer.items.size,0);
+    assert.equal(replacement.vertices.destroyed,1);
+    renderer.event({...delta,region:1,instances:[]});
+    assert.deepEqual(renderer.instances,[]);assert.equal(renderer.sceneRegion,1);
+  } finally{if(old===undefined)delete globalThis.GPUBufferUsage;else globalThis.GPUBufferUsage=old;}
+});
+
 test('authored gamma bytes are averaged, not sRGB-decoded, and complete mips retain color',()=>{
   const rgba=new Uint8Array([0,40,200,255,100,60,100,255,200,80,0,255,100,20,100,255]);
   assert.deepEqual([...resizeRgba(2,2,rgba,1)],[100,50,100,255]);

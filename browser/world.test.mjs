@@ -54,6 +54,22 @@ test('failed worker post does not retain an unanswerable request',async()=>{
   await assert.rejects(client.request('frame'),/Transfer failed/);
   assert.equal(client.requests.size,0);
 });
+test('new clients explicitly negotiate resource-only scene updates at open',async()=>{
+  const old=globalThis.Worker,sent=[];
+  globalThis.Worker=class {
+    postMessage(message){
+      sent.push(message);
+      queueMicrotask(()=>this.onmessage({data:{id:message.id,result:{info:{},state:{}}}}));
+    }
+    terminate(){}
+  };
+  try{
+    const client=new WorldClient(()=>{},error=>{throw error;});
+    await client.open({kind:'fixture'});
+    assert.equal(sent[0].action,'open');assert.equal(sent[0].sceneInstanceDeltas,true);
+    client.stop();
+  } finally{if(old===undefined)delete globalThis.Worker;else globalThis.Worker=old;}
+});
 test('reset and restore invalidate unsent input and block draining until the new pose is returned',async()=>{
   for(const action of ['reset','restore']){
     const sent=[],client=new WorldClient(()=>{},error=>{throw error;});

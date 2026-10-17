@@ -33,7 +33,7 @@ export class WorldClient {
       this.requests.delete(data.id);
       if(data.error)request.reject(new Error(data.error));else request.resolve(data.result);
     };
-    const result=await this.request('open',{folder});
+    const result=await this.request('open',{folder,sceneInstanceDeltas:true});
     this.info=result.info;this.state=result.state;
     return result;
   }

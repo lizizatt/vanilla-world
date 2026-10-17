@@ -330,17 +330,25 @@ export class WorldRenderer {
           cell:entry.x+64*entry.y});
       }
     } else if(data.event==='scene') {
+      if(data.instances===undefined){
+        if(data.region!==this.sceneRegion)throw Error('Scene region changed without instances');
+      } else if(!Array.isArray(data.instances))throw Error('Invalid scene instances');
       for(const key of data.removedAssets){const a=this.assets.get(key);a?.vertices.destroy();a?.indices.destroy();this.assets.delete(key);}
       for(const key of data.removedTextures){this.textures.get(key)?.destroy();this.textures.delete(key);}
       for(const a of data.assets){
         const batches=this.prepareBatches(a.batches);
-        this.assets.set(a.key,{vertices:this.buffer(a.vertices,GPUBufferUsage.VERTEX),
-          indices:this.buffer(a.indices,GPUBufferUsage.INDEX),batches,bytes:a.vertices.byteLength+a.indices.byteLength});
+        const asset={vertices:this.buffer(a.vertices,GPUBufferUsage.VERTEX),
+          indices:this.buffer(a.indices,GPUBufferUsage.INDEX),batches,bytes:a.vertices.byteLength+a.indices.byteLength};
+        const previous=this.assets.get(a.key);previous?.vertices.destroy();previous?.indices.destroy();
+        this.assets.set(a.key,asset);
       }
-      for(const t of data.textures)this.textures.set(t.key,this.texture(t.width,t.height,t.rgba));
-      this.instances=data.instances;this.sceneRegion=data.region;
-      const wanted=new Set(data.instances.map(i=>i.id));
-      for(const [key,item] of this.items)if(!wanted.has(item.id) || !this.assets.has(item.key)){
+      for(const t of data.textures){
+        const texture=this.texture(t.width,t.height,t.rgba);
+        this.textures.get(t.key)?.destroy();this.textures.set(t.key,texture);
+      }
+      if(data.instances!==undefined){this.instances=data.instances;this.sceneRegion=data.region;}
+      const wanted=data.instances===undefined?undefined:new Set(data.instances.map(i=>i.id));
+      for(const [key,item] of this.items)if((wanted&&!wanted.has(item.id)) || !this.assets.has(item.key)){
         this.items.delete(key);
       }
     }
