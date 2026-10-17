@@ -126,12 +126,15 @@ function frame(now) {
     frames++;Object.assign(evidence,{frames,state:client.state,mode:flight?'fly':'drive',camera:flight?.slice(),render:stats,adapter:renderer.adapter});
     if(now-hudTime>250) {
       const s=client.state,p=s.telemetry,scene=s.scene;
-      $('speed').textContent=flight?'FLY':scene?.waitingCollision?'HOLD':p[5].toFixed(0);
+      $('speed').textContent=flight?'FLY':scene?.waitingCollision||p[8]?'HOLD':p[5].toFixed(0);
+      $('motion').textContent=flight?'Free flight / vehicle remains parked':scene?.waitingCollision
+        ?'Waiting for nearby collision geometry (not textures)'
+        :['Drive / collision ready','Waiting for detailed terrain','Unsupported surface or terrain hole','Solid bounds or steep ground'][p[8]];
       $('place').textContent=flight?'FREE FLIGHT':p[10]===-1?'THE GREAT SEA':p[10]===1?'EASTERN KINGDOMS':'KALIMDOR';
       $('coordinates').textContent=`${(flight?.[0]??p[0]).toFixed(0)} E / ${(flight?.[2]??p[2]).toFixed(0)} S`;
       $('resident').textContent=`${s.resident.length}/4 terrain tiles · ${stats.horizonTiles} distant patches · ${scene?.instances||0} nearby instances`;
       $('population').textContent=scene?.population || 'Reading static population…';
-      $('details').textContent=`${client.info.archiveCount} local archives · ${((scene?.bytes||0)/1048576).toFixed(1)} MiB scene cache · ${scene?.pending||0} pending assets${scene?.capacityBlocked?' · scene capacity reached':''}${scene?.waitingCollision?` · waiting for ${scene.waitingCollision} nearby collision assets`:''}${stats.gpuOmittedInstances?` · ${stats.gpuOmittedInstances} meshes beyond GPU budget`:''}`;
+      $('details').textContent=`${client.info.archiveCount} local archives · ${((scene?.bytes||0)/1048576).toFixed(1)} MiB scene cache · ${scene?.pending||0} pending assets${scene?.capacityBlocked?' · scene capacity reached':''}${!flight&&scene?.waitingCollision?` · waiting for ${scene.waitingCollision} nearby collision assets`:''}${stats.gpuOmittedInstances?` · ${stats.gpuOmittedInstances} meshes beyond GPU budget`:''}`;
       $('problems').textContent=[...s.failures,...(scene?.errors||[])].map(e=>typeof e==='string'?e:JSON.stringify(e)).join('\n');
       $('problems').hidden=!$('problems').textContent;
       evidence.fps=frames*1000/(now-(evidence.started||now));hudTime=now;

@@ -65,6 +65,7 @@ async function stream(p,pin,fill=false) {
   if(tiles.length || removed.length) {
     const seams=Array.from(resident,index=>({index,vertices:world.horizon_seams(index)}));
     postMessage({event:'detail',tiles,removed,seams},[...tiles,...seams].map(t=>t.vertices.buffer));
+    report(failures.size?`${failures.size} unavailable terrain tiles; retry after correcting access/data.`:`Detailed terrain ready: ${resident.size}/4 tiles.`);
   }
 }
 async function buildHorizon(wdls) {
