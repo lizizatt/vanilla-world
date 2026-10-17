@@ -236,33 +236,43 @@ default local URL and `RUN_LABEL` selects the ignored evidence filename.
 Changed-pose draw cadence must meet the same rate/p95 gate, so multiple worker
 responses between renders cannot masquerade as visible motion updates.
 
-The integrated coalesced-transport checkpoint **passes the response/render gates** on Edge 155 /
+The integrated physics-first checkpoint **passes response, render and drawn-pose gates** on Edge 155 /
 NVIDIA Ampere at 1366 x 668 rendered pixels and DPR 1, with full scenery:
 
-| Sustained route | Moving seconds / yards | Fresh poses/s | p95 pose interval | Minimum rolling render FPS |
+| Sustained route | Moving seconds / yards | Changed-pose draws/s | p95 drawn-pose interval | Minimum rolling render FPS |
 | --- | --- | --- | --- | --- |
-| Clear raceway | 39.5 / 1214 | 111.9 | 15.2 ms | 138 |
-| Coastal circuit | 39.9 / 689 | 119.9 | 14.5 ms | 143 |
-| Stormwind | 39.9 / 1389 | 88.0 | 30.0 ms | 140 |
+| Clear raceway | 39.6 / 1216 | 109.8 | 14.1 ms | 138 |
+| Coastal circuit | 40.0 / 689 | 118.4 | 14.0 ms | 138 |
+| Stormwind | 40.0 / 1392 | 84.7 | 28.5 ms | 137 |
 
 The circuit crosses a real ADT boundary. City and circuit have zero terrain,
-object or solid holds. The clear route records 28 ms of brief solid contacts;
+object or solid holds. The clear route records 21 ms of brief solid contacts;
 the other routes eventually encounter real obstacles and are not sustained-motion
-proofs. This is a p95 target, not a stutter-free claim: city p99/max pose intervals
-are 69.9/159.9 ms, and the clear route has a 235.9 ms outlier. City first-W to
-changed-pose draw is 29.2 ms. Full-run Wasm high-water is 67.3 MiB; sampled combined
-collision buffers peak at 12.5 MiB. Local evidence is
-`test-results/performance/integrated-coalesced-transport.json`.
-The additional drawn-pose diagnostic is not yet within the 33.3 ms target:
-`integrated-drawn-cadence.json` records city p95 34.6 ms at 84.1 changed-pose
-draws/second. Coalesced responses can arrive between renders, so their cadence
-alone is not a complete visible-motion proof.
+proofs. Durotar's short 11.8-second moving segment still has a 71.3 ms drawn-pose
+p95, so this is not a claim of smooth motion everywhere. City p99/max drawn-pose
+intervals are 76.6/145.4 ms, and the clear route has a 188 ms outlier.
+City first-W to changed-pose draw is 55.2 ms. Full-run Wasm high-water is
+71.4 MiB; sampled combined
+collision buffers peak at 12.7 MiB. Local evidence is
+`test-results/performance/integrated-final-visible.json`; the preceding
+`integrated-physics-first.json` run also passes, with city drawn-pose p95 28.5 ms.
+The drawn-pose gate
+matters: coalesced responses can arrive between renders, so their cadence alone
+is not a complete visible-motion proof.
 
 The client keeps one in-flight simulation request and one coalesced latest-input
 sample. Already accumulated unsent time drains on the reply instead of waiting
 for another display frame; the existing 0.1-second catch-up cap remains. Pose/mode
 transitions and pauses discard pending input, and old-world replies cannot drain
 into a replacement world. This advances real simulation, not interpolated poses.
+New clients also negotiate resource-only scene updates: unchanged ordered
+instance graphs remain in the renderer, preserving their local caches. Geometry,
+ordering, transforms and region changes still publish full current lists.
+Required collision selection, snapshots, BVH updates and camera data stay ahead
+of physics; optional visual packing/publication and job starts follow the real
+pose response within the same serialized queue. Publication failure immediately
+surfaces an error and blocks further physics until explicit retry. Legacy clients
+retain full instance lists and synchronous publication errors.
 
 [ASSETS.md](ASSETS.md) documents the bounded MPQ reader, corruption semantics,
 77-file native/Node/Edge parity and the whole-install codec census. All 2,389,542

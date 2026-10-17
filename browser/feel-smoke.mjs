@@ -99,6 +99,9 @@ try {
     && document.getElementById('material-status').textContent.startsWith('Terrain textures 4/4'));
   checks.craft={pose:'stand-frame-0',independentOfScenery:true,hiddenInFlight:true};
   assert.equal(await page.evaluate(()=>worldEvidence.render.craftTriangles),1566);
+  await page.waitForFunction(()=>worldEvidence.mode==='drive'
+    && document.getElementById('drive-state').textContent!=='FREE FLIGHT'
+    && document.getElementById('speed').textContent!=='FLY');
   await page.locator('#save').click();
   await page.waitForFunction(()=>document.getElementById('status').textContent.startsWith('Saved locally'));
   await page.screenshot({path:fileURLToPath(new URL('native-instruments.png',out))});
