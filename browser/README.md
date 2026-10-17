@@ -125,7 +125,8 @@ Detailed ground uses native ordered layer blending, authored normals, texture
 coordinates, alpha masks, shadow masks and holes. Bounded texture arrays and
 mipchains reuse the local BLP data. Far terrain progressively receives translated
 native minimap colors in two 2048-square atlas pages (32 MiB); missing mappings
-stay explicit. Static sunlight/fog remain an approximation, not DBC time-of-day
+stay explicit. Material status reports textured tile residency, CPU terrain-cache
+size, minimap progress and pending/error counts. Static sunlight/fog remain an approximation, not DBC time-of-day
 lighting or full native water sheen.
 
 The bounded distant-model port reuses the native strict geometry/material
@@ -213,8 +214,10 @@ It freezes presentation time and settles asset events before comparison so movin
 water and progressive texture uploads cannot masquerade as model pixels.
 The feel check exercises native/legacy inputs, the actual Web Audio output graph,
 synthetic standard-gamepad values through the browser frame path, tuning validation,
-write-failure preservation and offline reload. It does not claim a physical gamepad
-or subjective listening test.
+write-failure preservation and offline reload. It also requires four textured
+tiles and the authored Stand craft, verifies the craft survives disabling scenery,
+and checks that flight hides it and driving restores it. It does not claim a
+physical gamepad or subjective listening test.
 
 The performance check runs seven 40-second keyboard routes with scenery and
 distant terrain enabled. It records the actual canvas dimensions/DPR, frame and
