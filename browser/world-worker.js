@@ -22,11 +22,13 @@ function startCraft() {
 let resident=new Set(),failures=new Map(),loads=0,evictions=0,peak=0,horizon;
 let terrainRead;
 let sentAssets=new Set(),sentTextures=new Set(),sceneState,sceneSignature='';
+let sentInstanceMatrices=new Map();
 let sceneFocus,sceneUpdated=0,sceneRevision=-1;
 let scenePumpError;
 const collisionBounds=new Map();
 let collisionCount=0;
 let collisionSignature='';
+let collisionToken=0,collisionParts=new Set();
 let collisionFocus;
 const collisionInstances=new Map();
 const timings={frames:0,totalMs:0,maxMs:0,terrainMs:0,sceneMs:0,selectionMs:0,snapshotMs:0,
@@ -243,10 +245,11 @@ async function updateScene(focus) {
       collisionBounds.set(instance.key,b);
     }
     let cached=collisionInstances.get(instance.id);
-    if(!cached || cached.asset!==asset) {
+    if(!cached || cached.asset!==asset || cached.instance.matrix!==instance.matrix) {
+      if(collisionToken===0xffffffff)throw new Error('Collision identifiers exhausted; reopen the local world');
       const source=transformedBounds([b.slice(0,3),b.slice(3)],instance.matrix);
       const corners=source.map(toGlobal);
-      cached={asset,instance,bounds:[...corners[0].map((v,a)=>Math.min(v,corners[1][a])),
+      cached={asset,instance,token:++collisionToken,bounds:[...corners[0].map((v,a)=>Math.min(v,corners[1][a])),
         ...corners[0].map((v,a)=>Math.max(v,corners[1][a]))]};
       collisionInstances.set(instance.id,cached);
     }
@@ -256,13 +259,14 @@ async function updateScene(focus) {
   }
   for(const id of collisionInstances.keys())if(!active.has(id))collisionInstances.delete(id);
   nearby.sort((a,b)=>a.instance.id.localeCompare(b.instance.id));
-  const nextSignature=JSON.stringify(nearby.map(c=>[c.instance.id,c.instance.key]));
+  const nextSignature=JSON.stringify(nearby.map(c=>c.token));
   if(nextSignature!==collisionSignature) {
     const start=performance.now();
     const count=nearby.reduce((n,c)=>n+c.asset.collisionIndices.length*3,0);
     if(count>200000*9)throw new Error('Nearby authored collision exceeds 200000 triangles; driving cannot proceed safely');
-    const vertices=new Float64Array(count);let offset=0;
-    for(const cached of nearby) {
+    const changed=nearby.filter(c=>!collisionParts.has(c.token));
+    const vertices=new Float64Array(changed.reduce((n,c)=>n+c.asset.collisionIndices.length*3,0));let offset=0;
+    for(const cached of changed) {
       const {asset,instance}=cached;
       cached.vertices ??= globalCollisionVertices(asset.collisionVertices,instance.matrix,r);
       for(const i of asset.collisionIndices) {
@@ -271,10 +275,12 @@ async function updateScene(focus) {
         vertices[offset++]=cached.vertices[i*3+2];
       }
     }
-    world.set_scene_mesh(vertices);
+    world.set_scene_parts(new Uint32Array(nearby.map(c=>c.token)),
+      new Uint32Array(nearby.map(c=>collisionParts.has(c.token)?0:c.asset.collisionIndices.length/3)),vertices);
     const ordered=world.collision_vertices(),nodes=world.collision_nodes();
     postMessage({event:'collision',vertices:ordered,nodes},[ordered.buffer,nodes.buffer]);
     collisionSignature=nextSignature;collisionCount=nearby.length;
+    collisionParts=new Set(nearby.map(c=>c.token));
     timings.collisionBuildMs+=performance.now()-start;timings.collisionBuilds++;
   }
   const assets=[],textures=[],removedAssets=[],removedTextures=[],transfers=[];
@@ -291,8 +297,10 @@ async function updateScene(focus) {
     transfers.push(rgba.buffer);sentTextures.add(key);
   }
   const signature=JSON.stringify(sceneState.instances.map(i=>[i.id,i.key,i.distant]));
-  if(signature!==sceneSignature || assets.length || textures.length || removedAssets.length || removedTextures.length) {
+  const transformsChanged=sceneState.instances.some(i=>sentInstanceMatrices.get(i.id)!==i.matrix);
+  if(signature!==sceneSignature || transformsChanged || assets.length || textures.length || removedAssets.length || removedTextures.length) {
     sceneSignature=signature;
+    sentInstanceMatrices=new Map(sceneState.instances.map(i=>[i.id,i.matrix]));
     postMessage({event:'scene',region,instances:sceneState.instances,assets,textures,removedAssets,removedTextures},transfers);
   }
 }

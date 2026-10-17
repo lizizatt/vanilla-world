@@ -285,6 +285,7 @@ pub struct Voyage {
     pub(crate) exterior: Vec<bool>,
     scene_bounds: Vec<[f64; 6]>,
     scene_mesh: CollisionTree,
+    scene_parts: HashMap<u32, CollisionTree>,
     state: State,
     tuning: Tuning,
     origin: [f64; 2],
@@ -321,6 +322,7 @@ impl Voyage {
             exterior,
             scene_bounds: vec![],
             scene_mesh: CollisionTree::default(),
+            scene_parts: HashMap::new(),
             rebases: 0,
             hold: 1,
         };
@@ -550,6 +552,67 @@ struct CollisionPrimitive {
 }
 
 impl CollisionTree {
+    fn buffer_bytes(&self) -> usize {
+        self.triangles.capacity() * std::mem::size_of::<[[f64; 3]; 3]>()
+            + self.nodes.capacity() * std::mem::size_of::<CollisionNode>()
+    }
+
+    fn from_parts(parts: &mut [&Self]) -> Self {
+        let mut tree = Self {
+            triangles: Vec::with_capacity(parts.iter().map(|p| p.triangles.len()).sum()),
+            nodes: Vec::with_capacity(
+                parts.iter().map(|p| p.nodes.len()).sum::<usize>() + parts.len().saturating_sub(1),
+            ),
+        };
+        if !parts.is_empty() {
+            tree.append_parts(parts);
+        }
+        tree
+    }
+
+    fn append_parts(&mut self, parts: &mut [&Self]) -> usize {
+        let index = self.nodes.len();
+        let start = self.triangles.len();
+        if parts.len() == 1 {
+            let part = parts[0];
+            self.triangles.extend_from_slice(&part.triangles);
+            self.nodes.extend(part.nodes.iter().map(|n| CollisionNode {
+                bounds: n.bounds,
+                range: n.range.start + start..n.range.end + start,
+                children: n.children.map(|c| c.map(|i| i + index)),
+            }));
+            return index;
+        }
+        let mut bounds = [f64::INFINITY; 6];
+        bounds[3..].fill(f64::NEG_INFINITY);
+        for part in parts.iter() {
+            let b = part.nodes[0].bounds;
+            for a in 0..3 {
+                bounds[a] = bounds[a].min(b[a]);
+                bounds[a + 3] = bounds[a + 3].max(b[a + 3]);
+            }
+        }
+        self.nodes.push(CollisionNode {
+            bounds,
+            range: start..start,
+            children: None,
+        });
+        let axis = (0..3)
+            .max_by(|&a, &b| (bounds[a + 3] - bounds[a]).total_cmp(&(bounds[b + 3] - bounds[b])))
+            .unwrap();
+        let middle = parts.len() / 2;
+        parts.select_nth_unstable_by(middle, |a, b| {
+            let a = a.nodes[0].bounds;
+            let b = b.nodes[0].bounds;
+            (a[axis] + a[axis + 3]).total_cmp(&(b[axis] + b[axis + 3]))
+        });
+        let (left, right) = parts.split_at_mut(middle);
+        let children = [self.append_parts(left), self.append_parts(right)];
+        self.nodes[index].range.end = self.triangles.len();
+        self.nodes[index].children = Some(children);
+        index
+    }
+
     fn new(vertices: &[f64]) -> Result<Self, &'static str> {
         if !vertices.len().is_multiple_of(9)
             || vertices.len() > 200_000 * 9
@@ -827,6 +890,84 @@ impl Voyage {
     /// Indexed authored collision triangles in global east/up/south coordinates.
     pub fn set_scene_mesh(&mut self, vertices: &[f64]) -> Result<(), JsValue> {
         self.scene_mesh = CollisionTree::new(vertices).map_err(JsValue::from_str)?;
+        self.scene_parts.clear();
+        self.scene_bounds.clear();
+        Ok(())
+    }
+
+    /// Positive counts supply new triangles; zero reuses a cached ID. Omitted IDs are evicted.
+    pub fn set_scene_parts(
+        &mut self,
+        ids: &[u32],
+        counts: &[u32],
+        vertices: &[f64],
+    ) -> Result<(), JsValue> {
+        self.replace_scene_parts(ids, counts, vertices)
+            .map_err(JsValue::from_str)
+    }
+
+    fn replace_scene_parts(
+        &mut self,
+        ids: &[u32],
+        counts: &[u32],
+        vertices: &[f64],
+    ) -> Result<(), &'static str> {
+        if ids.len() != counts.len() || ids.len() > 200_000 {
+            return Err("Invalid collision part counts");
+        }
+        let mut wanted = std::collections::HashSet::with_capacity(ids.len());
+        let mut total = 0usize;
+        let mut supplied = 0usize;
+        for (&id, &count) in ids.iter().zip(counts) {
+            if !wanted.insert(id) {
+                return Err("Duplicate collision part ID");
+            }
+            let count = if count == 0 {
+                self.scene_parts
+                    .get(&id)
+                    .ok_or("Unknown cached collision part")?
+                    .triangles
+                    .len()
+            } else {
+                let count = count as usize;
+                if count > 200_000 {
+                    return Err("Collision parts exceed 200000 triangles");
+                }
+                supplied += count * 9;
+                count
+            };
+            total += count;
+            if total > 200_000 {
+                return Err("Collision parts exceed 200000 triangles");
+            }
+        }
+        if supplied != vertices.len() {
+            return Err("Collision part payload length mismatch");
+        }
+        let mut replacements = HashMap::new();
+        let mut offset = 0;
+        for (&id, &count) in ids.iter().zip(counts) {
+            if count > 0 {
+                let end = offset + count as usize * 9;
+                replacements.insert(id, CollisionTree::new(&vertices[offset..end])?);
+                offset = end;
+            }
+        }
+        let combined = {
+            let mut parts: Vec<_> = ids
+                .iter()
+                .map(|id| {
+                    replacements
+                        .get(id)
+                        .or_else(|| self.scene_parts.get(id))
+                        .unwrap()
+                })
+                .collect();
+            CollisionTree::from_parts(&mut parts)
+        };
+        self.scene_parts.retain(|id, _| wanted.contains(id));
+        self.scene_parts.extend(replacements);
+        self.scene_mesh = combined;
         self.scene_bounds.clear();
         Ok(())
     }
@@ -858,13 +999,17 @@ impl Voyage {
         Ok(tuning)
     }
 
+    /// Active triangles, flat nodes, and geometry-buffer bytes including cached instance trees.
     pub fn collision_stats(&self) -> Vec<u32> {
         vec![
             self.scene_mesh.triangles.len() as u32,
             self.scene_mesh.nodes.len() as u32,
-            (self.scene_mesh.triangles.capacity() * std::mem::size_of::<[[f64; 3]; 3]>()
-                + self.scene_mesh.nodes.capacity() * std::mem::size_of::<CollisionNode>())
-                as u32,
+            (self.scene_mesh.buffer_bytes()
+                + self
+                    .scene_parts
+                    .values()
+                    .map(CollisionTree::buffer_bytes)
+                    .sum::<usize>()) as u32,
         ]
     }
 
@@ -916,6 +1061,7 @@ impl Voyage {
         }
         self.scene_bounds = bounds.as_chunks::<6>().0.to_vec();
         self.scene_mesh = CollisionTree::default();
+        self.scene_parts.clear();
         Ok(())
     }
 
@@ -1110,6 +1256,94 @@ impl Voyage {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #[test]
+    fn cached_collision_parts_preserve_queries_ranges_and_atomic_replacement() {
+        use super::*;
+        let vertices = [
+            -10.0, 5.0, -10.0, 10.0, 5.0, -10.0, 10.0, 5.0, 10.0, -10.0, 5.0, -10.0, 10.0, 5.0,
+            10.0, -10.0, 5.0, 10.0, 8.0, 0.0, -10.0, 8.0, 5.0, -10.0, 8.0, 5.0, 10.0, 8.0, 0.0,
+            -10.0, 8.0, 5.0, 10.0, 8.0, 0.0, 10.0,
+        ];
+        let reference = CollisionTree::new(&vertices).unwrap();
+        let mut world = Voyage::from_manifest(fixture(0.0)).unwrap();
+        world
+            .replace_scene_parts(&[7, 8], &[2, 2], &vertices)
+            .unwrap();
+        let retained = world.scene_parts[&7].triangles.as_ptr();
+        for x in -12..12 {
+            for z in -12..12 {
+                for ceiling in [1.6, 6.0] {
+                    let p = [f64::from(x), f64::from(z)];
+                    assert_eq!(
+                        world.scene_mesh.height(p, ceiling),
+                        reference.height(p, ceiling)
+                    );
+                }
+                let start = [f64::from(x), 1.1, f64::from(z)];
+                let end = [f64::from(x + 20), 1.1, f64::from(z)];
+                assert_eq!(
+                    world.scene_mesh.swept(start, end),
+                    reference.swept(start, end)
+                );
+            }
+        }
+        let added = [100.0, 2.0, 0.0, 103.0, 2.0, 0.0, 100.0, 2.0, 3.0];
+        world
+            .replace_scene_parts(&[9, 8, 7], &[1, 0, 0], &added)
+            .unwrap();
+        assert_eq!(world.scene_parts[&7].triangles.as_ptr(), retained);
+        assert_eq!(world.scene_mesh.height([101.0, 1.0], 3.0), Some(2.0));
+        assert_eq!(world.scene_mesh.nodes[0].range, 0..5);
+        let mut covered = 0;
+        for node in &world.scene_mesh.nodes {
+            if let Some([left, right]) = node.children {
+                assert_eq!(node.range.start, world.scene_mesh.nodes[left].range.start);
+                assert_eq!(
+                    world.scene_mesh.nodes[left].range.end,
+                    world.scene_mesh.nodes[right].range.start
+                );
+                assert_eq!(node.range.end, world.scene_mesh.nodes[right].range.end);
+            } else {
+                covered += node.range.len();
+            }
+            for p in world.scene_mesh.triangles[node.range.clone()]
+                .iter()
+                .flatten()
+            {
+                for (a, value) in p.iter().enumerate() {
+                    assert!(*value >= node.bounds[a] && *value <= node.bounds[a + 3]);
+                }
+            }
+        }
+        assert_eq!(covered, 5);
+        for (ids, counts, data) in [
+            (vec![7, 7], vec![0, 0], vec![]),
+            (vec![99], vec![0], vec![]),
+            (vec![10], vec![1], vec![0.0; 8]),
+            (vec![10], vec![1], vec![f64::NAN; 9]),
+        ] {
+            assert!(world.replace_scene_parts(&ids, &counts, &data).is_err());
+            assert_eq!(world.scene_mesh.triangles.len(), 5);
+            assert_eq!(world.scene_parts[&7].triangles.as_ptr(), retained);
+        }
+        assert_eq!(
+            world.replace_scene_parts(&[7, 10], &[0, 199999], &[]),
+            Err("Collision parts exceed 200000 triangles")
+        );
+        world.replace_scene_parts(&[7, 9], &[0, 0], &[]).unwrap();
+        assert!(!world.scene_parts.contains_key(&8));
+        assert!(!world.scene_mesh.swept([0.0, 1.1, 0.0], [20.0, 1.1, 0.0]));
+        world.set_scene_mesh(&[]).unwrap();
+        assert!(world.scene_parts.is_empty());
+        assert!(world.scene_mesh.nodes.is_empty());
+        world
+            .replace_scene_parts(&[7], &[2], &vertices[..18])
+            .unwrap();
+        world.set_scene_bounds(&[]).unwrap();
+        assert!(world.scene_parts.is_empty());
+        assert!(world.scene_mesh.nodes.is_empty());
+    }
+
     #[test]
     fn indexed_bvh_partition_preserves_every_triangle_and_exported_node_range() {
         use super::*;

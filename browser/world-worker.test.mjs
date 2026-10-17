@@ -8,8 +8,8 @@ import {transformedBounds,globalCollisionVertices,SCENE_LIMITS,placementMatrix} 
 const worker=(await readFile(new URL('./world-worker.js',import.meta.url),'utf8'))
   .replace(/^import .*;\r?$/gm,'');
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
-function boot() {
-  const context=createContext({init:async()=>({}),performance,postMessage(){},
+function boot(events=[]) {
+  const context=createContext({init:async()=>({}),performance,postMessage:message=>events.push(message),
     transformedBounds,globalCollisionVertices,SCENE_LIMITS});
   runInContext(worker,context);
   return context;
@@ -108,13 +108,24 @@ test('failed prefetched terrain stays unavailable and exposes its error rather t
 });
 
 function collisionFixture() {
-  const context=boot(),body=Array(15).fill(0),built=[];
+  const events=[],context=boot(events),body=Array(15).fill(0),built=[],updates=[],parts=new Map();
   const state={instances:[],collisionInstances:[],unresolvedCollision:[],assets:new Map(),textures:new Map()};
-  const f={body,built,sweep:0};
+  const f={body,built,updates,events,sweep:0,failNext:false};
   const scene={revision:0,selectionRevision:0,update(){this.selectionRevision=this.revision;},
     async pump(){},snapshot:()=>state};
   context.dependencies={
-    world:{telemetry:()=>body,frame_sweep_distance:()=>f.sweep,set_scene_mesh:vertices=>built.push([...vertices]),
+    world:{telemetry:()=>body,frame_sweep_distance:()=>f.sweep,set_scene_parts:(ids,counts,vertices)=>{
+      updates.push({ids:[...ids],counts:[...counts],supplied:vertices.length});
+      if(f.failNext){f.failNext=false;throw new Error('Rejected synthetic collision payload');}
+      let offset=0;
+      ids.forEach((id,i)=>{
+        if(counts[i]){const end=offset+counts[i]*9;parts.set(id,[...vertices.slice(offset,end)]);offset=end;}
+        else assert(parts.has(id),'Reuse requires an existing cached tree');
+      });
+      const wanted=new Set(ids);
+      for(const id of parts.keys())if(!wanted.has(id))parts.delete(id);
+      built.push([...ids].flatMap(id=>parts.get(id)));
+    },
       collision_vertices:()=>new Float64Array(),collision_nodes:()=>new Float64Array()},
     manifest:{ocean:[10000,0,20000,0],regions:[{placement:[0,0],tile_origin:[32,32]}]},scene,
   };
@@ -130,10 +141,19 @@ function collisionFixture() {
     const bounds=[[-1,-x-1,0],[1,-x+1,0]];
     const instance={id,key:id,matrix,bounds,boundsKnown:true,kind:'m2'};
     state.collisionInstances.push(instance);
+    state.instances.push(instance);
     state.assets.set(id,{vertices:new Float32Array(),indices:new Uint32Array(),batches:[],
       collisionVertices:new Float32Array([-1,-1,0,1,-1,0,0,1,0]),collisionIndices:new Uint32Array([0,1,2])});
     scene.revision++;
     return instance;
+  };
+  f.move=(id,x)=>{
+    const previous=state.collisionInstances.find(i=>i.id===String(id));
+    const matrix=previous.matrix.slice();matrix[13]=-x;
+    const next={...previous,matrix};
+    state.collisionInstances=state.collisionInstances.map(i=>i===previous?next:i);
+    state.instances=state.instances.map(i=>i===previous?next:i);
+    scene.revision++;
   };
   f.unresolved=x=>{
     state.unresolvedCollision.push({id:String(x),kind:'m2',boundsKnown:true,
@@ -162,6 +182,30 @@ test('newly decoded colliders bypass anchor cadence immediately',async()=>{
   f.add(10);await f.update();
   assert.equal(f.built.length,2);
   assert.equal(f.built[1].length,18);
+  assert.equal(f.updates[1].supplied,9,'Only the new instance crosses the Wasm boundary');
+  assert.deepEqual(f.updates[1].counts.toSorted(),[0,1]);
+});
+
+test('failed cached-part upload never marks new tokens reusable',async()=>{
+  const f=collisionFixture();
+  f.add(100);f.failNext=true;
+  await assert.rejects(f.update(),/Rejected synthetic/);
+  assert.equal(f.built.length,0);
+  await f.update();
+  assert.deepEqual(f.updates.map(u=>u.counts),[[1],[1]]);
+  assert.deepEqual(f.updates.map(u=>u.supplied),[9,9]);
+});
+
+test('changed transforms replace cached collision and visual instances with the same scene ID',async()=>{
+  const f=collisionFixture();
+  f.add(100);await f.update();
+  f.move(100,110);await f.update();
+  assert.notDeepEqual(f.updates[0].ids,f.updates[1].ids);
+  assert.deepEqual(f.updates[1].counts,[1]);
+  assert.equal(f.events.filter(e=>e.event==='scene').length,2);
+  await f.update();
+  assert.equal(f.built.length,2);
+  assert.equal(f.events.filter(e=>e.event==='scene').length,2);
 });
 
 test('fast post-step camera remains covered at the edge of the retained anchor',async()=>{
