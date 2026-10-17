@@ -77,6 +77,10 @@ function modelBytes(model) {
 }
 function requestOrder(a, b) {
   const priority = { texture: 0, wmo: 1, group: 2, m2: 3 };
+  const aCritical = a.kind !== 'texture' && a.score < 32;
+  const bCritical = b.kind !== 'texture' && b.score < 32;
+  if (aCritical !== bCritical) return aCritical ? -1 : 1;
+  if (aCritical) return priority[a.kind] - priority[b.kind] || a.score - b.score || a.key.localeCompare(b.key);
   return a.score - b.score || priority[a.kind] - priority[b.kind] || a.key.localeCompare(b.key);
 }
 
@@ -97,6 +101,8 @@ export class SceneStream {
     for (const p of placements) {
       p.path = modelPath(p.path);
       if (!['m2', 'wmo'].includes(p.kind) || !Number.isSafeInteger(p.id) || p.id < 0) throw new Error('Invalid scene identity');
+      if (p.bounds && (!Array.isArray(p.bounds) || p.bounds.length !== 2 || p.bounds.some(v => !finite(v, 3))
+          || p.bounds[0].some((v, i) => v > p.bounds[1][i]))) throw new Error('Invalid authored placement bounds');
       p.matrix = placementMatrix(p);
     }
     this.tiles.set(key, placements);
@@ -120,11 +126,11 @@ export class SceneStream {
       const skins = p.skins || [];
       const key = `${kind}:${path}:${JSON.stringify(skins)}`;
       const asset = this.cache.get(key)?.value;
-      const bounds = asset?.bounds ? transformedBounds(asset.bounds, matrix) : [matrix.slice(12, 15), matrix.slice(12, 15)];
+      const bounds = p.bounds || (asset?.bounds ? transformedBounds(asset.bounds, matrix) : [matrix.slice(12, 15), matrix.slice(12, 15)]);
       const score = distance(bounds, position);
       if ((kind !== 'wmo' || asset) && score > this.limits.radius) return;
       want(key, { kind, path, skins }, score);
-      candidates.set(id, { id, key, matrix, bounds, boundsKnown: !!asset?.bounds, score, kind });
+      candidates.set(id, { id, key, matrix, bounds, boundsKnown: !!p.bounds || !!asset?.bounds, score, kind });
       if (kind === 'wmo' && asset) {
         candidates.delete(id);
         asset.groups.forEach((group, index) => {

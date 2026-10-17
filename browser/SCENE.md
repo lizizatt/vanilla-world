@@ -15,6 +15,9 @@ history, population status and cache counters. Hard limits are 96 geometry/root
 resources plus 192 dependent textures, 96 MiB shared accounted decoded payload,
 1,024 closest scene instances and 850 yards. Texture dependencies do not consume
 geometry slots; nearest requests win, with texture-first ties and protected owners.
+Unresolved geometry within 32 yards takes precedence over textures and farther
+scenery, with WMO roots before groups before M2s. Loaded hulls remain usable while
+their visual texture dependencies catch up.
 `capacityBlocked`/`pending` mean content is incomplete, not successfully loaded.
 The byte count includes conservative root memory accounting but excludes parser
 temporaries, JavaScript bookkeeping and the separately owned main-thread/GPU copy.
@@ -48,8 +51,9 @@ contacts and distinguish missing collision assets from clear space. Empty M2 hul
 are valid non-solid models. Source vertices are not collision AABB boxes.
 `collisionInstances` includes loaded hulls even while rendering waits for alpha;
 their buffers are in `assets`. `unresolvedCollision` identifies unloaded/failed
-geometry with status, bounds and `boundsKnown`. WMO groups have known transformed
-boxes; unknown M2/root bounds are only placement points, **not** certified empty
+geometry with status, bounds and `boundsKnown`. WMO roots retain authored MODF
+world AABBs even before their model is read; these are not transformed again.
+WMO groups have known transformed boxes; unknown M2 bounds are only placement points, **not** certified empty
 space. The physics integration must conservatively gate nearby unresolved points
 and known boxes, not freeze for every far `pending` resource. These bounds do not
 prove an unparsed model's true extent.

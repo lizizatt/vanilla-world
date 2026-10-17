@@ -30,6 +30,7 @@ pub fn scene_placements(bytes: &[u8]) -> Result<String, JsValue> {
 fn placements(bytes: &[u8]) -> Result<String, String> {
     bounded(bytes)?;
     let tile = adt_to_tile_mesh(bytes).map_err(|e| e.to_string())?;
+    let bounds = modf_bounds(bytes)?;
     if tile.doodads.len() + tile.wmos.len() > 20_000 {
         return Err("ADT exceeds 20000 scene placements".into());
     }
@@ -39,12 +40,54 @@ fn placements(bytes: &[u8]) -> Result<String, String> {
             "position":d.position, "rotation":d.rotation, "scale":d.scale, "doodadSet":0}));
     }
     for d in tile.wmos {
+        let world_bounds = bounds
+            .get(&d.unique_id)
+            .ok_or("WMO placement has no MODF bounds")?;
         out.push(json!({"kind":"wmo", "id":d.unique_id, "path":d.model,
-            "position":d.position, "rotation":d.rotation, "scale":1.0, "doodadSet":d.doodad_set}));
+            "position":d.position, "rotation":d.rotation, "scale":1.0, "doodadSet":d.doodad_set,
+            "bounds":world_bounds}));
     }
     serde_json::to_string(&out).map_err(|e| e.to_string())
 }
 
+// The terrain adapter omits MODF extents; these are already world-aligned, not model-local.
+fn modf_bounds(bytes: &[u8]) -> Result<std::collections::HashMap<u32, [[f32; 3]; 2]>, String> {
+    let mut bounds = std::collections::HashMap::new();
+    let mut offset = 0;
+    while offset + 8 <= bytes.len() {
+        let size = u32::from_le_bytes(bytes[offset + 4..offset + 8].try_into().unwrap()) as usize;
+        let start = offset + 8;
+        let end = start
+            .checked_add(size)
+            .filter(|&end| end <= bytes.len())
+            .ok_or("ADT chunk exceeds file")?;
+        if &bytes[offset..offset + 4] == b"FDOM" {
+            let (records, tail) = bytes[start..end].as_chunks::<64>();
+            if !tail.is_empty() {
+                return Err("Incomplete MODF placement".into());
+            }
+            for record in records {
+                let id = u32::from_le_bytes(record[4..8].try_into().unwrap());
+                let raw: [f32; 6] = std::array::from_fn(|i| {
+                    f32::from_le_bytes(record[32 + i * 4..36 + i * 4].try_into().unwrap())
+                });
+                if raw.iter().any(|v| !v.is_finite()) || (0..3).any(|i| raw[i] > raw[i + 3]) {
+                    return Err("Invalid MODF world bounds".into());
+                }
+                let center = 32.0 * benilla_formats::TILE_SIZE;
+                bounds.insert(
+                    id,
+                    [
+                        [center - raw[5], center - raw[3], raw[1]],
+                        [center - raw[2], center - raw[0], raw[4]],
+                    ],
+                );
+            }
+        }
+        offset = end;
+    }
+    Ok(bounds)
+}
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Batch {
@@ -316,6 +359,28 @@ mod tests {
         assert!(validate_mesh(&[[0.0; 3]], &[0, 1, 0]).is_err());
         assert!(validate_mesh(&[[f32::NAN; 3]], &[]).is_err());
         assert!(validate_mesh(&[[0.0; 3]], &[0]).is_err());
+    }
+
+    #[test]
+    fn modf_bounds_are_source_world_aabbs_not_rotated_model_bounds() {
+        let mut record = [0u8; 64];
+        record[4..8].copy_from_slice(&7u32.to_le_bytes());
+        for (i, value) in [10f32, 20., 30., 40., 50., 60.].iter().enumerate() {
+            record[32 + i * 4..36 + i * 4].copy_from_slice(&value.to_le_bytes());
+        }
+        let mut bytes = b"FDOM".to_vec();
+        bytes.extend(64u32.to_le_bytes());
+        bytes.extend(record);
+        let center = 32.0 * benilla_formats::TILE_SIZE;
+        assert_eq!(
+            modf_bounds(&bytes).unwrap()[&7],
+            [
+                [center - 60., center - 40., 20.],
+                [center - 30., center - 10., 50.]
+            ]
+        );
+        bytes.pop();
+        assert!(modf_bounds(&bytes).is_err());
     }
 
     #[test]

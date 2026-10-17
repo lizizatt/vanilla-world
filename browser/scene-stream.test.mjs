@@ -162,3 +162,30 @@ test('texture dependencies have separate bounded slots and cannot evict their ge
   assert.equal(f.reads(), 2);
   assert.equal(snapshot.pending, 0);
 });
+
+test('unresolved solids inside 32 yards precede texture jobs without prioritizing far solids', async () => {
+  const f = fixture({ cutout: true }), reads = [];
+  const stream = new SceneStream({ read: async path => { reads.push(path); return f.source.read(path); } }, f.wasm, { jobs: 1 });
+  stream.setTile('1:0:0', [p(1, 'a.m2'), p(2, 'b.m2', 20), p(3, 'c.m2', 100)]);
+  stream.update(1, [0, 0, 0]);
+  await stream.pump(); await stream.pump();
+  assert.deepEqual(reads, ['a.m2', 'b.m2']);
+  assert.equal(stream.snapshot().collisionInstances.length, 2);
+  assert.equal(stream.snapshot().instances.length, 0);
+  await stream.pump();
+  assert.equal(reads[2], 'leaves.blp');
+  assert.equal(stream.snapshot().instances.length, 2);
+  await stream.pump();
+  assert.equal(reads[3], 'c.m2');
+});
+
+test('unloaded WMO roots retain authored world bounds even with distant placement origins', () => {
+  const f = fixture(), stream = new SceneStream(f.source, f.wasm);
+  const bounds = [[200, -10, -5], [250, 10, 20]];
+  stream.setTile('1:0:0', [{ ...p(1, 'hut.wmo', 550), kind: 'wmo', bounds }]);
+  stream.update(1, [0, 0, 0]);
+  const root = stream.snapshot().unresolvedCollision[0];
+  assert.equal(root.boundsKnown, true);
+  assert.deepEqual(root.bounds, bounds);
+  assert.equal(stream.instances[0].score, 200);
+});
