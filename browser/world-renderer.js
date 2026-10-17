@@ -27,6 +27,20 @@ export function sceneSelection(instances,assets) {
   }
   return {selected,triangles,omitted:instances.length-selected.length};
 }
+export function terrainEdgeMask(entry,neighbors) {
+  return [[-1,0],[1,0],[0,-1],[0,1]].reduce((mask,[dx,dy],edge)=>
+    neighbors.some(t=>t.region===entry.region&&t.x===entry.x+dx&&t.y===entry.y+dy)?mask:mask|(1<<edge),0);
+}
+export function craftMatrix(state,origin,scale) {
+  const c=Math.cos(state[3]),s=Math.sin(state[3]),cb=Math.cos(state[4]),sb=Math.sin(state[4]);
+  const m=new Float32Array(16);
+  for(const [column,v] of [[0,[0,0,-1]],[1,[-1,0,0]],[2,[0,1,0]]]){
+    const x=v[0]*cb-v[1]*sb,y=v[0]*sb+v[1]*cb,z=v[2];
+    m.set([(x*c+z*s)*scale,y*scale,(-x*s+z*c)*scale,0],column*4);
+  }
+  m.set([state[0]-origin[0],state[1],state[2]-origin[1],1],12);
+  return m;
+}
 const terrainShader=`
 struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,body:vec4f,settings:vec4f,tile:vec4f};
 @group(0) @binding(0) var<uniform> u:U;
@@ -67,14 +81,17 @@ struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,body:vec4f,settings:vec4f
 @group(0) @binding(1) var layers:texture_2d_array<f32>;
 @group(0) @binding(2) var masks:texture_2d_array<f32>;
 @group(0) @binding(3) var layerSampler:sampler;
+@group(0) @binding(4) var minimap:texture_2d<f32>;
 struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) uv:vec2f,
-  @location(2) @interpolate(flat) layers:vec4u,@location(3) @interpolate(flat) chunk:u32,@location(4) light:f32};
+  @location(2) @interpolate(flat) layers:vec4u,@location(3) @interpolate(flat) chunk:u32,@location(4) light:f32,
+  @location(5) tileUv:vec2f};
 @vertex fn vs(@location(0) p:vec3f,@location(1) n:vec3f,@location(2) uv:vec2f,
   @location(3) ids:vec4f,@location(4) chunk:f32)->V {
   let position=p+u.tile.xyz;let relative=position-u.eye.xyz;let z=dot(relative,u.forward.xyz);
   var v:V;v.clip=vec4f(dot(relative,u.right.xyz)/(0.55*u.settings.x),dot(relative,u.up.xyz)/0.55,
     (z-u.settings.w)*u.eye.w/(u.eye.w-u.settings.w),z);
   v.p=position;v.uv=uv;v.layers=vec4u(ids);v.chunk=u32(chunk);
+  v.tileUv=p.xz/(1600.0/3.0);
   v.light=clamp(.4+.6*max(dot(normalize(n),normalize(vec3f(-.3,1.0,.4))),0.0),0.0,1.0);
   return v;
 }
@@ -86,6 +103,16 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) uv:vec
   color=mix(color,textureSample(layers,layerSampler,uv,i32(v.layers.z)).rgb,a.g);
   color=mix(color,textureSample(layers,layerSampler,uv,i32(v.layers.w)).rgb,a.b);
   color*=v.light*(1.0-.3*a.a);
+  let mapCell=vec2f(u.tile.w%64.0,floor(u.tile.w/64.0));
+  let mapColor=textureSample(minimap,layerSampler,
+    (mapCell+clamp(v.tileUv,vec2f(.5/32.0),vec2f(1.0-.5/32.0)))/64.0);
+  let edges=u32(u.body.w);
+  var edgeDistance=1600.0/3.0;
+  if((edges&1u)!=0u){edgeDistance=min(edgeDistance,v.tileUv.x*(1600.0/3.0));}
+  if((edges&2u)!=0u){edgeDistance=min(edgeDistance,(1.0-v.tileUv.x)*(1600.0/3.0));}
+  if((edges&4u)!=0u){edgeDistance=min(edgeDistance,v.tileUv.y*(1600.0/3.0));}
+  if((edges&8u)!=0u){edgeDistance=min(edgeDistance,(1.0-v.tileUv.y)*(1600.0/3.0));}
+  color=mix(color,mapColor.rgb,(1.0-smoothstep(0.0,100.0/3.0,edgeDistance))*mapColor.a);
   let fog=clamp(length(v.p-u.eye.xyz)/150000.0,0.0,.93);
   return vec4f(mix(color,vec3f(.08,.15,.20),fog),1);
 }`;
@@ -130,6 +157,7 @@ export class WorldRenderer {
     this.tiles=new Map();this.seams=new Map();this.horizon=[];this.water=[];this.indices=new Map();
     this.assets=new Map();this.textures=new Map();this.items=new Map();this.instances=[];this.pipelines=new Map();
     this.materialPending=new Map();this.minimapAtlases=[];
+    this.pendingEvents=[];
     this.uniformData=new Float32Array(16384*64);
     this.frameUniforms=device.createBuffer({size:this.uniformData.byteLength,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
   }
@@ -154,7 +182,8 @@ export class WorldRenderer {
     this.splatLayout=this.device.createBindGroupLayout({entries:[uniformEntry(112),
       {binding:1,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float',viewDimension:'2d-array'}},
       {binding:2,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float',viewDimension:'2d-array'}},
-      {binding:3,visibility:GPUShaderStage.FRAGMENT,sampler:{type:'filtering'}}]});
+      {binding:3,visibility:GPUShaderStage.FRAGMENT,sampler:{type:'filtering'}},
+      {binding:4,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float'}}]});
     this.pipeline=await this.device.createRenderPipelineAsync({
       layout:this.device.createPipelineLayout({bindGroupLayouts:[this.terrainLayout]}),
       vertex:{module:terrain,entryPoint:'vs',buffers:[{arrayStride:28,attributes:[
@@ -204,7 +233,15 @@ export class WorldRenderer {
   }
   releaseMaterial(item){if(item)for(const resource of [item.vertices,item.indices,item.layers,item.masks])resource?.destroy();}
   release(item){item?.buffer.destroy();this.releaseMaterial(item?.material);}
+  releaseCraft(){
+    if(!this.craft)return;
+    this.craft.asset.vertices.destroy();this.craft.asset.indices.destroy();
+    for(const texture of this.craft.textures.values())texture.destroy();
+    this.craft=undefined;
+  }
   reset() {
+    this.releaseCraft();
+    this.craftError=undefined;
     for(const item of [...this.tiles.values(),...this.seams.values(),...this.horizon,...this.water])this.release(item);
     this.tiles.clear();this.seams.clear();this.horizon=[];this.water=[];
     for(const index of this.indices.values())index.destroy();this.indices.clear();
@@ -215,6 +252,7 @@ export class WorldRenderer {
     for(const item of this.materialPending.values())this.releaseMaterial(item.gpu);
     this.materialPending.clear();
     for(const texture of this.minimapAtlases)texture.destroy();this.minimapAtlases=[];
+    this.manifest=undefined;this.pendingEvents=[];
   }
   configure(manifest) {
     this.manifest=manifest;
@@ -225,9 +263,28 @@ export class WorldRenderer {
     this.water.push(this.drawable(new Float32Array([
       0,y,0,0,1,0,2,w,y,0,0,1,0,2,w,y,h,0,1,0,2,0,y,0,0,1,0,2,w,y,h,0,1,0,2,0,y,h,0,1,0,2,
     ]),[x,z]));
+    const pending=this.pendingEvents;this.pendingEvents=[];
+    for(const data of pending)this.event(data);
   }
   event(data) {
-    if(data.event==='horizon-index')this.indices.set(data.region,this.buffer(data.indices,GPUBufferUsage.INDEX));
+    if(!this.manifest){
+      if(this.pendingEvents.length>=16384)throw Error('World startup event budget exceeded');
+      this.pendingEvents.push(data);return;
+    }
+    if(data.event==='craft'){
+      if(data.metadata.display!==10318||!Number.isFinite(data.metadata.scale)||data.metadata.scale<=0||
+        data.asset.indices.length>60000||data.textures.length>16)throw Error('Invalid authored craft payload');
+      const bytes=data.asset.vertices.byteLength+data.asset.indices.byteLength+data.textures.reduce((n,t)=>n+t.rgba.byteLength,0);
+      if(bytes>32*1024*1024)throw Error('Authored craft exceeds GPU budget');
+      this.releaseCraft();
+      this.craftError=undefined;
+      this.craft={asset:{vertices:this.buffer(data.asset.vertices,GPUBufferUsage.VERTEX),
+        indices:this.buffer(data.asset.indices,GPUBufferUsage.INDEX),batches:data.asset.batches,count:data.asset.indices.length},
+        textures:new Map(data.textures.map(t=>[t.key,this.texture(t.width,t.height,t.rgba)])),
+        metadata:data.metadata,items:new Map(),bytes};
+    }
+    else if(data.event==='craft-error')this.craftError=data.error;
+    else if(data.event==='horizon-index')this.indices.set(data.region,this.buffer(data.indices,GPUBufferUsage.INDEX));
     else if(data.event==='horizon')this.horizon.push({...this.drawable(data.vertices,data.placement,this.minimapAtlases[data.region]),
       region:data.region,near:data.near,cell:data.source[0]+64*data.source[1]});
     else if(data.event==='horizon-material'){
@@ -250,10 +307,15 @@ export class WorldRenderer {
       }
       for(const t of data.tiles){
         this.release(this.tiles.get(t.index));
+        this.releaseMaterial(this.materialPending.get(t.index)?.gpu);this.materialPending.delete(t.index);
+        const entry=this.manifest.tiles[t.index];
         const liquid=[];
         for(let i=0;i<t.vertices.length;i+=7)if(t.vertices[i+6]===2)liquid.push(...t.vertices.subarray(i,i+7));
-        this.tiles.set(t.index,{...this.drawable(t.vertices,t.placement),liquid:new Float32Array(liquid)});
+        this.tiles.set(t.index,{...this.drawable(t.vertices,t.placement),liquid:new Float32Array(liquid),
+          entry,cell:entry.x+64*entry.y});
       }
+      const entries=[...this.tiles.values()].map(t=>t.entry);
+      for(const tile of this.tiles.values())tile.edgeMask=terrainEdgeMask(tile.entry,entries);
       for(const item of this.seams.values())this.release(item);this.seams.clear();
       for(const s of data.seams)if(s.vertices.length){
         const entry=this.manifest.tiles[s.index];
@@ -310,7 +372,8 @@ export class WorldRenderer {
         data.layers.reduce((n,l)=>n+l.mips.reduce((sum,m)=>sum+m.byteLength,0),0);
       gpu.group=this.device.createBindGroup({layout:this.splatPipeline.getBindGroupLayout(0),entries:[
         {binding:0,resource:{buffer:this.frameUniforms,size:112}},{binding:1,resource:gpu.layers.createView({dimension:'2d-array'})},
-        {binding:2,resource:gpu.masks.createView({dimension:'2d-array'})},{binding:3,resource:this.layerSampler}]} );
+        {binding:2,resource:gpu.masks.createView({dimension:'2d-array'})},{binding:3,resource:this.layerSampler},
+        {binding:4,resource:this.minimapAtlases[tile.entry.region].createView()}]} );
       this.releaseMaterial(tile.material);tile.material=gpu;
       tile.buffer.destroy();tile.buffer=this.buffer(tile.liquid,GPUBufferUsage.VERTEX);tile.count=tile.liquid.length/7;
       this.materialPending.delete(index);return;
@@ -349,38 +412,42 @@ export class WorldRenderer {
     const view=[...this.camera,200000,...right,0,...up,0,...look,0];
     const distant=settings.horizon?this.horizon.filter(h=>!this.tiles.has(h.near)):[];
     const terrain=[...distant,...this.tiles.values(),...(settings.horizon?this.seams.values():[]),...this.water];
-    if(!flight)terrain.push(this.body);
+    if(!flight&&!this.craft)terrain.push(this.body);
     let uniformCount=0;
     const writeUniform=(item,data)=>{
       if(uniformCount>=16384)throw Error('World draw uniform budget exceeded');
       item.offset=uniformCount*256;this.uniformData.set(data,uniformCount++*64);
     };
     for(const item of terrain)writeUniform(item,[
-      ...view,...p,state[3],width/height,time,state[4],near,
+      ...view,...p,item===this.body?state[3]:(item.edgeMask||0),width/height,time,state[4],near,
       item===this.body?0:item.placement[0]-origin[0],0,item===this.body?0:item.placement[1]-origin[1],item.cell??-1,
     ]);
     const draws=[],selection=sceneSelection(this.instances.filter(i=>settings.distant!==false || !i.distant),this.assets);
-    if(settings.scenery && this.sceneRegion!==undefined) {
-      const r=this.manifest.regions[this.sceneRegion];
-      for(const instance of selection.selected) {
-        const asset=this.assets.get(instance.key);if(!asset)continue;
-        const m=renderMatrix(instance.matrix,r,origin);
+    const append=(asset,instance,m,textures,items)=>{
         for(let b=0;b<asset.batches.length;b++) {
           const batch=asset.batches[b],key=`${instance.id}:${instance.key}:${b}`;
-          const texture=(batch.texture&&this.textures.get(modelPath(batch.texture)))||this.white;
-          let item=this.items.get(key);
+          const texture=(batch.texture&&textures.get(modelPath(batch.texture)))||this.white;
+          let item=items.get(key);
           if(!item || item.texture!==texture) {
             const sampler=this.device.createSampler({minFilter:'linear',magFilter:'linear',
               addressModeU:batch.wrapX?'repeat':'clamp-to-edge',addressModeV:batch.wrapY?'repeat':'clamp-to-edge'});
             item={id:instance.id,key:instance.key,texture,group:this.device.createBindGroup({layout:this.sceneLayout,entries:[
               {binding:0,resource:{buffer:this.frameUniforms,size:160}},{binding:1,resource:texture.createView()},{binding:2,resource:sampler}]} )};
-            this.items.set(key,item);
+            items.set(key,item);
           }
           writeUniform(item,[...view,width/height,time,0,near,...m,batch.alphaCutoff||0,batch.emissive?1:0,instance.distant?1:0,0]);
-          draws.push({asset,batch,item,distant:instance.distant,pipeline:this.scenePipeline(batch),distance:Math.hypot(m[12]-this.camera[0],m[13]-this.camera[1],m[14]-this.camera[2])});
+          draws.push({asset,batch,item,distant:instance.distant,craft:instance.craft,pipeline:this.scenePipeline(batch),distance:Math.hypot(m[12]-this.camera[0],m[13]-this.camera[1],m[14]-this.camera[2])});
         }
+    };
+    if(settings.scenery && this.sceneRegion!==undefined) {
+      const r=this.manifest.regions[this.sceneRegion];
+      for(const instance of selection.selected) {
+        const asset=this.assets.get(instance.key);if(!asset)continue;
+        append(asset,instance,renderMatrix(instance.matrix,r,origin),this.textures,this.items);
       }
     }
+    if(!flight&&this.craft)append(this.craft.asset,{id:'player-craft',key:'10318',craft:true},
+      craftMatrix(state,origin,this.craft.metadata.scale),this.craft.textures,this.craft.items);
     const transparent=batch=>['alpha','add','mod','mod2x'].includes(batch.blend);
     draws.sort((a,b)=>transparent(a.batch)-transparent(b.batch) || (transparent(a.batch)?b.distance-a.distance:0));
     if(uniformCount)this.device.queue.writeBuffer(this.frameUniforms,0,this.uniformData.buffer,0,uniformCount*256);
@@ -410,6 +477,9 @@ export class WorldRenderer {
       terrainGpuBytes:[...this.tiles.values()].reduce((n,t)=>n+(t.material?.bytes||0),0),
       terrainUploadPending:this.materialPending.size,minimapGpuBytes:this.minimapAtlases.length*(64*MINIMAP_SIZE)**2*4,
       uniformUploads:uniformCount?1:0,uniformBytes:uniformCount*256,
+      craftDraws:draws.filter(d=>d.craft).length,craftPose:this.craft?'bind-pose':'placeholder',craftGpuBytes:this.craft?.bytes||0,
+      craftReady:!!this.craft,craftStatus:this.craft?'ready':this.craftError?'failed':'loading',
+      craftTriangles:this.craft?this.craft.asset.count/3:0,craftError:this.craftError,
       npcInstances:this.instances.filter(i=>i.id.includes(':npc:')).length,
       wmoInstances:this.instances.filter(i=>i.kind==='group').length,
       texturedDraws:draws.filter(d=>d.item.texture!==this.white).length,

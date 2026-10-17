@@ -10,7 +10,9 @@ const worker=`
 import init,* as wasm from '/pkg/flats_racer_web.js';
 import {openDataSource} from '/asset-source.js';
 import {TerrainStream} from '/terrain-stream.js';
-let source,world,manifest,materials,resident=[];
+import {SceneStream} from '/scene-stream.js';
+import {loadCraft} from '/craft-stream.js';
+let source,world,manifest,materials,scene,resident=[],sceneAssets=[],sceneTextures=[];
 const send=(message,transfers=[])=>postMessage(message,transfers);
 self.onmessage=async({data})=>{
  try{
@@ -24,8 +26,11 @@ self.onmessage=async({data})=>{
    manifest=JSON.parse(wasm.world_manifest(wdts[0],wdls[0],wdts[1],wdls[1]));
    world=new wasm.Voyage(JSON.stringify(manifest));send({event:'configure',manifest});
    materials=new TerrainStream(source,wasm,send);await materials.init(manifest);
+   scene=new SceneStream(source,wasm);
    for(let region=0;region<2;region++){
     world.add_horizon(region,wdls[region]);
+    const water=world.exterior_geometry(region);
+    send({event:'exterior-water',region,placement:manifest.regions[region].placement,vertices:water},[water.buffer]);
     const indices=world.horizon_indices(region);send({event:'horizon-index',region,indices},[indices.buffer]);
     const patches=world.horizon_patches(region);
     for(let i=0;i<patches.length;i+=5){
@@ -36,6 +41,7 @@ self.onmessage=async({data})=>{
    }
   }else if(data.action==='site'){
    for(const index of resident){world.remove_tile(index);materials.removeTile(index);}
+   scene.clear();
    const removed=resident;resident=[];
    const {region,x,y}=data,tiles=[];
    for(const [tx,ty]of [[x,y],[x+1,y],[x,y+1],[x+1,y+1]]){
@@ -44,6 +50,7 @@ self.onmessage=async({data})=>{
     const entry=manifest.tiles[index],map=manifest.regions[region].map;
     const bytes=await source.read('World\\\\Maps\\\\'+map+'\\\\'+entry.file);
     world.add_tile(index,bytes);resident.push(index);
+    scene.setTile((region===0?1:0)+':'+tx+':'+ty,bytes);
     const vertices=world.geometry(index),r=manifest.regions[region];
     tiles.push({index,placement:[r.placement[0]+tx*1600/3,r.placement[1]+ty*1600/3],vertices});
     materials.setTile(index,world.terrain_material(index));
@@ -53,7 +60,22 @@ self.onmessage=async({data})=>{
    materials.prioritize(region,x,y);
    while(materials.snapshot().pending&&!materials.snapshot().errors.some(e=>e.startsWith('Terrain texture')))await materials.pump();
    for(let i=0;i<32;i++)await materials.pump();
-   send({event:'site-ready',region,x,y,resident,snapshot:materials.snapshot()});
+   scene.update(region===0?1:0,[(32-y-.5)*1600/3,(32-x-.5)*1600/3,0]);
+   let snapshot;
+   for(let i=0;i<200;i++){
+    await scene.pump();snapshot=scene.snapshot();
+    if(!snapshot.pending||snapshot.capacityBlocked)break;
+   }
+   const assets=[...snapshot.assets].map(([key,a])=>({key,vertices:a.vertices.slice(),indices:a.indices.slice(),batches:a.batches}));
+   const textures=[...snapshot.textures].map(([key,t])=>({key,width:t.width,height:t.height,rgba:t.rgba.slice()}));
+   send({event:'scene',region,assets,textures,instances:snapshot.instances,removedAssets:sceneAssets,removedTextures:sceneTextures},
+    [...assets.flatMap(a=>[a.vertices.buffer,a.indices.buffer]),...textures.map(t=>t.rgba.buffer)]);
+   sceneAssets=assets.map(a=>a.key);sceneTextures=textures.map(t=>t.key);
+   send({event:'site-ready',region,x,y,resident,snapshot:materials.snapshot(),sceneErrors:snapshot.errors});
+  }else if(data.action==='craft'){
+   world.initialize_spawn();
+   send({event:'craft-state',telemetry:Array.from(world.telemetry())});
+   await loadCraft(source,wasm,send);
   }else if(data.action==='overview'){
    while(materials.snapshot().farPending)await materials.pump();
   }
@@ -67,19 +89,23 @@ import {terrainMips} from '/terrain-stream.js';
 window.errors=[];window.renderer=await WorldRenderer.create(document.querySelector('canvas'),e=>errors.push(String(e)));
 let next=0,pending=new Map(),manifest,site,worker=new Worker('/worker.js',{type:'module'});
 worker.onmessage=({data})=>{
- if(data.event==='configure'){manifest=data.manifest;renderer.configure(manifest);window.manifest=manifest;}
+ if(data.event==='configure')window.pendingManifest=data.manifest;
  else if(data.event==='done'||data.event==='failed'){const callback=pending.get(data.id);pending.delete(data.id);callback(data);}
  else if(data.event==='site-ready'){site=data;window.site=data;}
+ else if(data.event==='craft-state')window.vehicle=data.telemetry;
  else {if(data.event==='terrain-material')window.lastMaterial=data;renderer.event(data);}
 };
 window.request=message=>new Promise(resolve=>{message.id=++next;pending.set(next,resolve);worker.postMessage(message);});
-window.openData=()=>request({action:'open',catalog:[...document.querySelector('input').files].map(file=>({path:file.webkitRelativePath,file}))});
+window.openData=async()=>{
+ const result=await request({action:'open',catalog:[...document.querySelector('input').files].map(file=>({path:file.webkitRelativePath,file}))});
+ manifest=window.pendingManifest;window.manifest=manifest;renderer.configure(manifest);return result;
+};
 window.flight=[0,1000,0,0,-.3];window.frames=[];window.stats={};let last=0;
 function frame(time){
  if(manifest){
   const dt=last?(time-last)/1000:1/60;
-  const state=[manifest.spawn[0],manifest.spawn[1],manifest.spawn[2],0,0,0,0,0,0,0,0,0,0];
-  stats=renderer.draw(state,flight,dt,0,{horizon:true,scenery:false,distant:false});
+  const state=window.vehicle||[manifest.spawn[0],manifest.spawn[1],manifest.spawn[2],0,0,0,0,0,0,0,0,0,0];
+  stats=renderer.draw(state,flight,dt,0,{horizon:true,scenery:window.showScenery!==false,distant:false});
   if(last)frames.push(time-last);
  }last=time;requestAnimationFrame(frame);
 }requestAnimationFrame(frame);
@@ -113,7 +139,7 @@ window.oracle=async()=>{
 window.ready=true;
 </script>`;
 const modules=new Map([['/worker.js',worker]]);
-for(const name of ['world-renderer.js','world-camera.js','terrain-stream.js','scene-stream.js','asset-source.js','pkg/flats_racer_web.js','pkg/flats_racer_web_bg.wasm']){
+for(const name of ['world-renderer.js','world-camera.js','terrain-stream.js','craft-stream.js','scene-stream.js','asset-source.js','pkg/flats_racer_web.js','pkg/flats_racer_web_bg.wasm']){
   modules.set('/'+name,await readFile(new URL('./'+name,import.meta.url)));
 }
 const server=createServer((req,res)=>{
@@ -135,7 +161,7 @@ try{
   await mkdir(artifact,{recursive:true});
   const results=[];
   for(const site of [
-    {name:'raceway',region:0,x:39,y:43},{name:'elwynn',region:1,x:32,y:48},
+    {name:'raceway',region:0,x:39,y:43},{name:'elwynn',region:1,x:32,y:49},
     {name:'stormwind',region:1,x:30,y:48},{name:'durotar',region:0,x:40,y:30},
     {name:'raceway-reload',region:0,x:39,y:43},
   ]){
@@ -155,9 +181,28 @@ try{
     assert(pixels.different>10000&&pixels.colors>100,JSON.stringify({site,pixels,errors:await page.evaluate(()=>errors)}));
     const evidence=await page.evaluate(()=>({stats,adapter:renderer.adapter,errors,frames}));
     assert.deepEqual(evidence.errors,[]);assert(evidence.stats.terrainGpuBytes<4*32*1024*1024);
+    assert(evidence.stats.sceneDraws>0&&evidence.stats.texturedDraws>0);
+    assert.deepEqual(await page.evaluate(()=>site.sceneErrors),[]);
     const frames=evidence.frames.sort((a,b)=>a-b);
     results.push({site:site.name,pixels,...evidence,frames:undefined,p50Ms:frames[Math.floor(frames.length*.5)],
       p95Ms:frames[Math.floor(frames.length*.95)],stream:result.snapshot});
+    if(site.name==='raceway'){
+      const craft=await page.evaluate(()=>request({action:'craft'}));
+      assert(!craft.error,JSON.stringify(craft));
+      await page.evaluate(()=>{window.previousFlight=flight;flight=null;window.showScenery=false;renderer.camera=undefined;});
+      await page.waitForTimeout(600);
+      const craftEvidence=await page.evaluate(()=>({stats,metadata:renderer.craft.metadata,errors}));
+      assert.equal(craftEvidence.stats.craftDraws,6);
+      assert.equal(craftEvidence.stats.sceneDraws,6,'Craft renders with scenery off, in its own residency namespace');
+      assert.equal(craftEvidence.metadata.attachment0.bone,74);
+      assert.equal(craftEvidence.metadata.cockpitAvailable,false);
+      assert.deepEqual(craftEvidence.errors,[]);
+      await page.screenshot({path:resolve(artifact,'authored-craft-scenery-off.png')});
+      results.push({site:'authored-craft-scenery-off',...craftEvidence});
+      await page.evaluate(()=>{flight=window.previousFlight;window.showScenery=true;});
+      await page.waitForTimeout(100);
+      assert.equal(await page.evaluate(()=>stats.craftDraws),0,'Flight hides the vehicle');
+    }
   }
   const far=await page.evaluate(()=>request({action:'overview'}));
   assert(!far.error,JSON.stringify(far));assert(far.snapshot.minimaps>1000);
@@ -173,7 +218,7 @@ try{
   assert.deepEqual(await page.evaluate(()=>errors),[]);
   assert.deepEqual(pageErrors,[]);
   const summary={browser:browser.version(),resolution:[1280,720],results,overview:far.snapshot,oracle,
-    limits:'Isolated material-only hardware renderer. Scene/collision driving FPS measured by integrated performance harness.'};
+    limits:'Isolated terrain + authored scene hardware renderer; no NPC pack. Physics/streaming driving FPS measured by integrated performance harness.'};
   await writeFile(resolve(artifact,'results.json'),JSON.stringify(summary,null,2));
   console.log(JSON.stringify(summary,null,2));
 }finally{await browser?.close();await new Promise(r=>server.close(r));}

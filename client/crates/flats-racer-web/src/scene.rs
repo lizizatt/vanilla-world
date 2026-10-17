@@ -23,6 +23,50 @@ fn js(error: impl std::fmt::Display) -> JsValue {
     JsValue::from_str(&error.to_string())
 }
 
+fn craft_display(models: &[u8], displays: &[u8]) -> Result<String, String> {
+    bounded(models)?;
+    bounded(displays)?;
+    let catalog =
+        benilla_formats::parse_creature_catalog(models, displays).map_err(|e| e.to_string())?;
+    let model = catalog
+        .model(10318)
+        .ok_or("Creature display 10318 is unavailable")?;
+    let scale = catalog
+        .display_scale(10318)
+        .ok_or("Craft display scale is unavailable")?;
+    if !scale.is_finite() || scale <= 0.0 || scale > 10.0 || model.model_path.is_empty() {
+        return Err("Invalid authored craft display".into());
+    }
+    Ok(
+        json!({"display":10318,"path":model.model_path,"scale":scale,"skins":model.textures,
+        "pose":"bind-pose","cockpitAvailable":false})
+        .to_string(),
+    )
+}
+
+#[wasm_bindgen]
+pub fn scene_craft_display(models: &[u8], displays: &[u8]) -> Result<String, JsValue> {
+    craft_display(models, displays).map_err(js)
+}
+
+fn craft_metadata(bytes: &[u8]) -> Result<String, String> {
+    bounded(bytes)?;
+    let attachments = benilla_formats::parse_m2_attachments(bytes).map_err(|e| e.to_string())?;
+    let seat = attachments.iter().find(|a| a.id == 0).map(
+        |a| json!({"bone":a.bone,"position":a.position,"space":"model-local","pose":"bind-pose"}),
+    );
+    Ok(
+        json!({"attachment0":seat,"pose":"bind-pose","cockpitAvailable":false,
+        "cockpitBlocker":"No selected rider model/head height or animated seat bone pose"})
+        .to_string(),
+    )
+}
+
+#[wasm_bindgen]
+pub fn scene_craft_metadata(bytes: &[u8]) -> Result<String, JsValue> {
+    craft_metadata(bytes).map_err(js)
+}
+
 #[wasm_bindgen]
 pub fn scene_placements(bytes: &[u8]) -> Result<String, JsValue> {
     placements(bytes).map_err(js)
@@ -404,7 +448,7 @@ impl TerrainMaterial {
                 layers[layer] = layers[0];
             }
             let mask = &mut out.masks[chunk_id * 16384..(chunk_id + 1) * 16384];
-            for (i, pixel) in mask.chunks_exact_mut(4).enumerate() {
+            for (i, pixel) in mask.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                 if let Some(alpha) = &chunk.alpha_map {
                     pixel[..3].copy_from_slice(&alpha[i * 4..i * 4 + 3]);
                 }
@@ -473,6 +517,54 @@ impl Voyage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn actual_racer_display_keeps_complete_model_and_authored_seat_without_inventing_rider() {
+        let data = benilla_formats::wow_data_or_skip!();
+        let mut chain = benilla_formats::Chain::open(&data).unwrap();
+        let models = chain
+            .read_file("DBFilesClient\\CreatureModelData.dbc")
+            .unwrap();
+        let displays = chain
+            .read_file("DBFilesClient\\CreatureDisplayInfo.dbc")
+            .unwrap();
+        let display: serde_json::Value =
+            serde_json::from_str(&craft_display(&models, &displays).unwrap()).unwrap();
+        assert_eq!(display["display"], 10318);
+        assert_eq!(display["scale"], 1.0);
+        assert_eq!(
+            display["path"],
+            "Creature\\GoblinRocketCar\\GoblinRocketCar.mdx"
+        );
+        let native = benilla_formats::load_creature_catalog(&mut chain)
+            .unwrap()
+            .model(10318)
+            .unwrap();
+        assert_eq!(display["path"], native.model_path);
+        let bytes = chain
+            .read_file("Creature\\GoblinRocketCar\\GoblinRocketCar.m2")
+            .unwrap();
+        let metadata: serde_json::Value =
+            serde_json::from_str(&craft_metadata(&bytes).unwrap()).unwrap();
+        assert_eq!(metadata["attachment0"]["bone"], 74);
+        assert_eq!(metadata["cockpitAvailable"], false);
+        assert!(metadata.get("riderHeadHeight").is_none());
+        let model = SceneModel::from_m2(
+            &bytes,
+            "Creature\\GoblinRocketCar\\GoblinRocketCar.m2",
+            &display["skins"].to_string(),
+        )
+        .unwrap();
+        assert_eq!(model.indices.len() / 3, 1566);
+        let batches: serde_json::Value = serde_json::from_str(&model.metadata).unwrap();
+        assert_eq!(batches["batches"].as_array().unwrap().len(), 6);
+        for batch in batches["batches"].as_array().unwrap() {
+            let texture = batch["texture"].as_str().unwrap();
+            SceneTexture::decode(&chain.read_file(texture).unwrap()).unwrap();
+        }
+        assert!(craft_display(b"bad", b"bad").is_err());
+        assert!(craft_metadata(b"bad").is_err());
+    }
 
     #[test]
     fn rejects_corrupt_and_oversize_inputs() {
@@ -554,12 +646,15 @@ mod tests {
             }
             for path in material.paths {
                 let texture = SceneTexture::decode(&chain.read_file(&path).unwrap()).unwrap();
-                assert_eq!(texture.rgba.len(), (texture.width * texture.height * 4) as usize);
+                assert_eq!(
+                    texture.rgba.len(),
+                    (texture.width * texture.height * 4) as usize
+                );
                 colored_textures += usize::from(
                     texture
                         .rgba
-                        .chunks_exact(4)
-                        .any(|p| p[0] != p[1] || p[1] != p[2])
+                        .as_chunks::<4>().0.iter()
+                        .any(|p| p[0] != p[1] || p[1] != p[2]),
                 );
             }
         }

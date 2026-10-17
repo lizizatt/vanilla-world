@@ -1,6 +1,29 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {TerrainStream,minimapCatalog,resizeRgba,terrainMips,TERRAIN_CACHE_LIMIT} from './terrain-stream.js';
+import {WorldRenderer,terrainEdgeMask} from './world-renderer.js';
+
+test('initial worker geometry waits for manifest and atlas configuration without dropping events',()=>{
+  const renderer=Object.create(WorldRenderer.prototype);
+  renderer.pendingEvents=[];
+  const event={event:'detail',tiles:[{index:0}],removed:[],seams:[]};
+  renderer.event(event);
+  assert.equal(renderer.pendingEvents[0],event);
+  const replayed=[];
+  renderer.device={createTexture:()=>({})};renderer.water=[];renderer.drawable=()=>({});
+  renderer.event=data=>replayed.push(data);
+  const old=globalThis.GPUTextureUsage;globalThis.GPUTextureUsage={TEXTURE_BINDING:1,COPY_DST:2};
+  try{renderer.configure({regions:[{}],ocean:[0,0,1,1],sea_level:0});}
+  finally{if(old===undefined)delete globalThis.GPUTextureUsage;else globalThis.GPUTextureUsage=old;}
+  assert.deepEqual(replayed,[event]);assert.equal(renderer.pendingEvents.length,0);
+});
+
+test('only exposed detail boundaries fade; adjacent terrain and other continents do not',()=>{
+  const tile={region:0,x:20,y:30};
+  assert.equal(terrainEdgeMask(tile,[tile]),15);
+  assert.equal(terrainEdgeMask(tile,[tile,{region:0,x:21,y:30},{region:0,x:20,y:29}]),9);
+  assert.equal(terrainEdgeMask(tile,[{region:1,x:21,y:30}]),15);
+});
 
 test('authored gamma bytes are averaged, not sRGB-decoded, and complete mips retain color',()=>{
   const rgba=new Uint8Array([0,40,200,255,100,60,100,255,200,80,0,255,100,20,100,255]);
