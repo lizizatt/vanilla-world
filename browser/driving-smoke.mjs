@@ -71,15 +71,20 @@ try{
   await context.route('**/world-worker.js',async route=>{
     const response=await route.fetch();
     let body=await response.text();
-    body=body.replace('let world,source,manifest,','const drivingClock={input:0,steps:0,dropped:0,objects:0,batch:0};globalThis.drivingWork=[];\nlet world,source,manifest,');
-    body=body.replace(/const started=performance.now\(\);\r?\n    const p=world.telemetry\(\)/, 'drivingClock.input+=message.dt;drivingClock.batch=0;\n    const started=performance.now();\n    const p=world.telemetry()');
-    body=body.replace("if(objectWait.length){accumulator=0;",'if(objectWait.length){drivingClock.objects+=message.dt+accumulator;accumulator=0;');
-    body=body.replace('accumulator+=Math.min(Math.max(message.dt,0),.1);','drivingClock.dropped+=Math.max(0,message.dt-.1);accumulator+=Math.min(Math.max(message.dt,0),.1);');
-    body=body.replace('world.tick(message.throttle,message.steer,message.flags);','world.tick(message.throttle,message.steer,message.flags);drivingClock.steps++;drivingClock.batch++;');
-    body=body.replace('return {telemetry:Array.from(world.telemetry()),','return {drivingClock:{...drivingClock,remainder:accumulator},drivingWork:globalThis.drivingWork.splice(0),telemetry:Array.from(world.telemetry()),');
-    body=body.replace('const result=await handle(data),start=performance.now();','const begin=performance.timeOrigin+performance.now();const result=await handle(data),start=performance.now();if(result.telemetry)result.transport={begin,end:performance.timeOrigin+start};');
+    const replace=(search,replacement)=>{
+      const previous=body;body=body.replace(search,replacement);
+      assert.notEqual(body,previous,`Missing worker profiling hook: ${search}`);
+    };
+    replace('let world,source,manifest,','const drivingClock={input:0,steps:0,dropped:0,objects:0,batch:0};globalThis.drivingWork=[];\nlet world,source,manifest,');
+    replace(/const started=performance.now\(\);\r?\n    const p=world.telemetry\(\)/, 'drivingClock.input+=message.dt;drivingClock.batch=0;\n    const started=performance.now();\n    const p=world.telemetry()');
+    replace("if(objectWait.length){accumulator=0;",'if(objectWait.length){drivingClock.objects+=message.dt+accumulator;accumulator=0;');
+    replace('accumulator+=Math.min(Math.max(message.dt,0),.1);','drivingClock.dropped+=Math.max(0,message.dt-.1);accumulator+=Math.min(Math.max(message.dt,0),.1);');
+    replace('world.tick(message.throttle,message.steer,message.flags);','world.tick(message.throttle,message.steer,message.flags);drivingClock.steps++;drivingClock.batch++;');
+    replace('return {telemetry:Array.from(world.telemetry()),','return {drivingClock:{...drivingClock,remainder:accumulator},drivingWork:globalThis.drivingWork.splice(0),telemetry:Array.from(world.telemetry()),');
+    replace('const result=await handle(data),start=performance.now();','const begin=performance.timeOrigin+performance.now();const result=await handle(data),start=performance.now();if(result.telemetry)result.transport={begin,end:performance.timeOrigin+start};');
     for(const call of ['world.add_tile(index,bytes)','scene.setTile(tileKey(index),bytes,world.tile_placements(index,bytes))','world.geometry(index)',
       'terrain.setTile(index,world.terrain_material(index))','world.horizon_seams(index)']){
+      assert(body.includes(call),`Missing worker stage profiling hook: ${call}`);
       body=body.replaceAll(call,`(()=>{const started=performance.now();try{return ${call};}finally{drivingWork.push({kind:${JSON.stringify(call)},ms:performance.now()-started});}})()`);
     }
     await route.fulfill({response,body});
@@ -115,6 +120,13 @@ try{
     },Number(process.env.YAW));
   }
   await page.locator('#drive').click();
+  const clock=await page.evaluate(()=>({...worldEvidence.state.drivingClock}));
+  await page.waitForFunction(before=>{
+    const state=worldEvidence.state;
+    return state.drivingClock.input>before.input && state.drivingClock.steps>before.steps
+      && Number.isFinite(state.transport?.begin) && Number.isFinite(state.transport?.end)
+      && state.transport.end>=state.transport.begin;
+  },clock,{timeout:15000});
   if(warmSeconds)await page.waitForTimeout(warmSeconds*1000);
   if(sound){
     await page.locator('#preferences').evaluate(e=>e.open=true);
