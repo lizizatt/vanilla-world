@@ -312,6 +312,10 @@ export class SceneStream {
     if (!entry) return;
     entry.dispose?.(); this.bytes -= entry.bytes; this.cache.delete(key);
   }
+  retry() {
+    this.failures.clear();
+    this.errors=[];
+  }
   clear() {
     this.generation++; for (const key of this.cache.keys()) this.evict(key);
     this.tiles.clear(); this.requests.clear(); this.failures.clear(); this.instances = []; this.errors = [];
