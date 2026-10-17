@@ -330,9 +330,23 @@ export class WorldRenderer {
           cell:entry.x+64*entry.y});
       }
     } else if(data.event==='scene') {
-      if(data.instances===undefined){
+      let instances=data.instances;
+      if(data.instanceOrder!==undefined){
+        if(!Array.isArray(instances)||!Array.isArray(data.instanceOrder))throw Error('Invalid scene instance updates');
+        if(data.instanceOrder.some(id=>typeof id!=='string'||!id) ||
+          instances.some(i=>!i||typeof i.id!=='string'||!i.id))throw Error('Invalid scene instance IDs');
+        const order=new Set(data.instanceOrder),updates=new Map(instances.map(i=>[i.id,i]));
+        if(order.size!==data.instanceOrder.length || updates.size!==instances.length ||
+          instances.some(i=>!order.has(i.id)))throw Error('Invalid scene instance IDs');
+        const previous=new Map((data.region===this.sceneRegion?this.instances:[]).map(i=>[i.id,i]));
+        instances=data.instanceOrder.map(id=>{
+          const instance=updates.get(id)||previous.get(id);
+          if(!instance)throw Error(`Missing scene instance ${id}`);
+          return instance;
+        });
+      } else if(instances===undefined){
         if(data.region!==this.sceneRegion)throw Error('Scene region changed without instances');
-      } else if(!Array.isArray(data.instances))throw Error('Invalid scene instances');
+      } else if(!Array.isArray(instances))throw Error('Invalid scene instances');
       for(const key of data.removedAssets){const a=this.assets.get(key);a?.vertices.destroy();a?.indices.destroy();this.assets.delete(key);}
       for(const key of data.removedTextures){this.textures.get(key)?.destroy();this.textures.delete(key);}
       for(const a of data.assets){
@@ -346,8 +360,8 @@ export class WorldRenderer {
         const texture=this.texture(t.width,t.height,t.rgba);
         this.textures.get(t.key)?.destroy();this.textures.set(t.key,texture);
       }
-      if(data.instances!==undefined){this.instances=data.instances;this.sceneRegion=data.region;}
-      const wanted=data.instances===undefined?undefined:new Set(data.instances.map(i=>i.id));
+      if(instances!==undefined){this.instances=instances;this.sceneRegion=data.region;}
+      const wanted=instances===undefined?undefined:new Set(instances.map(i=>i.id));
       for(const [key,item] of this.items)if((wanted&&!wanted.has(item.id)) || !this.assets.has(item.key)){
         this.items.delete(key);
       }

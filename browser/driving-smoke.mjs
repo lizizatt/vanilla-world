@@ -10,6 +10,7 @@ const label=process.env.RUN_LABEL || 'continuity';
 assert(/^[a-z0-9-]+$/i.test(label));
 const video=process.env.VIDEO==='1',sound=process.env.SOUND==='1',cpuProfile=process.env.PROFILE==='1';
 const presentation=process.env.PRESENTATION || 'confirmed',pulses=process.env.INPUT_PULSES==='1';
+const sceneUpdates=process.env.SCENE_UPDATES!=='0';
 assert(['raw','confirmed'].includes(presentation));
 assert(!pulses || (!process.env.WAYPOINTS && seconds%5===0),'Input pulses require five-second periods without navigation');
 const warmSeconds=Number(process.env.WARM_SECONDS || 0);
@@ -61,6 +62,11 @@ async function startProfiles(){
   };
 }
 try{
+  if(!sceneUpdates)await context.route('**/world-client.js',async route=>{
+    const response=await route.fetch(),source=await response.text();
+    assert(source.includes('sceneInstanceUpdates:true'),'Scene baseline must disable the negotiated instance updates');
+    await route.fulfill({response,body:source.replace('sceneInstanceUpdates:true','sceneInstanceUpdates:false')});
+  });
   if(presentation==='raw')await context.route('**/world-app.js',async route=>{
     const response=await route.fetch(),source=await response.text();
     assert(source.includes('client.presentation()'),'Raw comparison must override the presentation call');
@@ -90,11 +96,18 @@ try{
     replace('world.tick(message.throttle,message.steer,message.flags);','world.tick(message.throttle,message.steer,message.flags);drivingClock.steps++;drivingClock.batch++;');
     replace('return {telemetry:Array.from(world.telemetry()),','return {drivingClock:{...drivingClock,remainder:accumulator},drivingWork:globalThis.drivingWork.splice(0),telemetry:Array.from(world.telemetry()),');
     replace('const result=await handle(data),start=performance.now();','const begin=performance.timeOrigin+performance.now();const result=await handle(data),start=performance.now();if(result.telemetry)result.transport={begin,end:performance.timeOrigin+start};');
+    replace("postMessage({event:'scene',region,", "const scenePayload={instances:sendInstances?sceneState.instances.length:0,updatedInstances:typeof instancePayload==='undefined'?(sendInstances?sceneState.instances.length:0):(instancePayload.instances?.length??0),geometryBytes:assets.reduce((n,a)=>n+a.vertices.byteLength+a.indices.byteLength,0),textureBytes:textures.reduce((n,t)=>n+t.rgba.byteLength,0)};postMessage({event:'scene',region,");
+    replace('timings.scenePostMs+=performance.now()-start;', "const posted=performance.now()-start;drivingWork.push({kind:'scene-message',ms:posted,...scenePayload});timings.scenePostMs+=posted;");
     for(const call of ['world.add_tile(index,bytes)','scene.setTile(tileKey(index),bytes,world.tile_placements(index,bytes))','world.geometry(index)',
-      'terrain.setTile(index,world.terrain_material(index))','world.horizon_seams(index)']){
+      'world.horizon_seams(index)']){
       assert(body.includes(call),`Missing worker stage profiling hook: ${call}`);
       body=body.replaceAll(call,`(()=>{const started=performance.now();try{return ${call};}finally{drivingWork.push({kind:${JSON.stringify(call)},ms:performance.now()-started});}})()`);
     }
+    const materialCall='terrain.setTile(index,world.terrain_material(index))';
+    assert(body.includes(materialCall),'Missing terrain material profiling hook');
+    body=body.replaceAll(materialCall,`(()=>{let start=performance.now();const material=world.terrain_material(index);
+      drivingWork.push({kind:'terrain-material-build',ms:performance.now()-start});start=performance.now();
+      try{return terrain.setTile(index,material);}finally{drivingWork.push({kind:'terrain-material-copy',ms:performance.now()-start});}})()`);
     await route.fulfill({response,body});
   });
   await page.goto(process.env.WORLD_URL || 'http://127.0.0.1:4185/?test');
@@ -146,10 +159,23 @@ try{
   await page.evaluate(async ()=>{
     const {WorldClient}=await import('./world-client.js');
     const {WorldRenderer}=await import('./world-renderer.js');
+    const {CameraCollision}=await import('./camera-collision.js');
     const request=WorldClient.prototype.request,frame=WorldClient.prototype.frame,draw=WorldRenderer.prototype.draw;
     const pageState=()=>({visibility:document.visibilityState,hidden:document.hidden,
       hasFocus:document.hasFocus(),activeElement:document.activeElement?.id || document.activeElement?.tagName});
-    window.driveProfile={responses:[],draws:[],rawDraws:[],inputOnsets:[],samples:[],environmentEvents:[],inputs:0,clientDropped:0,start:performance.now()};
+    window.driveProfile={responses:[],draws:[],rawDraws:[],mainWork:[],inputOnsets:[],samples:[],environmentEvents:[],inputs:0,clientDropped:0,start:performance.now()};
+    for(const [type,name] of [[WorldRenderer,'event'],[WorldRenderer,'uploadMaterials'],[CameraCollision,'event']]){
+      const original=type.prototype[name];
+      type.prototype[name]=function(...args){
+        const start=performance.now();
+        try{return original.apply(this,args);}
+        finally{
+          const ms=performance.now()-start;
+          if(ms>=1 || args[0]?.event==='detail')driveProfile.mainWork.push({t:start,ms,
+            kind:`${type.name}.${name}`,event:args[0]?.event,instances:args[0]?.instances?.length});
+        }
+      };
+    }
     const record=type=>driveProfile.environmentEvents.push({t:performance.now(),type,...pageState()});
     record('capture-start');
     for(const type of ['focus','blur','pagehide','pageshow'])window.addEventListener(type,()=>record(type));
@@ -249,7 +275,7 @@ try{
   data.before=before;data.environment=environment;
   await writeFile(new URL('raw.json',output),JSON.stringify(data));
   if(stopProfiles)await stopProfiles();
-  const settings={video,sound,profile:cpuProfile,presentation,inputPulses:pulses,...await page.evaluate(()=>{
+  const settings={video,sound,profile:cpuProfile,presentation,sceneUpdates,inputPulses:pulses,...await page.evaluate(()=>{
     const canvas=document.getElementById('world'),rect=canvas.getBoundingClientRect();
     return {canvasWidth:canvas.width,canvasHeight:canvas.height,cssWidth:rect.width,cssHeight:rect.height,
       devicePixelRatio};

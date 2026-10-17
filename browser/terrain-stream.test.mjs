@@ -136,6 +136,38 @@ test('resource-only scene updates preserve instance caches, replace resources an
   } finally{if(old===undefined)delete globalThis.GPUBufferUsage;else globalThis.GPUBufferUsage=old;}
 });
 
+test('ordered scene deltas preserve nearest-first order and cached identities while updating and removing instances',()=>{
+  const renderer=Object.create(WorldRenderer.prototype);
+  const a={id:'a',key:'model',matrix:[1],rendered:{matrix:[]}},b={id:'b',key:'model',matrix:[2]};
+  Object.assign(renderer,{manifest:{},sceneRegion:0,instances:[a,b],
+    assets:new Map([['model',{}]]),textures:new Map(),
+    items:new Map([['a',{id:'a',key:'model'}],['b',{id:'b',key:'model'}]])});
+  const delta={event:'scene',region:0,removedAssets:[],removedTextures:[],assets:[],textures:[],instances:[]};
+  renderer.event({...delta,instanceOrder:['b','a']});
+  assert.deepEqual(renderer.instances,[b,a]);assert.equal(renderer.instances[1],a);
+  assert.equal(renderer.instances[1].rendered,a.rendered);
+  const replacement={...b,matrix:[3]};
+  renderer.event({...delta,instances:[replacement],instanceOrder:['b','a']});
+  assert.equal(renderer.instances[0],replacement);assert.equal(renderer.instances[1],a);
+  const list=renderer.instances;
+  for(const malformed of [
+    {instanceOrder:['absent']},{instanceOrder:['a','a']},{instanceOrder:[1]},
+    {instanceOrder:['a'],instances:[{id:undefined}]},
+    {instanceOrder:['a'],instances:[a,a]},{instanceOrder:['a'],instances:[b]},
+    {instanceOrder:['a'],instances:undefined},{instanceOrder:null},
+    {region:1,instanceOrder:['a']},
+  ]){
+    assert.throws(()=>renderer.event({...delta,...malformed,removedAssets:['model']}),/scene instance/);
+    assert.equal(renderer.instances,list);assert.equal(renderer.items.size,2);assert(renderer.assets.has('model'));
+  }
+  renderer.event({...delta,instanceOrder:['a']});
+  assert.deepEqual(renderer.instances,[a]);assert.equal(renderer.items.has('b'),false);
+  renderer.event({...delta,instanceOrder:[]});
+  assert.deepEqual(renderer.instances,[]);assert.equal(renderer.items.size,0);
+  renderer.event({...delta,region:1,instanceOrder:['a'],instances:[{...a,matrix:[4]}]});
+  assert.equal(renderer.sceneRegion,1);assert.deepEqual(renderer.instances[0].matrix,[4]);
+});
+
 test('authored gamma bytes are averaged, not sRGB-decoded, and complete mips retain color',()=>{
   const rgba=new Uint8Array([0,40,200,255,100,60,100,255,200,80,0,255,100,20,100,255]);
   assert.deepEqual([...resizeRgba(2,2,rgba,1)],[100,50,100,255]);

@@ -24,9 +24,10 @@ let resident=new Set(),failures=new Map(),loads=0,evictions=0,peak=0,horizon;
 let terrainRead;
 const terrainMaterials=new Set();
 let sentAssets=new Set(),sentTextures=new Set(),sceneState,sceneSignature='';
-let sentInstanceMatrices=new Map();
+let sentInstances=new Map();
 let sentSceneRegion;
 let sceneInstanceDeltas=false;
+let sceneInstanceUpdates=false;
 let postFrameVisuals=false,sceneRegion,frameWorkMs=0;
 let sceneFocus,sceneUpdated=0,sceneRevision=-1;
 let sceneSubmissionPending=true;
@@ -316,13 +317,22 @@ function publishScene(region) {
     textures.push({key,width:texture.width,height:texture.height,rgba});
     transfers.push(rgba.buffer);
   }
-  const signature=JSON.stringify(sceneState.instances.map(i=>[i.id,i.key,i.distant]));
-  const transformsChanged=sceneState.instances.some(i=>sentInstanceMatrices.get(i.id)!==i.matrix);
+  const signature=JSON.stringify(sceneState.instances.map(i=>[i.id,i.key,i.kind,i.distant]));
+  const changed=sceneState.instances.filter(i=>{
+    const previous=sentInstances.get(i.id);
+    return sentSceneRegion!==region || !previous || previous.matrix!==i.matrix ||
+      previous.key!==i.key || previous.kind!==i.kind || previous.distant!==i.distant;
+  });
+  const transformsChanged=changed.length>0;
   const instancesChanged=signature!==sceneSignature || transformsChanged || sentSceneRegion!==region;
   if(instancesChanged || assets.length || textures.length || removedAssets.length || removedTextures.length) {
     const sendInstances=instancesChanged || !sceneInstanceDeltas;
+    const instancePayload=!sendInstances?{}:sceneInstanceUpdates?{
+      instanceOrder:sceneState.instances.map(i=>i.id),
+      instances:changed.map(({id,key,matrix,kind,distant})=>({id,key,matrix,kind,distant})),
+    }:{instances:sceneState.instances};
     const start=performance.now();
-    postMessage({event:'scene',region,...(sendInstances?{instances:sceneState.instances}:{}),
+    postMessage({event:'scene',region,...instancePayload,
       assets,textures,removedAssets,removedTextures},transfers);
     timings.scenePostMs+=performance.now()-start;timings.scenePosts++;
     if(sendInstances)timings.sceneInstancePosts++;
@@ -332,7 +342,8 @@ function publishScene(region) {
     for(const {key} of textures)sentTextures.add(key);
     sceneSignature=signature;
     sentSceneRegion=region;
-    if(instancesChanged)sentInstanceMatrices=new Map(sceneState.instances.map(i=>[i.id,i.matrix]));
+    if(instancesChanged)sentInstances=new Map(sceneState.instances.map(({id,key,matrix,kind,distant})=>
+      [id,{key,matrix,kind,distant}]));
   }
   sceneSubmissionPending=false;
 }
@@ -386,6 +397,7 @@ async function handle(message) {
   await ready;
   if(message.action==='open') {
     sceneInstanceDeltas=message.sceneInstanceDeltas===true;
+    sceneInstanceUpdates=message.sceneInstanceUpdates===true;
     postFrameVisuals=message.postFrameVisuals===true;
     terrainRead=undefined;
     poseTime=undefined;

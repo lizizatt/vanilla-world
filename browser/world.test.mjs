@@ -68,7 +68,8 @@ test('new clients explicitly negotiate resource-only scene updates at open',asyn
   try{
     const client=new WorldClient(()=>{},error=>{throw error;});
     await client.open({kind:'fixture'});
-    assert.equal(sent[0].action,'open');assert.equal(sent[0].sceneInstanceDeltas,true);assert.equal(sent[0].postFrameVisuals,true);
+    assert.equal(sent[0].action,'open');assert.equal(sent[0].sceneInstanceDeltas,true);assert.equal(sent[0].sceneInstanceUpdates,true);
+    assert.equal(sent[0].postFrameVisuals,true);
     client.stop();
   } finally{if(old===undefined)delete globalThis.Worker;else globalThis.Worker=old;}
 });

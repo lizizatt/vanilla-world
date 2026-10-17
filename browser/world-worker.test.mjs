@@ -358,6 +358,62 @@ test('post-response visuals require a separate explicit capability',async()=>{
   }
 });
 
+test('ordered instance updates require a separate explicit capability',async()=>{
+  for(const capability of [undefined,false,'true',1,true]) {
+    const f=collisionFixture();
+    f.context.openDataSource=async()=>{throw new Error('Stop after capability negotiation');};
+    await assert.rejects(f.request({action:'open',sceneInstanceUpdates:capability}),/Stop after capability/);
+    assert.equal(runInContext('sceneInstanceUpdates',f.context),capability===true);
+  }
+});
+
+test('ordered scene updates send only changed render descriptors, retaining complete order and removals',async()=>{
+  const f=collisionFixture();
+  runInContext('sceneInstanceUpdates=true;',f.context);
+  f.add(100);f.add(110);await f.update();
+  let sent=f.events.filter(e=>e.event==='scene');
+  assert.deepEqual(Array.from(sent[0].instanceOrder),['100','110']);
+  assert.deepEqual(Array.from(sent[0].instances,i=>i.id),['100','110']);
+  assert.equal(Object.hasOwn(sent[0].instances[0],'bounds'),false,'Collision metadata stays in the worker');
+  f.state.instances.reverse();f.invalidate();await f.update();
+  sent=f.events.filter(e=>e.event==='scene');
+  assert.deepEqual(Array.from(sent[1].instanceOrder),['110','100']);
+  assert.equal(sent[1].instances.length,0,'Ordering changes do not retransmit matrices');
+  f.move(100,111);await f.update();
+  sent=f.events.filter(e=>e.event==='scene');
+  assert.deepEqual(Array.from(sent[2].instances,i=>i.id),['100']);
+  f.state.instances[0].distant=true;f.invalidate();await f.update();
+  sent=f.events.filter(e=>e.event==='scene');
+  assert.deepEqual(Array.from(sent[3].instances,i=>i.id),['110'],'Changed descriptor fields cannot reuse stale render state');
+  f.state.instances=[];f.invalidate();await f.update();
+  sent=f.events.filter(e=>e.event==='scene');
+  assert.equal(sent[4].instanceOrder.length,0);
+  assert.equal(sent[4].instances.length,0);
+  f.add(100);await f.update();
+  sent=f.events.filter(e=>e.event==='scene');
+  assert.deepEqual(Array.from(sent[5].instances,i=>i.id),['100'],'Re-admission resends removed descriptors');
+});
+
+test('failed ordered scene posts retry transforms and region changes resend every descriptor',async()=>{
+  const f=collisionFixture();
+  runInContext('sceneInstanceUpdates=true;',f.context);
+  f.context.dependencies.manifest.regions.push({placement:[30000,0],tile_origin:[32,32]});
+  f.add(100);await f.update();f.move(100,110);
+  const push=f.events.push.bind(f.events);let reject=true;
+  f.events.push=message=>{
+    if(message.event==='scene'&&reject){reject=false;throw new Error('Rejected instance update');}
+    return push(message);
+  };
+  await assert.rejects(f.update(),/Rejected instance update/);
+  await f.update();
+  let sent=f.events.filter(e=>e.event==='scene');
+  assert.deepEqual(Array.from(sent[1].instances,i=>i.id),['100']);
+  f.body[0]=30000;await f.update();
+  sent=f.events.filter(e=>e.event==='scene');
+  assert.deepEqual(Array.from(sent[2].instances,i=>i.id),['100']);
+  assert.equal(sent[2].region,1);
+});
+
 function frameFixture(deferred=true) {
   const f=collisionFixture();
   f.context.dependencies.world.tick=()=>{f.events.push({event:'tick'});};
