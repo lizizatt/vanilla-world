@@ -39,7 +39,11 @@ const client=new WorldClient(data=>{
       };
       else renderer.event(data);
     }
-  } catch(error){running=false;fail(error);}
+    return true;
+  } catch(error){
+    if(data.event==='far-scene')renderer.clearFar();else running=false;
+    fail(error);return false;
+  }
 },error=>{running=false;fail(error);},()=>running&&!busy&&!document.hidden&&!frozenPresentation);
 function enabled(value) {
   document.querySelector('.meters').hidden=!value;
@@ -310,17 +314,18 @@ function frame(now) {
         :cameraCollision.coverageLimited?'Chase distance limited to its collision window':'Vehicle-relative chase collision ready';
       $('place').textContent=flight?'FREE FLIGHT':p[10]===-1?'THE GREAT SEA':p[10]===1?'EASTERN KINGDOMS':'KALIMDOR';
       $('coordinates').textContent=`${(flight?.[0]??p[0]).toFixed(0)} E / ${(flight?.[2]??p[2]).toFixed(0)} S`;
-      $('resident').textContent=`${s.resident.length}/4 terrain tiles · ${stats.horizonTiles} distant patches · ${scene?.instances||0} scene instances`;
+      $('resident').textContent=`${s.resident.length}/${s.limit} terrain tiles · ${stats.horizonTiles} distant patches · ${stats.sceneInstances||0} scene instances`;
       $('population').textContent=scene?.population || 'Reading static population…';
       $('material-status').textContent=s.terrain
         ?`Terrain textures ${stats.texturedTerrainTiles}/${s.resident.length} · terrain cache ${(s.terrain.bytes/1048576).toFixed(1)} MiB · far minimaps ${s.terrain.minimaps}/${s.horizon.patches} (${s.terrain.farPending} pending, ${s.terrain.missingMinimaps?.length||0} unavailable previews, ${s.terrain.errors.length} resource errors)`
         :'Terrain material progress unavailable';
       if(s.water)$('material-status').textContent+=` · authored water ${s.water.resident} tiles / ${(s.water.bytes/1048576).toFixed(1)} MiB (${s.water.pending} pending${s.water.deferred?`, ${s.water.deferred} background deferrals`:''}${s.water.limited?', nearest-water cache full':''})`;
       $('details').textContent=`${client.info.archiveCount} local archives · ${((scene?.bytes||0)/1048576).toFixed(1)} MiB scene cache · ${scene?.pending||0} pending assets${scene?.capacityBlocked?' · scene capacity reached':''}${!flight&&scene?.waitingCollision?` · waiting for ${scene.waitingCollision} nearby collision assets`:''}${stats.gpuOmittedInstances?` · ${stats.gpuOmittedInstances} meshes beyond GPU budget`:''}`;
+      if(s.distant?.scene)$('details').textContent+=` · distant worker ${(s.distant.scene.bytes/1048576).toFixed(1)} MiB / ${s.distant.scene.pending} pending${s.distant.scene.capacityBlocked?' / visual cache full':''}`;
       $('craft-status').textContent=stats.craftReady?`Authored racer display 10318 / ${stats.craftPose}`
         :stats.craftStatus==='failed'?'Player craft failed to load; temporary body remains':'Loading authored player craft; temporary body shown';
       }
-      const errors=[...s.failures,...(s.distant?.failures||[]),...(s.terrain?.errors||[]),...(scene?.errors||[]),
+      const errors=[...s.failures,...(s.distant?.failures||[]),...(s.distant?.scene?.errors||[]),...(s.terrain?.errors||[]),...(scene?.errors||[]),
         ...(stats.craftError?[`Player craft: ${stats.craftError}`]:[])].map(e=>typeof e==='string'?e:JSON.stringify(e));
       const missing=s.terrain?.missingMinimaps||[];
       $('resource-problems').querySelector('summary').textContent=[

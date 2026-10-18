@@ -289,17 +289,18 @@ export async function openDataSource(input) {
   const digest = await crypto.subtle.digest('SHA-256', encoder.encode(identity));
   const fingerprint = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
   let closed = false, tail = Promise.resolve(),foregroundReads=0;
-  const read = (path,{background=false}={}) => {
+  const read = (path,{background=false,shouldDefer}={}) => {
     if(!background)foregroundReads++;
+    const defer=background?()=>foregroundReads>0||!!shouldDefer?.():undefined;
     // Serialize extraction so simultaneous scene requests cannot multiply decode buffers.
     const pending = tail.then(async () => {
       if (closed) fail('CLOSED', 'Data source is closed');
-      if(background&&foregroundReads)fail('DEFERRED','Optional extraction yielded to queued assets');
+      if(defer?.())fail('DEFERRED','Optional extraction yielded to queued assets');
       const normalized = normalizeGamePath(path);
       for (let i = archives.length - 1; i >= 0; i--) {
         const block = archives[i].find(normalized);
         if (block) {
-          try { return await archives[i].read(normalized, block,background?()=>foregroundReads>0:undefined); }
+          try { return await archives[i].read(normalized, block,defer); }
           finally { archives[i].window = null; }
         }
       }

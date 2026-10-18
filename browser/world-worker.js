@@ -5,8 +5,10 @@ import {SceneStream,SCENE_LIMITS,transformedBounds,globalCollisionVertices,bound
 import {TerrainStream} from './terrain-stream.js';
 import {loadCraft} from './craft-stream.js';
 import {WaterStream} from './water-stream.js';
+import {FarChannel} from './far-channel.js';
+import {FAR_LIMITS} from './far-stream.js';
 
-const TILE=1600/3,LIMIT=4;
+const TILE=1600/3,LIMIT=SCENE_LIMITS.nearTiles;
 let wasm;
 const ready=init().then(exports=>(wasm=exports));
 let world,source,manifest,placements,scene,terrain,water,accumulator=0,queue=Promise.resolve();
@@ -43,8 +45,15 @@ let collisionFocus;
 const collisionInstances=new Map();
 const timings={frames:0,totalMs:0,maxMs:0,terrainMs:0,sceneMs:0,selectionMs:0,snapshotMs:0,
   physicsMs:0,cameraUnknownMs:0,postMs:0,postFrameMs:0,scenePostMs:0,scenePosts:0,sceneInstancePosts:0,collisionBuildMs:0,collisionBuilds:0};
-let distantWanted=[],distantJob,distantLastStart=0,distantLoads=0,distantPeak=0;
-const distantResident=new Set(),distantFailures=new Map();
+let far,farFocus,farUpdated=0,farFlight=false;
+function startFarWorker() {
+  far?.close();farFocus=undefined;
+  far=new FarChannel(()=>new Worker('./far-worker.js',{type:'module'}),source,manifest,
+    (message,transfers)=>postMessage(message,transfers),
+    ()=>!!objectWait.length ||
+      (!farFlight&&!Array.from(world.required_tiles()).every(i=>resident.has(i))));
+  if(sceneState)far.near(sceneState.instances.map(i=>i.id));
+}
 let objectWait=[],cameraUnknown=[],lastHoldTime=0,lastHold='clear',holdRun=0;
 const holds=Object.fromEntries(['terrain','objects','solid','unsupported'].map(key=>[key,{episodes:0,ms:0,maxMs:0}]));
 function measureHold(kind,elapsed) {
@@ -63,47 +72,26 @@ function tileKey(index) {
   const t=manifest.tiles[index];
   return `${t.region===0?1:0}:${t.x}:${t.y}`;
 }
-function prepareDistant(focus,enabled) {
+function prepareDistant(focus,enabled,flying=false) {
+  farFlight=flying;
   water?.setFocus(focus);
   const region=focusRegion(focus),p=[focus[0],focus[2]];
   const r=manifest.regions[region],x=Math.floor((p[0]-r.placement[0])/TILE)+r.tile_origin[0],
     y=Math.floor((p[1]-r.placement[1])/TILE)+r.tile_origin[1],key=`${region}:${x}:${y}`;
   if(key!==terrainFocus){terrain.prioritize(region,x,y);terrainFocus=key;}
-  distantWanted=enabled?manifest.tiles.map((t,i)=>({t,i})).filter(({t,i})=>t.region===region && distance(i,p)<6000)
-    .sort((a,b)=>distance(a.i,p)-distance(b.i,p)).slice(0,12).map(v=>v.i):[];
-  for(const index of distantResident)if(!distantWanted.includes(index)) {
-    scene.removeDistantTile(tileKey(index));distantResident.delete(index);
+  const limit=SCENE_LIMITS.instances-(enabled&&far.active?FAR_LIMITS.instances:0);
+  if(scene.limits.instances!==limit){scene.limits.instances=limit;sceneFocus=undefined;}
+  if(!farFocus || region!==far.region || enabled!==far.enabled ||
+    performance.now()-farUpdated>=100 && Math.hypot(...focus.map((v,a)=>v-farFocus[a]))>=16) {
+    far.focus(region,focus.slice(),enabled);farFocus=focus.slice();farUpdated=performance.now();
   }
-  for(const index of distantWanted)if(resident.has(index) && !distantResident.has(index)) {
-    // Reuse immutable parsed placements; no extra ADT read or terrain mesh residency.
-    scene.distantTiles.set(tileKey(index),scene.tiles.get(tileKey(index)));
-    scene.revision++;
-    distantResident.add(index);
-  }
-  distantPeak=Math.max(distantPeak,distantResident.size);
-}
-function startDistantRead() {
-  if(distantJob || objectWait.length || performance.now()-distantLastStart<500)return;
-  const index=distantWanted.find(i=>!distantResident.has(i) && !distantFailures.has(i));
-  if(index===undefined)return;
-  distantLastStart=performance.now();
-  distantJob=(async()=>{
-    try {
-      const bytes=await source.read(assetPath(manifest.tiles[index]));
-      if(!distantWanted.includes(index) || distantResident.has(index))return;
-      scene.setDistantTile(tileKey(index),bytes);distantResident.add(index);distantLoads++;
-      distantPeak=Math.max(distantPeak,distantResident.size);
-    } catch(error) {
-      distantFailures.set(index,`Distant metadata ${manifest.tiles[index].file}: ${error.code || 'PARSE'} ${error.message || error}`);
-    } finally {distantJob=undefined;}
-  })();
 }
 function recordTerrainFailure(index,error) {
   failures.set(index,`${manifest.tiles[index].file}: ${error?.code || 'PARSE'} ${error?.message || String(error)}`);
 }
 async function stream(p,pin,fill=false) {
   const required=pin?Array.from(world.required_tiles()):[];
-  if(required.length>LIMIT)throw new Error('Support footprint exceeds the four-tile collision budget.');
+  if(required.length>LIMIT)throw new Error('Support footprint exceeds the bounded terrain collision budget.');
   const nearby=manifest.tiles.map((_,i)=>i).filter(i=>distance(i,p)<850).sort((a,b)=>distance(a,p)-distance(b,p));
   const wanted=[...required,...nearby.filter(i=>!required.includes(i))].slice(0,LIMIT);
   const tiles=[],removed=[];
@@ -165,7 +153,7 @@ async function stream(p,pin,fill=false) {
   if(tiles.length || removed.length) {
     const seams=Array.from(resident,index=>({index,vertices:world.horizon_seams(index)}));
     postMessage({event:'detail',tiles,removed,seams},[...tiles,...seams].map(t=>t.vertices.buffer));
-    report(failures.size?`${failures.size} unavailable terrain tiles; retry after correcting access/data.`:`Detailed terrain ready: ${resident.size}/4 tiles.`);
+    report(failures.size?`${failures.size} unavailable terrain tiles; retry after correcting access/data.`:`Detailed terrain ready: ${resident.size}/${LIMIT} tiles.`);
   }
 }
 async function buildHorizon(wdls) {
@@ -173,14 +161,15 @@ async function buildHorizon(wdls) {
   const start=performance.now();
   for(let region=0;region<2;region++)world.add_horizon(region,wdls[region]);
   for(let region=0;region<2;region++) {
-    const water=world.exterior_geometry(region);
-    postMessage({event:'exterior-water',region,placement:manifest.regions[region].placement,vertices:water},[water.buffer]);
+    const exterior=world.exterior_geometry(region);
+    postMessage({event:'exterior-water',region,placement:manifest.regions[region].placement,vertices:exterior},[exterior.buffer]);
     const patches=world.horizon_patches(region),indices=world.horizon_indices(region);
     horizon.gpuBytes+=indices.byteLength;
     postMessage({event:'horizon-index',region,indices},[indices.buffer]);
     horizon.regions.push({region,patches:patches.length/5});
     for(let i=0;i<patches.length;i+=5) {
       const vertices=world.horizon_vertices(region,i/5);
+      if(vertices.some((v,index)=>index%7===1&&v<=manifest.sea_level))water?.coastalTile(patches[i+4]);
       horizon.patches++;horizon.vertices+=vertices.length/7;horizon.gpuBytes+=vertices.byteLength+112;
       terrain.addHorizon(region,patches[i],patches[i+1]);
       postMessage({event:'horizon',region,source:Array.from(patches.slice(i,i+2)),
@@ -371,7 +360,7 @@ function publishScene(region) {
   for(const key of sentTextures)if(!sceneState.textures.has(key))removedTextures.push(key);
   for(const [key,asset] of sceneState.assets)if(!sentAssets.has(key)) {
     const vertices=asset.vertices.slice(),indices=asset.indices.slice();
-    assets.push({key,vertices,indices,batches:asset.batches});
+    assets.push({key,vertices,indices,batches:asset.batches,bounds:asset.bounds});
     transfers.push(vertices.buffer,indices.buffer);
   }
   for(const [key,texture] of sceneState.textures)if(!sentTextures.has(key)) {
@@ -396,6 +385,7 @@ function publishScene(region) {
     const start=performance.now();
     postMessage({event:'scene',region,...instancePayload,
       assets,textures,removedAssets,removedTextures},transfers);
+    if(instancesChanged)far.near(sceneState.instances.map(i=>i.id));
     timings.scenePostMs+=performance.now()-start;timings.scenePosts++;
     if(sendInstances)timings.sceneInstancePosts++;
     for(const key of removedAssets)sentAssets.delete(key);
@@ -448,7 +438,6 @@ function startOptionalWork(message) {
     prepareTerrainMaterial();
   }
   scheduleTerrainMaterials();
-  if(message.focus || Array.from(world.required_tiles()).every(i=>resident.has(i)))startDistantRead();
   if(!objectWait.length) {
     pumpTerrainMaterials();
     const terrainReady=Array.from(world.required_tiles()).every(i=>resident.has(i));
@@ -484,11 +473,10 @@ function snapshot() {
     holds,timings,craft,collision:Array.from(world.collision_stats()),
     collisionMappedBytes:[...collisionInstances.values()].reduce((n,c)=>n+(c.vertices?.byteLength||0),0),
     water:water?.snapshot(),
-    terrain:{...terrainState,errors:[...terrainState.errors,...terrainErrors.values(),...(water?.errors.values()||[])],
+    terrain:{...terrainState,errors:[...terrainState.errors,...terrainErrors.values(),...(water?.errors.values()||[]),
+      ...(water?.cacheError?[water.cacheError]:[])],
       prefetch:terrainRead?{index:terrainRead.index,pending:!terrainRead.ready,bytes:terrainRead.bytes?.byteLength||0}:null},
-    distant:{resident:distantResident.size,peak:distantPeak,limit:12,loads:distantLoads,
-      pending:distantWanted.filter(i=>!distantResident.has(i) && !distantFailures.has(i)).length,
-      failures:Array.from(distantFailures.values())}};
+    distant:far.snapshot()};
 }
 async function handle(message) {
   await ready;
@@ -504,6 +492,7 @@ async function handle(message) {
     hopConsumed=0;
     terrainMaterials.clear();
     report('Opening local MPQ archives and patch chain');
+    far?.close();
     source=await openDataSource(message.folder);
     const wdts=[],wdls=[];
     for(const map of ['Kalimdor','Azeroth']) {
@@ -519,6 +508,7 @@ async function handle(message) {
       return [r.placement[0]+(t.x-r.tile_origin[0])*TILE,r.placement[1]+(t.y-r.tile_origin[1])*TILE];
     });
     scene=new SceneStream(source,wasmTypes);
+    startFarWorker();
     terrain=new TerrainStream(source,wasmTypes,(message,transfers)=>postMessage(message,transfers));
     water=new WaterStream(source,wasmTypes,manifest,(message,transfers)=>postMessage(message,transfers));
     void terrain.init(manifest);
@@ -539,7 +529,7 @@ async function handle(message) {
     const started=performance.now();
     const p=world.telemetry(),focus=message.focus || Array.from(p.slice(0,3));
     if(!Array.isArray(focus)||focus.length!==3||!focus.every(v=>Number.isFinite(v)&&Math.abs(v)<1e12))throw new Error('Invalid world focus');
-    prepareDistant(focus,message.distant!==false);
+    prepareDistant(focus,message.distant!==false,!!message.focus);
     const frameLoads=loads;
     const terrainStart=performance.now();await stream([focus[0],focus[2]],!message.focus);
     timings.terrainMs+=performance.now()-terrainStart;
@@ -580,7 +570,8 @@ async function handle(message) {
     world.initialize_spawn();accumulator=0;poseTime=undefined;
   } else if(message.action==='retry') {
     scenePumpError=undefined;sceneSubmissionPending=true;
-    failures.clear();distantFailures.clear();scene.retry();water?.retry();
+    failures.clear();scene.retry();water?.retry();
+    if(far.active)far.retry();else startFarWorker();
     if(craft.error)craft={ready:false,pending:false};
     await terrain.retry();
     for(const index of terrainErrors.keys()) {
@@ -609,6 +600,8 @@ async function handle(message) {
   return snapshot();
 }
 onmessage=({data})=>{
+  if(data.action==='far-ack'){far?.ack(data.token,data.producer);return;}
+  if(data.action==='far-reject'){far?.reject(data.token,data.producer);return;}
   queue=queue.then(async()=>{
     let responded=false;
     try {

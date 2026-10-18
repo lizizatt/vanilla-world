@@ -34,7 +34,17 @@ export class WorldClient {
       if(data.event==='world-error'){
         this.discardFrame();this.onError(new Error(data.error));return;
       }
-      if(data.event) {this.onEvent(data);return;}
+      if(data.event) {
+        const receipt={token:data.token,producer:data.producer};
+        let accepted;
+        try {accepted=this.onEvent(data);}
+        catch(error) {
+          if(data.event==='far-scene')worker.postMessage({action:'far-reject',...receipt});
+          this.onError(error);return;
+        }
+        if(data.event==='far-scene')worker.postMessage({action:accepted===true?'far-ack':'far-reject',...receipt});
+        return;
+      }
       const request=this.requests.get(data.id);
       if(!request)return;
       this.requests.delete(data.id);

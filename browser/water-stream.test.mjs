@@ -1,15 +1,16 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {WaterStream} from './water-stream.js';
+import {WaterStream,validLiquidGeometry} from './water-stream.js';
 import {WorldRenderer} from './world-renderer.js';
 const manifest={spawn:[0,0,0],regions:[{map:'Test',placement:[0,0],tile_origin:[0,0]}],
   tiles:[0,1,2].map(x=>({region:0,x,y:0,file:`Test_${x}_0.adt`}))};
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
+const geometry=()=>Float32Array.from({length:42},(_,i)=>i%7===4?1:i%7===6?2:0);
 function fixture() {
   const reads=[],events=[],pending=[];
   let parses=0;
   const stream=new WaterStream({read:path=>{reads.push(path);return new Promise((resolve,reject)=>pending.push({resolve,reject}));}},
-    {coast_liquids:()=>{parses++;return new Float32Array(42);}},manifest,
+    {coast_liquids:()=>{parses++;return geometry();}},manifest,
     (event,transfer)=>events.push(structuredClone(event,{transfer})));
   return {stream,reads,events,pending,parses:()=>parses};
 }
@@ -71,6 +72,20 @@ test('source backpressure defers rather than loses or falsely fails a water tile
   f.stream.pump(100);assert.equal(f.reads[0],f.reads[1]);
   f.pending[1].resolve(new Uint8Array(1));await settle();f.stream.pump(101);
   assert.equal(f.events.length,1);
+});
+test('coastal WDL hints only prioritize reads; authored dry tiles still emit no ocean',async()=>{
+  const f=fixture();f.stream.coastalTile(2);
+  f.stream.pump();f.pending[0].resolve(new Uint8Array(1));await settle();f.stream.pump();
+  f.stream.pump();assert.match(f.reads[1],/Test_2_0/);
+  f.stream.wasm.coast_liquids=()=>new Float32Array();
+  f.pending[1].resolve(new Uint8Array(1));await settle();f.stream.pump();
+  assert.equal(f.events.length,1);assert.equal(f.stream.snapshot().dry,1);
+});
+test('cached water validation rejects changed materials, invalid coordinates and non-finite heights',()=>{
+  assert(validLiquidGeometry(geometry()));assert(validLiquidGeometry(new Float32Array()));
+  for(const [index,value] of [[0,600],[1,Infinity],[4,0],[6,3]]){
+    const vertices=geometry();vertices[index]=value;assert(!validLiquidGeometry(vertices));
+  }
 });
 test('GPU water replacements release old resources and use exact detailed-tile placement',()=>{
   const released=[],rig=Object.create(WorldRenderer.prototype);

@@ -25,7 +25,7 @@ try {
   state=await page.evaluate(()=>window.worldEvidence);
   const capture=async name=>{
     const current=await page.evaluate(()=>window.worldEvidence);
-    assert.deepEqual(current.errors,[],name);assert(current.state.peak<=4);
+    assert.deepEqual(current.errors,[],name);assert(current.state.peak<=8);
     checkpoints.push({name,state:current.state,render:current.render,camera:current.camera});
     await page.screenshot({path:fileURLToPath(new URL(`${name}.png`,out))});
     return current;

@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
 pub const TILE: f64 = 1600.0 / 3.0;
-pub const MAX_RESIDENT: usize = 4;
+pub const MAX_RESIDENT: usize = 8;
 const SUPPORT_TRAVEL: f64 = 0.5;
 const HULL_HALF_HEIGHT: f64 = 0.5;
 const SUPPORT_RISE: f32 = 0.6;

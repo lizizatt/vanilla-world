@@ -133,6 +133,25 @@ test('optional extraction yields at background priority and defers to newly queu
     await source.close();
   }
 });
+test('optional extraction observes urgent owner demand before it can queue another source read',async()=>{
+  const bytes=Buffer.from('owner priority'.repeat(4000)),source=await openDataSource([entry('terrain.MPQ',fixture('file',bytes))]);
+  const clock=Object.getOwnPropertyDescriptor(globalThis,'performance'),scheduler=Object.getOwnPropertyDescriptor(globalThis,'scheduler');
+  let now=0,urgent=false;
+  Object.defineProperty(globalThis,'performance',{configurable:true,value:{now:()=>now+=5}});
+  Object.defineProperty(globalThis,'scheduler',{configurable:true,value:{postTask:async fn=>{urgent=true;fn();}}});
+  try{
+    await assert.rejects(source.read('file',{background:true,shouldDefer:()=>urgent}),code('DEFERRED'));
+    assert.deepEqual(Buffer.from(await source.read('file',{shouldDefer:()=>true})),bytes);
+    urgent=false;
+    Object.defineProperty(globalThis,'scheduler',{configurable:true,value:{postTask:async fn=>fn()}});
+    assert.deepEqual(Buffer.from(await source.read('file',{background:true,shouldDefer:()=>urgent})),bytes);
+  }finally{
+    Object.defineProperty(globalThis,'performance',clock);
+    if(scheduler)Object.defineProperty(globalThis,'scheduler',scheduler);else delete globalThis.scheduler;
+    await source.close();
+  }
+});
+
 test('unsupported codec, truncated archive, oversized asset and indexes fail explicitly', async () => {
   const path = 'file';
   const unsupported = await openDataSource([entry('dbc.MPQ', fixture(path, 'a'.repeat(8000), { method: 8 }))]);

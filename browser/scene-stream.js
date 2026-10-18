@@ -1,6 +1,7 @@
 // Static authored geometry only. All matrices are column-major, model -> source WoW world.
 export const SCENE_LIMITS = Object.freeze({
-  assets: 96, textures: 192, bytes: 96 * 1024 * 1024, instances: 1024, jobs: 2, radius: 850, distantRadius: 6000,
+  assets: 192, textures: 192, bytes: 96 * 1024 * 1024, instances: 1024, jobs: 2, radius: 850, distantRadius: 6000,
+  nearTiles: 8, distantTiles: 24,
 });
 
 export function modelPath(path) {
@@ -96,12 +97,13 @@ export function boundsWithin(bounds, p, radius, verticalRadius) {
   if (verticalRadius !== undefined) return z < verticalRadius && Math.hypot(x, y) < radius;
   return z < radius && Math.hypot(x, y, z) < radius;
 }
-function extractModel(handle) {
+function extractModel(handle, collision = true) {
   try {
     const metadata = JSON.parse(handle.metadata());
     for (const batch of metadata.batches) if (batch.texture) batch.texture = modelPath(batch.texture);
     return { ...metadata, vertices: handle.vertices(), indices: handle.indices(),
-      collisionVertices: handle.collision_vertices(), collisionIndices: handle.collision_indices() };
+      collisionVertices: collision ? handle.collision_vertices() : new Float32Array(),
+      collisionIndices: collision ? handle.collision_indices() : new Uint32Array() };
   } finally { handle.free(); }
 }
 function modelBytes(model) {
@@ -109,13 +111,46 @@ function modelBytes(model) {
     + model.collisionVertices.byteLength + model.collisionIndices.byteLength;
 }
 const REQUEST_PRIORITY = Object.freeze({ texture: 0, wmo: 1, group: 2, m2: 3 });
+// Keep the worst retained item at the heap root; rejected scenery never needs sorting.
+export function selectionPrefix(items, limit, compare) {
+  const heap=[];
+  for(const item of items) {
+    if(heap.length<limit) {
+      let at=heap.length;heap.push(item);
+      while(at) {
+        const parent=(at-1)>>1;
+        if(compare(heap[parent],item)>=0)break;
+        heap[at]=heap[parent];at=parent;
+      }
+      heap[at]=item;
+    } else if(limit && compare(item,heap[0])<0) {
+      let at=0;
+      while(at*2+1<heap.length) {
+        let child=at*2+1;
+        if(child+1<heap.length && compare(heap[child+1],heap[child])>0)child++;
+        if(compare(heap[child],item)<=0)break;
+        heap[at]=heap[child];at=child;
+      }
+      heap[at]=item;
+    }
+  }
+  return heap.sort(compare);
+}
 function requestOrder(a, b) {
-  if (!!a.distant !== !!b.distant) return a.distant ? 1 : -1;
-  const aCritical = !a.distant && a.kind !== 'texture' && (a.collisionScore ?? a.score) < 32;
-  const bCritical = !b.distant && b.kind !== 'texture' && (b.collisionScore ?? b.score) < 32;
+  const aCritical = a.required || (!a.distant && a.kind !== 'texture' && (a.collisionScore ?? a.score) < 32);
+  const bCritical = b.required || (!b.distant && b.kind !== 'texture' && (b.collisionScore ?? b.score) < 32);
   if (aCritical !== bCritical) return aCritical ? -1 : 1;
   if (aCritical) return REQUEST_PRIORITY[a.kind] - REQUEST_PRIORITY[b.kind] || a.score - b.score || a.key.localeCompare(b.key);
-  return a.score - b.score || REQUEST_PRIORITY[a.kind] - REQUEST_PRIORITY[b.kind] || a.key.localeCompare(b.key);
+  const band = r => !r.distant && (r.kind==='wmo'||r.score < 128) ? 0 : r.distant ? 1 : 2;
+  if (band(a) !== band(b)) return band(a) - band(b);
+  return (band(a) ? (a.visualRank ?? Number.MAX_SAFE_INTEGER) - (b.visualRank ?? Number.MAX_SAFE_INTEGER) : 0)
+    || a.score - b.score || REQUEST_PRIORITY[a.kind] - REQUEST_PRIORITY[b.kind] || a.key.localeCompare(b.key);
+}
+function placementId(p,map) {
+  if(p.identityMap!==map || p.identityId!==p.id) {
+    p.identityMap=map;p.identityId=p.id;p.sceneId=`${map}:${p.kind}:${p.id}`;
+  }
+  return p.sceneId;
 }
 
 export class SceneStream {
@@ -131,19 +166,43 @@ export class SceneStream {
     this.timings = {readMs: 0, decodeMs: 0, loads: 0};
     this.expanded = new WeakMap();
     this.bounds = new WeakMap();
+    this.pointBounds = new WeakMap();
+    this.boundSizes = new WeakMap();
+    this.placementLists = new Map();
+    this.placementInstances = new WeakMap();
     this.npcs = null; this.populationStatus = 'No local NPC spawn pack; client Data has no spawn positions';
   }
   setTile(key, bytes, metadata) {
-    if (!this.tiles.has(key) && this.tiles.size >= 4) throw new Error('Remove an old scene tile before loading a fifth');
+    if (!this.tiles.has(key) && this.tiles.size >= this.limits.nearTiles) throw new Error('Remove an old scene tile before exceeding the near-tile budget');
     this.tiles.set(key, this.parsePlacements(bytes, metadata));
+    this.placementLists.delete(this.tiles);
     this.revision++;
   }
   setDistantTile(key, bytes) {
-    if (!this.distantTiles.has(key) && this.distantTiles.size >= 12) throw new Error('Remove old distant metadata before loading a thirteenth tile');
-    this.distantTiles.set(key, this.parsePlacements(bytes));
+    this.setDistantPlacements(key,this.parsePlacements(bytes));
+  }
+  setDistantPlacements(key,placements) {
+    if (!this.distantTiles.has(key) && this.distantTiles.size >= this.limits.distantTiles) throw new Error('Remove old metadata before exceeding the distant-tile budget');
+    this.distantTiles.set(key,placements);
+    this.placementLists.delete(this.distantTiles);
     this.revision++;
   }
-  removeDistantTile(key) { if(this.distantTiles.delete(key))this.revision++; }
+  removeDistantTile(key) {
+    if(this.distantTiles.delete(key)){this.placementLists.delete(this.distantTiles);this.revision++;}
+  }
+  placementList(tiles,map) {
+    let list=this.placementLists.get(tiles);
+    if(!list || list.map!==map) {
+      const seen=new Set(),entries=[];
+      for(const [tile,placements] of tiles)if(tile.startsWith(`${map}:`))
+        for(const p of placements) {
+          const id=placementId(p,map);
+          if(!seen.has(id)){seen.add(id);entries.push(p);}
+        }
+      list={map,entries};this.placementLists.set(tiles,list);
+    }
+    return list.entries;
+  }
   parsePlacements(bytes, metadata) {
     const placements = JSON.parse(metadata ?? this.wasm.scene_placements(bytes));
     for (const p of placements) {
@@ -153,10 +212,11 @@ export class SceneStream {
           || p.bounds[0].some((v, i) => v > p.bounds[1][i]))) throw new Error('Invalid authored placement bounds');
       p.matrix = placementMatrix(p);
       p.key = modelKey(p.kind, p);
+      p.identityId=undefined;
     }
     return placements;
   }
-  removeTile(key) { if(this.tiles.delete(key))this.revision++; }
+  removeTile(key) { if(this.tiles.delete(key)){this.placementLists.delete(this.tiles);this.revision++;} }
   setPopulation(pack) {
     this.npcs = validatePopulation(pack);
     this.populationModels = pack.models;
@@ -175,37 +235,51 @@ export class SceneStream {
     const high = position.map((v, a) => Math.max(v, predicted[a]));
     const supportColumn = predicted[2] < position[2];
     const collisionDistance = bounds => boundsDistance(bounds, low, high);
-    const candidates = new Map(), requests = new Map();
+    const candidates = new Map(), requests = new Map(), farCandidates=[];
     const want = (key, request, score, distant) => {
       const previous = requests.get(key);
       request.key = key; request.score = score; request.distant = distant;
       if (!previous || requestOrder(request, previous) < 0) requests.set(key, request);
     };
-    const put = (id, instance) => {
-      if (!candidates.has(id) || !instance.distant) candidates.set(id, instance);
+    const put = (id,p,matrix,bounds,boundsKnown,score,kind,distant,rootKey) => {
+      let entries=this.placementInstances.get(matrix);
+      if(!entries){entries=new Map();this.placementInstances.set(matrix,entries);}
+      let instance=entries.get(id);
+      if(!instance) {
+        instance={id,key:p.key,matrix,kind,path:p.path,skins:p.skins||EMPTY_SKINS,rootKey};
+        entries.set(id,instance);
+      }
+      instance.bounds=bounds;instance.boundsKnown=boundsKnown;instance.score=score;instance.distant=distant;
+      instance.collisionScore=undefined;
+      if(distant)farCandidates.push(instance);
+      else candidates.set(id,instance);
     };
     const add = (p, id, matrix, kind = p.kind, distant = false) => {
-      if (distant && candidates.has(id)) return;
+      if (distant && (candidates.has(id)||this.nearVisible?.has(id))) return;
       const path = p.path;
       const skins = p.skins || EMPTY_SKINS;
       const key = p.key;
       const asset = this.cache.get(key)?.value;
+      const boundsAsset=asset||(this.visualOnly?this.discovered?.get(key):undefined);
       let bounds = p.bounds;
-      if (!bounds && asset?.bounds) {
-        let transforms = this.bounds.get(asset);
-        if (!transforms) { transforms = new WeakMap(); this.bounds.set(asset, transforms); }
+      if (!bounds && boundsAsset?.bounds) {
+        let transforms = this.bounds.get(boundsAsset);
+        if (!transforms) { transforms = new WeakMap(); this.bounds.set(boundsAsset, transforms); }
         bounds = transforms.get(matrix);
-        if (!bounds) { bounds = transformedBounds(asset.bounds, matrix); transforms.set(matrix, bounds); }
+        if (!bounds) { bounds = transformedBounds(boundsAsset.bounds, matrix); transforms.set(matrix, bounds); }
       }
-      bounds ||= [matrix.slice(12, 15), matrix.slice(12, 15)];
+      if(!bounds) {
+        bounds=this.pointBounds.get(matrix);
+        if(!bounds){bounds=[matrix.slice(12,15),matrix.slice(12,15)];this.pointBounds.set(matrix,bounds);}
+      }
       const score = boundsDistance(bounds, position);
       const radius = distant ? this.limits.distantRadius : this.limits.radius;
       if ((kind !== 'wmo' || asset || p.bounds) && score > radius
         && (distant || !supportColumn || collisionDistance(bounds) > collisionRadius)) return;
-      want(key, { kind, path, skins, collisionScore: collisionDistance(bounds) }, score, distant);
-      put(id, { id, key, matrix, bounds, boundsKnown: !!p.bounds || !!asset?.bounds, score, kind, distant });
+      if(kind==='wmo')
+        want(key, { kind, path, skins, collisionScore: distant?undefined:collisionDistance(bounds) }, score, distant);
+      if(kind!=='wmo' || !asset)put(id,p,matrix,bounds,!!p.bounds||!!boundsAsset?.bounds,score,kind,distant);
       if (kind === 'wmo' && asset) {
-        candidates.delete(id);
         let placements = this.expanded.get(asset);
         if (!placements) { placements = new WeakMap(); this.expanded.set(asset, placements); }
         let expanded = placements.get(matrix);
@@ -219,6 +293,8 @@ export class SceneStream {
             id,
             groups: asset.groups.map(group => transformedBounds(group.bounds, matrix)),
             groupIds: asset.groups.map((_, index) => `${id}:group:${index}`),
+            groupPlacements:asset.groups.map((_,index)=>({key:`group:${path}:${index}`,
+              path:`${path.slice(0,-4)}_${String(index).padStart(3,'0')}.wmo`})),
             doodads: [...doodads].map(i => {
               const d = asset.doodads[i];
               if (!d) throw new Error('WMO doodad set references absent doodad');
@@ -229,37 +305,19 @@ export class SceneStream {
         }
         asset.groups.forEach((group, index) => {
           const groupId = expanded.groupIds[index];
-          if (distant && candidates.has(groupId)) return;
+          if (distant && (candidates.has(groupId)||this.nearVisible?.has(groupId))) return;
           const groupBounds = expanded.groups[index], d = boundsDistance(groupBounds, position);
           if (d > radius && (distant || !supportColumn || collisionDistance(groupBounds) > collisionRadius)) return;
-          const groupKey = `group:${path}:${index}`;
-          want(groupKey, { kind: 'group', path: `${path.slice(0, -4)}_${String(index).padStart(3, '0')}.wmo`,
-            rootKey: key, collisionScore: collisionDistance(groupBounds) }, d, distant);
-          put(groupId, { id: groupId, key: groupKey, matrix, bounds: groupBounds, boundsKnown: true, score: d, kind: 'group', distant });
+          put(groupId,expanded.groupPlacements[index],matrix,groupBounds,true,d,'group',distant,key);
         });
-        for (const {id: childId, d, matrix: childMatrix} of expanded.doodads) {
+        // Distant buildings retain their structure, not hundreds of interior props.
+        if (!distant) for (const {id: childId, d, matrix: childMatrix} of expanded.doodads) {
           add(d, childId, childMatrix, 'm2', distant);
         }
       }
     };
-    const seen = new Set();
-    for (const [tile, placements] of this.tiles) {
-      if (!tile.startsWith(`${map}:`)) continue;
-      for (const p of placements) {
-        const id = `${map}:${p.kind}:${p.id}`;
-        if (seen.has(id)) continue;
-        seen.add(id); add(p, id, p.matrix);
-      }
-    }
-    seen.clear();
-    for (const [tile, placements] of this.distantTiles) {
-      if (!tile.startsWith(`${map}:`)) continue;
-      for (const p of placements) {
-        const id = `${map}:${p.kind}:${p.id}`;
-        if (seen.has(id)) continue;
-        seen.add(id); add(p, id, p.matrix, p.kind, true);
-      }
-    }
+    for (const p of this.placementList(this.tiles,map))add(p,placementId(p,map),p.matrix);
+    for (const p of this.placementList(this.distantTiles,map))add(p,placementId(p,map),p.matrix,p.kind,true);
     if (this.npcs) {
       const tx = Math.floor((17066.666666666668 - position[1]) / (1600 / 3));
       const ty = Math.floor((17066.666666666668 - position[0]) / (1600 / 3));
@@ -278,34 +336,81 @@ export class SceneStream {
         }
       }
     }
-    const all = [...candidates.values()];
+    const all = [...candidates.values(),...farCandidates];
     // Preserve every near solid and its order, even when the visual budget is full.
     this.collisionCandidates = all.filter(i => !i.distant);
-    const visible = this.collisionCandidates.length >= this.limits.instances ? this.collisionCandidates.slice() : all;
-    this.instances = visible.sort((a, b) => Number(a.distant) - Number(b.distant)
-      || a.score - b.score || a.id.localeCompare(b.id)).slice(0, this.limits.instances);
-    const keep = new Set(this.instances.map(i => i.key));
-    for (const i of this.collisionCandidates) if (collisionDistance(i.bounds) < 32 ||
-      boundsWithin(i.bounds, position, i.boundsKnown ? collisionRadius : Math.max(32, collisionRadius),
-        i.boundsKnown ? collisionVerticalRadius : Math.max(32, collisionVerticalRadius))) {
-      keep.add(i.key);
-      const root = requests.get(i.key)?.rootKey;
-      if (root) keep.add(root);
+    for (const i of all) {
+      let size=this.boundSizes.get(i.bounds);
+      if(size===undefined) {
+        size=Math.max(1,Math.hypot(i.bounds[1][0]-i.bounds[0][0],
+          i.bounds[1][1]-i.bounds[0][1],i.bounds[1][2]-i.bounds[0][2]));
+        this.boundSizes.set(i.bounds,size);
+      }
+      i.prominence=size/Math.max(1,i.score);
     }
-    for (const i of this.instances) {
+    const visualOrder=(a,b)=>Number(b.score<128)-Number(a.score<128)
+      || (a.score<128?a.score-b.score:b.prominence-a.prominence) || a.score-b.score || a.id.localeCompare(b.id);
+    const near = selectionPrefix(this.collisionCandidates,this.limits.instances,visualOrder);
+    const farCount=all.length-this.collisionCandidates.length;
+    const reserved = Math.min(farCount,Math.max(1,Math.floor(this.limits.instances/4)));
+    const farLimit=Math.max(reserved,this.limits.instances-near.length);
+    const modelCandidates=all.filter(i=>i.distant&&i.kind==='m2'),unknownModels=new Map();
+    // Without near-cache bounds, repeated known fences must not starve undiscovered tree models.
+    if(this.visualOnly)for(const i of modelCandidates)
+      if(!this.discovered?.has(i.key)&&!this.cache.has(i.key)&&!this.failures.has(i.key)) {
+      const previous=unknownModels.get(i.key);
+      if(!previous||visualOrder(i,previous)<0)unknownModels.set(i.key,i);
+    }
+    const farStructures=selectionPrefix(all.filter(i=>i.distant&&i.kind!=='m2'),farLimit,visualOrder),far=[];
+    const modelSlots=this.visualOnly?Math.max(Math.floor(this.limits.instances/2),this.limits.instances-farStructures.length):farLimit;
+    const discovery=selectionPrefix(unknownModels.values(),Math.min(8,modelSlots),visualOrder);
+    const discoveryIds=new Set(discovery.map(i=>i.id));
+    const discoveryKeys=new Set(discovery.map(i=>i.key));
+    const farModels=[...selectionPrefix(modelCandidates.filter(i=>!discoveryIds.has(i.id)),
+      modelSlots-discovery.length,visualOrder),...discovery];
+    for(let i=0;i<Math.max(farModels.length,farStructures.length);i++){
+      if(farStructures[i])far.push(farStructures[i]);
+      if(farModels[i])far.push(farModels[i]);
+    }
+    // Reserve distant silhouettes without removing a single near collision candidate.
+    this.instances = [...near.slice(0,this.limits.instances-reserved),
+      ...far.slice(0,Math.max(reserved,this.limits.instances-near.length))];
+    const keep = new Set(this.instances.map(i => i.key));
+    for (const i of this.collisionCandidates) {
+      i.collisionScore=collisionDistance(i.bounds);
+      if(i.collisionScore < 32 ||
+        boundsWithin(i.bounds, position, i.boundsKnown ? collisionRadius : Math.max(32, collisionRadius),
+          i.boundsKnown ? collisionVerticalRadius : Math.max(32, collisionVerticalRadius))) {
+        keep.add(i.key);
+        want(i.key,{kind:i.kind,path:i.path,skins:i.skins,rootKey:i.rootKey,
+          collisionScore:i.collisionScore,required:true},i.score,false);
+        if (i.rootKey) { keep.add(i.rootKey); requests.get(i.rootKey).required = true; }
+      }
+    }
+    for (const [visualRank,i] of this.instances.entries()) {
+      want(i.key,{kind:i.kind,path:i.path,skins:i.skins,rootKey:i.rootKey,
+        collisionScore:i.collisionScore,visualRank},i.score,i.distant);
       const request = requests.get(i.key);
-      if (request?.rootKey) keep.add(request.rootKey);
+      if(this.visualOnly&&discoveryKeys.has(i.key))request.discovery=true;
+      if (request) request.visualRank=Math.min(request.visualRank??Infinity,visualRank);
+      if (request?.rootKey) {
+        keep.add(request.rootKey);
+        const root=requests.get(request.rootKey);
+        root.visualRank=Math.min(root.visualRank??Infinity,visualRank);
+      }
       const asset = this.cache.get(i.key)?.value;
       for (const batch of asset?.batches || []) {
         if (!batch.texture) continue;
         const path = batch.texture, key = `texture:${path}`;
-        want(key, { kind: 'texture', path }, i.score, i.distant);
+        want(key, { kind: 'texture', path, visualRank }, i.score, i.distant);
         keep.add(key);
       }
     }
     // Roots with no loaded metadata must be requested before their group instances exist.
     for (const [key, request] of requests) if (request.kind === 'wmo') keep.add(key);
     this.requests = new Map([...requests].filter(([key]) => keep.has(key)));
+    this.foregroundKey=[...this.requests.values()].find(r=>(r.required||(!r.distant&&r.score<128))
+      && !this.cache.has(r.key)&&!this.failures.has(r.key))?.key;
     for (const [key, entry] of this.cache) if (keep.has(key)) entry.used = this.clock;
     for (const key of this.failures.keys()) if (!keep.has(key)) this.failures.delete(key);
     this.selectionRevision = this.revision;
@@ -318,9 +423,14 @@ export class SceneStream {
     let loaded = false, loadedRoot = false;
     try {
       for (let job = 0; job < this.limits.jobs; job++) {
-        const request = [...this.requests.values()].filter(r => !this.cache.has(r.key) && !this.failures.has(r.key))
-          .sort(requestOrder)[0];
+        const pending = [...this.requests.values()].filter(r => !this.cache.has(r.key) && !this.failures.has(r.key))
+          .sort(requestOrder);
+        let request = this.visualOnly
+          ? pending.find(r=>!!r.discovery===(this.timings.loads%4===0))||pending[0] : pending[0];
         if (!request) break;
+        if(this.visualOnly&&this.resourceCount(request.kind)>=(request.kind==='texture'?this.limits.textures:this.limits.assets)
+          &&!this.victimFor(request,true))request=pending.find(r=>
+            this.resourceCount(r.kind)<(r.kind==='texture'?this.limits.textures:this.limits.assets)||this.victimFor(r,true))||request;
         const limit = request.kind === 'texture' ? this.limits.textures : this.limits.assets;
         if (this.resourceCount(request.kind) >= limit) {
           const victim = this.victimFor(request, true);
@@ -333,6 +443,7 @@ export class SceneStream {
           if (generation !== this.generation || !this.requests.has(request.key)) {
             result.dispose?.(); continue;
           }
+          if(this.visualOnly&&request.kind==='m2')this.discovered?.set(request.key,{bounds:result.value.bounds});
           if (result.bytes > this.limits.bytes) throw new Error('Decoded scene resource exceeds cache byte budget');
           while (this.resourceCount(request.kind) >= limit || this.bytes + result.bytes > this.limits.bytes) {
             const victim = this.victimFor(request, this.resourceCount(request.kind) >= limit);
@@ -341,7 +452,7 @@ export class SceneStream {
           }
           if (this.resourceCount(request.kind) >= limit || this.bytes + result.bytes > this.limits.bytes) {
             this.capacityBlocked = true;
-            throw Object.assign(new Error('Pinned nearby scene resources exhaust cache budget'), { code: 'LIMIT' });
+            throw Object.assign(new Error(`Pinned ${this.visualOnly?'distant':'nearby'} scene resources exhaust cache budget`), { code: 'LIMIT' });
           }
           this.cache.set(request.key, { ...result, used: this.clock }); this.bytes += result.bytes;
           this.revision++;
@@ -350,6 +461,7 @@ export class SceneStream {
         } catch (error) {
           result?.dispose?.();
           if (generation !== this.generation) continue;
+          if (error.code === 'DEFERRED') break;
           const failure = { path: request.path, code: error.code || 'CORRUPT', message: String(error.message || error) };
           this.failures.set(request.key, failure);
           this.revision++;
@@ -372,7 +484,8 @@ export class SceneStream {
       .map(([key]) => key)) : new Set();
     return [...this.cache.entries()].filter(([key]) => !protectedRoots.has(key) && !owners.has(key)
       && (!sameKind || key.startsWith('texture:') === (request.kind === 'texture'))
-      && (!this.requests.has(key) || requestOrder(this.requests.get(key), request) > 0))
+      && (!this.requests.has(key) || requestOrder(this.requests.get(key), request) > 0
+        || this.visualOnly&&request.discovery&&(key.startsWith('m2:')||key.startsWith('group:'))))
       .sort(([a, x], [b, y]) => {
         const ar = this.requests.get(a), br = this.requests.get(b);
         if (!ar || !br) return ar ? 1 : br ? -1 : x.used - y.used;
@@ -381,8 +494,11 @@ export class SceneStream {
   }
   async load(request) {
     const readStart = performance.now();
+    const generation=this.generation,background=!request.required&&(request.distant||request.score>=128);
     let bytes;
-    try { bytes = await this.source.read(request.path); }
+    try { bytes = await this.source.read(request.path,{background,shouldDefer:background?()=>
+      generation!==this.generation || !this.requests.has(request.key)
+      || !!(this.foregroundKey&&!this.cache.has(this.foregroundKey)):undefined}); }
     finally { this.timings.readMs += performance.now()-readStart; }
     if (bytes.length > 64 * 1024 * 1024) throw new Error('Encoded scene resource exceeds 64 MiB');
     const decodeStart = performance.now();
@@ -418,7 +534,7 @@ export class SceneStream {
     const handle = request.kind === 'group'
       ? this.cache.get(request.rootKey).value.handle.group(bytes)
       : this.wasm.SceneModel.m2(bytes, request.path, JSON.stringify(request.skins));
-    const value = extractModel(handle);
+    const value = extractModel(handle,!this.visualOnly);
     return { value, bytes: modelBytes(value) };
     } finally { this.timings.decodeMs += performance.now()-decodeStart; this.timings.loads++; }
   }
@@ -465,6 +581,8 @@ export class SceneStream {
   clear() {
     this.generation++; for (const key of this.cache.keys()) this.evict(key);
     this.tiles.clear(); this.distantTiles.clear(); this.requests.clear(); this.failures.clear();
+    this.placementLists.clear();
+    this.discovered?.clear();
     this.instances = []; this.collisionCandidates = []; this.errors = [];
     this.revision++;
   }

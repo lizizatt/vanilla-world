@@ -191,6 +191,23 @@ function fixture(paths=['a.blp']) {
 class Texture {
   metadata(){return '{"width":1,"height":1}';}rgba(){return new Uint8Array([11,23,57,255]);}free(){}
 }
+test('deferred optional minimaps retry successfully without losing coverage or reporting corruption',async()=>{
+  let deferred=true;const messages=[];
+  const stream=new TerrainStream({read:async(path,options)=>{
+    assert.equal(options.background,true);
+    if(deferred)throw Object.assign(Error('foreground queued'),{code:'DEFERRED'});
+    return new Uint8Array(1);
+  }},{SceneTexture:Texture},message=>messages.push(message));
+  stream.manifest={regions:[{map:'Kalimdor'}]};
+  stream.catalog=new Map([['kalimdor\\map1_1.blp','mapped.blp']]);
+  stream.addHorizon(0,1,1);
+  assert.equal(await stream.pump(),true);
+  assert.equal(stream.snapshot().farPending,1);assert.deepEqual(stream.snapshot().errors,[]);
+  deferred=false;await stream.pump();
+  assert.equal(stream.snapshot().minimaps,1);assert.equal(stream.snapshot().farPending,0);
+  assert.deepEqual(stream.snapshot().errors,[]);
+  assert.equal(messages[0].event,'horizon-material');
+});
 test('absent optional minimap mappings are notices; failed mapped textures stay actionable errors',async()=>{
   const stream=new TerrainStream({read:async()=>{throw Error('corrupt mapped image');}},
     {SceneTexture:Texture},()=>{});

@@ -85,7 +85,7 @@ try {
   for (const scene of result.results) {
     assert(scene.instances > 0 && scene.triangles > 0 && scene.collisionTriangles > 0, JSON.stringify(scene));
     assert(scene.textures > 0, JSON.stringify(scene));
-    assert(scene.cachedModels <= 96 && scene.cachedTextures <= 192 && scene.cachedBytes <= 96 * 1024 * 1024, JSON.stringify(scene));
+    assert(scene.cachedModels <= 192 && scene.cachedTextures <= 192 && scene.cachedBytes <= 96 * 1024 * 1024, JSON.stringify(scene));
     if (scene.distant) {
       assert.equal(scene.npcs, 0, 'Distant metadata must not populate distant NPCs');
       assert.equal(scene.collisionInstances, 0, 'Distant geometry is not collision residency');

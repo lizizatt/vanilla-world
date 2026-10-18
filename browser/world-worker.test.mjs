@@ -3,6 +3,7 @@ import {test} from 'node:test';
 import {readFile} from 'node:fs/promises';
 import {createContext,runInContext} from 'node:vm';
 import {transformedBounds,globalCollisionVertices,SCENE_LIMITS,placementMatrix,boundsWithin,boundsDistance} from './scene-stream.js';
+import {FAR_LIMITS} from './far-stream.js';
 
 // Exercise the actual worker queue with synthetic archive/Wasm boundaries, without starting WebGPU.
 const worker=(await readFile(new URL('./world-worker.js',import.meta.url),'utf8'))
@@ -13,8 +14,9 @@ function boot(events=[],clock=performance) {
   const context=createContext({init:async()=>({memory:{buffer:new ArrayBuffer(0)}}),performance:clock,postMessage:message=>events.push(message),
     setTimeout:(callback,delay)=>{const id=++nextTimer;timers.set(id,{callback,delay});return id;},
     clearTimeout:id=>timers.delete(id),
-    transformedBounds,globalCollisionVertices,SCENE_LIMITS,boundsWithin,boundsDistance});
+    transformedBounds,globalCollisionVertices,SCENE_LIMITS,FAR_LIMITS,boundsWithin,boundsDistance});
   runInContext(worker,context);
+  runInContext('far={active:true,close(){},retry(){},near(){},snapshot:()=>({resident:0,failures:[]})};',context);
   context.timers=timers;
   context.fireTimer=async()=>{
     const [id,timer]=timers.entries().next().value;
@@ -480,7 +482,7 @@ function frameFixture(deferred=true) {
   f.context.dependencies.world.tick=()=>{f.events.push({event:'tick'});};
   f.context.dependencies.scene.pump=async()=>{f.events.push({event:'pump'});};
   runInContext(`postFrameVisuals=${deferred};
-    prepareDistant=()=>{};startDistantRead=()=>{};
+    prepareDistant=()=>{};
     startCraft=()=>{};terrain.pump=async()=>{};
     globalThis.dispatch=async(data)=>{onmessage({data});await queue;};`,f.context);
   f.dispatch=f.context.dispatch;
@@ -807,7 +809,7 @@ test('frame timing separates post-tick camera scanning from physics queries',asy
   f.unresolved(50);
   f.context.boundsWithin=(...args)=>{now+=5;return boundsWithin(...args);};
   f.context.dependencies.world.tick=()=>{now+=2;};
-  runInContext(`prepareDistant=()=>{};startDistantRead=()=>{};startCraft=()=>{};
+  runInContext(`prepareDistant=()=>{};startCraft=()=>{};
     terrain.pump=async()=>{};`,f.context);
   const result=await f.request({action:'frame',dt:1/120,throttle:0,steer:0,flags:0});
   assert.equal(result.timings.physicsMs,2);

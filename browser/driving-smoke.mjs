@@ -2,6 +2,7 @@ import {chromium} from 'playwright';
 import assert from 'node:assert/strict';
 import {mkdir,writeFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
+import {execFileSync} from 'node:child_process';
 
 assert(process.env.WOW_DATA,'Set WOW_DATA to the read-only local Data folder');
 const seconds=Number(process.env.DRIVE_SECONDS || 180);
@@ -68,10 +69,46 @@ async function startProfiles(){
   };
 }
 try{
+  if(process.env.BASELINE_REF)await context.route(/\/[\w-]+\.js(?:\?.*)?$/,async route=>{
+    const name=new URL(route.request().url()).pathname.slice(1);
+    if(name.includes('/'))return route.continue();
+    await route.fulfill({contentType:'text/javascript',
+      body:execFileSync('git',['show',`${process.env.BASELINE_REF}:browser/${name}`])});
+  });
   if(process.env.COAST_WATER==='0')await context.route('**/water-stream.js',async route=>{
     const response=await route.fetch(),source=await response.text();
     assert(source.includes('class WaterStream'),'Water comparison must disable only the optional stream');
     await route.fulfill({response,body:source+'\nWaterStream.prototype.pump=function(){};\n'});
+  });
+  if(process.env.SELECTION_PHASES==='1')await context.route('**/scene-stream.js',async route=>{
+    const response=await route.fetch();let body=await response.text();
+    const replace=(search,replacement)=>{
+      assert(body.includes(search),`Missing selection phase hook: ${search}`);
+      body=body.replace(search,replacement);
+    };
+    replace('const candidates = new Map(), requests = new Map(), farCandidates=[];',
+      'let phaseStart=performance.now();const phases=[];const phase=name=>{const now=performance.now();phases.push({name,ms:now-phaseStart});phaseStart=now;};const candidates = new Map(), requests = new Map(), farCandidates=[];');
+    replace('for (const p of this.placementList(this.distantTiles,map))',
+      "phase('near');for (const p of this.placementList(this.distantTiles,map))");
+    replace('if (this.npcs) {',"phase('distant');if (this.npcs) {");
+    replace('const all = [...candidates.values(),...farCandidates];',"phase('npcs');const all = [...candidates.values(),...farCandidates];");
+    replace('const keep = new Set(this.instances.map(i => i.key));',"phase('sort');const keep = new Set(this.instances.map(i => i.key));");
+    replace('for (const [visualRank,i] of this.instances.entries()) {',
+      "phase('required');for (const [visualRank,i] of this.instances.entries()) {");
+    replace('// Roots with no loaded metadata',"phase('materials');// Roots with no loaded metadata");
+    replace('this.selectionRevision = this.revision;',
+      "phase('finish');globalThis.drivingWork?.push({kind:'selection-phases',ms:phases.reduce((n,p)=>n+p.ms,0),phases,candidates:all.length,nearCandidates:this.collisionCandidates.length,unknownBounds:all.filter(i=>!i.boundsKnown).length,requests:requests.size});this.selectionRevision = this.revision;");
+    await route.fulfill({response,body});
+  });
+  if(process.env.SCENE_REQUESTS==='1')await context.route('**/scene-stream.js',async route=>{
+    const response=await route.fetch(),body=await response.text();
+    await route.fulfill({response,body:body+`
+      const originalLoad=SceneStream.prototype.load;
+      SceneStream.prototype.load=async function(request){
+        const active={...request,start:performance.now()};globalThis.sceneLoad=active;
+        try{return await originalLoad.call(this,request);}
+        finally{if(globalThis.sceneLoad===active)globalThis.sceneLoad=undefined;}
+      };`});
   });
   if(mode==='fly')await context.route('**/flight.js',async route=>{
     const response=await route.fetch(),source=await response.text();
@@ -101,11 +138,14 @@ try{
   // Instrument the original simulation time path, without changing scheduling or adding per-tick queries.
   await context.route('**/world-worker.js',async route=>{
     const response=await route.fetch();
-    let body=await response.text();
+    let body=process.env.BASELINE_REF?execFileSync('git',['show',`${process.env.BASELINE_REF}:browser/world-worker.js`],
+      {encoding:'utf8'}):await response.text();
     const replace=(search,replacement)=>{
       const previous=body;body=body.replace(search,replacement);
       assert.notEqual(body,previous,`Missing worker profiling hook: ${search}`);
     };
+    if(process.env.SCENE_REQUESTS==='1')replace('waitingCollisionDetails:objectWait.slice(0,5),',
+      'waitingCollisionDetails:objectWait.slice(0,5).map(i=>({...i,request:scene.requests.get(i.key),active:globalThis.sceneLoad,foreground:scene.foregroundKey,at:performance.now()})),');
     if(!materialScheduling){
       replace('if(!postFrameVisuals || materialFrameReady) {','if(true) {');
       replace('if(!postFrameVisuals || materialTimer!==undefined','if(true || !postFrameVisuals || materialTimer!==undefined');
@@ -232,7 +272,8 @@ try{
       const start=performance.now();
       return request.call(this,action,fields).then(result=>{
         if(action==='frame')driveProfile.responses.push({t:performance.now(),rtt:performance.now()-start,dt:fields.dt,
-          p:result.telemetry,wait:result.scene.waitingCollision,clock:result.drivingClock,
+          p:result.telemetry,wait:result.scene.waitingCollision,
+          ...(result.scene.waitingCollision?{waitDetails:result.scene.waitingCollisionDetails}:{}),clock:result.drivingClock,
           loads:result.loads,builds:result.timings.collisionBuilds,timings:result.timings,decoder:result.scene.decoder,
           physicsStats:result.physicsStats,work:result.drivingWork,transport:result.transport,sent:performance.timeOrigin+start,received:performance.timeOrigin+performance.now()});
         return result;

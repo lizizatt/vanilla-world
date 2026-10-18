@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {WorldRenderer,renderMatrix,sceneSelection} from './world-renderer.js';
+import {WorldRenderer,renderMatrix,sceneSelection,sceneVisible} from './world-renderer.js';
 import {WorldClient} from './world-client.js';
 import {validateWorldSave,LAYOUT_VERSION} from './world-store.js';
 import {moveFlight,overview} from './flight.js';
@@ -139,6 +139,28 @@ test('post-response worker faults stop pending input and stale workers cannot fa
     assert.deepEqual(errors,['Visual transfer failed']);assert.deepEqual(events,[]);
     client.stop();
   } finally{if(old===undefined)delete globalThis.Worker;else globalThis.Worker=old;}
+});
+test('far upload receipts require successful consumption and preserve producer identity',async()=>{
+  const old=globalThis.Worker,workers=[],sent=[],errors=[];
+  globalThis.Worker=class {
+    constructor(){workers.push(this);}
+    postMessage(message){
+      sent.push(message);
+      if(message.action==='open')queueMicrotask(()=>this.onmessage({data:{id:message.id,result:{info:{},state:{}}}}));
+    }
+    terminate(){}
+  };
+  try {
+    let outcome=true;
+    const client=new WorldClient(()=>{if(outcome instanceof Error)throw outcome;return outcome;},e=>errors.push(e.message));
+    await client.open({});
+    for(const value of [true,false,undefined,Error('upload failed')]){
+      outcome=value;
+      workers[0].onmessage({data:{event:'far-scene',token:7,producer:3}});
+      assert.deepEqual(sent.at(-1),{action:value===true?'far-ack':'far-reject',token:7,producer:3});
+    }
+    assert.deepEqual(errors,['upload failed']);client.stop();
+  } finally {if(old===undefined)delete globalThis.Worker;else globalThis.Worker=old;}
 });
 test('reset and restore invalidate unsent input and block draining until the new pose is returned',async()=>{
   for(const action of ['reset','restore']){
@@ -311,6 +333,20 @@ test('GPU scene budget retains a nearest-first prefix below two million triangle
   assert.deepEqual(selection.selected.map(i=>i.id),[0,1,2,3,4,5,6,7,8,9]);
   assets.set('model',{batches:Array.from({length:1000},()=>({indexCount:3}))});
   assert.equal(sceneSelection(instances,assets).selected.length,4);
+});
+test('frustum culling precedes GPU budgets and retains bounds intersecting a frustum edge',()=>{
+  const bounds=[[-1,-1,-1],[1,1,1]],matrix=[1,0,0,0,0,1,0,0,0,0,1,0,0,0,10,1];
+  const visible=m=>sceneVisible(bounds,m,[0,0,0],[1,0,0],[0,1,0],[0,0,1],1);
+  assert(visible(matrix));
+  for(const [x,y,z] of [[30,0,10],[-30,0,10],[0,30,10],[0,0,-10]]){
+    const m=matrix.slice();m.splice(12,3,x,y,z);assert(!visible(m));
+  }
+  const edge=matrix.slice();edge[12]=6;assert(visible(edge));
+  const assets=new Map([['big',{batches:[{indexCount:9000000}]}],['tree',{batches:[{indexCount:3}]}]]);
+  const result=sceneSelection([{key:'big',id:'offscreen'},{key:'big',id:'too-big'},{key:'tree',id:'far'}],assets,
+    i=>i.id!=='offscreen');
+  assert.equal(result.culled,1);assert.equal(result.omitted,1);
+  assert.deepEqual(result.selected.map(i=>i.id),['far']);
 });
 test('save validation isolates source/layout and rejects malformed flight/vehicle state',()=>{
   const save={version:1,layout:LAYOUT_VERSION,sourceId:'install-a',mode:'drive',

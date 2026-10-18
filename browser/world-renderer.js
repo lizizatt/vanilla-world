@@ -17,17 +17,35 @@ export function renderMatrix(source,region,origin) {
   m[14]=-source[12]+region.placement[1]+(32-region.tile_origin[1])*1600/3-origin[1];
   return m;
 }
-export function sceneSelection(instances,assets) {
+export function sceneVisible(bounds,m,eye,right,up,forward,aspect) {
+  if(!bounds)return true;
+  const lo=bounds[0],hi=bounds[1],hx=(hi[0]-lo[0])/2,hy=(hi[1]-lo[1])/2,hz=(hi[2]-lo[2])/2;
+  const x=lo[0]+hx,y=lo[1]+hy,z=lo[2]+hz;
+  const cx=m[0]*x+m[4]*y+m[8]*z+m[12]-eye[0],
+    cy=m[1]*x+m[5]*y+m[9]*z+m[13]-eye[1],
+    cz=m[2]*x+m[6]*y+m[10]*z+m[14]-eye[2];
+  for(let plane=0;plane<5;plane++){
+    const axis=plane===0?forward:plane<3?right:up,sign=plane===0?1:plane%2?-1:1,
+      slope=plane===0?0:.55*(plane<3?aspect:1);
+    const nx=axis[0]*sign+forward[0]*slope,ny=axis[1]*sign+forward[1]*slope,nz=axis[2]*sign+forward[2]*slope;
+    const radius=hx*Math.abs(nx*m[0]+ny*m[1]+nz*m[2])+hy*Math.abs(nx*m[4]+ny*m[5]+nz*m[6])
+      +hz*Math.abs(nx*m[8]+ny*m[9]+nz*m[10]);
+    if(cx*nx+cy*ny+cz*nz+radius<-.01)return false;
+  }
+  return true;
+}
+export function sceneSelection(instances,assets,visible=()=>true) {
   const selected=[];
-  let triangles=0,draws=0;
+  let triangles=0,draws=0,culled=0;
   for(const instance of instances) {
     const asset=assets.get(instance.key);
     if(!asset)continue;
+    if(!visible(instance,asset)){culled++;continue;}
     const cost=asset.batches.reduce((n,b)=>n+b.indexCount/3,0);
-    if(triangles+cost>2000000 || draws+asset.batches.length>4096)break;
+    if(selected.length>=1024 || triangles+cost>2000000 || draws+asset.batches.length>4096)continue;
     selected.push(instance);triangles+=cost;draws+=asset.batches.length;
   }
-  return {selected,triangles,omitted:instances.length-selected.length};
+  return {selected,triangles,culled,omitted:instances.length-selected.length-culled};
 }
 export function terrainEdgeMask(entry,neighbors) {
   return [[-1,0],[1,0],[0,-1],[0,1]].reduce((mask,[dx,dy],edge)=>
@@ -244,7 +262,8 @@ export class WorldRenderer {
     for(const asset of this.assets.values()){asset.vertices.destroy();asset.indices.destroy();}this.assets.clear();
     for(const texture of this.textures.values())texture.destroy();this.textures.clear();
     this.items.clear();
-    this.instances=[];this.camera=undefined;this.origin=[0,0];
+    this.instances=[];this.nearInstances=[];this.farInstances=[];this.farRegion=undefined;
+    this.camera=undefined;this.origin=[0,0];
     for(const item of this.materialPending.values())this.releaseMaterial(item.gpu);
     this.materialPending.clear();
     for(const texture of this.minimapAtlases)texture.destroy();this.minimapAtlases=[];
@@ -337,7 +356,9 @@ export class WorldRenderer {
         this.seams.set(s.index,{...this.drawable(s.vertices,this.tiles.get(s.index).placement,this.minimapAtlases[entry.region]),
           cell:entry.x+64*entry.y});
       }
-    } else if(data.event==='scene') {
+    } else if(data.event==='scene'||data.event==='far-scene') {
+      const far=data.event==='far-scene',ownerRegion=far?this.farRegion:this.sceneRegion;
+      const previousInstances=far?(this.farInstances||[]):(this.nearInstances||this.instances);
       let instances=data.instances;
       if(data.instanceOrder!==undefined){
         if(!Array.isArray(instances)||!Array.isArray(data.instanceOrder))throw Error('Invalid scene instance updates');
@@ -346,21 +367,29 @@ export class WorldRenderer {
         const order=new Set(data.instanceOrder),updates=new Map(instances.map(i=>[i.id,i]));
         if(order.size!==data.instanceOrder.length || updates.size!==instances.length ||
           instances.some(i=>!order.has(i.id)))throw Error('Invalid scene instance IDs');
-        const previous=new Map((data.region===this.sceneRegion?this.instances:[]).map(i=>[i.id,i]));
+        const previous=new Map((data.region===ownerRegion?previousInstances:[]).map(i=>[i.id,i]));
         instances=data.instanceOrder.map(id=>{
           const instance=updates.get(id)||previous.get(id);
           if(!instance)throw Error(`Missing scene instance ${id}`);
           return instance;
         });
       } else if(instances===undefined){
-        if(data.region!==this.sceneRegion)throw Error('Scene region changed without instances');
+        if(data.region!==ownerRegion)throw Error('Scene region changed without instances');
       } else if(!Array.isArray(instances))throw Error('Invalid scene instances');
+      if(far&&[...data.removedAssets,...data.removedTextures,...data.assets.map(a=>a.key),
+        ...data.textures.map(t=>t.key),...(instances||[]).map(i=>i.key)]
+        .some(key=>typeof key!=='string'||!key.startsWith('far:')))throw Error('Invalid distant resource ownership');
+      if(far&&data.reset)this.clearFar();
       for(const key of data.removedAssets){const a=this.assets.get(key);a?.vertices.destroy();a?.indices.destroy();this.assets.delete(key);}
       for(const key of data.removedTextures){this.textures.get(key)?.destroy();this.textures.delete(key);}
       for(const a of data.assets){
         const batches=this.prepareBatches(a.batches);
-        const asset={vertices:this.buffer(a.vertices,GPUBufferUsage.VERTEX),
-          indices:this.buffer(a.indices,GPUBufferUsage.INDEX),batches,bytes:a.vertices.byteLength+a.indices.byteLength};
+        if(far)for(const batch of batches)if(batch.texture)batch.texture=`far:${batch.texture}`;
+        const vertices=this.buffer(a.vertices,GPUBufferUsage.VERTEX);
+        let indices;
+        try {indices=this.buffer(a.indices,GPUBufferUsage.INDEX);}
+        catch(error){vertices.destroy();throw error;}
+        const asset={vertices,indices,batches,bounds:a.bounds,bytes:a.vertices.byteLength+a.indices.byteLength};
         const previous=this.assets.get(a.key);previous?.vertices.destroy();previous?.indices.destroy();
         this.assets.set(a.key,asset);
       }
@@ -368,12 +397,28 @@ export class WorldRenderer {
         const texture=this.texture(t.width,t.height,t.rgba);
         this.textures.get(t.key)?.destroy();this.textures.set(t.key,texture);
       }
-      if(instances!==undefined){this.instances=instances;this.sceneRegion=data.region;}
-      const wanted=instances===undefined?undefined:new Set(instances.map(i=>i.id));
+      if(instances!==undefined){
+        if(far){this.farInstances=instances;this.farRegion=data.region;}
+        else {this.nearInstances=instances;this.sceneRegion=data.region;}
+        const near=this.nearInstances||(far?this.instances:previousInstances),nearIds=new Set(near.map(i=>i.id));
+        this.instances=[...near,...(this.farRegion===this.sceneRegion?this.farInstances||[]:[])
+          .filter(i=>!nearIds.has(i.id))];
+      }
+      const wanted=new Set(this.instances.map(i=>i.id));
       for(const [key,item] of this.items)if((wanted&&!wanted.has(item.id)) || !this.assets.has(item.key)){
         this.items.delete(key);
       }
     }
+  }
+  clearFar() {
+    for(const [key,a] of this.assets)if(key.startsWith('far:')){
+      a.vertices.destroy();a.indices.destroy();this.assets.delete(key);
+    }
+    for(const [key,t] of this.textures)if(key.startsWith('far:')){t.destroy();this.textures.delete(key);}
+    for(const [key,item] of this.items)if(item.key.startsWith('far:'))this.items.delete(key);
+    this.farInstances=[];this.farRegion=undefined;
+    this.instances=this.nearInstances||this.instances.filter(i=>!i.distant);
+    this.sceneBundle=undefined;
   }
   uploadMaterials() {
     let uploaded=0;
@@ -525,7 +570,9 @@ export class WorldRenderer {
       u[base+26]=body?0:item.placement[1]-origin[1];u[base+27]=item.cell??-1;
     }
     const draws=[],selection=this.cameraBlocked?{selected:[],omitted:0}:
-      sceneSelection(this.instances.filter(i=>settings.distant!==false || !i.distant),this.assets);
+      sceneSelection(this.instances.filter(i=>settings.distant!==false || !i.distant),this.assets,(instance,asset)=>
+        sceneVisible(asset.bounds,this.sceneMatrix(instance,this.manifest.regions[this.sceneRegion],origin),
+          this.camera,right,up,look,aspect));
     const append=(asset,instance,m,textures,items)=>{
         const distance=Math.hypot(m[12]-this.camera[0],m[13]-this.camera[1],m[14]-this.camera[2]);
         const cached=instance.drawItems || (instance.drawItems=[]);
@@ -584,7 +631,7 @@ export class WorldRenderer {
       wmoInstances:this.instances.filter(i=>i.kind==='group').length,
       texturedDraws:draws.filter(d=>d.item.texture!==this.white).length,
       alphaDraws:draws.filter(d=>d.batch.alphaCutoff>0).length,
-      sceneTriangles:draws.reduce((n,d)=>n+d.batch.indexCount/3,0),gpuOmittedInstances:selection.omitted,
+      sceneTriangles:draws.reduce((n,d)=>n+d.batch.indexCount/3,0),gpuOmittedInstances:selection.omitted,culledSceneInstances:selection.culled||0,
       distantDraws:draws.filter(d=>d.distant).length,distantAlphaDraws:draws.filter(d=>d.distant&&d.batch.alphaCutoff>0).length,
       sceneDraws:draws.length,sceneGpuMeshBytes:[...this.assets.values()].reduce((n,a)=>n+a.bytes,0),origin};
   }

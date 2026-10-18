@@ -250,7 +250,7 @@ Eastern Kingdoms is shifted **11200 yards south**, half its WDL north/south exte
 This is provisional map layout, not canonical ocean geography.
 
 Detailed ADTs stream around the driver or flight camera. At most
-**four** are resident: all support/swept-query tiles are pinned before eviction,
+**eight** are resident: all support/swept-query tiles are pinned before eviction,
 including four-way corners. Prefetch is lower priority. An expected but missing,
 corrupt or still-loading ADT blocks driving; it never becomes substitute ocean.
 Only successfully parsed WDT absence connected to the map exterior can add
@@ -271,17 +271,23 @@ Removing the strips did not remove those curtains. Distant water now uses
 authored MCLQ coverage and heights; WDL positions, coastlines, holes, exterior
 ocean topology, fog and physics are unchanged.
 
-`WaterStream` reads one local ADT at a time, nearest-first, then runs a
+`WaterStream` reads one local ADT at a time, then runs a
 header/liquid-only Rust scan after the physics reply. It does not instantiate
 terrain, collision, textures or placements. Root framing, MCNK headers and
 MCLQ offsets/grids are checked; unrelated ADT payloads are intentionally not
 validated by this scanner. Existing liquid meshing preserves wet/dry masks and
 kinds. Only Still/Ocean surfaces are rendered, as in the detailed adapter.
 Exactly flat wet-cell rectangles are merged; holes and non-flat surfaces remain.
+Nearby tiles lead, followed by likely coastal tiles and then remaining inland
+tiles. WDL samples at/below sea level are only read-order hints: they never
+create water or modify authored masks.
 
 Optional reads yield in one-millisecond sector-work slices at background task
 priority where supported, with a timer fallback. They defer between sectors
-when ordinary asset reads queue, retaining one serialized extraction buffer.
+when required foreground asset reads queue, retaining one serialized extraction
+buffer. Optional scenery and far minimaps share background priority rather than
+indefinitely starving water. There is no per-file 50 ms delay; one later
+post-physics parse/upload and one pending cache write remain the bounds.
 Deferrals are counted and retried, not shown as corrupt assets. Real source or
 parse errors remain visible and retryable. Mode/focus changes reorder unresolved
 work without rescanning completed tiles; source replacement cancels publication
@@ -290,21 +296,27 @@ from the old stream. Startup and physics never await completion of the water map
 The fixed **64 MiB** cache holds all **1301 wet tiles / 50,326,920 bytes
 (48.0 MiB)** in the tested installation; 404 dry tiles need no GPU geometry.
 This is not a process-memory limit: the one source file (maximum 64 MiB),
-Rust parsing and upload copies, main-thread/driver storage and up to four
+Rust parsing and upload copies, main-thread/driver storage and up to eight
 overlapping detailed-water tiles are additional. Detailed admission suppresses
 the corresponding distant water atomically; eviction reveals it again.
 Other installations exceeding the cache retain nearer water and report the
 capacity limit rather than claiming full coverage.
 
-Coverage is progressive, including on offline reload: no new persistent
-derived-asset cache was added to the save/settings database. A full scan returns
+Coverage is progressive on a fresh installation/browser profile. Compact
+validated liquid geometry (including exact empty/dry tiles) is stored under
+`liquids:1:<install fingerprint>:<region>:<x>:<y>` in the existing IndexedDB
+object store. Reloads reuse it without ADT extraction. Saves and handling
+records are separate and unchanged. Cache damage or unavailable persistence
+produces an explicit notice and falls back to authoritative Data reads.
+The cache version must change when the liquid meshing format changes.
+A full uncached scan returns
 2,111,901,065 decompressed ADT bytes for this installation. Aggregate archive
 range-read counters also include minimaps, scenery, terrain and deferred reads;
 they are not water-only compressed-byte counts. The existing approximate water
 shader and coarse land silhouettes remain, and unscanned far water can still
 show exposed seabed until its authored data arrives.
 
-The final Edge capture completed all 1705 scans in **146.4 seconds online and
+The earlier `8b0fb5f` Edge capture completed all 1705 scans in **146.4 seconds online and
 148.4 seconds offline**, with 302/312 foreground deferrals and no water errors.
 Aggregate archive ranges returned 4.245/4.252 GB; liquid parse wall-time maxima
 were 5.7/3.9 ms. Worker Wasm high-water memory was 57.25 MiB. The instrumented
@@ -329,7 +341,7 @@ and the below-sea raceway against the existing full parser.
 
 The existing `driving-smoke.mjs` accepts `COAST_WATER=0` for a **test-only**
 disabled-stream comparison; normal operation always enables the stream.
-Four alternating 30-second Gold Road runs after backpressure, with video and
+Four earlier `8b0fb5f` alternating 30-second Gold Road runs after backpressure, with video and
 fresh contexts, produced:
 
 | Measurement | Disabled runs | Enabled runs |
@@ -349,11 +361,13 @@ maximum. The first implementation without source backpressure failed its cold
 comparison (2 to 6 long freezes) and was not accepted on screenshots alone.
 
 Nearby models use authored geometry, transforms, BLP textures, UVs, alpha cutoff,
-material blending and depth. The scene budget is **96 geometry/root resources,
-192 dependent textures, 96 MiB decoded payload and 1024 instances**. These are not
-total browser/process memory limits: parser temporaries, JavaScript bookkeeping,
-main-thread/GPU copies and driver memory are additional. Capacity/pending counters
-mean some farther content is incomplete, not that it loaded successfully.
+material blending and depth. The near scene budget is **192 geometry/root resources,
+192 dependent textures and 96 MiB decoded payload**. Near visuals have 768 instance
+slots while the separate distant worker is active, otherwise 1024. Collision
+candidates are not capped by the visual quota. These are not total browser/process
+memory limits: parser temporaries, JavaScript bookkeeping, transfer/GPU copies
+and driver memory are additional. Capacity/pending counters mean some content is
+incomplete, not that it loaded successfully.
 
 Detailed ground uses native ordered layer blending, authored normals, texture
 coordinates, alpha masks, shadow masks and holes. Bounded texture arrays and
@@ -367,28 +381,147 @@ locations (18 on the tested installation), not individual resource errors.
 Corrupt mapped textures and required terrain/collision failures remain explicit;
 an absent map preview is not evidence of blocked physics.
 
-The bounded distant-model port reuses the native strict geometry/material
-boundary and complete authored M2 leaf batches rather than copying Bevy's
-clustering/atlas implementation. Up to **12 separate visual metadata tiles**
-retain placements, not terrain meshes, sharing the same 96 MiB asset cache.
-Models can be visible out to **6000 yards**, with authored alpha cutoff, real
-depth, and dither/fog fading from 3500 yards. The nearest metadata tiles and
-active continent are selected; this is not exhaustive residency of every prop
-inside that radius. Near requests win, and dense near content can defer far
-content. Distant metadata supplies neither NPCs nor collision.
+The bounded distant-model adapter reuses the native geometry/material boundary
+and complete authored M2 leaf batches, not Bevy's clustering/atlas implementation.
+Detailed terrain residency doubles from four to **eight tiles**; distant placement
+residency doubles from twelve to **24 metadata tiles**. This is not a whole-world
+full-detail scene preload or a Bevy/VMaNGOS port.
 
-Only one distant ADT read is outstanding, started at most twice a second after
-current collision requirements are ready; late results for an evicted selection
-are discarded. Existing near placements are reused without another archive read.
-Combined model drawing retains a nearest-first prefix capped at **two million
-triangles and 4096 draw calls**; any omitted instances are reported in Diagnostics.
+`far-worker.js` owns distant ADT placement parsing, M2/WMO/BLP decoding and visual
+selection. Its separate cache is bounded to **96 geometry/root resources,
+96 textures, 32 MiB decoded payload and 256 visual instances**. It exports no
+collision arrays or NPCs. The original worker alone owns physics, near terrain,
+all required collision candidates and the single serialized MPQ reader/index.
+Source extraction still runs there; distant parsing/selection no longer does.
+Required terrain/collision reads take priority over background reads, including
+sector-level deferral. Flight does not wait for the parked vehicle's terrain.
+Far progress or failure never declares near collision ready.
+
+The child runs one loading step at a time on a 25 ms scheduler, with at most one
+brokered source read outstanding. A step loads at most one missing metadata tile
+and pumps one asset request. Encoded files have a 64 MiB guard; parsing/Wasm
+temporaries are additional to decoded-cache budgets. Main and child may retain
+overlapping geometry in their separately bounded caches, but do not duplicate
+the archive index. There is at most one unacknowledged render publication:
+retained arrays are copied once, transferred child-to-parent-to-renderer, then
+uploaded. The largest observed packet was 4,952,608 bytes.
+
+Focus and near-visible ownership messages coalesce. Source/map epochs reject
+stale results; same-map distant toggles retain metadata rather than rescanning.
+Producer-scoped upload receipts cannot acknowledge a replacement worker.
+Construction, messaging and upload failures remain explicit and retryable;
+failed far GPU uploads clear only far resources. Retry publishes a complete
+snapshot, while unchanged normal snapshots are suppressed.
+
+Models can appear out to **6000 yards**, with authored alpha cutoff, real depth,
+and dither/fog fading from 3500 yards. Only the nearest 24 metadata tiles on the
+active continent are retained, not every prop inside that radius. Tree/prop
+models and building structures share distant admission. Inside 128 yards,
+distance wins; beyond that, authored size relative to distance favors useful
+silhouettes over small clutter. Bounded distinct-model discovery prevents an
+already decoded repeated fence from excluding unknown trees. Inspected bounds
+survive mesh eviction, prune with metadata residency, and prevent stationary
+over-capacity discovery churn. Material requests retain visual priority.
+Far WMO structures omit interior child doodads; near admission restores them.
+
+Near IDs win overlap immediately, and `far:` resource keys cannot evict near
+GPU resources. Conservative transformed-AABB frustum culling precedes the global
+**1024 instances, two million triangles and 4096 draw calls** limits; those GPU
+limits were not doubled. Oversized instances do not suppress all subsequent
+smaller instances. Frustum culls and actual budget omissions are reported
+separately. All near collision candidates survive visual selection.
+
+**Bounded release evidence, not universal smoothness acceptance.** The earlier
+same-worker implementation regressed: repeated scans/sorts dominated selections
+of 12--15 thousand candidates. Exact placement/bounds reuse and bounded-prefix
+selection helped but did not pass consistently. The separate-worker architecture
+was explicitly selected instead of lowering scenery or the user's 150/300 speeds.
+
+Final isolated Edge comparisons used both run orders, fresh contexts, video,
+and no trace/CPU sampler. The common **6.25 seconds before solid contact** covered
+575--581 yards with over 6.10 seconds active in every capture:
+
+| Matched active-motion measurement | Forward baseline / release | Reverse baseline / release |
+| --- | ---: | ---: |
+| Moving stalls over 50 ms | 1 / 0 | 2 / 0 |
+| Longest moving stall (ms) | 59.5 / 27.4 | 65.1 / 47.1 |
+| Reply interval p95 (ms) | 20.2 / 17.1 | 20.5 / 17.0 |
+| Handler p95 (ms) | 15.9 / 12.4 | 15.2 / 11.0 |
+| Handler p99 (ms) | 25.1 / 27.0 | 30.7 / 22.7 |
+
+Baseline is `07e1332` JavaScript with the current Wasm: it requests four tiles,
+so does not exercise the new capacity. `WARM_SECONDS=0` still includes about
+six seconds of harness focus/load preparation; this is not true first-open
+onset. OS file cache and host load are uncontrolled. All full 30-second captures
+had zero additional terrain/object holds, but solid stops and recovery paths
+diverged after contact and are excluded from matched performance claims.
+The short common interval and forward p99 increase remain limitations.
+Strict high-speed/all-world hitch acceptance stays open.
+
+Forest/city checks produced 3127/4366 changed far-scene pixels with zero
+background drift, visible tree canopies and major structures, eight detailed
+tiles and 24 far metadata tiles. Actual off/on transitions reused metadata and
+returned to driving/collision readiness. The final roughly 20-second samples
+measured:
+
+| Resource | Forest | City |
+| --- | ---: | ---: |
+| Child JS used heap | 38.6 MiB | 23.2 MiB |
+| Child Wasm memory | 13.6 MiB | 14.2 MiB |
+| Near-worker JS used heap | 53.8 MiB | 28.1 MiB |
+| Main-page JS used heap | 33.7 MiB | 57.0 MiB |
+| Tracked GPU allocation peak | 204.0 MiB | 238.5 MiB |
+| Edge-process GPU dedicated residency | 383.0 MiB | 440.4 MiB |
+| Edge-process GPU shared residency | 98.3 MiB | 98.3 MiB |
+
+GPU residency comes from Windows counters filtered to the isolated browser's
+CDP process IDs, not unrelated applications. These are samples, not guaranteed
+process peaks or hard memory limits. CDP backing storage includes buffers/Wasm;
+do not add Wasm to it again. Full coastal coverage measured 238.8 MiB tracked
+GPU payload and 79.4 MiB main-worker Wasm, before driver overhead. The host had
+about 35 GiB free RAM and 10 GiB free RTX 3060 VRAM; that supports, but does not
+alone justify, the bounded caches. Dense city materials still reach the near
+192-texture and far 32 MiB/96-texture limits; complete city residency is not claimed.
+
+**Cold coastal coverage and the tan strip remain unresolved.** Coastal priority
+and the install-fingerprinted existing-store liquid cache improve loading, but
+the cold four-second Tanaris view still has incomplete distant shoreline.
+One/four/twelve/thirty-second samples had 1/33/136/355 wet tiles. Complete coverage
+took **114.033 seconds cold and 28.603 seconds cached**: 1705 tiles, 1301 wet,
+404 dry, no pending/error entries, and no final water frontier. Cold liquid
+extraction returned **2,111,901,065 source bytes**, versus zero cached; aggregate
+source reads were 5.431/2.184 GB including other assets. Cached loading is not
+instantaneous. Background loading never waits for all 1705 ADTs before physics.
+The 50,326,920-byte global water payload fits its 64 MiB budget; overlapping near
+water, parse/transfer copies and driver allocations are separate. Authored
+wet/dry/hole masks remain exact; no guessed below-sea flooding hides gaps.
+The separately reported tan triangular strip was not reproduced at bounded
+Tanaris poses and is not claimed fixed by these changes.
+
+`scenery-smoke.mjs` records staged forest/city pixels, demand, both worker heaps,
+tracked GPU allocations and Windows GPU-process residency. Sample waits use
+deadlines and record actual elapsed time so measurement overhead does not
+silently extend the next loading interval. `SCENERY_CASE=coast` records cold onset,
+complete source coverage and same-profile cached reload. `distant-smoke.mjs`
+compares three synchronous GPU draws of a fixed scene, then tests real mode
+transitions; background far loading is allowed to continue independently of
+physics presentation. These harnesses refuse the protected 4173 preview.
+Use a separate local server and the read-only install:
+
+```powershell
+$env:BASE_URL = 'http://127.0.0.1:4183'
+$env:PANORAMA = '1'
+$env:LABEL = 'scenery-check'
+node .\browser\scenery-smoke.mjs
+```
+
 Terrain and opaque/cutout commands reuse bounded WebGPU render bundles without
 omitting draws. Membership, material, resource or uniform-offset changes rebuild
 them; transparent batches still sort back-to-front every frame. Batch paths and
 pipelines are prepared once, static instance transforms retain floating-origin
 precision, and each frame writes directly into the existing uniform buffer.
 
-The worker separately negotiates `sceneInstanceUpdates`: a complete nearest-first
+The worker separately negotiates `sceneInstanceUpdates`: a complete visual-priority
 `instanceOrder` plus only changed `id/key/matrix/kind/distant` descriptors.
 The renderer retains unchanged objects and transform caches, validates IDs before
 changing resources, and drops removed instances. Region transitions resend every
@@ -419,7 +552,7 @@ assets and the player craft. Transformed meshes and the BVH are live caches,
 invalidated by scene membership; no persistent collision bake or silent collision
 disablement is implemented.
 High-speed tuning also checks intermediate expected ADTs, not just the sweep
-endpoints. A footprint that cannot fit the four-tile or collision budget fails
+endpoints. A footprint that cannot fit the eight-tile or collision budget fails
 explicitly instead of crossing unverified geometry.
 
 ## Static NPCs and private data
@@ -637,7 +770,7 @@ It freezes presentation time and settles asset events before comparison so movin
 water and progressive texture uploads cannot masquerade as model pixels.
 The feel check exercises native/legacy inputs, the actual Web Audio output graph,
 synthetic standard-gamepad values through the browser frame path, tuning validation,
-write-failure preservation and offline reload. It also requires four textured
+write-failure preservation and offline reload. It also requires eight textured
 tiles and the authored Stand craft, verifies the craft survives disabling scenery,
 and checks that flight hides it and driving restores it. It does not claim a
 physical gamepad or subjective listening test.
@@ -705,7 +838,7 @@ material work. These changes preserve authored placement data and collision geom
 New admissions now defer optional material construction until a subsequent
 non-admitting frame has advanced catch-up physics (or is flying/object-held).
 One 25 ms fallback task, serialized behind queued requests, finishes near materials
-when input stops. The FIFO holds at most four resident tiles. Eviction/source
+when input stops. The FIFO holds at most eight resident tiles. Eviction/source
 changes cancel stale callbacks; texture continuation stops on completion/error,
 and failed preparation requires explicit retry. Required terrain, scene selection,
 collision and model-readiness pumps are unchanged.

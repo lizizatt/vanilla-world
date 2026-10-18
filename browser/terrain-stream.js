@@ -99,11 +99,13 @@ export class TerrainStream {
         const path=this.catalog.get(key(`${map}\\map${patch.x}_${patch.y}.blp`));
         if(!path){this.missingMinimaps.set(id,`${map} ${patch.x},${patch.y}`);this.failedFar.push(patch);return;}
         try {
-          const texture=this.decode(await this.source.read(path));
+          const texture=this.decode(await this.source.read(path,{background:true}));
           if(generation!==this.generation)return;
           const rgba=resizeRgba(texture.width,texture.height,texture.rgba,MINIMAP_SIZE);
           this.emit({event:'horizon-material',...patch,rgba},[rgba.buffer]);this.minimaps++;
         }catch(error){
+          if(generation!==this.generation)return;
+          if(error.code==='DEFERRED'){this.farDone.delete(id);this.far.unshift(patch);return true;}
           this.errors.set(id,`Minimap ${map} ${patch.x},${patch.y}: ${error.message||error}`);this.failedFar.push(patch);
         }
       }

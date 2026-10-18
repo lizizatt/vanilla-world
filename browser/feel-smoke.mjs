@@ -91,7 +91,7 @@ try {
   assert.equal(checks.tuning[0],42);assert.equal(checks.tuning[1],80);
   checks.failedWritePreservesActiveTuning=true;
   await page.locator('#tuning-close').click();
-  await page.waitForFunction(()=>worldEvidence.render.texturedTerrainTiles===4
+  await page.waitForFunction(()=>worldEvidence.render.texturedTerrainTiles===worldEvidence.state.limit
     && worldEvidence.render.craftReady && worldEvidence.render.craftPose==='stand-frame-0',{},{timeout:120000});
   await page.locator('#scenery').uncheck();
   await page.waitForFunction(()=>worldEvidence.render.craftDraws===6 && worldEvidence.render.sceneDraws===6);
@@ -101,7 +101,7 @@ try {
   await page.waitForFunction(()=>worldEvidence.mode==='drive' && worldEvidence.render.craftDraws===6);
   await page.locator('#scenery').check();
   await page.waitForFunction(()=>worldEvidence.render.sceneDraws>6
-    && worldEvidence.render.texturedTerrainTiles===4);
+    && worldEvidence.render.texturedTerrainTiles===worldEvidence.state.limit);
   checks.craft={pose:'stand-frame-0',independentOfScenery:true,hiddenInFlight:true};
   assert.equal(await page.evaluate(()=>worldEvidence.render.craftTriangles),1566);
   await page.waitForFunction(()=>worldEvidence.mode==='drive'

@@ -67,7 +67,7 @@ try {
     await page.locator('#world').focus();
   }
   await size(page,676,1315);
-  await page.waitForFunction(()=>worldEvidence.render.craftReady&&worldEvidence.render.texturedTerrainTiles===4,null,{timeout:120000});
+  await page.waitForFunction(()=>worldEvidence.render.craftReady&&worldEvidence.render.texturedTerrainTiles===worldEvidence.state.limit,null,{timeout:120000});
   const view=await page.evaluate(()=>worldEvidence.view);
   await page.mouse.move(338,1287);await page.mouse.down({button:'right'});
   await page.mouse.move(438,1187,{steps:8});await page.mouse.up({button:'right'});
