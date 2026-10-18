@@ -41,6 +41,9 @@ struct MareTile {
 pub struct WdlTileMesh {
     /// 545 verts: 289 outer (`[r*17+c]`) then 256 inner (`[289 + r*16+c]`).
     pub positions: Vec<[f32; 3]>,
+    /// One UV per [`Self::positions`] entry, `0..1` across this tile's own footprint: not read by
+    /// the stock hull shader, only by the custom-fork racer branch that samples a ground texture.
+    pub uvs: Vec<[f32; 2]>,
     /// 3072 indices = 16×16 cells × 4 triangles.
     pub indices: Vec<u32>,
 }
@@ -109,6 +112,7 @@ impl WdlFile {
         let lat = |global: f64| (MAP_OFFSET - global * cs) as f32;
 
         let mut positions = Vec::with_capacity(OUTER_N + INNER_N);
+        let mut uvs = Vec::with_capacity(OUTER_N + INNER_N);
         for r in 0..OUTER_EDGE {
             for c in 0..OUTER_EDGE {
                 positions.push([
@@ -116,6 +120,7 @@ impl WdlFile {
                     lat((tile_x as usize * 16 + c) as f64),
                     f32::from(tile.outer[r * OUTER_EDGE + c]),
                 ]);
+                uvs.push([c as f32 / INNER_EDGE as f32, r as f32 / INNER_EDGE as f32]);
             }
         }
         for r in 0..INNER_EDGE {
@@ -124,6 +129,10 @@ impl WdlFile {
                     lat(tile_y as usize as f64 * 16.0 + r as f64 + 0.5),
                     lat(tile_x as usize as f64 * 16.0 + c as f64 + 0.5),
                     f32::from(tile.inner[r * INNER_EDGE + c]),
+                ]);
+                uvs.push([
+                    (c as f32 + 0.5) / INNER_EDGE as f32,
+                    (r as f32 + 0.5) / INNER_EDGE as f32,
                 ]);
             }
         }
@@ -147,7 +156,11 @@ impl WdlFile {
                 ]);
             }
         }
-        Some(WdlTileMesh { positions, indices })
+        Some(WdlTileMesh {
+            positions,
+            uvs,
+            indices,
+        })
     }
 
     /// The drawn WDL height (absolute WoW `z`) under world `(x, y)`, interpolated over the same

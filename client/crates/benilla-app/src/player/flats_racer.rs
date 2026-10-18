@@ -8,8 +8,10 @@ use bevy::prelude::*;
 
 use super::Player;
 
+mod audio;
 mod camera;
 mod collision;
+mod hud;
 mod input;
 mod probe;
 mod tuning;
@@ -48,8 +50,11 @@ pub(crate) struct FlatsRacer {
     tuning: flats_racer_physics::Tuning,
     camera_position_seconds: f32,
     camera_position: camera::PositionFilter,
+    pub(super) cockpit: bool,
+    camera_toggle_requested: bool,
     tuning_open: bool,
     controls: input::Controls,
+    audio: audio::Telemetry,
     dynamics: Option<flats_racer_physics::State>,
     accumulator: f64,
     waiting_since: Option<f32>,
@@ -137,6 +142,18 @@ fn trace_hold(
     }
 }
 
+fn motion_flags(velocity: Vec3, yaw: f32, held: bool) -> u32 {
+    use crate::creature_anim::move_flags::{BACKWARD, FORWARD};
+    let horizontal = velocity.with_y(0.0);
+    if held || horizontal.length() <= 0.1 {
+        0
+    } else if horizontal.dot(Quat::from_rotation_y(yaw) * Vec3::NEG_Z) < 0.0 {
+        BACKWARD
+    } else {
+        FORWARD
+    }
+}
+
 impl FlatsRacer {
     pub(super) fn stream_velocity(&self) -> Option<[f32; 2]> {
         self.dynamics
@@ -174,8 +191,11 @@ impl Default for FlatsRacer {
             tuning,
             camera_position_seconds: camera_seconds,
             camera_position: Default::default(),
+            cockpit: false,
+            camera_toggle_requested: false,
             tuning_open: false,
             controls: Default::default(),
+            audio: Default::default(),
             dynamics: None,
             accumulator: 0.0,
             waiting_since: None,
@@ -188,6 +208,18 @@ impl Default for FlatsRacer {
 }
 
 impl FlatsRacer {
+    pub(super) fn camera_mode(&self) -> &'static str {
+        if self.cockpit {
+            "Cockpit"
+        } else {
+            "Chase"
+        }
+    }
+
+    pub(super) fn request_camera_toggle(&mut self) {
+        self.camera_toggle_requested = true;
+    }
+
     pub(crate) fn server_chat(&mut self, message: &ChatMessage) {
         if !self.enabled || message.chat_type != 0x0a || message.sender_guid != 0 {
             return;
@@ -213,7 +245,10 @@ impl FlatsRacer {
     }
 
     pub(crate) fn revoke(&mut self) {
+        self.audio = Default::default();
         self.camera_position.clear();
+        self.cockpit = false;
+        self.camera_toggle_requested = false;
         self.handoff |= self.dynamics.is_some();
         self.authorized = false;
         self.reset = true;
@@ -243,6 +278,7 @@ fn advance(
         world,
         progress,
         &Default::default(),
+        &|_| None,
     )
 }
 
@@ -254,6 +290,7 @@ fn advance_tuned(
     world: &benilla_world::collision::WorldCollision,
     progress: &benilla_world::terrain_stream::WorldLoadProgress,
     tuning: &flats_racer_physics::Tuning,
+    water_surface: &impl Fn(Vec3) -> Option<f32>,
 ) -> Result<bool, flats_racer_physics::StepError> {
     if !dt.is_finite() || dt < 0.0 {
         return Err(flats_racer_physics::StepError::InvalidDt);
@@ -290,6 +327,7 @@ fn advance_tuned(
             state.yaw,
             tuning.support_reach(),
             Vec3::from_array(state.velocity),
+            water_surface,
         );
         let mut next = *state;
         next.step_with_surface_motion(input, supports, surface_velocity, fixed, tuning)?;
@@ -313,13 +351,15 @@ fn advance_tuned(
             state.yaw = old_yaw;
             state.yaw_rate = 0.0;
         }
-        let (position, velocity) = collision::slide(
+        let (next_position, velocity) = collision::slide(
             world,
             position,
             Vec3::from_array(state.velocity),
             state.yaw,
             fixed,
         );
+        let (position, velocity) =
+            collision::land_on_water(position, next_position, velocity, water_surface);
         state.position = position.to_array();
         state.velocity = velocity.to_array();
     }
@@ -330,6 +370,19 @@ fn advance_tuned(
 #[cfg(test)]
 mod stream_tests {
     use super::*;
+
+    #[test]
+    fn motion_flags_follow_actual_velocity_not_reverse_trigger_intent() {
+        use crate::creature_anim::move_flags::{BACKWARD, FORWARD};
+        for yaw in [0.0, 1.0, -2.0] {
+            let forward = Quat::from_rotation_y(yaw) * Vec3::NEG_Z;
+            assert_eq!(motion_flags(forward, yaw, false), FORWARD);
+            assert_eq!(motion_flags(-forward, yaw, false), BACKWARD);
+            assert_eq!(motion_flags(-forward, yaw, true), 0);
+            assert_eq!(motion_flags(forward * 0.05, yaw, false), 0);
+            assert_eq!(motion_flags(Vec3::Y, yaw, false), 0);
+        }
+    }
 
     #[test]
     fn projected_envelope_cannot_skip_the_furnished_window() {
@@ -377,6 +430,10 @@ pub(super) fn control(
     player: &mut Player,
     keys: &ButtonInput<KeyCode>,
     accepts_input: bool,
+    look_config: super::camera::LookConfig,
+    zoom: f32,
+    zoom_max: f32,
+    nearclip: f32,
     eligible: bool,
     mounted: bool,
     dt: f32,
@@ -384,6 +441,7 @@ pub(super) fn control(
     net: &crate::net::NetCommands,
     progress: &benilla_world::terrain_stream::WorldLoadProgress,
     world: &benilla_world::collision::WorldCollision,
+    liquid: &benilla_world::world_point::WorldPoint,
     camera: &mut Transform,
     cam: &mut super::camera::FlyCam,
     rig: &mut super::camera::CameraControl,
@@ -391,6 +449,8 @@ pub(super) fn control(
     landing: &mut MessageWriter<crate::creature_anim::HardLanding>,
     speed_acks: &[crate::net::SpeedChangeMessage],
 ) -> bool {
+    let ui_camera_toggle = std::mem::take(&mut racer.camera_toggle_requested);
+    racer.audio = Default::default();
     if !racer.enabled {
         return false;
     }
@@ -513,6 +573,12 @@ pub(super) fn control(
         world,
         progress,
         &racer.tuning,
+        &|point| {
+            liquid.water_surface_at(
+                benilla_world::world_point::Subject::Player,
+                benilla_assets::coords::bevy_to_wow(point),
+            )
+        },
     ) {
         Ok(held) => {
             racer.status = if held {
@@ -540,12 +606,9 @@ pub(super) fn control(
     player.horiz_vel = Vec3::new(velocity.x, 0.0, velocity.z);
     player.vel_y = velocity.y;
     racer.speed = player.horiz_vel.length();
+    racer.audio = audio::Telemetry::new(input, held, racer.boost > state.boost_reserve);
     racer.boost = state.boost_reserve;
-    let flags = if !held && racer.speed > 0.1 {
-        crate::creature_anim::move_flags::FORWARD
-    } else {
-        0
-    };
+    let flags = motion_flags(velocity, state.yaw, held);
     super::body_pose::drive(
         player,
         body,
@@ -557,12 +620,21 @@ pub(super) fn control(
         !was_grounded && state.grounded,
         0,
     );
+    let (toggle, zoom) = input::camera_input(&racer.controls, zoom, accepts_input);
+    let toggle = toggle || (ui_camera_toggle && accepts_input);
+    let camera_reset = reset || toggle;
+    if toggle {
+        racer.camera_position.clear();
+    }
+    camera::update_controls(&mut racer.cockpit, toggle, zoom, dt, zoom_max, rig);
     camera::chase(
         player.pos,
         state.yaw,
-        racer.speed,
+        rig.distance,
         dt,
-        reset,
+        camera_reset,
+        input::looking(&racer.controls, accepts_input && !racer.cockpit),
+        look_config,
         racer.camera_position_seconds,
         &mut racer.camera_position,
         camera,
@@ -570,6 +642,15 @@ pub(super) fn control(
         rig,
         world,
     );
+    rig.self_fade_alpha = if racer.cockpit {
+        0.0
+    } else {
+        benilla_world::model_fade::self_model_fade_alpha(
+            (camera.translation - (player.pos + Vec3::Y * 3.0)).length(),
+            nearclip,
+            benilla_world::model_fade::SELF_FADE_WINDOW,
+        )
+    };
     // Deviation: physical hops remain local; only this server-authorized mode uses grounded wire poses.
     let report_due = now - racer.last_report >= 0.1;
     if report_due && benilla_assets::trace::enabled_for("racer") {
@@ -635,8 +716,9 @@ pub(super) fn control(
 }
 
 pub(super) fn plugin(app: &mut App) {
+    audio::plugin(app);
     app.init_resource::<FlatsRacer>()
-        .add_systems(Update, hud.in_set(crate::ui_script::UiFeed))
+        .add_systems(Update, hud::update.in_set(crate::ui_script::UiFeed))
         .add_systems(
             Update,
             input::sample
@@ -644,6 +726,22 @@ pub(super) fn plugin(app: &mut App) {
                 .after(crate::video::apply_present_mode)
                 .after(crate::video::apply_window_mode)
                 .before(super::PlayerControlSet),
+        )
+        .add_systems(
+            Update,
+            camera::seat_cockpit
+                .after(super::PlayerControlSet)
+                .in_set(benilla_world::schedule::WorldStage::Input)
+                .before(super::apply_self_model_fade)
+                .run_if(camera::cockpit_active),
+        )
+        .add_systems(
+            PostUpdate,
+            camera::seat_cockpit
+                .after(bevy::transform::TransformSystems::Propagate)
+                .before(benilla_world::billboard::BillboardPlace)
+                .before(bevy::camera::visibility::VisibilitySystems::UpdateFrusta)
+                .run_if(camera::cockpit_active),
         )
         .add_systems(
             PostUpdate,
@@ -700,56 +798,25 @@ fn bank_mount(
     }
 }
 
-fn hud(
-    mut racer: ResMut<FlatsRacer>,
-    player: Res<Player>,
-    time: Res<Time>,
-    script: Option<NonSend<UiScript>>,
-    mut next: Local<crate::ui_script::VmMemo<f32>>,
-) {
-    let Some(script) = script else { return };
-    let next = next.get(&script);
-    if time.elapsed_secs() < *next {
-        return;
-    }
-    *next = time.elapsed_secs() + 0.1;
-    if !racer.enabled || !player.active {
-        racer.tuning_open = false;
-        crate::ui_script::run_or_warn(&script, "if FlatsRacerHUD then FlatsRacerHUD:Hide() end if FlatsRacerTuning then for i=1,18 do getglobal('FlatsRacerTuneBox'..i):ClearFocus() end FlatsRacerTuning:Hide() end");
-        return;
-    }
-    tuning::update(&script, &mut racer);
-    crate::ui_script::run_or_warn(
-        &script,
-        &format!(
-            r#"
-if not FlatsRacerHUD then
-    local f = CreateFrame("Frame", "FlatsRacerHUD", UIParent)
-    f:SetWidth(660) f:SetHeight(82) f:SetPoint("TOP", UIParent, "TOP", 0, -58)
-    local t = f:CreateFontString("FlatsRacerHUDText", "OVERLAY", "GameFontNormal")
-    t:SetAllPoints(f)
-    local b=CreateFrame("Button","FlatsRacerTuneToggle",f)
-    b:SetWidth(90) b:SetHeight(25)
-    b:SetPoint("TOPRIGHT",f,"TOPRIGHT",95,0)
-    local caption=b:CreateFontString(nil,"OVERLAY","GameFontNormal")
-    caption:SetPoint("CENTER",b,"CENTER",0,0)
-    caption:SetText("[Tuning]")
-    b:SetScript("OnClick",function() FlatsRacerTuneCommand="toggle" end)
-end
-FlatsRacerHUD:Show()
-FlatsRacerHUDText:SetText("FLATS RACER | {status} | {speed:.1} yd/s | boost {boost:.0}%\n{tutorial}")
-"#,
-            status = racer.status,
-            speed = racer.speed,
-            boost = racer.boost * 100.0,
-            tutorial = racer.controls.device.tutorial(),
-        ),
-    );
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hud_camera_request_is_latched_once_and_handoff_clears_it() {
+        let mut racer = FlatsRacer::default();
+        assert_eq!(racer.camera_mode(), "Chase");
+        racer.request_camera_toggle();
+        racer.request_camera_toggle();
+        assert!(std::mem::take(&mut racer.camera_toggle_requested));
+        assert!(!std::mem::take(&mut racer.camera_toggle_requested));
+        racer.cockpit = true;
+        assert_eq!(racer.camera_mode(), "Cockpit");
+        racer.request_camera_toggle();
+        racer.revoke();
+        assert_eq!(racer.camera_mode(), "Chase");
+        assert!(!racer.camera_toggle_requested);
+    }
 
     #[test]
     fn exploration_admits_both_continents_but_not_instances() {

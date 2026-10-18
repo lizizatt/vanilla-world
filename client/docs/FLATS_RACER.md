@@ -18,6 +18,17 @@ $env:BENILLA_HOME = "$PWD\target-racer\player-state"
 & .\target-racer\play\benilla.exe
 ```
 
+Run the focused client and world racer tests together from the repository root:
+
+```powershell
+$env:CARGO_TARGET_DIR = "$PWD\target-racer"
+cargo test --manifest-path .\client\Cargo.toml -p benilla-app -p benilla-world --lib racer --profile play -j 1
+```
+
+Including both packages keeps dependency features aligned with the app graph and
+reuses the same target/profile cache. Testing `benilla-world` alone can select a
+different dependency feature graph and trigger a cold rebuild.
+
 The server must also explicitly enable the custom mode; see
 [`server/doc/FlatsRacer.md`](../../server/doc/FlatsRacer.md).
 An unmodified or disabled server cannot grant it.
@@ -72,10 +83,12 @@ There are no gameplay tuning upper ceilings. Values must be finite, representabl
 boost maximum must remain at least cruise maximum. Scientific notation is accepted.
 The adjustable cruise/boost values still govern requested top speeds: uncapping the
 editor does not remove those controls or create infinite velocity. Air steering is
-an uncapped nonnegative multiplier, not a percentage capped at one.
+an uncapped nonnegative multiplier, not a percentage capped at one. The default
+air control multiplier is `0.9`. Saved tuning still takes precedence; Restore
+defaults uses this value.
 
 **Camera position (s)** is a separate saved exponential low-pass time
-constant, default `0.15` seconds (`0` turns it off). After one time constant it covers about
+constant, default `0.5` seconds (`0` turns it off). After one time constant it covers about
 63.2% of a target-position change; larger values soften motion more. Zero disables
 position filtering, independently of yaw damping. Mount, reset, teleport/control
 handoff and remount initialize/snap the position rather than interpolating across
@@ -92,6 +105,12 @@ this is world exploration within the two outdoor continent maps, not an infinite
 coordinate space or unrestricted flight. Very high speeds can hit the streaming
 frontier and pause until terrain/collision catches up. Ground probes are relative
 to the body and configured hover height, not a fixed Flats altitude.
+Racer suspension also supports loaded water/ocean surfaces, using each wet cell's
+height rather than a lake's bounding box. Shore gaps remain dry and solid bridges
+above water still take precedence. Hops and airborne thrust work over water;
+fast downward crossings land on its surface instead of tunneling through it.
+Lava/slime do not provide support. Normal walking/swimming is unchanged; this is
+not underwater flight, and a rider already below the surface is not lifted out.
 The updated server is required to remove the previous area/leash/altitude guards
 (and includes the earlier uncapped packet changes); do not restart a running
 server without coordinating its owner.
@@ -104,8 +123,11 @@ gamepad backend. Xbox / PlayStation names below refer to the same physical butto
 | Control | Action |
 | --- | --- |
 | Left stick X | Steer (18% deadzone, remaining travel rescaled) |
-| RT / R2 | Analog thrust (8% deadzone) |
-| LT / L2 | Brake (on/off above 12%, not proportional braking) |
+| Right stick X / Y | Orbit camera yaw / pitch (18% deadzone per axis, remaining travel rescaled) |
+| Right stick click / R3 | Toggle locked cockpit view |
+| D-pad up / down | Zoom chase camera in / out, one step per press |
+| RT / R2 | Analog forward thrust (8% deadzone) |
+| LT / L2 | Analog reverse thrust (8% deadzone), including from standstill |
 | RB / R1 | Boost |
 | LB / L1 | Drift |
 | A / Cross | Hop |
@@ -117,8 +139,52 @@ HUD tutorial text follows the latest keyboard or controller press; significant
 stick/trigger movement also selects the controller. Held buttons and stick noise
 do not keep stealing the tutorial back from the keyboard. In a same-frame tie the
 controller wins. Keyboard/mouse still edit the tuning boxes; this is not general
-controller navigation for the stock client UI. Unfocused, typing and loading gates
-apply to both driving devices.
+controller navigation for the stock client UI. Unfocused, typing, loading,
+inspection and tuning-panel gates block stick look and brake instead of thrusting.
+Disconnect clears controller thrust/look and returns to keyboard input.
+
+Trigger pressures subtract after the deadzone: equal pressures give zero thrust,
+and the stronger trigger determines direction and strength. Reverse thrust first
+slows forward motion, then accelerates backward through zero; it is not a brake.
+Keyboard S remains a brake, W remains forward thrust, and boost remains forward-only.
+Movement packets report the actual forward/backward motion, not the requested thrust.
+
+The right stick uses the existing camera yaw/pitch speeds, mouse sensitivity and
+pitch inversion setting, as angular rates per second rather than per frame.
+Right turns the view right; up looks up unless pitch is inverted. Pitch keeps the
+ordinary ±89° limit. Stick deflection suspends racer auto-follow; release eases yaw
+behind the racer and pitch back to the original raised chase angle. Mount/reset
+snaps both angles to the chase pose. Camera position filtering and both collision
+casts remain active while orbiting. Ordinary walking/free-fly cameras are unchanged.
+
+### Racer zoom and cockpit
+
+The mouse wheel and rebound `CameraZoomIn` / `CameraZoomOut` actions now adjust
+the racer chase distance through the existing zoom glide and limits:
+`cameraDistanceMax` times `cameraDistanceMaxFactor`, capped at 50 yd (15 yd by
+default), down to zero. Speed no longer overwrites the selected chase distance.
+The existing character camera-pose file continues to save the chosen zoom;
+no new settings file or tuning field is introduced.
+
+**Ctrl+Alt+V** or **R3** toggles cockpit view. Plain V retains its nameplate
+binding. If Ctrl+Alt+V is already bound, the racer leaves that binding alone and
+reports the conflict; R3 remains available. The chord, R3 and D-pad zoom obey
+focus, typing, inspection, loading and tuning-panel input gates.
+
+Cockpit view uses the existing mounted rider's attachment-0 seat frame and
+model-derived camera head height, not a new model or invented cockpit mesh.
+Its orientation follows the actual vehicle frame, including pitch/bank; mouse
+and right-stick orbit do not steer this locked view. The camera is seated again
+after animation/transform propagation, without chase lag, and its path from the
+body is clipped against the existing camera collision query. If the rider seat
+is not loaded, the toggle is refused with a status message rather than placing
+the camera at an arbitrary point.
+
+The ordinary first-person fade hides the rider, attached equipment and mount to
+prevent near-plane/body clipping. Returning to chase restores their normal fade.
+Cockpit mode ignores zoom gestures and leaves the chase distance intact; exiting
+recenters and snaps to that distance. Reset keeps the selected mode, while
+dismount/control handoff clears cockpit mode. The toggle itself is session-only.
 
 Reset returns to the grounded position where the server granted this mount, not
 to a client-selected coordinate. Mount on clear, level ground. The anchor is a
@@ -127,11 +193,45 @@ custom control; remount after arrival. Seamless continent crossing, instances,
 ocean traversal and every world obstacle are not promised.
 
 The small HUD shows authorization/streaming status, speed and boost. Typing,
-unfocused-window or loading input brakes rather than driving. Death, combat,
+unfocused-window or loading input brakes rather than driving. Ordinary mob aggro
+and combat do not automatically dismount the racer. Death, root, stun,
 foreign mover/control loss, missing mount, disconnect and unexpected corrections
 relinquish custom control. Normal movement retains its existing server checks.
 Only explicitly unattended probe-generated keys can operate the racer without
 focus; physical background keyboard input is excluded.
+
+### Racer sound
+
+The authorized racer has an original, synthesized cockpit sound: a stereo pair of
+slightly detuned pulsing engines, a quieter speed/thrust whine, and a higher boost
+layer that follows actual reserve consumption, not merely the boost button.
+Reverse trigger pressure loads the engines too; braking and collision-streaming
+holds unload them. Speed pitch rises smoothly through 120 yd/s and then saturates
+(this is an audio range, not a vehicle speed limit). There are no downloaded or
+franchise recordings, new dependencies, or replacement normal mount/game sounds.
+
+The three persistent loops use the existing Kira mixer, Effects (`SoundVolume`)
+and Master sliders, master enable/mute, limiter, focus/background-sound setting,
+and audio-probe taps. Their maximum combined pre-slider amplitude is below 0.19;
+they are deliberately quieter than full-scale game effects. Input changes have
+smooth envelopes (220 ms engine response, 90 ms boost attack / 250 ms release)
+and de-clicked pitch/volume updates. Loops fade out over 180 ms on dismount,
+authorization loss, disable, logout, or loading; remount waits for old voices to
+finish rather than duplicating them. Missing devices, `WOW_NOSOUND`, and
+`WOW_CAPTURE` remain silent. Muting or losing focus does not restart the engines.
+The loops count against the existing voice budget; if it is full, they retry
+after two seconds without displacing normal effects.
+
+### Racer instruments
+
+The racer-only instrument cluster uses original amber/teal graphics and the
+existing FrameXML API; no franchise artwork or interface code is bundled. It sits
+above the action bars without replacing the stock HUD. Speed and forward/reverse
+direction come from actual motion, the amber segments show speed against the
+configured boost cap, and the teal segments show remaining boost reserve.
+Airborne, standby, and collision-streaming holds are identified in text rather
+than by color alone. Tuning and input-guide buttons remain mouse-accessible;
+the rest of the cluster does not capture mouse or keyboard input.
 
 ## Implementation boundary
 
@@ -159,9 +259,11 @@ does not make the explicit spring integrator explode. Lift remains unilateral:
 the suspension cannot pull downward faster than gravity. Crests and missing
 support therefore launch into a ballistic arc, not terrain suction or flight.
 Hops inherit the terrain-relative rise rate and retain the existing brief
-support lockout. Air control multiplies horizontal thrust, braking, grip and
-steering throughout airtime, including natural crests and long falls; zero
-disables airborne horizontal control. Turning also
+support lockout. Air control multiplies horizontal thrust, braking, grip,
+drag and steering throughout airtime, including natural crests and long
+falls; zero disables airborne horizontal control, including air drag, so an
+airborne body with zero air control coasts at a constant horizontal velocity
+instead of bleeding it off. Turning also
 works at a standstill so losing speed against an obstacle does not remove input.
 There is no airborne thrust timer. Boost still requires ground support.
 Thrust remains horizontal: gravity and unsupported ballistic motion are unchanged,
@@ -170,6 +272,14 @@ The F10 field is named **Air control multiplier**; the saved preset's existing
 seventeenth value remains compatible (0.8 means 80% horizontal authority).
 Collision clearance can still reject a turn that would rotate the body into a
 wall; back away or reset rather than expecting steering to penetrate geometry.
+
+Drag now scales with air control exactly like grip: previously drag always
+ran at full ground strength while airborne, so a scaled-down airborne thrust
+could never outrun it once cruising speed approached roughly
+`acceleration / drag` (about 18 yd/s with the default tuning) — the throttle
+visibly "did nothing" in midair even though the physics per tick was correct.
+Holding thrust while airborne now always gains speed, just more slowly than
+on the ground in proportion to the air control multiplier.
 
 The airborne-control update passes 30 physics and 29 focused app racer tests.
 At 30/60/144 Hz, unsupported thrust of 30 yd/s2 with air control 0.8 reaches
@@ -521,6 +631,9 @@ capped at two ADT widths (about 1,067 yd); the desired union is at most 21 ADTs,
 with new admissions limited to 40 resident/in-flight tiles and two new requests
 per paced frame. Tiles inherited from walking can temporarily exceed that
 admission limit while the existing paced unloader retires them.
+The racer retains already-loaded neighbours within two tiles plus the desired
+lookahead, under the existing 40-tile admission cap, reducing turn-induced
+unload/rebuild churn without changing the collision safety hold.
 The existing furnishing, placement, collider and unload budgets still apply.
 These are safety/resource bounds, not a guarantee of stall-free 500 yd/s travel:
 cold loads that outlast the available corridor still hold safely. Higher tuning
@@ -528,13 +641,145 @@ does not remove the residency bound. Distant art is not collision.
 
 The authorized racer also opts into an extended ring in the existing WDL
 renderer, not a second terrain engine. It builds at most four coarse patches per
-frame and retains at most 625 (a 25x25 window). The shader shows coarse relief,
-fogs from 3,500 to 5,500 yd and fades out by 6,000 yd; missing WDL remains missing,
+frame and retains at most 625 (a 25x25 window). The shader textures each patch
+with its own covering ADT tile's minimap art (the same per-tile overhead art the
+HUD minimap already streams, resolved through `md5translate.trs`), fogs from
+3,500 to 5,500 yd and fades out by 6,000 yd; missing WDL remains missing,
 not invented geometry. This is a visual horizon only, not detailed terrain,
 objects or playable collision. Its raw mesh payload ceiling is 18,580,000 bytes
 per CPU or GPU copy, excluding asset/driver overhead and the source heightmap.
+
+Each patch also carries its own distant water, built from the same ADT tile's
+authored MCLQ liquid blocks (lakes, rivers, sea and lava), requested as its own
+async Bevy asset (`AdtLiquidTile`, `benilla-assets`) through the same `mpq://`
+pipeline the terrain tile's own `AdtTile` already uses — the MPQ read and
+decompress run on Bevy's asset task pool, off the frame that requests it, not
+inline in the streaming system (an earlier synchronous version of this that read
+the file directly was corrected before shipping). The liquid-only parse is still
+a CPU saving over a full ADT parse (it skips building the tile's far larger
+height/normal/alpha/shadow structures), not an I/O one — the file is read in
+full either way.
+
+A streamed-in tile first only *queues* its want for water (`WaterState::Queued`)
+unless the map's WDT (`MapTiles::has_tile`) already says the tile has no ADT at
+all, in which case it never queues anything — an unauthored map-edge tile costs
+nothing. A separate admission pass turns queued tiles into actual loads,
+nearest-the-view first, bounded by two independent limits: at most
+`RacerWdl::WATER_REQUESTS_PER_FRAME` (4) new loads started per frame, and
+`RacerWdl::MAX_IN_FLIGHT_WATER_REQUESTS` (16) retained outstanding handles,
+regardless of how many tiles are queued. This is not a hard ceiling on physical
+decompressions across eviction: dropping a handle does not cancel IO. That ceiling
+exists because Bevy's asset IO is shared infrastructure — the terrain tile's own
+`AdtTile` load, the collision streamer's loads, and this water request all draw
+on the same task pool — so flying into a wet region never queues the whole
+625-tile residency window as one burst of ADT decompress requests; the rest
+wait, and are admitted as earlier loads resolve or fail. A third, independent
+budget (`RacerWdl::WATER_RESOLVES_PER_FRAME`, 4) bounds how many *resolved*
+loads are turned into a spawned mesh in one frame, since that CPU work (merging
+liquids, building the Bevy `Mesh`, spawning the entity) is still main-thread,
+even though the read itself ran off-thread.
+
+A request that still fails after the WDT pre-filter (a corrupt archive, a real
+I/O fault) is a genuine fault and `warn!`s once per tile, not silently and not
+repeatedly. Evicting a tile (residency, a map switch, or a racer toggle) drops
+its `WaterState` — including an in-flight handle — with the rest of the tile's
+state, which **frees its in-flight slot** for another tile the very next frame,
+but is **not a cancellation guarantee**: Bevy has no explicit load-cancel API,
+so an already-in-flight load may still finish in the background: nothing looks
+up its result afterward, since the tile is no longer resident to look it up
+with. Same-kind surfaces on a tile merge into one draw, so a wet patch adds at
+most three extra entities (Still, Ocean, Magma — the only kinds an ADT MCLQ ever
+carries), under the same 625-patch residency ceiling as the terrain patches.
+The water keeps its authored coverage, shore gaps and absolute height; a dry
+tile adds nothing. It renders through the racer WDL shader beyond the detailed
+farclip wall with real geometry depth, not the near-field animated liquid
+system. This boundary still needs live GPU seam verification.
+It stays flat-coloured per kind rather than animated — a coarse distant
+read, not a near-field surface.
 Leaving racer mode restores the stock ring, material and frustum behavior;
 map changes and world exit release patch entities and mesh assets.
+
+The same asynchronous ADT result supplies distant doodad and WMO placements.
+Selection keeps at most 48 per tile, preferring nearby, larger-scale and
+forward-facing features, with a priority bonus for structural WMOs. Shared
+models are requested nearest-placement-first. ADT unique IDs deduplicate
+features spanning tiles; eviction allows another retained tile to take ownership.
+
+M2 proxies retain complete authored render geometry, not collision hulls.
+The ceiling is **4,000 triangles per model**, deliberately higher than the
+earlier 500-triangle proposal: clustering disconnected leaf cards damages
+their geometry and UV seams. An oversized model fails explicitly. Alpha-test
+batches retain their UVs and sample their actual texture's alpha, downsampled
+to 64x64 masks in one 256x256 atlas per model (15 masks plus opaque white).
+There are no opaque rectangular substitutes for leaf cutouts. Cutoff is
+224/255, matching the near renderer. Decodes are capped at 2048x2048; missing
+textures, unsupported repeating cutout UVs and corrupt models report failures.
+This remains static bind-pose, flat-coloured LOD, not animated foliage.
+
+WMO proxies read **render batches from every group**, including non-collidable
+structures. Walking collision is not a visual substitute. Grid vertex
+clustering remaps triangles to averaged representatives, removes degenerate
+and duplicate triangles, and compacts unused vertices; it never samples every
+Nth triangle. Output is capped at 4,000 triangles. Clustering can collapse
+small disconnected ornaments; it does not guarantee topology preservation.
+Input budgets are 128 groups, 64 MiB of source bytes and 200,000 triangles.
+Missing groups and invalid render indices fail explicitly rather than silently
+reporting a partial building as successful.
+
+The shared proxy caches retain at most 96 M2 and 32 WMO models. Each kind admits
+four requests per frame and retains at most 16 outstanding handles; eviction
+does not guarantee cancellation of physical IO. Four combined proxy resolutions
+or instance spawns occur per frame. Across all tiles, feature instances are
+capped at **2,048 and 2,000,000 triangles**. When a cap is full, pending features
+wait rather than exceeding it. Map changes, racer exit and world exit clear
+tile references and proxy caches, so stale asset results cannot spawn features.
+
+Distant ships and zeppelins use the server's actual transport entities.
+`Map::SendInitTransports` broadcasts the map's transport set; the existing
+client timetable writes their poses and hides off-map legs. Only armed taxi
+transports receive the `RacerTransport` marker. Their far-draw copies share
+already-loaded render meshes and existing cutout textures, following the
+real post-propagation transforms. No model/network requests, invented paths,
+new collision objects or generic GameObject culling exemption are added.
+Admission is bounded to 16 transports, 256 render parts and 128,000 triangles,
+with four new parts per frame. Oversized vessels are skipped as a whole with
+a warning. Off-map/hidden, despawned, out-of-range and non-racer copies are
+removed. The normal model shader still clips at the view-distance wall;
+these copies use the racer shader beyond it, bounded by the 6,000 yd horizon.
+
+Racer terrain, water, features and transport copies write **their real
+per-fragment reverse-Z depth**, not the stock backdrop clamp, and begin at
+the detailed farclip wall. Hills therefore depth-test against models at their
+actual distance. Stock non-racer WDL retains its original 33 yd overlap and
+depth push. The WDL height samples are still roughly 33 yd apart: small
+terrain relief absent from the authored coarse mesh cannot occlude distant
+objects accurately. Numerical depth/geometry checks do not replace a live GPU
+check of hill occlusion, the near/far seam and leaf silhouettes; that visual
+acceptance remains pending until the coordinated client launch.
+
+Installed-data fixtures verify the complete 68-triangle Elwynn pine render
+mesh versus its 6-triangle collision hull, including transparent and opaque
+texels in the foliage atlas. Goldshire Inn uses 24,274 authored render
+triangles, clustered to 2,794; its three extents remain above 98% of the
+render mesh. These are geometry/alpha assertions, not screenshot acceptance.
+
+For another renderer, the reusable format boundary is
+`WdlFile::tile_mesh` (`positions`, `uvs`, `indices`),
+`adt_bytes_to_racer_features` (liquids, doodads, WMOs),
+`parse_m2_render_submeshes`, and `parse_wmo_root` with
+`wmo_group_submeshes_strict`. WDL positions and ADT placement translations
+are raw WoW world coordinates; model vertices are model-local. Native baking
+maps `(X,Y,Z)` to `(-Y,Z,-X)`, then applies `placement_rotation` and the
+authored doodad scale (WMO scale is one).
+
+The proxy loader/cache and alpha-atlas image handles are Bevy-specific;
+the browser must provide its own async jobs, images and instancing.
+`wdl.wgsl` also imports Bevy mesh/view transforms and material-group bindings:
+90 global light/fog, 91 horizon parameters, 92/93 texture/sampler,
+94 liquid flags, 95 feature flags. Replace those bindings/imports rather
+than copying them unchanged. Keep actual projected reverse-Z depth for racer
+geometry, alpha discard at 224/255, and radial fog/fade/cutoff at
+3,500/5,500/6,000 yards. Stock backdrop depth pushing is not the racer path.
 
 The optimized regression run passes 33 app racer tests, 11 world racer/WDL tests
 and all 50 terrain-stream tests (including five racer-specific cases),

@@ -39,6 +39,10 @@ mod terrain;
 mod wdt;
 pub use adt::{chunk_to_mesh, chunks_to_mesh, AdtLoader, AdtTile, ChunkShading};
 pub use wdt::{WdtIndex, WdtIndexLoader};
+mod adt_liquid;
+pub use adt_liquid::{AdtLiquidLoader, AdtLiquidTile};
+mod model_proxy;
+pub use model_proxy::{M2ProxyLoader, ModelProxyMesh, WmoProxyLoader};
 mod blp;
 pub use blp::{BlpImageLoader, BlpLoaderSettings, BlpVariant};
 /// Whether this GPU takes WoW's stored DXT blocks, and the chain form that follows.
@@ -280,6 +284,8 @@ pub fn register_asset_loaders(app: &mut App) {
     app.init_asset::<WmoModel>();
     app.init_asset::<AdtTile>();
     app.init_asset::<WdtIndex>();
+    app.init_asset::<AdtLiquidTile>();
+    app.init_asset::<ModelProxyMesh>();
     // A plugin: whether the device takes DXT blocks is known only after `RenderPlugin::finish`.
     app.add_plugins(BlpGpuSupportPlugin);
     app.register_asset_loader(BlpImageLoader);
@@ -287,6 +293,9 @@ pub fn register_asset_loaders(app: &mut App) {
     app.register_asset_loader(WmoModelLoader);
     app.register_asset_loader(AdtLoader);
     app.register_asset_loader(WdtIndexLoader);
+    app.register_asset_loader(AdtLiquidLoader);
+    app.register_asset_loader(M2ProxyLoader);
+    app.register_asset_loader(WmoProxyLoader);
     // The materials' WGSL, compiled in; it too needs `AssetPlugin` first.
     materials::register_shaders(app);
 }
@@ -699,5 +708,118 @@ mod tests {
             "ADT tile loaded: {} MCNK cells, {n_doodads} doodad placements",
             drawn.len()
         );
+    }
+
+    /// The racer's distant water asks for the same tile through a second loader on the same
+    /// `.adt` extension (`AdtLiquidLoader`/`AdtLiquidTile`), selected by the requested asset type;
+    /// it must resolve independently of `AdtTile` and carry the tile's real liquid and placement
+    /// data (vegetation/building LOD reuses this same asset instead of a separate request).
+    #[test]
+    fn loads_an_adt_liquid_only_tile_through_the_pipeline() {
+        let data = benilla_formats::wow_data_or_skip!();
+        // Crystal Lake, the same fixture `benilla_formats::liquid::tests::parses_elwynn_lake_tile`
+        // and `adt_liquid_summary::tests::finds_still_water_on_crystal_lake_tile` use: 42 liquid
+        // chunks, all Still.
+        let url = "mpq://World/Maps/Azeroth/Azeroth_32_48.adt".to_string();
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        register_mpq_source(&mut app, &data).expect("register mpq source");
+        app.add_plugins(bevy::asset::AssetPlugin::default());
+        app.init_asset::<Image>();
+        app.init_asset::<Mesh>();
+        register_asset_loaders(&mut app);
+
+        let handle: Handle<AdtLiquidTile> = app.world().resource::<AssetServer>().load(url);
+        let mut counts = None;
+        for _ in 0..2000 {
+            app.update();
+            if let Some(t) = app.world().resource::<Assets<AdtLiquidTile>>().get(&handle) {
+                counts = Some((t.liquids.len(), t.doodads.len(), t.wmos.len()));
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        let (liquid_count, doodad_count, wmo_count) =
+            counts.expect("the ADT's liquid and placement data should load");
+        assert_eq!(liquid_count, 42, "Crystal Lake has 42 liquid chunks");
+        assert!(doodad_count > 0, "Crystal Lake's shore has authored doodads");
+        let _ = wmo_count; // Crystal Lake may have none; only asserting it loaded without panic
+    }
+
+    /// The racer's vegetation LOD loads an M2's actual render mesh (every batch merged — trunk
+    /// *and* canopy/leaf geometry, not just the authored collision hull, which
+    /// `benilla_formats::tests::chain::m2_render_submeshes_cover_the_canopy_the_collision_hull_misses`
+    /// shows is visually inadequate for vegetation) as a `ModelProxyMesh`, through a third loader
+    /// sharing `M2ModelLoader`'s `.m2` extension.
+    #[test]
+    fn loads_an_m2_render_mesh_proxy_through_the_pipeline() {
+        let data = benilla_formats::wow_data_or_skip!();
+        // The same fixture `benilla_formats`' own `tests/chain.rs::decodes_m2_collision_hulls`
+        // uses. This trunk model's own render mesh is itself trunk-sized (Elwynn splits trunk and
+        // canopy into two separate doodad placements) — the point here is only that the proxy now
+        // carries the model's real render topology, not a collision-hull substitute, which this
+        // fixture's previous 5-vertex/6-triangle hull assertion would no longer be true evidence
+        // of either way.
+        let url =
+            "mpq://World/Azeroth/Elwynn/PassiveDoodads/Trees/ElwynnTree01/ElwynnPine01.m2"
+                .to_string();
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        register_mpq_source(&mut app, &data).expect("register mpq source");
+        app.add_plugins(bevy::asset::AssetPlugin::default());
+        app.init_asset::<Image>();
+        app.init_asset::<Mesh>();
+        register_asset_loaders(&mut app);
+
+        let handle: Handle<ModelProxyMesh> = app.world().resource::<AssetServer>().load(url);
+        let mut counts = None;
+        for _ in 0..2000 {
+            app.update();
+            if let Some(p) = app.world().resource::<Assets<ModelProxyMesh>>().get(&handle) {
+                counts = Some((p.positions.len(), p.indices.len() / 3));
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        let (verts, tris) = counts.expect("the M2's render mesh should load");
+        // Far more detail than the old 5-vertex/6-triangle collision hull, and every index must
+        // stay in range — the render path merges several submeshes/batches, unlike the hull's
+        // single flat index list.
+        assert!(verts > 5, "got {verts} verts, expected more than the old collision-hull count");
+        assert!(tris > 6, "got {tris} tris, expected more than the old collision-hull count");
+    }
+
+    /// The racer's building LOD loads a WMO's merged walking-collision triangles (not its
+    /// textured render groups) as a `ModelProxyMesh`, through a fourth loader sharing
+    /// `WmoModelLoader`'s `.wmo` extension.
+    #[test]
+    fn loads_a_wmo_collision_proxy_through_the_pipeline() {
+        let data = benilla_formats::wow_data_or_skip!();
+        // Booty Bay, the same fixture `wmo::tests` uses for its own group-file reads.
+        let url =
+            "mpq://World/wmo/Azeroth/Buildings/Stranglethorn_BootyBay/BootyBay.wmo".to_string();
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        register_mpq_source(&mut app, &data).expect("register mpq source");
+        app.add_plugins(bevy::asset::AssetPlugin::default());
+        app.init_asset::<Image>();
+        app.init_asset::<Mesh>();
+        register_asset_loaders(&mut app);
+
+        let handle: Handle<ModelProxyMesh> = app.world().resource::<AssetServer>().load(url);
+        let mut tri_count = None;
+        for _ in 0..3000 {
+            app.update();
+            if let Some(p) = app.world().resource::<Assets<ModelProxyMesh>>().get(&handle) {
+                tri_count = Some(p.indices.len() / 3);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        let tris = tri_count.expect("Booty Bay's collision proxy should load");
+        assert!(tris > 0, "a whole dock town should have walking-collision triangles");
     }
 }

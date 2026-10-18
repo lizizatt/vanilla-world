@@ -232,6 +232,7 @@ pub(super) fn control(
         *right_click = None;
     }
     let focused = window.focused;
+    let chase_angles = (cam.yaw, cam.pitch);
     run_look_session(
         mouse_motion,
         both_buttons,
@@ -251,6 +252,10 @@ pub(super) fn control(
         time.elapsed_secs(),
         focused,
     );
+    if speed_capsule.10.cockpit {
+        (cam.yaw, cam.pitch) = chase_angles;
+        player.face_yaw = yaw_before_look;
+    }
     // The mouse turns the view, but the body hand-off (`0x514474`) skips a body that is stunned,
     // dead or seated (`0x5145e0`) or not ours to drive (`control_lost`, `reseat`), while the
     // camera rotate (`0x514444`) still runs. The reference never writes the facing; writing and
@@ -272,7 +277,10 @@ pub(super) fn control(
     // A rebound zoom key steps 1.0 per press, the stock `CameraZoomIn(1.0)` (`Bindings.xml:707`).
     let zoom = binds.amount(crate::bindings::Input::CameraZoomIn)
         - binds.amount(crate::bindings::Input::CameraZoomOut);
-    apply_zoom_scroll(zoom, dt, &mut rig, zoom_max);
+    let racer_owns_zoom = speed_capsule.10.enabled && speed_capsule.10.authorized;
+    if !racer_owns_zoom {
+        apply_zoom_scroll(zoom, dt, &mut rig, zoom_max);
+    }
 
     // Free fly is a dev tool on the dev chord: a bare `F` is the player's to bind.
     if crate::run_mode::dev_chord(&keys, KeyCode::KeyF) {
@@ -301,16 +309,11 @@ pub(super) fn control(
             .map(|(_, t, ..)| (t.translation, server_ride::yaw_of(t.rotation))),
     );
 
-    let (mounted, in_combat) = body
+    let mounted = body
         .single()
         .ok()
         .and_then(|(_, _, _, _, _, store, ..)| store)
-        .map_or((false, false), |s| {
-            (
-                s.0.unit_mount_display_id() == flats_racer::DISPLAY_ID,
-                s.0.unit_flags() & UNIT_FLAG_IN_COMBAT != 0,
-            )
-        });
+        .is_some_and(|s| s.0.unit_mount_display_id() == flats_racer::DISPLAY_ID);
     let eligible = player.active
         && !player.detached
         && player.foreign_mover.is_none()
@@ -321,7 +324,6 @@ pub(super) fn control(
         && player.knockback.is_none()
         && !dead
         && !stunned
-        && !in_combat
         && flats_racer::supports_map(speed_capsule.11 .0);
     // Deviation: unattended instrumentation never steals focus or admits physical background input.
     let synthetic = (!focused && std::env::var("WOW_UNATTENDED").as_deref() == Ok("1"))
@@ -332,6 +334,10 @@ pub(super) fn control(
         &mut player,
         racer_keys,
         (focused || synthetic.is_some()) && !typing && !covered && !inspect.enabled,
+        look_cfg,
+        zoom,
+        zoom_max,
+        pointer.5.nearclip,
         eligible,
         mounted,
         dt,
@@ -339,6 +345,7 @@ pub(super) fn control(
         &net.0,
         &speed_capsule.12,
         &collide,
+        world,
         &mut cam_t,
         &mut cam,
         &mut rig,
@@ -347,6 +354,9 @@ pub(super) fn control(
         &speed_acks,
     ) {
         return;
+    }
+    if racer_owns_zoom {
+        apply_zoom_scroll(zoom, dt, &mut rig, zoom_max);
     }
 
     let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z).normalize_or_zero();

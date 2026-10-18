@@ -658,7 +658,7 @@ fn stream_terrain(
             .copied()
             .filter(|&tile| {
                 if racer.active {
-                    !desired.contains(&tile)
+                    !racer::keeps(tile, (cx, cy), &desired)
                 } else {
                     !window.keeps(tile)
                 }

@@ -23,6 +23,11 @@ pub const LOOKAHEAD_SECONDS: f32 = 2.0;
 pub const MAX_LOOKAHEAD_YD: f32 = 2.0 * TILE_SIZE;
 pub const MAX_RESIDENT_TILES: usize = 40;
 
+/// Retain recently loaded neighbours through turns; requesting them again rebuilds their hulls.
+pub(super) fn keeps(tile: (i32, i32), body: (i32, i32), desired: &[(i32, i32)]) -> bool {
+    (tile.0 - body.0).abs().max((tile.1 - body.1).abs()) <= 2 || desired.contains(&tile)
+}
+
 /// At most 21 tiles: a 3x3 body ring swept at most two tile coordinates forward.
 pub(super) fn wanted(center: [f32; 3], velocity: [f32; 2]) -> Vec<(i32, i32)> {
     if !center.iter().chain(velocity.iter()).all(|v| v.is_finite()) {
@@ -432,6 +437,31 @@ mod tests {
     fn map_edges_never_request_off_grid_tiles() {
         for tile in wanted([17065.0, -17065.0, 0.0], [500.0, -500.0]) {
             assert!((0..64).contains(&tile.0) && (0..64).contains(&tile.1));
+        }
+    }
+
+    #[test]
+    fn racer_retains_nearby_tiles_when_lookahead_turns_away() {
+        let center = [-6235.0, -3945.0, -58.75];
+        let (x, y) = world_to_tile(center[0], center[1]);
+        let body = (x as i32, y as i32);
+        let stopped = wanted(center, [0.0; 2]);
+        let nearby = (body.0 + 2, body.1);
+        assert!(!stopped.contains(&nearby));
+        assert!(keeps(nearby, body, &stopped));
+        assert!(!keeps((body.0 + 3, body.1), body, &stopped));
+        assert!(!keeps(nearby, (body.0 - 1, body.1), &[]));
+        for velocity in [[500.0, 0.0], [-500.0, 0.0], [500.0, 500.0], [-500.0, -500.0]] {
+            let desired = wanted(center, velocity);
+            assert!(desired.iter().all(|&tile| keeps(tile, body, &desired)));
+            let retained = (0..64)
+                .flat_map(|x| (0..64).map(move |y| (x, y)))
+                .filter(|&tile| keeps(tile, body, &desired))
+                .count();
+            assert!(
+                retained <= MAX_RESIDENT_TILES,
+                "retention must leave room for every requested tile: {retained}"
+            );
         }
     }
 

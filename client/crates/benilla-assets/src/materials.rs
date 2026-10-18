@@ -324,6 +324,26 @@ pub struct WdlExt {
     /// Zero preserves the stock hull. Racer: x = fog start, y = fog end, z = visual limit.
     #[uniform(91)]
     pub racer_horizon: Vec4,
+    /// Racer only: the covering ADT tile's own minimap art (one 256² BLP, the same per-tile
+    /// overhead colour texture the HUD minimap streams), sampled in place of the flat procedural
+    /// tint. Defaults to `Handle::default()`, which binds Bevy's opaque-white fallback image, so
+    /// the stock branch (which never samples it) and an unauthored/unloaded racer tile both stay
+    /// visually unchanged.
+    #[texture(92, visibility(fragment))]
+    #[sampler(93, visibility(fragment))]
+    pub ground_tile: Handle<Image>,
+    /// Racer only: this tile's merged ADT liquid surface, the same authored MCLQ coverage, shore
+    /// gaps and kind the near-field would draw, read without that tile's terrain. `x` > 0.5 marks
+    /// the mesh a water surface (skips `ground_tile` entirely); `y` is the [`benilla_formats::
+    /// LiquidKind`] as a small code (0 = Still, 1 = Ocean, 2 = Magma — the only kinds an ADT MCLQ
+    /// carries). Zero (`x` = 0) on every terrain tile and on the whole stock hull.
+    #[uniform(94)]
+    pub racer_water: Vec4,
+    /// Racer only: this proxy mesh's feature kind. `x` > 0.5 marks the mesh a vegetation/building
+    /// LOD proxy (`ground_tile` supplies its alpha mask, not terrain colour); `y` is the kind code (0 =
+    /// vegetation, 1 = building). Zero (`x` = 0) on every terrain/water tile and the stock hull.
+    #[uniform(95)]
+    pub racer_feature: Vec4,
 }
 
 impl MaterialExtension for WdlExt {

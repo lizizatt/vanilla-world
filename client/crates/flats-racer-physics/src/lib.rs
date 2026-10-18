@@ -71,7 +71,7 @@ impl Default for Tuning {
             damping: 18.0,
             gravity: GRAVITY,
             hop_speed: 7.0,
-            air_control: 0.25,
+            air_control: 0.9,
         }
     }
 }
@@ -411,7 +411,10 @@ impl State {
                 + tuning.boost_acceleration as f64 * boost_fraction as f64)
             * authority
             * dt64;
-        let drag = (-(tuning.drag as f64) * dt64).exp();
+        // Scaled by authority like grip above: full air control keeps full drag, but a
+        // reduced air authority must not let full-strength drag outrun already-scaled-down
+        // airborne thrust, or holding the throttle in midair can never gain speed.
+        let drag = (-(tuning.drag as f64) * authority * dt64).exp();
         longitudinal *= drag;
         if input.brake {
             longitudinal = longitudinal.signum()

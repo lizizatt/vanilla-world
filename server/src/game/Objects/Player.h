@@ -1741,7 +1741,7 @@ class Player final: public Unit
         bool IsFlatsRacerActive() const { return m_flatsRacerActive; }
         bool CanUseFlatsRacer() const;
         bool StartFlatsRacer();
-        bool StopFlatsRacer(bool correctPosition = true);
+        bool StopFlatsRacer(bool correctPosition = true, char const* reason = nullptr);
         bool ResetFlatsRacer();
         bool ValidateFlatsRacerMovement(MovementInfo const& movement);
         bool IsOutdoorOnTransport() const;

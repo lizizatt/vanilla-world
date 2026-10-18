@@ -348,6 +348,7 @@ fn arm_transports(
                     drive: Drive::Taxi(timetable),
                     was_moving: false,
                 },
+                benilla_world::wdl::RacerTransport,
                 RigidBody::Kinematic,
             ));
         }

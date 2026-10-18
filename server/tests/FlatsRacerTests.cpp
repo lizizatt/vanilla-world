@@ -45,6 +45,18 @@ int main()
     assert(!AboveGround(nan, -58, invalidHeight));
     assert(!AboveGround(inf, -58, invalidHeight));
     assert(!AboveGround(-58, inf, invalidHeight));
+    // Only driving gets spring/interpolation slack; activation/reset remain strict.
+    assert(AboveGround(97.0f, 100.0f, invalidHeight, MovementGroundTolerance));
+    assert(!AboveGround(96.99f, 100.0f, invalidHeight, MovementGroundTolerance));
+    assert(!AboveGround(97.0f, 100.0f, invalidHeight));
+    assert(AboveGround(0.5f, 0.0f, invalidHeight, MovementGroundTolerance)); // water surface
+    assert(!AboveGround(-10.0f, 0.0f, invalidHeight, MovementGroundTolerance)); // water overhead is not support
+    assert(AboveGround(-10.0f, -10.5f, invalidHeight, MovementGroundTolerance)); // submerged ground remains valid
+    assert(!AboveGround(0, invalidHeight, invalidHeight, MovementGroundTolerance));
+    assert(!AboveGround(nan, 0, invalidHeight, MovementGroundTolerance));
+    assert(!AboveGround(0, inf, invalidHeight, MovementGroundTolerance));
+    assert(!AboveGround(0, 0, invalidHeight, nan));
+    assert(!AboveGround(0, 0, invalidHeight, -1));
     assert(PlainMovement(0, {0, 1, -1}));
     assert(PlainMovement(0x3f, {}));
     for (unsigned bit = 6; bit < 32; ++bit)
@@ -72,5 +84,5 @@ int main()
     assert(endpoints[1].x - endpoints[0].x == 800);
     assert(endpoints[1].y - endpoints[0].y == 1200);
     assert(endpoints[1].z - endpoints[0].z == 20);
-    // The integration must additionally enforce engine coordinates, loaded tiles and outdoor ground.
+    // Integration also enforces engine coordinates, loaded tiles and ground, without an indoor restriction.
 }

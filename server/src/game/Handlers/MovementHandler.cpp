@@ -294,7 +294,7 @@ void WorldSession::HandleMovementOpcodes(WorldPackets::Movement::MovementPacket 
     bool const racerMovement = _player->IsFlatsRacerActive();
     if (racerMovement && !_player->CanUseFlatsRacer())
     {
-        _player->StopFlatsRacer();
+        _player->StopFlatsRacer(true, "eligibility/control state changed before movement");
         return;
     }
 
@@ -321,8 +321,7 @@ void WorldSession::HandleMovementOpcodes(WorldPackets::Movement::MovementPacket 
 
     if (racerMovement && !_player->ValidateFlatsRacerMovement(packet.movementInfo))
     {
-        _player->SendSysMessage("Flats racer movement rejected; returning to safe ground.");
-        _player->StopFlatsRacer();
+        _player->StopFlatsRacer(true, "movement validation failed");
         return;
     }
 
@@ -430,7 +429,7 @@ void WorldSession::HandleForceSpeedChangeAckOpcodes(WorldPackets::Movement::Move
 {
     bool const racerAck = _player->IsFlatsRacerActive();
     if (racerAck)
-        _player->StopFlatsRacer();
+        _player->StopFlatsRacer(true, "speed-change acknowledgement");
 
     uint32 opcode = packet.GetOpcode();
 
@@ -555,7 +554,7 @@ void WorldSession::HandleMovementFlagChangeToggleAck(WorldPackets::Movement::Mov
 {
     bool const racerAck = _player->IsFlatsRacerActive();
     if (racerAck)
-        _player->StopFlatsRacer();
+        _player->StopFlatsRacer(true, "movement-flag acknowledgement");
 
     uint32 opcode = packet.GetOpcode();
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_9_4
@@ -672,7 +671,7 @@ void WorldSession::HandleMoveRootAck(WorldPackets::Movement::MoveRootAck const& 
 {
     bool const racerAck = _player->IsFlatsRacerActive();
     if (racerAck)
-        _player->StopFlatsRacer();
+        _player->StopFlatsRacer(true, "root/unroot acknowledgement");
 
     uint32 opcode = packet.GetOpcode();
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_9_4
@@ -780,7 +779,7 @@ void WorldSession::HandleMoveKnockBackAck(WorldPackets::Movement::MoveKnockBackA
 {
     bool const racerAck = _player->IsFlatsRacerActive();
     if (racerAck)
-        _player->StopFlatsRacer();
+        _player->StopFlatsRacer(true, "knockback acknowledgement");
 
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_9_4
     uint32 movementCounter = packet.movementCounter;
@@ -841,7 +840,7 @@ void WorldSession::HandleMoveSplineDoneOpcode(WorldPackets::Movement::MoveSpline
 {
     if (_player->IsFlatsRacerActive())
     {
-        _player->StopFlatsRacer();
+        _player->StopFlatsRacer(true, "spline-completion acknowledgement");
         return;
     }
 
@@ -936,7 +935,7 @@ void WorldSession::HandleMoveNotActiveMoverOpcode(WorldPackets::Movement::MoveNo
 {
     if (_player->IsFlatsRacerActive())
     {
-        _player->StopFlatsRacer();
+        _player->StopFlatsRacer(true, "inactive-mover movement");
         return;
     }
 
@@ -1182,7 +1181,8 @@ void WorldSession::HandleMoverRelocation(Unit* pMover, MovementInfo& movementInf
             pPlayerMover->SaveNoUndermapPosition(pMover->m_movementInfo.GetPos().x, pMover->m_movementInfo.GetPos().y, pMover->m_movementInfo.GetPos().z + 3.0f, pMover->m_movementInfo.GetPos().o);
 
         // Antiundermap2: teleport to graveyard
-        if (pMover->m_movementInfo.GetPos().z < -500.0f && !pPlayerMover->IsGameMaster())
+        if (pMover->m_movementInfo.GetPos().z < -500.0f && !pPlayerMover->IsGameMaster() &&
+            !pPlayerMover->IsFlatsRacerActive())
         {
             // NOTE: this is actually called many times while falling
             // even after the player has been teleported away

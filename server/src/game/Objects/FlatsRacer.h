@@ -11,6 +11,7 @@ namespace FlatsRacer
     constexpr bool DefaultEnabled = false;
     constexpr std::uint32_t MountDisplayId = 10318;
     constexpr float ResetGroundClearance = 0.25f;
+    constexpr float MovementGroundTolerance = 3.0f;
 
     inline bool Authorized(bool enabled, std::string const& address)
     {
@@ -30,10 +31,11 @@ namespace FlatsRacer
             orientation >= 0.0f && orientation <= 6.284f;
     }
 
-    inline bool AboveGround(float z, float ground, float invalidHeight)
+    inline bool AboveGround(float z, float ground, float invalidHeight, float tolerance = 0.75f)
     {
         return std::isfinite(z) && std::isfinite(ground) &&
-            ground > invalidHeight && z >= ground - 0.75f;
+            ground > invalidHeight && std::isfinite(tolerance) && tolerance >= 0.0f &&
+            z >= ground - tolerance;
     }
 
     inline bool PlainMovement(std::uint32_t flags, std::initializer_list<float> values)

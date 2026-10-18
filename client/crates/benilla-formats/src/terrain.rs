@@ -578,6 +578,13 @@ impl MapTiles {
         &self.map
     }
 
+    /// Does tile `(x, y)` have an authored ADT (`MAIN` flag bit 0)? Lets a caller skip requesting
+    /// a tile's `.adt` at all when the WDT already says there is none — an unauthored map-edge
+    /// tile is a known, not a failed, outcome.
+    pub fn has_tile(&self, x: u32, y: u32) -> bool {
+        tile_exists(&self.wdt, x, y)
+    }
+
     /// The tile `(x, y)` containing a world `(x, y)`.
     pub fn tile_at(&self, world_x: f32, world_y: f32) -> (u32, u32) {
         benilla_wdt::world_to_tile(world_x, world_y)
@@ -744,6 +751,23 @@ mod tests {
         assert_eq!(
             dm.global_wmo().expect("WMO-only").rotation,
             [0.0, 180.0, 0.0]
+        );
+    }
+
+    /// `MapTiles::has_tile` is the public surface the racer's water request pre-filters on
+    /// (`benilla_world::wdl::request_tile_water`): it must agree with the raw WDT walk above.
+    #[test]
+    fn map_tiles_has_tile_matches_the_wdt_walk() {
+        let data = crate::wow_data_or_skip!();
+        let mut chain = crate::open_chain(&data).expect("open chain");
+        let map_tiles = MapTiles::load(&mut chain, "Azeroth").expect("Azeroth.wdt");
+        assert!(
+            map_tiles.has_tile(32, 48),
+            "Crystal Lake (Azeroth_32_48) is an authored tile"
+        );
+        assert!(
+            !map_tiles.has_tile(0, 0),
+            "Azeroth_0_0 is off the authored map"
         );
     }
 

@@ -601,6 +601,17 @@ fn loads_classic_models_with_cosmetic_chunks() {
     }
 }
 
+/// `model_path`'s lowercase-and-`.mdx`/`.mdl`-to-`.m2` normalization is crate-private;
+/// `benilla-world`'s `normalize_doodad_model_path` duplicates it for the same reason this test
+/// does: an integration test only sees `benilla_formats`'s public surface.
+fn pine_m2_path(raw: &str) -> String {
+    let lower = raw.to_ascii_lowercase();
+    match lower.strip_suffix(".mdx").or_else(|| lower.strip_suffix(".mdl")) {
+        Some(stem) => format!("{stem}.m2"),
+        None => lower,
+    }
+}
+
 fn span3(ps: &[[f32; 3]]) -> [f32; 3] {
     if ps.is_empty() {
         return [0.0; 3];
@@ -673,6 +684,57 @@ fn decodes_m2_collision_hulls() {
     assert!(
         hull_x < render_x * 0.6,
         "collision hull (X span {hull_x:.1}) should be far tighter than the render bbox ({render_x:.1})"
+    );
+}
+
+/// Sampled evidence for the racer vegetation LOD proxy's geometry source. `ElwynnTree01`'s trunk
+/// and canopy are two *separate* authored doodad placements sharing one world position — confirmed
+/// below: the trunk model's own render mesh is itself trunk-sized (no canopy to lose), so the fix
+/// matters for `ElwynnTreeCanopy01`, the doodad that actually carries the canopy geometry. Its
+/// collision hull (52 tris/30 verts, asserted above) is already known "far tighter than the render
+/// bbox"; this confirms the racer vegetation proxy's new geometry source (`M2ProxyLoader` now reads
+/// `parse_m2_render_submeshes`, replacing the collision hull it used to read) actually recovers a
+/// canopy-width footprint for this placement, not just in theory.
+#[test]
+fn m2_render_submeshes_cover_the_canopy_the_collision_hull_misses() {
+    let data = benilla_formats::wow_data_or_skip!();
+    let mut chain = open_chain(&data).expect("open vanilla patch chain");
+
+    let path = "World\\Azeroth\\Elwynn\\PassiveDoodads\\Trees\\ElwynnTreeCanopy01.mdx";
+    let hull = benilla_formats::load_m2_collision_hull(&mut chain, path).expect("canopy hull");
+    let hull_span = span3(&hull.positions);
+
+    let bytes = chain
+        .read_file(&pine_m2_path(path))
+        .expect("read ElwynnTreeCanopy01 bytes");
+    let submeshes = benilla_formats::parse_m2_render_submeshes(&bytes, "", &[])
+        .expect("canopy render submeshes");
+    let mut positions = Vec::new();
+    let mut indices = Vec::new();
+    for sub in &submeshes {
+        let base = positions.len() as u32;
+        positions.extend_from_slice(&sub.positions);
+        indices.extend(sub.indices.iter().map(|i| i + base));
+    }
+    let render_tris = indices.len() / 3;
+    let render_span = span3(&positions);
+
+    assert!(
+        render_tris > 0,
+        "ElwynnTreeCanopy01 render mesh must have at least some real geometry"
+    );
+    // The collision hull is already known (above) to be "far tighter than the render bbox"; this
+    // confirms the render-mesh footprint is wider than the hull's by a visible, not marginal,
+    // margin for this specific canopy placement — the model the racer vegetation proxy actually
+    // needs a canopy-width silhouette for.
+    assert!(
+        render_span[0] > hull_span[0] * 1.3 && render_span[1] > hull_span[1] * 1.3,
+        "render mesh footprint (X={:.1} Y={:.1}) should be visibly wider than the canopy's own \
+         collision hull (X={:.1} Y={:.1})",
+        render_span[0],
+        render_span[1],
+        hull_span[0],
+        hull_span[1]
     );
 }
 

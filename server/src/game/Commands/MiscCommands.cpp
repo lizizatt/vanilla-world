@@ -47,7 +47,9 @@ bool ChatHandler::HandleFlatsRacerCommand(char* args)
     std::string const action = args ? args : "";
     bool success = false;
     if (action == "off")
-        success = player->StopFlatsRacer();
+        // A plain dismount should leave the player where they currently are;
+        // only the explicit "reset" command teleports back to the safe start point.
+        success = player->StopFlatsRacer(false);
     else if (action == "on")
         success = player->StartFlatsRacer();
     else if (action == "reset")

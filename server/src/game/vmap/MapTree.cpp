@@ -27,6 +27,7 @@
 #include <sstream>
 #include <iomanip>
 #include <limits>
+#include <cerrno>
 
 #include "Util.h"
 
@@ -296,7 +297,7 @@ namespace VMAP
 
     //=========================================================
 
-    bool StaticMapTree::CanLoadMap(std::string const& vmapPath, uint32 mapID, uint32 tileX, uint32 tileY)
+    bool StaticMapTree::CanLoadMap(std::string const& vmapPath, uint32 mapID, uint32 tileX, uint32 tileY, bool allowEmptyTile)
     {
         std::string basePath = vmapPath;
         if (basePath.length() > 0 && (basePath[basePath.length() - 1] != '/' && basePath[basePath.length() - 1] != '\\'))
@@ -319,7 +320,8 @@ namespace VMAP
             std::string tilefile = basePath + getTileFileName(mapID, tileX, tileY);
             FILE* tf = fopen(tilefile.c_str(), "rb");
             if (!tf)
-                success = false;
+                // The assembler omits empty tiles; LoadMapTile accepts them too.
+                success = allowEmptyTile && errno == ENOENT;
             else
             {
                 if (!readChunk(tf, chunk, VMAP_MAGIC, 8))

@@ -685,7 +685,7 @@ void WorldSession::LogoutPlayer(bool Save)
         bool inWorld = _player->IsInWorld() && _player->FindMap();
 
         if (_player->IsFlatsRacerActive())
-            _player->StopFlatsRacer(inWorld);
+            _player->StopFlatsRacer(inWorld, "logout");
 
         sLog.Player(this, LOG_CHAR, "Logout", LOG_LVL_DETAIL, "");
 

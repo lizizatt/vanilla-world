@@ -352,9 +352,11 @@ pub(super) fn drive(
     camera::chase(
         player.pos,
         state.yaw,
-        speed,
+        16.0 + (speed / 80.0).clamp(0.0, 1.0) * 4.0,
         time.delta_secs(),
         probe.frames == 0 || resetting,
+        Vec2::ZERO,
+        Default::default(),
         racer.camera_position_seconds,
         &mut probe.camera_position,
         &mut camera,
@@ -508,6 +510,7 @@ fn drive_stream_probe(
         world,
         progress,
         &tuning,
+        &|_| None,
     )
     .unwrap_or_else(|error| panic!("flats racer streaming probe: {error:?}"));
     let advance_ms = advance_started.elapsed().as_secs_f64() * 1000.0;
@@ -584,9 +587,11 @@ fn drive_stream_probe(
     camera::chase(
         player.pos,
         state.yaw,
-        speed,
+        16.0 + (speed / 80.0).clamp(0.0, 1.0) * 4.0,
         dt,
         stream.run.seconds == 0.0,
+        Vec2::ZERO,
+        Default::default(),
         racer.camera_position_seconds,
         &mut probe.camera_position,
         camera_transform,

@@ -472,9 +472,43 @@ fn fixed_colors(group: &WmoGroup, group_bytes: &[u8], root: &WmoRoot) -> Option<
 
 /// Build one group's render submeshes against `root`; empty if the bytes are not a group.
 pub fn wmo_group_submeshes(group_bytes: &[u8], root: &WmoRoot) -> Result<Vec<RenderSubmesh>> {
+    group_submeshes(group_bytes, root, false)
+}
+
+/// Racer proxy loading rejects corrupt/missing render surfaces instead of reporting an empty
+/// successful building. The detailed renderer keeps its existing permissive patch behavior.
+pub fn wmo_group_submeshes_strict(
+    group_bytes: &[u8],
+    root: &WmoRoot,
+) -> Result<Vec<RenderSubmesh>> {
+    group_submeshes(group_bytes, root, true)
+}
+
+fn group_submeshes(group_bytes: &[u8], root: &WmoRoot, strict: bool) -> Result<Vec<RenderSubmesh>> {
     let Ok(ParsedWmo::Group(group)) = parse_wmo(&mut Cursor::new(group_bytes)) else {
+        if strict {
+            anyhow::bail!("invalid WMO render group");
+        }
         return Ok(Vec::new());
     };
+    if strict {
+        for batch in &group.render_batches {
+            let start = batch.start_index as usize;
+            let Some(indices) = group
+                .vertex_indices
+                .get(start..start + batch.count as usize)
+            else {
+                anyhow::bail!("WMO render batch outside index stream");
+            };
+            if indices.len() % 3 != 0
+                || indices
+                    .iter()
+                    .any(|&i| i as usize >= group.vertex_positions.len())
+            {
+                anyhow::bail!("invalid WMO render triangle");
+            }
+        }
+    }
     // The reference fades once per group, gated on its `+0xbc` done-byte (`0x6b3f90`); a group
     // loads once, so the load is the gate.
     let colors = fixed_colors(&group, group_bytes, root).unwrap_or_default();

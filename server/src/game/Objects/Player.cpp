@@ -40,6 +40,8 @@
 #include "Channel.h"
 #include "ChannelMgr.h"
 #include "MapManager.h"
+#include "vmap/MapTree.h"
+#include "vmap/VMapFactory.h"
 #include "MapPersistentStateMgr.h"
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
@@ -1110,22 +1112,37 @@ AutoAttackCheckResult Player::CanAutoAttackTarget(Unit const* pVictim) const
     return Unit::CanAutoAttackTarget(pVictim);
 }
 
-static char const* FlatsRacerGroundError(Map const* map, Position const& p, float& ground)
+static char const* FlatsRacerGroundError(Map const* map, Position const& p, float& ground, bool moving = false)
 {
     if (!map || !map->IsContinent() || !FlatsRacer::WorldMap(map->GetId()))
-        return "only outdoor world maps 0 and 1 are supported";
+        return "only continent world maps 0 and 1 are supported";
     if (!FlatsRacer::FinitePosition(p.x, p.y, p.z, p.o) ||
         !MapManager::IsValidMapCoord(map->GetId(), p.x, p.y, p.z, p.o))
         return "coordinates must be finite, within engine map bounds, and orientation 0..6.284";
-    if (!MapManager::ExistMapAndVMap(map->GetId(), p.x, p.y))
-        return "destination terrain/collision tile is unavailable; install the map and vmap data";
+    GridPair const grid = MaNGOS::ComputeGridPair(p.x, p.y);
+    int const gx = 63 - grid.x_coord;
+    int const gy = 63 - grid.y_coord;
+    if (!GridMap::ExistMap(map->GetId(), gx, gy))
+        return "destination terrain tile is unavailable; install the map data";
+    // Empty VMAP tiles are intentionally omitted by the assembler, not missing extraction.
+    if (VMAP::VMapFactory::createOrGetVMapManager()->isMapLoadingEnabled() &&
+        !VMAP::StaticMapTree::CanLoadMap(sWorld.GetDataPath() + "vmaps", map->GetId(), gx, gy, true))
+        return "destination collision data is missing or incompatible";
     ground = map->GetHeight(p.x, p.y, p.z, true, MAX_FALL_DISTANCE);
+    if (moving)
+    {
+        GridMapLiquidData liquid{};
+        if (map->GetTerrain()->getLiquidStatus(p.x, p.y, p.z,
+                MAP_LIQUID_TYPE_WATER | MAP_LIQUID_TYPE_OCEAN, &liquid) != LIQUID_MAP_NO_WATER &&
+            FlatsRacer::AboveGround(p.z, liquid.level, INVALID_HEIGHT, FlatsRacer::MovementGroundTolerance) &&
+            liquid.level > ground)
+            ground = liquid.level;
+    }
     if (!std::isfinite(ground) || ground <= INVALID_HEIGHT)
         return "no valid terrain/collision ground was found below the destination";
-    if (!FlatsRacer::AboveGround(p.z, ground, INVALID_HEIGHT))
-        return "destination is below terrain/collision ground";
-    if (!map->GetTerrain()->IsOutdoors(p.x, p.y, p.z))
-        return "destination is indoors; remain on outdoor terrain";
+    if (!FlatsRacer::AboveGround(p.z, ground, INVALID_HEIGHT,
+            moving ? FlatsRacer::MovementGroundTolerance : 0.75f))
+        return "destination is below the supported terrain/collision/water surface";
     return nullptr;
 }
 
@@ -1133,7 +1150,7 @@ bool Player::CanUseFlatsRacer() const
 {
     return FlatsRacer::Authorized(sWorld.getConfig(CONFIG_BOOL_CUSTOM_FLATS_RACER),
         GetSession()->GetRemoteAddress()) &&
-        IsInWorld() && IsAlive() && !IsInCombat() && !IsTaxiFlying() && !GetTransport() &&
+        IsInWorld() && IsAlive() && !IsTaxiFlying() && !GetTransport() &&
         (!IsMounted() || (m_flatsRacerActive && m_flatsRacerMountDisplayId &&
             GetUInt32Value(UNIT_FIELD_MOUNTDISPLAYID) == m_flatsRacerMountDisplayId)) &&
         (!m_flatsRacerActive || IsMounted()) &&
@@ -1245,10 +1262,26 @@ bool Player::ReturnToFlatsRacerStart()
     return true;
 }
 
-bool Player::StopFlatsRacer(bool correctPosition)
+bool Player::StopFlatsRacer(bool correctPosition, char const* reason)
 {
     if (!m_flatsRacerActive)
         return false;
+    if (reason)
+    {
+        PSendSysMessage("Flats racer stopped: %s%s.", reason,
+            correctPosition ? "; returning to the saved start" : "");
+        sLog.Player(GetSession(), LOG_MOVEMENT, LOG_LVL_MINIMAL,
+            "Flats racer stopped: %s; correct=%u map=%u startMap=%u pos=(%.3f,%.3f,%.3f,%.3f) enabled=%u loopback=%u world=%u alive=%u combat=%u taxi=%u transport=%u mount=%u expectedMount=%u launched=%u free=%u pendingSpline=%u splineFinal=%u selfMover=%u confirmedMover=%u flags=0x%x",
+            reason, unsigned(correctPosition), GetMapId(), m_flatsRacerStartMap,
+            GetPositionX(), GetPositionY(), GetPositionZ(), GetOrientation(),
+            unsigned(sWorld.getConfig(CONFIG_BOOL_CUSTOM_FLATS_RACER)),
+            unsigned(FlatsRacer::Authorized(true, GetSession()->GetRemoteAddress())),
+            unsigned(IsInWorld()), unsigned(IsAlive()), unsigned(IsInCombat()), unsigned(IsTaxiFlying()),
+            unsigned(GetTransport() != nullptr), GetUInt32Value(UNIT_FIELD_MOUNTDISPLAYID), m_flatsRacerMountDisplayId,
+            unsigned(IsLaunched()), unsigned(CanFreeMove()), unsigned(HasPendingSplineDone()),
+            unsigned(movespline->Finalized()), unsigned(IsSelfMover()), unsigned(GetConfirmedMover() == this),
+            unsigned(m_movementInfo.GetMovementFlags()));
+    }
     m_flatsRacerActive = false;
     if (m_flatsRacerMountDisplayId &&
         GetUInt32Value(UNIT_FIELD_MOUNTDISPLAYID) == m_flatsRacerMountDisplayId)
@@ -1268,7 +1301,7 @@ bool Player::ResetFlatsRacer()
     if (!ReturnToFlatsRacerStart())
     {
         m_flatsRacerActive = true;
-        StopFlatsRacer(false);
+        StopFlatsRacer(false, "reset correction failed");
         return false;
     }
     m_flatsRacerActive = true;
@@ -1290,7 +1323,7 @@ bool Player::ValidateFlatsRacerMovement(MovementInfo const& movement)
         return false;
     }
     float ground = INVALID_HEIGHT;
-    if (char const* reason = FlatsRacerGroundError(GetMap(), p, ground))
+    if (char const* reason = FlatsRacerGroundError(GetMap(), p, ground, true))
     {
         PSendSysMessage("Flats racer movement rejected: %s (map=%u x=%.3f y=%.3f z=%.3f).",
             reason, GetMapId(), p.x, p.y, p.z);
@@ -1305,7 +1338,7 @@ void Player::Update(uint32 update_diff, uint32 p_time)
         return;
 
     if (m_flatsRacerActive && !CanUseFlatsRacer())
-        StopFlatsRacer();
+        StopFlatsRacer(true, "eligibility/control state changed during update");
 
     UpdateMirrorTimers(update_diff);
 
@@ -1700,7 +1733,7 @@ void Player::Heartbeat()
 void Player::SetDeathState(DeathState s)
 {
     if (s != ALIVE && m_flatsRacerActive)
-        StopFlatsRacer();
+        StopFlatsRacer(true, "death");
 
     uint32 ressSpellId = 0;
 
@@ -2047,7 +2080,7 @@ bool Player::SwitchInstance(uint32 newInstanceId)
 bool Player::TeleportTo(uint32 mapId, float x, float y, float z, float orientation, uint32 options, std::function<void()> recover)
 {
     if (m_flatsRacerActive)
-        StopFlatsRacer(false);
+        StopFlatsRacer(false, "external teleport");
 
     if (!MapManager::IsValidMapCoord(mapId, x, y, z, orientation))
     {
@@ -2404,7 +2437,7 @@ void Player::AddToWorld()
 void Player::RemoveFromWorld()
 {
     if (m_flatsRacerActive)
-        StopFlatsRacer(false);
+        StopFlatsRacer(false, "world removal");
 
     if (m_transport)
         SendDestroyGroupMembers(true);
@@ -18454,7 +18487,7 @@ UnitDismountResult Player::Unmount(bool from_aura)
 
     SendDismountResult(DISMOUNTRESULT_OK);
     if (m_flatsRacerActive)
-        StopFlatsRacer();
+        StopFlatsRacer(true, "external dismount");
     return DISMOUNTRESULT_OK;
 }
 

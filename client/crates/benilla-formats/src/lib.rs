@@ -267,6 +267,7 @@ pub use models::{
     parse_wmo_portals, parse_wmo_root, rotation_2x2, shipped_glue_art_extent, uv_transform,
     wmo_group_doodad_refs, wmo_group_fixed_colors, wmo_group_footprint_tris, wmo_group_header,
     wmo_group_light_refs, wmo_group_liquid_mesh, wmo_group_raw_colors, wmo_group_submeshes,
+    wmo_group_submeshes_strict,
     wmo_root_id, AlphaAnim, AlphaMap, AlphaSeq, AnimEvent, ArtExtent, BatchFootprint, Billboard,
     BillboardKind, BoneKeys, BoneScaleAnim, BoneSpin, CharSkinSlot, CollisionMesh, Coverage,
     CoverageReader, EmitterBoneLink, EventMarker, FogPolicy, FootprintTris, GlobalSeqBone,
@@ -291,6 +292,10 @@ pub use benilla_wdt::{
     tile_to_world, world_to_chunk, world_to_tile, GlobalWmo, WdtFile, WdtReader, WowVersion,
 };
 pub use wdl::{WdlFile, WdlTileMesh};
+
+// The racer's distant water: liquid-only ADT reads, reusing `liquid`'s MCLQ mesher.
+mod adt_liquid_summary;
+pub use adt_liquid_summary::{adt_bytes_to_liquid_only, adt_bytes_to_racer_features, load_adt_liquid_only};
 
 // The minimap tile hash catalog and the world-map DBCs.
 mod minimap_translate;
