@@ -637,6 +637,31 @@ beneath a newly admitted low ceiling without unloading it. These isolated checks
 full-world frame-rate or loading-latency guarantees. There is still no remote
 game server in this browser path; the retained queue is the local simulation worker.
 
+### Terrain admission and scene allocation corrections
+
+Packed 4-bit terrain alpha now writes RGBA pairs directly and fixes border rows
+and columns once per layer. The completed mask buffer is moved instead of copied
+(4 MiB of mask copies avoided per full tile). Scene selection reuses each fresh
+request object and a constant priority table; placement/bounds transforms avoid
+temporary callback and corner arrays without changing arithmetic order.
+Collision demand, culling ranges, request priority and residency policy are unchanged.
+
+Native regressions compare the packed decoder with the previous per-texel path,
+including channels, edge correction, offsets and truncated data. JavaScript
+regressions require exact matrix and bounds equality, not approximate geometry.
+For an actual-Wasm comparison, save the previous `browser\pkg` separately before
+rebuilding, set `WOW_DATA`, then run:
+
+```powershell
+node browser\admission-smoke.mjs browser\test-results\admission-before-performance-843621e
+```
+
+This checks eight real ADTs across both continents, with 32 alternating admissions
+per build. Geometry, placements, material vertices/indices, masks and paths must
+have identical SHA-256 digests. Timings cover Rust `add_tile` and its material
+stage, not browser uploads or end-to-end frame latency. Private assets remain in
+memory; baseline builds and evidence remain local and ignored.
+
 [ASSETS.md](ASSETS.md) documents the bounded MPQ reader, corruption semantics,
 77-file native/Node/Edge parity and the whole-install codec census. All 2,389,542
 compressed sectors in this installation used supported zlib; other installations
