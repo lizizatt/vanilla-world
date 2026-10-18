@@ -490,8 +490,8 @@ export class WorldRenderer {
     this.cameraLook=look;
     const view=[...this.camera,200000,...right,0,...up,0,...look,0];
     const distant=settings.horizon?this.horizon.filter(h=>!this.tiles.has(h.near)):[];
-    const terrain=[...distant,...this.tiles.values(),...(settings.horizon?this.seams.values():[]),...this.water];
-    if(!flight&&!this.craft)terrain.push(this.body);
+    const terrain=this.cameraBlocked?[]:[...distant,...this.tiles.values(),...(settings.horizon?this.seams.values():[]),...this.water];
+    if(!flight&&!this.craft&&!this.cameraBlocked)terrain.push(this.body);
     let uniformCount=0;
     const u=this.uniformData,aspect=width/height;
     const writeUniform=item=>{
@@ -506,7 +506,8 @@ export class WorldRenderer {
       u[base+24]=body?0:item.placement[0]-origin[0];u[base+25]=0;
       u[base+26]=body?0:item.placement[1]-origin[1];u[base+27]=item.cell??-1;
     }
-    const draws=[],selection=sceneSelection(this.instances.filter(i=>settings.distant!==false || !i.distant),this.assets);
+    const draws=[],selection=this.cameraBlocked?{selected:[],omitted:0}:
+      sceneSelection(this.instances.filter(i=>settings.distant!==false || !i.distant),this.assets);
     const append=(asset,instance,m,textures,items)=>{
         const distance=Math.hypot(m[12]-this.camera[0],m[13]-this.camera[1],m[14]-this.camera[2]);
         const cached=instance.drawItems || (instance.drawItems=[]);
@@ -547,8 +548,7 @@ export class WorldRenderer {
       colorAttachments:[{view:this.context.getCurrentTexture().createView(),clearValue:SKY,loadOp:'clear',storeOp:'store'}],
       depthStencilAttachment:{view:this.depth.createView(),depthClearValue:1,depthLoadOp:'clear',depthStoreOp:'store'},
     });
-    this.drawTerrain(pass,terrain);
-    this.drawScene(pass,draws);
+    if(!this.cameraBlocked){this.drawTerrain(pass,terrain);this.drawScene(pass,draws);}
     pass.end();this.device.queue.submit([encoder.finish()]);
     return {horizonTiles:distant.length,detailedTiles:this.tiles.size,sceneInstances:this.instances.length,
       texturedTerrainTiles:[...this.tiles.values()].filter(t=>t.material).length,
@@ -558,6 +558,7 @@ export class WorldRenderer {
       sceneBundleBuilds:this.sceneBundleBuilds,
       craftDraws:draws.filter(d=>d.craft).length,craftPose:this.craft?.metadata.pose||'placeholder',craftGpuBytes:this.craft?.bytes||0,
       craftReady:!!this.craft,cockpitAvailable:!!this.craft?.anchor,cameraMode:this.cameraMode,
+      cameraBlocked:this.cameraBlocked,worldDraws:terrain.length+draws.length,
       craftStatus:this.craft?'ready':this.craftError?'failed':'loading',
       craftTriangles:this.craft?this.craft.asset.count/3:0,craftError:this.craftError,
       npcInstances:this.instances.filter(i=>i.id.includes(':npc:')).length,

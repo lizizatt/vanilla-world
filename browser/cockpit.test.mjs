@@ -25,13 +25,22 @@ test('cockpit uses the posed model seat and body basis, without velocity-depende
   cameraView(r,p,undefined,.016,moved,settings);
   near(r.camera.map((n,i)=>n+(i===0?moved[0]:i===2?moved[1]:0)),world);
 });
-test('cockpit clips its entire body-to-eye path against world geometry',()=>{
+test('cockpit holds the exact seat and reports a blocked view instead of retracting through geometry',()=>{
   const collision=new CameraCollision(),r=rig(),p=[0,12,0,0,0];
   collision.event({event:'collision',vertices:new Float64Array([-30,13,-30,30,13,-30,0,13,30]),
     nodes:new Float64Array([-30,13,-30,30,13,30,0,1,-1,-1])});
   r.clipCamera=(from,to,origin)=>collision.clip(from,to,origin);
+  const view=cameraView(r,p,undefined,.016,[0,0],settings);
+  near(r.camera,[-6,21.5,-4]);
+  assert.equal(r.cameraBlocked,'geometry');assert.equal(view.collisionReady,false);
+  assert.equal(r.cameraMode,'cockpit');
+  r.cameraCollisionReady=false;r.clipCamera=from=>from;
+  p[0]+=500;
   cameraView(r,p,undefined,.016,[0,0],settings);
-  assert(r.camera[1]<13&&r.camera[1]>=12);
+  near(r.camera,[494,21.5,-4]);assert.equal(r.cameraBlocked,'pending');
+  r.clipCamera=(_from,to)=>to;
+  cameraView(r,p,undefined,.016,[0,0],settings);
+  near(r.camera,[494,21.5,-4]);assert.equal(r.cameraBlocked,undefined);
 });
 test('cockpit look/back, fly, chase and camera resets do not retain the previous rig position',()=>{
   const r=rig(),p=[0,12,0,0,0];
@@ -43,7 +52,8 @@ test('cockpit look/back, fly, chase and camera resets do not retain the previous
   cameraView(r,p,undefined,.016,[0,0],{});assert.equal(r.cameraMode,'chase');assert(r.camera[2]>0);
   r.camera=undefined;p[0]=100;
   cameraView(r,p,undefined,.016,[0,0],settings);near(r.camera,[94,21.5,-4]);
-  delete r.clipCamera;cameraView(r,p,undefined,.016,[0,0],settings);assert.equal(r.cameraMode,'chase');
+  delete r.clipCamera;cameraView(r,p,undefined,.016,[0,0],settings);
+  assert.equal(r.cameraMode,'cockpit');assert.equal(r.cameraBlocked,'pending');near(r.camera,[94,21.5,-4]);
 });
 test('missing or malformed authored seats never become invented attachment coordinates',()=>{
   assert.equal(cockpitAnchor({}),undefined);

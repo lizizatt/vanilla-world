@@ -6,25 +6,70 @@ import {fillEngineBuffer,EngineEnvelope,WorldAudio} from './world-audio.js';
 import {TUNING_FIELDS,validateTuningRecord} from './world-tuning.js';
 import {CameraCollision} from './camera-collision.js';
 
-test('native chase smoothing is time-based, rebases precisely, and clips after filtering',()=>{
+test('local chase distance damping is time-based, rebases precisely, and clips after filtering',()=>{
   const state=[100,2,100,0],settings={cameraSeconds:.5,cameraDistance:15};
   const run=fps=>{
-    const rig={camera:[0,0,0],origin:[100,100],chase:[0,-Math.atan(.3)],lookBack:false};
+    const rig={};
+    cameraView(rig,state,undefined,0,[100,100],{...settings,cameraDistance:5});
     for(let i=0;i<fps;i++)cameraView(rig,state,undefined,1/fps,[100,100],settings);
     return rig.camera;
   };
   const reference=run(30);
   for(const fps of [60,144])assert(run(fps).every((n,i)=>Math.abs(n-reference[i])<1e-10));
-  const rig={camera:[1,2,3],origin:[1e9,-1e9],chase:[0,0],lookBack:false};
+  const rig={};
+  cameraView(rig,[1e9,2,-1e9,0],undefined,0,[1e9,-1e9],settings);
+  const before=rig.camera.slice();
   cameraView(rig,[1e9,2,-1e9,0],undefined,0,[1e9+256,-1e9+256],settings);
-  assert.deepEqual(rig.camera,[-255,2,-253]);
+  assert.deepEqual(rig.camera,before.map((n,i)=>n-(i===1?0:256)));
   let casts=0;
   rig.clipCamera=(_pivot,to)=>{casts++;return [to[0],to[1],Math.min(4,to[2])];};
   cameraView(rig,[0,2,0,0],undefined,.016,[0,0],settings);
   assert.equal(casts,2);assert(rig.camera[2]<=4);
   rig.camera=undefined;
   cameraView(rig,[0,2,0,1],undefined,0,[0,0],settings);
-  assert.equal(rig.chase[0],1);
+  assert.equal(rig.chase[0],0,'Orbit is vehicle-relative, not a delayed world heading');
+});
+test('500yd/s acceleration, reverse and turns never accumulate chase translation or heading lag',()=>{
+  const distance=14.85,pitch=-Math.atan(.3);
+  for(const shift of [0,1e9])for(const fps of [30,60,144]){
+    const rig={},state=[shift,2,-shift,0,0,0,1,1,0];
+    for(let i=0;i<fps*4;i++){
+      const speed=i<fps?500*i/fps:i<2*fps?500:-500;
+      state[3]=i/fps*.9;state[5]=Math.abs(speed);
+      state[0]-=Math.sin(state[3])*speed/fps;state[2]-=Math.cos(state[3])*speed/fps;
+      const origin=[Math.round(state[0]/256)*256,Math.round(state[2]/256)*256];
+      cameraView(rig,state,undefined,1/fps,origin,{cameraDistance:15,cameraSeconds:.5});
+      const offset=rig.camera.map((n,k)=>n-(k===0?state[0]-origin[0]:k===1?state[1]:state[2]-origin[1]));
+      const expected=[Math.sin(state[3])*Math.cos(pitch)*distance,3-Math.sin(pitch)*distance,
+        Math.cos(state[3])*Math.cos(pitch)*distance];
+      assert(offset.every((n,k)=>Math.abs(n-expected[k])<1e-9),'Translation, speed and yaw must not change the local offset');
+    }
+  }
+});
+test('grounded vertical jitter is damped without horizontal lag or unbounded climb compensation',()=>{
+  const rig={},state=[0,2,0,0,0,500,1,1,0],raw=[],drawn=[];
+  const height=3+14.85*Math.sin(Math.atan(.3));
+  for(let i=0;i<180;i++){
+    state[0]=i*500/60;state[1]=2+.15*Math.sin(i*Math.PI/3);
+    cameraView(rig,state,undefined,1/60,[0,0],{});
+    assert.equal(rig.camera[0],state[0]);
+    if(i>60){raw.push(state[1]);drawn.push(rig.camera[1]);}
+  }
+  const span=a=>Math.max(...a)-Math.min(...a);
+  assert(span(drawn)<span(raw)*.1,'Suspension-scale terrain jitter must actually be attenuated');
+  for(let i=0;i<120;i++){
+    state[1]+=1;
+    cameraView(rig,state,undefined,1/60,[0,0],{});
+    assert(Math.abs(rig.camera[1]-state[1]-height)<=.350001);
+  }
+  for(const [grounded,hold] of [[0,0],[1,1],[1,3]]){
+    state[7]=grounded;state[8]=hold;
+    cameraView(rig,state,undefined,1/60,[0,0],{});
+    assert(Math.abs(rig.camera[1]-state[1]-height)<1e-9);
+  }
+  rig.camera=undefined;state[1]=500;state[7]=1;state[8]=0;
+  cameraView(rig,state,undefined,0,[0,0],{});
+  assert(Math.abs(rig.camera[1]-state[1]-height)<1e-9);
 });
 test('camera orbit clamps pitch, wraps yaw and returns behind the craft; flight bypasses chase',()=>{
   const rig={},state=[0,2,0,Math.PI-.01];

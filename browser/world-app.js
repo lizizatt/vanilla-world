@@ -32,7 +32,11 @@ const client=new WorldClient(data=>{
     if(data.event==='progress'){if(!evidence.ready)report('Loading world...');}
     else {
       cameraCollision.event(data);
-      if(data.event==='collision')renderer.clipCamera=(pivot,point,origin)=>cameraCollision.clip(pivot,point,origin);
+      if(data.event==='collision')renderer.clipCamera=(pivot,point,origin)=>{
+        const pointWithClearance=cameraCollision.clip(pivot,point,origin);
+        renderer.cameraCollisionReady=cameraCollision.ready;
+        return pointWithClearance;
+      };
       else renderer.event(data);
     }
   } catch(error){running=false;fail(error);}
@@ -204,7 +208,7 @@ $('camera-distance').addEventListener('input',()=>{
 $('sound').addEventListener('change',()=>{settings.sound=$('sound').checked;if(settings.sound)resumeAudio(true);else pauseAudio();canvas.focus();});
 $('resume-sound').addEventListener('click',()=>{canvas.focus();resumeAudio(true);});
 $('cockpit').addEventListener('click',cockpit);
-for(const [i,field] of [...TUNING_FIELDS,['Camera smoothing (s)',.5]].entries()) {
+for(const [i,field] of [...TUNING_FIELDS,['Chase damping (s)',.5]].entries()) {
   const label=document.createElement('label'),box=document.createElement('input');
   box.id=`tune-${i}`;box.type='number';box.step='any';box.min='0';box.required=true;box.value=field[1];
   label.append(document.createTextNode(field[0]),box);$('tuning-fields').append(label);
@@ -275,6 +279,10 @@ function frame(now) {
     cameraCollision.frame(client.state,renderer.sceneRegion ?? client.state.telemetry[10]);
     const stats=renderer.draw(frozenPresentation || flight?client.state.telemetry:client.presentation(),flight,dt,frozenPresentation?0:now/1000,
       {...settings,cameraLook:controls.look,cameraOrbit},keys.has('KeyV')&&!keys.has('AltLeft')&&!keys.has('AltRight'));
+    const cameraWarning=stats.cameraBlocked==='pending'?'Cockpit view waiting for nearby camera geometry.'
+      :stats.cameraBlocked?'Cockpit view blocked by nearby geometry.':'';
+    $('camera-blocked').hidden=!cameraWarning;
+    if($('camera-blocked').textContent!==cameraWarning)$('camera-blocked').textContent=cameraWarning;
     audio.update(client.state,controls,dt,document.hasFocus()&&!$('tuning-panel').open&&!flight&&!frozenPresentation);
     frames++;Object.assign(evidence,{frames,state:client.state,mode:flight?'fly':'drive',camera:flight?.slice(),render:stats,adapter:renderer.adapter});
     evidence.input={...controls,device:input.device};evidence.view=renderer.camera?.slice();
@@ -296,8 +304,8 @@ function frame(now) {
       if($('diagnostics').open) {
       $('input-device').textContent=input.device==='controller'?'Controller':'Keyboard';
       $('camera-status').textContent=flight?'Flight camera is collision-free':settings.cockpit
-        ?renderer.cameraMode==='cockpit'?'Cockpit / posed seat':'Cockpit waiting for craft or camera geometry':!cameraCollision.ready?'Chase clearance waiting for geometry'
-        :cameraCollision.coverageLimited?'Camera lag limited to its collision window':'Chase collision ready';
+        ?cameraWarning||(renderer.cameraMode==='cockpit'?'Cockpit / exact posed seat':'Cockpit waiting for craft'):!cameraCollision.ready?'Chase clearance waiting for geometry'
+        :cameraCollision.coverageLimited?'Chase distance limited to its collision window':'Vehicle-relative chase collision ready';
       $('place').textContent=flight?'FREE FLIGHT':p[10]===-1?'THE GREAT SEA':p[10]===1?'EASTERN KINGDOMS':'KALIMDOR';
       $('coordinates').textContent=`${(flight?.[0]??p[0]).toFixed(0)} E / ${(flight?.[2]??p[2]).toFixed(0)} S`;
       $('resident').textContent=`${s.resident.length}/4 terrain tiles · ${stats.horizonTiles} distant patches · ${scene?.instances||0} scene instances`;
