@@ -82,12 +82,13 @@ export function boundsDistance(bounds, low, high = low) {
     Math.max(bounds[0][1] - high[1], 0, low[1] - bounds[1][1]),
     Math.max(bounds[0][2] - high[2], 0, low[2] - bounds[1][2]));
 }
-export function boundsWithin(bounds, p, radius) {
+export function boundsWithin(bounds, p, radius, verticalRadius) {
   const x = Math.max(bounds[0][0] - p[0], 0, p[0] - bounds[1][0]);
   if (x >= radius) return false;
   const y = Math.max(bounds[0][1] - p[1], 0, p[1] - bounds[1][1]);
   if (y >= radius) return false;
   const z = Math.max(bounds[0][2] - p[2], 0, p[2] - bounds[1][2]);
+  if (verticalRadius !== undefined) return z < verticalRadius && Math.hypot(x, y) < radius;
   return z < radius && Math.hypot(x, y, z) < radius;
 }
 function extractModel(handle) {
@@ -158,13 +159,16 @@ export class SceneStream {
     this.populationStatus = `Static local NPC snapshot: ${pack.provenance.source}; no server behavior`;
     this.revision++;
   }
-  update(map, position, predicted = position, collisionRadius = 32) {
+  update(map, position, predicted = position, collisionRadius = 32, collisionVerticalRadius = collisionRadius) {
     if (![0, 1].includes(map) || !finite(position, 3) || !finite(predicted, 3) ||
-      !Number.isFinite(collisionRadius) || collisionRadius < 0) throw new Error('Invalid scene observer');
+      !Number.isFinite(collisionRadius) || collisionRadius < 0 ||
+      !Number.isFinite(collisionVerticalRadius) || collisionVerticalRadius < 0) throw new Error('Invalid scene observer');
     this.map = map; this.position = position; this.predicted = predicted; this.clock++;
     this.collisionRadius = collisionRadius;
+    this.collisionVerticalRadius = collisionVerticalRadius;
     const low = position.map((v, a) => Math.min(v, predicted[a]));
     const high = position.map((v, a) => Math.max(v, predicted[a]));
+    const supportColumn = predicted[2] < position[2];
     const collisionDistance = bounds => boundsDistance(bounds, low, high);
     const candidates = new Map(), requests = new Map();
     const want = (key, request, score, distant) => {
@@ -192,7 +196,7 @@ export class SceneStream {
       const score = boundsDistance(bounds, position);
       const radius = distant ? this.limits.distantRadius : this.limits.radius;
       if ((kind !== 'wmo' || asset || p.bounds) && score > radius
-        && (distant || collisionDistance(bounds) > collisionRadius)) return;
+        && (distant || !supportColumn || collisionDistance(bounds) > collisionRadius)) return;
       want(key, { kind, path, skins, collisionScore: collisionDistance(bounds) }, score, distant);
       put(id, { id, key, matrix, bounds, boundsKnown: !!p.bounds || !!asset?.bounds, score, kind, distant });
       if (kind === 'wmo' && asset) {
@@ -222,7 +226,7 @@ export class SceneStream {
           const groupId = expanded.groupIds[index];
           if (distant && candidates.has(groupId)) return;
           const groupBounds = expanded.groups[index], d = boundsDistance(groupBounds, position);
-          if (d > radius && (distant || collisionDistance(groupBounds) > collisionRadius)) return;
+          if (d > radius && (distant || !supportColumn || collisionDistance(groupBounds) > collisionRadius)) return;
           const groupKey = `group:${path}:${index}`;
           want(groupKey, { kind: 'group', path: `${path.slice(0, -4)}_${String(index).padStart(3, '0')}.wmo`,
             rootKey: key, collisionScore: collisionDistance(groupBounds) }, d, distant);
@@ -277,7 +281,8 @@ export class SceneStream {
       || a.score - b.score || a.id.localeCompare(b.id)).slice(0, this.limits.instances);
     const keep = new Set(this.instances.map(i => i.key));
     for (const i of this.collisionCandidates) if (collisionDistance(i.bounds) < 32 ||
-      boundsWithin(i.bounds, position, i.boundsKnown ? collisionRadius : Math.max(32, collisionRadius))) {
+      boundsWithin(i.bounds, position, i.boundsKnown ? collisionRadius : Math.max(32, collisionRadius),
+        i.boundsKnown ? collisionVerticalRadius : Math.max(32, collisionVerticalRadius))) {
       keep.add(i.key);
       const root = requests.get(i.key)?.rootKey;
       if (root) keep.add(root);
@@ -349,7 +354,7 @@ export class SceneStream {
     } finally {
       this.busy = false;
       if (loaded && generation === this.generation && (!deferSelection || loadedRoot))
-        this.update(this.map, this.position, this.predicted, this.collisionRadius);
+        this.update(this.map, this.position, this.predicted, this.collisionRadius, this.collisionVerticalRadius);
     }
   }
   resourceCount(kind) {

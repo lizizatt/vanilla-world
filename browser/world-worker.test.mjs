@@ -148,14 +148,14 @@ test('failed stale prefetch is reported and cleared even after its tile leaves d
 function collisionFixture(clock=performance,instanceDeltas=true) {
   const events=[],context=boot(events,clock),body=Array(15).fill(0),built=[],updates=[],parts=new Map();
   const state={instances:[],collisionInstances:[],unresolvedCollision:[],assets:new Map(),textures:new Map()};
-  const f={body,built,updates,events,state,context,sweep:0,failNext:false,spawn:[0,0,0,0]};
+  const f={body,built,updates,events,state,context,sweep:0,vertical:0,failNext:false,spawn:[0,0,0,0]};
   const scene={revision:0,selectionRevision:0,update(){this.selectionRevision=this.revision;},
     async pump(){},snapshot:()=>state,retry(){
       this.revision++;
       state.unresolvedCollision=state.unresolvedCollision.map(i=>({...i,status:'PENDING'}));
     }};
   context.dependencies={
-    world:{telemetry:()=>body,frame_sweep_distance:()=>f.sweep,set_scene_parts:(ids,counts,vertices)=>{
+    world:{telemetry:()=>body,frame_sweep_distance:()=>f.sweep,frame_vertical_sweep_distance:()=>f.vertical,set_scene_parts:(ids,counts,vertices)=>{
       updates.push({ids:[...ids],counts:[...counts],supplied:vertices.length});
       if(f.failNext){f.failNext=false;throw new Error('Rejected synthetic collision payload');}
       let offset=0;
@@ -248,6 +248,36 @@ test('readiness demand refreshes for acceleration and retains a bounded movement
   assert.equal(seen.length,count,'The selection margin covers this movement without reselecting every frame');
   f.sweep=65;await f.update();assert.equal(seen.at(-1)[3],85);
   f.sweep=840;await f.update();assert.equal(seen.at(-1)[3],SCENE_LIMITS.radius);
+});
+
+test('vertical collision demand holds a falling body without expanding horizontal tile reach',async()=>{
+  const f=frameFixture(),seen=[];
+  f.context.dependencies.scene.update=(...args)=>seen.push(args);
+  f.body[1]=22.18466;f.sweep=.4;f.vertical=10;
+  f.state.unresolvedCollision.push({id:'roof',kind:'group',boundsKnown:true,
+    bounds:[[-2,-2,17],[2,2,17]],status:'PENDING'});
+  f.invalidate();
+  const result=await f.request({action:'frame',dt:.1,throttle:0,steer:0,flags:0});
+  assert.deepEqual(f.waiting(),['roof']);
+  assert.equal(result.scene.waitingCollision,1);
+  assert.equal(f.events.filter(e=>e.event==='tick').length,0);
+  assert.equal(seen.at(-1)[3],48);
+  f.vertical=100;await f.update();
+  assert.equal(seen.at(-1)[3],48,'Vertical growth does not enlarge horizontal demand');
+  assert.equal(seen.at(-1)[4],120);
+  f.vertical=900;await assert.rejects(f.update(),/collision coverage/);
+  f.vertical=Infinity;await assert.rejects(f.update(),/collision coverage/);
+  f.vertical=NaN;await assert.rejects(f.update(),/collision coverage/);
+});
+
+test('moving a nearly full collision cylinder refreshes its sphere-culling anchor',async()=>{
+  const f=collisionFixture({now:()=>0}),seen=[];
+  f.context.dependencies.scene.update=(...args)=>seen.push(args);
+  f.sweep=246;f.vertical=806;await f.update();
+  assert.equal(seen.length,1);assert.equal(seen[0][3],266);assert.equal(seen[0][4],826);
+  f.body[1]=15;await f.update();
+  assert.equal(seen.length,2,'Per-axis padding is insufficient at the selection sphere boundary');
+  assert.equal(seen[1][1][2],15);
 });
 
 test('unchanged submissions skip asset traversal but readiness follows every body and sweep update',async()=>{

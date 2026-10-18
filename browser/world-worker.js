@@ -31,7 +31,7 @@ let sceneInstanceDeltas=false;
 let sceneInstanceUpdates=false;
 let postFrameVisuals=false,sceneRegion,frameWorkMs=0;
 let sceneFocus,sceneUpdated=0,sceneRevision=-1;
-let sceneReadinessRadius=0;
+let sceneReadinessRadius=0,sceneReadinessVertical=0;
 let sceneSubmissionPending=true;
 let scenePumpError,scenePump;
 const collisionBounds=new Map();
@@ -222,18 +222,26 @@ function updateScene(focus,publish=true,restoring) {
   sceneRegion=region;
   const body=restoring||world.telemetry(),r=manifest.regions[region],signed=body[14] ?? body[5];
   const sweep=restoring?0:world.frame_sweep_distance(),radius=4+sweep;
-  if(radius>SCENE_LIMITS.radius)throw new Error('Frame sweep exceeds the streamed scene collision coverage');
+  const verticalRadius=4+(restoring?0:world.frame_vertical_sweep_distance());
+  const coverage=Math.hypot(Math.max(32,radius),Math.max(32,verticalRadius));
+  if(!Number.isFinite(radius) || !Number.isFinite(verticalRadius) || radius<4 || verticalRadius<4 ||
+    coverage>SCENE_LIMITS.radius)
+    throw new Error('Frame sweep exceeds the streamed scene collision coverage');
   const predicted=restoring?[focus[0],-Number.MAX_VALUE,focus[2]]:
     [focus[0]-Math.sin(body[3])*signed,focus[1],focus[2]-Math.cos(body[3])*signed];
   const moved=sceneFocus?Math.hypot(...focus.map((v,a)=>v-sceneFocus[a])):Infinity;
   // Static 850-yard candidates outlive this bounded visual refresh; readiness and the swept hull run every frame.
   const changed=moved>=16 || Math.max(32,radius)+moved>sceneReadinessRadius ||
+    Math.max(32,verticalRadius)+moved>sceneReadinessVertical ||
+    coverage+moved>SCENE_LIMITS.radius ||
     ((moved>0 || scene.selectionRevision!==scene.revision) && performance.now()-sceneUpdated>=250);
   if(changed) {
     const start=performance.now();
     const requestedRadius=Math.min(SCENE_LIMITS.radius,Math.max(32,radius)+16);
-    scene.update(region===0?1:0,sourcePosition(region,focus),sourcePosition(region,predicted),requestedRadius);
+    const requestedVertical=Math.min(SCENE_LIMITS.radius,Math.max(32,verticalRadius)+16);
+    scene.update(region===0?1:0,sourcePosition(region,focus),sourcePosition(region,predicted),requestedRadius,requestedVertical);
     sceneReadinessRadius=requestedRadius;
+    sceneReadinessVertical=requestedVertical;
     timings.selectionMs+=performance.now()-start;
     sceneFocus=focus.slice();sceneUpdated=performance.now();
   }
@@ -250,7 +258,8 @@ function updateScene(focus,publish=true,restoring) {
     // shortcut: unknown M2 extents use a 32-yard proximity guard until their authored hull is decoded.
     const guard=i.boundsKnown?radius:Math.max(32,radius);
     return restoring?boundsDistance(i.bounds,sourcePosition(region,predicted),bodySource)<guard:
-      boundsWithin(i.bounds,bodySource,guard);
+      boundsWithin(i.bounds,bodySource,guard,
+      i.boundsKnown?verticalRadius:Math.max(32,verticalRadius));
   });
   const reach=Math.max(120,32+52+sweep);
   if(!collisionFocus || collisionFocus.region!==region || reach>collisionFocus.reach ||

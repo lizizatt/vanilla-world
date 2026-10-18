@@ -35,20 +35,24 @@ test('resident ADT metadata reuses the parsed tile but retains placement validat
 });
 
 test('live readiness demand survives the visual cap behind and across the predicted direction',async()=>{
-  for(const [position,predicted] of [[[-40,0,0],[500,0,0]],[[0,40,0],[500,0,0]]]) {
+  for(const [position,predicted,vertical=54] of [[[-40,0,0],[500,0,0]],[[0,40,0],[500,0,0]],
+    [[10,0,100],[500,0,0],120]]) {
     const f=fixture(),stream=new SceneStream(f.source,f.wasm);
     const placements=Array.from({length:1024},(_,id)=>p(id,'near.m2',1));
     placements.push({...p(2000,'needed.m2'),position});
+    placements.push({...p(2001,'outside.m2'),position:[100,0,200]});
     stream.setTile('1:0:0',placements);
     const key=stream.tiles.get('1:0:0')[0].key;
     stream.cache.set(key,{value:{vertices:new Float32Array(),indices:new Uint32Array(),batches:[],
       bounds:[[-1,-1,-1],[1,1,1]]},bytes:0,used:0});
-    stream.update(1,[0,0,0],predicted,54);
+    stream.update(1,[0,0,0],predicted,54,vertical);
     assert.equal(stream.instances.length,1024);
     assert(stream.snapshot().unresolvedCollision.some(i=>i.id==='1:m2:2000'));
     assert([...stream.requests.values()].some(r=>r.path==='needed.m2'));
+    assert(![...stream.requests.values()].some(r=>r.path==='outside.m2'));
     await stream.pump();
     assert.equal(stream.collisionRadius,54);
+    assert.equal(stream.collisionVerticalRadius,vertical);
     assert.equal(stream.snapshot().unresolvedCollision.some(i=>i.id==='1:m2:2000'),false);
     assert(f.reads()>0);
   }

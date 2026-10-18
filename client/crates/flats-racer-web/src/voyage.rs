@@ -11,6 +11,10 @@ use wasm_bindgen::prelude::*;
 
 pub const TILE: f64 = 1600.0 / 3.0;
 pub const MAX_RESIDENT: usize = 4;
+const SUPPORT_TRAVEL: f64 = 0.5;
+const SUPPORT_RISE: f32 = 0.6;
+const FLOOR_CLEARANCE: f32 = 0.25;
+const MAX_SUPPORT_SUBSTEPS: u32 = 64;
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
@@ -524,10 +528,10 @@ impl Voyage {
             return Err("Throttle and steer must be finite".into());
         }
         // Keep the terrain ledge guard distance-bounded instead of speed-dependent.
-        let steps = (self.travel_bound(f64::from(FIXED_DT)) / 0.5)
+        let steps = (self.travel_bound(f64::from(FIXED_DT)) / SUPPORT_TRAVEL)
             .ceil()
             .max(1.0);
-        if steps > 64.0 {
+        if steps > f64::from(MAX_SUPPORT_SUBSTEPS) {
             return Err("Configured motion exceeds 64 support substeps per physics tick".into());
         }
         let steps = steps as u32;
@@ -577,9 +581,12 @@ impl Voyage {
             p[0] + f64::from(before.velocity[0] * dt),
             p[1] + f64::from(before.velocity[2] * dt),
         ];
-        let rise = self.heights(projected, before.yaw).map_or(0.0, |hs| {
-            (hs.iter().sum::<f32>() - heights.iter().sum::<f32>()) / (4.0 * dt)
-        });
+        let rise = self
+            .heights(projected, before.yaw)
+            .map_or(0.0, |hs| {
+                (hs.iter().sum::<f32>() - heights.iter().sum::<f32>()) / (4.0 * dt)
+            })
+            .min(SUPPORT_RISE / dt);
         self.state
             .step_with_surface_motion(
                 input,
@@ -615,11 +622,16 @@ impl Voyage {
             return Ok(());
         }
         match self.heights(next, self.state.yaw) {
-            Ok(hs) if hs.iter().zip(heights).all(|(h, old)| h - old < 0.6) => {
+            Ok(hs)
+                if hs
+                    .iter()
+                    .zip(heights)
+                    .all(|(h, old)| h - old < SUPPORT_RISE) =>
+            {
                 for i in 0..3 {
                     self.state.position[i] += self.state.velocity[i] * dt;
                 }
-                let floor = hs.into_iter().fold(f32::NEG_INFINITY, f32::max) + 0.25;
+                let floor = hs.into_iter().fold(f32::NEG_INFINITY, f32::max) + FLOOR_CLEARANCE;
                 if self.state.position[1] < floor {
                     self.physics_stats[6] = self.physics_stats[6].saturating_add(1);
                     self.state.position[1] = floor;
@@ -993,6 +1005,48 @@ impl Voyage {
     /// Conservative travel during the worker's maximum 0.1-second batch, including new thrust.
     pub fn frame_sweep_distance(&self) -> f64 {
         self.travel_bound(f64::from(FIXED_DT) * 12.0)
+    }
+
+    /// Vertical collision demand only; horizontal terrain residency uses frame_sweep_distance.
+    pub fn frame_vertical_sweep_distance(&self) -> f64 {
+        let base_duration = f64::from(FIXED_DT) * 12.0;
+        let roundoff = 8.0 * f64::from(f32::EPSILON);
+        let max_error = roundoff * 12.0 * f64::from(MAX_SUPPORT_SUBSTEPS);
+        let substeps = (self.travel_bound(base_duration * (1.0 + roundoff))
+            / (1.0 - max_error)
+            / 12.0
+            / SUPPORT_TRAVEL)
+            .ceil()
+            .clamp(1.0, f64::from(MAX_SUPPORT_SUBSTEPS));
+        let step = FIXED_DT / substeps as f32;
+        let duration = (1..=substeps as u32)
+            .map(|n| f64::from(FIXED_DT / n as f32) * f64::from(n))
+            .fold(0.0, f64::max)
+            * 12.0;
+        let rise_rate = f64::from(SUPPORT_RISE / step);
+        let initial_floor = self
+            .heights(self.global(), self.state.yaw)
+            .map_or(0.0, |hs| {
+                (f64::from(hs.into_iter().fold(f32::NEG_INFINITY, f32::max))
+                    + f64::from(FLOOR_CLEARANCE)
+                    - f64::from(self.state.position[1]))
+                .max(0.0)
+            });
+        // A newly eligible model support can rise .6, then the next terrain support another .6.
+        let floor_rate =
+            (2.0 * f64::from(SUPPORT_RISE) + f64::from(FLOOR_CLEARANCE)) / f64::from(step);
+        // The implicit spring is a convex blend of v + spring*error*dt and surface velocity.
+        // A grounded hop requires v - surfaceVelocity <= 2 and can occur only once in this batch.
+        let speed = (f64::from(self.state.velocity[1]).abs() + 2.0)
+            .max(rise_rate + f64::from(self.tuning.hop_speed))
+            .max(floor_rate);
+        let acceleration = (f64::from(self.tuning.spring) * f64::from(self.tuning.hover_height))
+            .max(f64::from(self.tuning.gravity));
+        let excursion = initial_floor + (speed + acceleration * duration) * duration;
+        // Pad velocity casts, actual f32 substep dt, and accumulated position rounding on every branch.
+        let error = roundoff * 12.0 * substeps;
+        excursion
+            + error / (1.0 - error) * (f64::from(self.state.position[1]).abs() + excursion + 1.0)
     }
 
     /// Ticks, substeps, missing terrain, unsupported surface, solid sweeps, steep rises, floor clamps, peak substeps.
@@ -1741,6 +1795,108 @@ pub(crate) mod tests {
             .unwrap_err()
             .contains("64 support substeps"));
         assert_eq!(a.telemetry(), before);
+    }
+
+    #[test]
+    fn vertical_demand_bounds_falling_hopping_springs_penetration_and_f32_extremes() {
+        let mut rejected = 0;
+        for speed in [0.0, 250.0, 500.0] {
+            for vertical in [-100.0, 0.0, 100.0, 1e20] {
+                for height in [-50.0, 1.1, 22.18466, 1e6] {
+                    for (spring, damping, hover, hop, gravity) in [
+                        (0.0, 0.0, 1.1, 1.0, 1e-30),
+                        (90.0, 18.0, 1.1, 100.0, 24.0),
+                        (1e6, 0.0, 4.0, 1000.0, 24.0),
+                        (1e6, 1e6, 100.0, 1000.0, 1000.0),
+                        (f32::MAX, 0.0, f32::MAX, 1.0, 1e-30),
+                        (f32::MAX, f32::MAX, f32::MAX, f32::MAX, f32::MAX),
+                    ] {
+                        for jump in [false, true] {
+                            let mut world = Voyage::from_manifest(fixture(0.0)).unwrap();
+                            world.origin = [700.0, 64.0];
+                            world.state.position = [0.0, height, 0.0];
+                            world.state.velocity = [speed, vertical, 0.0];
+                            world.tuning.max_speed = 500.0;
+                            world.tuning.boost_max_speed = 500.0;
+                            world.tuning.spring = spring;
+                            world.tuning.damping = damping;
+                            world.tuning.hover_height = hover;
+                            world.tuning.hop_speed = hop;
+                            world.tuning.gravity = gravity;
+                            world.tuning.validate().unwrap();
+                            let bound = world.frame_vertical_sweep_distance();
+                            assert!(bound.is_finite() && bound >= 0.0);
+                            for _ in 0..12 {
+                                let previous = world.state;
+                                if let Err(error) = world.advance(Input {
+                                    jump,
+                                    ..Default::default()
+                                }) {
+                                    assert_eq!(world.state.position, previous.position);
+                                    assert_eq!(world.state.velocity, previous.velocity);
+                                    assert!(error.to_lowercase().contains("finite"), "{error}");
+                                    rejected += 1;
+                                    break;
+                                }
+                                let excursion =
+                                    (f64::from(world.state.position[1]) - f64::from(height)).abs();
+                                assert!(excursion <= bound, "{speed}/{vertical}/{height}/{spring}/{damping}/{hover}/{hop}/{gravity}: {excursion} > {bound}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            rejected > 0,
+            "Nonfinite extreme-tuning steps must fail transactionally"
+        );
+    }
+
+    #[test]
+    fn upward_feedforward_cap_preserves_accepted_downhill_response() {
+        let mut world = Voyage::from_manifest(fixture(0.0)).unwrap();
+        let entry = &world.manifest.tiles[0];
+        let mut tile = crate::world::tests::flat_tile(entry.x, entry.y);
+        let northwest = (32.0 - f64::from(entry.x)) * TILE;
+        for vertex in tile.chunks.iter_mut().flat_map(|c| &mut c.positions) {
+            vertex[2] = (northwest - f64::from(vertex[1]) - 200.0) as f32 * -0.5;
+        }
+        world.resident.insert(0, tile);
+        world.state.yaw = -std::f32::consts::FRAC_PI_2;
+        world.state.velocity = [250.0, -100.0, 0.0];
+        world.tuning.max_speed = 250.0;
+        world.tuning.boost_max_speed = 250.0;
+        world.tuning.drag = 0.0;
+        let start = world.global();
+        let hs = world.heights(start, world.state.yaw).unwrap();
+        let next = world
+            .heights(
+                [start[0] + f64::from(250.0 * FIXED_DT), start[1]],
+                world.state.yaw,
+            )
+            .unwrap();
+        let rise = (next.iter().sum::<f32>() - hs.iter().sum::<f32>()) / (4.0 * FIXED_DT);
+        assert!(rise < -SUPPORT_RISE / FIXED_DT);
+        let input = Input {
+            jump: true,
+            ..Default::default()
+        };
+        let mut expected = world.state;
+        expected
+            .step_with_surface_motion(
+                input,
+                hs.map(|h| Some((expected.position[1] - h).max(0.0))),
+                rise,
+                FIXED_DT,
+                &world.tuning,
+            )
+            .unwrap();
+        world.advance_substep(input, FIXED_DT).unwrap();
+        assert_eq!(world.hold, 0);
+        assert_eq!(world.state.velocity, expected.velocity);
+        assert_eq!(world.state.grounded, expected.grounded);
+        assert_eq!(world.state.jump_cooldown, expected.jump_cooldown);
     }
 
     #[test]
