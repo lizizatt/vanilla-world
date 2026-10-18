@@ -1537,6 +1537,23 @@ pub(crate) mod tests {
             world.tuning.max_speed = speed;
             world.tuning.boost_max_speed = speed;
             world.tuning.drag = 0.0;
+            let saved = (world.state, world.origin, world.rebases, world.hold);
+            world
+                .advance_substep(
+                    Input {
+                        throttle: 1.0,
+                        ..Default::default()
+                    },
+                    FIXED_DT,
+                )
+                .unwrap();
+            assert_eq!(
+                world.hold,
+                if speed > 50.0 { 3 } else { 0 },
+                "old single-step guard"
+            );
+            (world.state, world.origin, world.rebases, world.hold) = saved;
+            world.physics_stats = [0; 8];
             let before = world.global();
             let started = std::time::Instant::now();
             for _ in 0..60 {

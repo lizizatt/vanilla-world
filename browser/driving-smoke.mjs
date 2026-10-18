@@ -12,6 +12,11 @@ const video=process.env.VIDEO==='1',sound=process.env.SOUND==='1',cpuProfile=pro
 const presentation=process.env.PRESENTATION || 'confirmed',pulses=process.env.INPUT_PULSES==='1';
 const sceneUpdates=process.env.SCENE_UPDATES!=='0';
 const materialScheduling=process.env.MATERIAL_SCHEDULING!=='0';
+const mode=process.env.DRIVE_MODE || 'drive',straight=process.env.STRAIGHT==='1';
+const tuning=process.env.TUNING?JSON.parse(process.env.TUNING):undefined;
+assert(['drive','fly'].includes(mode));
+assert(!tuning || (Array.isArray(tuning)&&tuning.length===17&&tuning.every(Number.isFinite)));
+assert(mode==='drive' || (!pulses&&!process.env.WAYPOINTS),'Fly comparison uses continuous keyboard input');
 assert(['raw','confirmed'].includes(presentation));
 assert(!pulses || (!process.env.WAYPOINTS && seconds%5===0),'Input pulses require five-second periods without navigation');
 const warmSeconds=Number(process.env.WARM_SECONDS || 0);
@@ -63,6 +68,11 @@ async function startProfiles(){
   };
 }
 try{
+  if(mode==='fly')await context.route('**/flight.js',async route=>{
+    const response=await route.fetch(),source=await response.text();
+    assert(source.includes('8000 : 1200'),'Matched flight must replace only free-flight speed');
+    await route.fulfill({response,body:source.replace('8000 : 1200',`${tuning?.[1]??50} : ${tuning?.[0]??36}`)});
+  });
   if(!sceneUpdates)await context.route('**/world-client.js',async route=>{
     const response=await route.fetch(),source=await response.text();
     assert(source.includes('sceneInstanceUpdates:true'),'Scene baseline must disable the negotiated instance updates');
@@ -78,6 +88,7 @@ try{
   const version=await metadataSession.send('Browser.getVersion');
   await metadataSession.detach();
   const environment={browser:version.product,headless:true,
+    hostLoad:process.env.HOST_LOAD?JSON.parse(process.env.HOST_LOAD):null,
     osForegroundWindow:'Not applicable to this headless browser; document state is sampled separately',
     schedulingFlags:launchArguments.filter(arg=>/background|occluded|headless|throttl|frame-rate|vsync/.test(arg)),
     caches:{browserContext:'new',worker:'new',osFileCache:'uncontrolled; prior test reads may be cached',warmSeconds}};
@@ -95,11 +106,12 @@ try{
       replace('if(!postFrameVisuals || materialTimer!==undefined','if(true || !postFrameVisuals || materialTimer!==undefined');
     }
     replace('let world,source,manifest,','const drivingClock={input:0,steps:0,dropped:0,objects:0,batch:0};globalThis.drivingWork=[];\nlet world,source,manifest,');
+    replace('world=new Voyage(json);','world=new Voyage(json);world.set_admission_profiling(true);');
     replace(/const started=performance.now\(\);\r?\n    const p=world.telemetry\(\)/, 'drivingClock.input+=message.dt;drivingClock.batch=0;\n    const started=performance.now();\n    const p=world.telemetry()');
     replace("if(objectWait.length){accumulator=0;",'if(objectWait.length){drivingClock.objects+=message.dt+accumulator;accumulator=0;');
     replace('accumulator+=Math.min(Math.max(message.dt,0),.1);','drivingClock.dropped+=Math.max(0,message.dt-.1);accumulator+=Math.min(Math.max(message.dt,0),.1);');
     replace('world.tick(message.throttle,message.steer,tickFlags);','world.tick(message.throttle,message.steer,tickFlags);drivingClock.steps++;drivingClock.batch++;');
-    replace('return {telemetry:Array.from(world.telemetry()),','return {drivingClock:{...drivingClock,remainder:accumulator},drivingWork:globalThis.drivingWork.splice(0),telemetry:Array.from(world.telemetry()),');
+    replace('return {telemetry:Array.from(world.telemetry()),','return {physicsStats:Array.from(world.physics_stats()),drivingClock:{...drivingClock,remainder:accumulator},drivingWork:globalThis.drivingWork.splice(0),telemetry:Array.from(world.telemetry()),');
     replace('function prepareTerrainMaterial() {',
       "function prepareTerrainMaterial() {if(terrainMaterials.size)drivingWork.push({kind:'material-preparation-frame',ms:0,frame:timings.frames,steps:drivingClock.batch,loads,index:terrainMaterials.values().next().value});");
     replace('const result=await handle(data),start=performance.now();','const begin=performance.timeOrigin+performance.now();const result=await handle(data),start=performance.now();if(result.telemetry)result.transport={begin,end:performance.timeOrigin+start};');
@@ -108,7 +120,8 @@ try{
     for(const call of ['world.add_tile(index,bytes)','scene.setTile(tileKey(index),bytes,world.tile_placements(index,bytes))','world.geometry(index)',
       'world.horizon_seams(index)']){
       assert(body.includes(call),`Missing worker stage profiling hook: ${call}`);
-      body=body.replaceAll(call,`(()=>{const started=performance.now();try{return ${call};}finally{drivingWork.push({kind:${JSON.stringify(call)},ms:performance.now()-started});}})()`);
+      body=body.replaceAll(call,`(()=>{const started=performance.now();try{return ${call};}finally{drivingWork.push({kind:${JSON.stringify(call)},ms:performance.now()-started,
+        ${call==='world.add_tile(index,bytes)'||call==='world.geometry(index)'?'rustStages:Array.from(world.admission_timings()),':''}index});}})()`);
     }
     const materialCall='terrain.setTile(index,world.terrain_material(index))';
     assert(body.includes(materialCall),'Missing terrain material profiling hook');
@@ -123,6 +136,7 @@ try{
   await page.waitForFunction(()=>worldEvidence.ready || worldEvidence.errors.length,{},{timeout:180000});
   assert.deepEqual(await page.evaluate(()=>worldEvidence.errors),[]);
   assert(await page.evaluate(()=>!!worldEvidence.state.drivingClock),'Worker timing instrumentation was not installed');
+  if(tuning)await page.evaluate(values=>worldTest.request('tuning',{values}),tuning);
   const source=process.env.SOURCE_POSE?.split(',').map(Number);
   if(source){
     assert.equal(source.length,5,'SOURCE_POSE is region,sourceX,sourceY,height,yaw');
@@ -157,6 +171,9 @@ try{
       && state.transport.end>=state.transport.begin;
   },clock,{timeout:15000});
   if(warmSeconds)await page.waitForTimeout(warmSeconds*1000);
+  if(mode==='fly')await page.evaluate(()=>{
+    const p=worldEvidence.state.telemetry;worldTest.focus([...p.slice(0,4),0]);
+  });
   if(sound){
     await page.locator('#preferences').evaluate(e=>e.open=true);
     await page.locator('#sound').check();
@@ -209,15 +226,22 @@ try{
         if(action==='frame')driveProfile.responses.push({t:performance.now(),rtt:performance.now()-start,dt:fields.dt,
           p:result.telemetry,wait:result.scene.waitingCollision,clock:result.drivingClock,
           loads:result.loads,builds:result.timings.collisionBuilds,timings:result.timings,decoder:result.scene.decoder,
-          work:result.drivingWork,transport:result.transport,sent:performance.timeOrigin+start,received:performance.timeOrigin+performance.now()});
+          physicsStats:result.physicsStats,work:result.drivingWork,transport:result.transport,sent:performance.timeOrigin+start,received:performance.timeOrigin+performance.now()});
         return result;
       });
     };
-    WorldRenderer.prototype.draw=function(p,...args){
+    WorldRenderer.prototype.draw=function(p,flight,...args){
       const t=performance.now(),raw=driveClient.state.telemetry,wait=driveClient.state.scene.waitingCollision;
-      driveProfile.draws.push([t,p[0],p[1],p[2],p[3],p[5],p[8],wait]);
-      driveProfile.rawDraws.push([t,raw[0],raw[1],raw[2],raw[3],raw[5],raw[8],wait]);
-      return draw.call(this,p,...args);
+      if(flight){
+        const previous=driveProfile.draws.at(-1);
+        const speed=previous?Math.hypot(flight[0]-previous[1],flight[2]-previous[3])*1000/(t-previous[0]):0;
+        const row=[t,...flight.slice(0,4),speed,0,0];
+        driveProfile.draws.push(row);driveProfile.rawDraws.push(row.slice());
+      }else{
+        driveProfile.draws.push([t,p[0],p[1],p[2],p[3],p[5],p[8],wait]);
+        driveProfile.rawDraws.push([t,raw[0],raw[1],raw[2],raw[3],raw[5],raw[8],wait]);
+      }
+      return draw.call(this,p,flight,...args);
     };
     driveProfile.timer=setInterval(()=>driveProfile.samples.push({t:performance.now(),
       environment:pageState(),state:structuredClone(worldEvidence.state),render:structuredClone(worldEvidence.render)}),1000);
@@ -259,8 +283,8 @@ try{
     if(!process.env.WAYPOINTS && !pulses){
       if(elapsed%30===10)await page.keyboard.down('ShiftLeft');
       if(elapsed%30===20)await page.keyboard.up('ShiftLeft');
-      if(elapsed%40===10)await page.keyboard.down('ArrowRight');
-      if(elapsed%40===20)await page.keyboard.up('ArrowRight');
+      if(!straight&&elapsed%40===10)await page.keyboard.down('ArrowRight');
+      if(!straight&&elapsed%40===20)await page.keyboard.up('ArrowRight');
     }
     if(pulses){
       await page.waitForTimeout(1000);await page.keyboard.up('KeyW');await page.keyboard.down('KeyX');
@@ -283,7 +307,8 @@ try{
   data.before=before;data.environment=environment;
   await writeFile(new URL('raw.json',output),JSON.stringify(data));
   if(stopProfiles)await stopProfiles();
-  const settings={video,sound,profile:cpuProfile,presentation,sceneUpdates,materialScheduling,inputPulses:pulses,...await page.evaluate(()=>{
+  const settings={mode,straight,tuning:await page.evaluate(()=>worldTest.request('tuning')),
+    video,sound,profile:cpuProfile,presentation,sceneUpdates,materialScheduling,inputPulses:pulses,...await page.evaluate(()=>{
     const canvas=document.getElementById('world'),rect=canvas.getBoundingClientRect();
     return {canvasWidth:canvas.width,canvasHeight:canvas.height,cssWidth:rect.width,cssHeight:rect.height,
       devicePixelRatio};
@@ -327,9 +352,9 @@ try{
     const a=data.responses[i-1],b=data.responses[i];
     if(a.p[5]>2 && b.p[5]<a.p[5]*.5)resets.push({at:b.t-data.start,before:a.p,after:b.p,wait:b.wait});
   }
-  const poses=[before.telemetry,...data.responses.map(r=>r.p)];
+  const poses=mode==='fly'?data.draws.map(r=>r.slice(1,5)):[before.telemetry,...data.responses.map(r=>r.p)];
   const distance=poses.slice(1).reduce((n,p,i)=>n+Math.hypot(p[0]-poses[i][0],p[2]-poses[i][2]),0);
-  const movingSeconds=data.responses.slice(1).reduce((n,r,i)=>{
+  const movingSeconds=mode==='fly'?data.draws.slice(1).reduce((n,r,i)=>n+(r[5]>1?(r[0]-data.draws[i][0])/1000:0),0):data.responses.slice(1).reduce((n,r,i)=>{
     const a=data.responses[i];
     return n+(r.p[5]>1&&!r.p[8]&&!r.wait&&a.p[5]>1&&!a.p[8]&&!a.wait?(r.t-a.t)/1000:0);
   },0);
@@ -348,6 +373,12 @@ try{
     stepsPerResponse:distribution(data.responses.map(r=>r.clock.batch)),
     simulationSeconds:(data.after.drivingClock.steps-before.drivingClock.steps)/120,
     clockBefore:before.drivingClock,clockAfter:data.after.drivingClock,
+    physicsBefore:before.physicsStats,physicsAfter:data.after.physicsStats,
+    physicsDelta:data.after.physicsStats.slice(0,7).map((n,i)=>n-before.physicsStats[i]),
+    peakSupportSubsteps:data.after.physicsStats[7],
+    physicsFrameMs:distribution(data.responses.slice(1).map((r,i)=>r.timings.physicsMs-data.responses[i].timings.physicsMs)),
+    handlerMs:distribution(data.responses.map(r=>r.transport.end-r.transport.begin)),
+    handlerWaitMs:distribution(data.responses.map(r=>r.transport.begin-r.sent)),
     responseMs:distribution(intervals(data.responses)),rttMs:distribution(data.responses.map(r=>r.rtt)),
     drawnPoseMs:distribution(poseGaps),freezes:distribution(freezes.map(f=>f.ms)),
     freezesOver50:freezes.filter(f=>f.ms>50).length,velocityResets:resets.length,
