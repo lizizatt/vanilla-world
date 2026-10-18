@@ -662,6 +662,43 @@ have identical SHA-256 digests. Timings cover Rust `add_tile` and its material
 stage, not browser uploads or end-to-end frame latency. Private assets remain in
 memory; baseline builds and evidence remain local and ignored.
 
+The local `843621e` baseline versus combined `6e01ee3` build passed all stream
+digests. With 32 samples per build and uncontrolled OS caching:
+
+| Rust stage (ms) | Baseline | Optimized |
+| --- | ---: | ---: |
+| `add_tile` p50 | 16.69 | 5.18 |
+| `add_tile` p95 | 23.00 | 12.77 |
+| Material preparation p50 | 14.24 | 3.03 |
+| Material preparation p95 | 18.16 | 5.40 |
+
+The combined checkpoint passes 48 native tests, 145 JavaScript tests, actual-Wasm
+roof/rebase/ceiling checks and the actual Edge cockpit/reverse/offline check with
+shell cache v24. Local admission evidence is
+`test-results/admission-performance-6e01ee3.json`.
+
+Two actual Edge Gold Road runs completed 180 seconds at **default 36/50 yd/s**,
+not the 250/500 high-speed target. The final `83a03d3` production
+tree is identical to `6e01ee3`; the earlier `e7307f8` run already had the packed-mask
+optimization but preceded the ceiling and scalar-transform fixes. Both used
+1280x800, DPR 1, fresh browser/worker contexts, video on, sound/profiling off and
+180/180 focused seconds; OS cache was uncontrolled.
+
+| Road-run measurement | Earlier | Final |
+| --- | ---: | ---: |
+| Distance (yards) | 5223.86 | 5186.65 |
+| True waypoints / recovery skips | 29 / 16 | 29 / 16 |
+| ADT admissions / rebases | 20 / 16 | 20 / 16 |
+| Moving freezes over 50 ms | 9 | 6 |
+| Worst moving freeze (ms) | 106.2 | 135.1 |
+| Client time discarded (seconds) | 0.0112 | 0.0363 |
+
+Fewer freezes did **not** improve the worst tail. The final run also recorded one
+12.9 ms unsupported-surface hold. Because the ceiling physics changed between
+runs, these are not an isolated timing comparison of the scalar transforms.
+They establish sustained ordinary road navigation, not hitch-free rendering or
+strict 50 ms/high-speed acceptance. Scene-update work remains a measured tail.
+
 [ASSETS.md](ASSETS.md) documents the bounded MPQ reader, corruption semantics,
 77-file native/Node/Edge parity and the whole-install codec census. All 2,389,542
 compressed sectors in this installation used supported zlib; other installations
