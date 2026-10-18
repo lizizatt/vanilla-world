@@ -294,10 +294,27 @@ pub(crate) fn snap_to_lattice(coord: f32) -> f32 {
 
 /// Build per-chunk meshes from one vanilla (monolithic) ADT file's bytes.
 pub fn adt_to_tile_mesh(adt_bytes: &[u8]) -> Result<TileMesh> {
+    adt_to_tile_mesh_observed(adt_bytes, |_| {})
+}
+
+#[derive(Clone, Copy)]
+pub enum TerrainBuildPhase {
+    Parse,
+    Geometry,
+    Materials,
+    Liquids,
+    Placements,
+}
+
+pub fn adt_to_tile_mesh_observed(
+    adt_bytes: &[u8],
+    mut completed: impl FnMut(TerrainBuildPhase),
+) -> Result<TileMesh> {
     let mut cursor = Cursor::new(adt_bytes);
     let parsed = parse_adt(&mut cursor).map_err(|e| anyhow::anyhow!("parsing ADT: {e}"))?;
     // A vanilla ADT is always one monolithic root.
     let ParsedAdt::Root(root) = parsed;
+    completed(TerrainBuildPhase::Parse);
 
     let mut chunks = Vec::new();
     for mcnk in &root.mcnk_chunks {
@@ -377,6 +394,7 @@ pub fn adt_to_tile_mesh(adt_bytes: &[u8]) -> Result<TileMesh> {
             }
         }
 
+        completed(TerrainBuildPhase::Geometry);
         // Name and effect id together, so the two vecs stay aligned when a layer is dropped.
         let layers: Vec<(String, u32)> = mcnk
             .layers
@@ -433,6 +451,7 @@ pub fn adt_to_tile_mesh(adt_bytes: &[u8]) -> Result<TileMesh> {
             no_effect_doodad[k] = (ned8[k / 8] >> (k % 8)) & 0x1 == 1;
         }
 
+        completed(TerrainBuildPhase::Materials);
         let liquids: Vec<_> = mcnk
             .liquids
             .iter()
@@ -458,6 +477,7 @@ pub fn adt_to_tile_mesh(adt_bytes: &[u8]) -> Result<TileMesh> {
             impassable: h.impassable(),
             liquids,
         });
+        completed(TerrainBuildPhase::Liquids);
     }
 
     if chunks.is_empty() {
@@ -506,6 +526,7 @@ pub fn adt_to_tile_mesh(adt_bytes: &[u8]) -> Result<TileMesh> {
         })
         .collect();
 
+    completed(TerrainBuildPhase::Placements);
     Ok(TileMesh {
         chunks,
         doodads,

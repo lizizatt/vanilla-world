@@ -1,13 +1,33 @@
 //! Translation-only regions keep authored WoW geometry separate from global and local physics.
 use crate::horizon::Horizon;
-use benilla_formats::{LiquidKind, TileMesh, adt_to_tile_mesh, triangle_z_at};
-use flats_racer_physics::{FIXED_DT, Input, PROBE_OFFSETS, State, Tuning};
+use benilla_formats::{
+    adt_to_tile_mesh, adt_to_tile_mesh_observed, triangle_z_at, LiquidKind, TerrainBuildPhase,
+    TileMesh,
+};
+use flats_racer_physics::{Input, State, Tuning, FIXED_DT, PROBE_OFFSETS};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
 pub const TILE: f64 = 1600.0 / 3.0;
 pub const MAX_RESIDENT: usize = 4;
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = performance, js_name = now)]
+    fn admission_now() -> f64;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn admission_now() -> f64 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_secs_f64()
+        * 1000.0
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -291,6 +311,9 @@ pub struct Voyage {
     origin: [f64; 2],
     rebases: u32,
     hold: u8,
+    physics_stats: [u32; 8],
+    profile_admission: bool,
+    admission_times: std::cell::Cell<[f64; 9]>,
 }
 
 impl Voyage {
@@ -325,6 +348,9 @@ impl Voyage {
             scene_parts: HashMap::new(),
             rebases: 0,
             hold: 1,
+            physics_stats: [0; 8],
+            profile_admission: false,
+            admission_times: std::cell::Cell::new([0.0; 9]),
         };
         world.rebase();
         Ok(world)
@@ -461,22 +487,62 @@ impl Voyage {
         if !input.throttle.is_finite() || !input.steer.is_finite() {
             return Err("Throttle and steer must be finite".into());
         }
+        // Keep the terrain ledge guard distance-bounded instead of speed-dependent.
+        let steps = (self.travel_bound(f64::from(FIXED_DT)) / 0.5)
+            .ceil()
+            .max(1.0);
+        if steps > 64.0 {
+            return Err("Configured motion exceeds 64 support substeps per physics tick".into());
+        }
+        let steps = steps as u32;
+        self.physics_stats[0] = self.physics_stats[0].saturating_add(1);
+        self.physics_stats[7] = self.physics_stats[7].max(steps);
+        let (state, origin, rebases, hold) = (self.state, self.origin, self.rebases, self.hold);
+        for _ in 0..steps {
+            self.physics_stats[1] = self.physics_stats[1].saturating_add(1);
+            let result = self.advance_substep(input, FIXED_DT / steps as f32);
+            if result.is_err() || self.hold != 0 {
+                self.state = state;
+                self.origin = origin;
+                self.rebases = rebases;
+                if result.is_err() {
+                    self.hold = hold;
+                } else {
+                    self.state.velocity = [0.0; 3];
+                }
+                return result;
+            }
+        }
+        Ok(())
+    }
+
+    fn travel_bound(&self, duration: f64) -> f64 {
+        let speed = f64::from(self.state.velocity[0]).hypot(f64::from(self.state.velocity[2]));
+        let thrust = (f64::from(self.tuning.acceleration)
+            + f64::from(self.tuning.boost_acceleration))
+            * f64::from(self.tuning.air_control).max(1.0);
+        (speed + thrust * duration).min(f64::from(self.tuning.boost_max_speed)) * duration
+    }
+
+    fn advance_substep(&mut self, input: Input, dt: f32) -> Result<(), String> {
         let p = self.global();
         let before = self.state;
         let heights = match self.heights(p, before.yaw) {
             Ok(h) => h,
             Err(hold) => {
+                self.physics_stats[if hold == 1 { 2 } else { 3 }] =
+                    self.physics_stats[if hold == 1 { 2 } else { 3 }].saturating_add(1);
                 self.hold = hold;
                 self.state.velocity = [0.0; 3];
                 return Ok(());
             }
         };
         let projected = [
-            p[0] + f64::from(before.velocity[0] * FIXED_DT),
-            p[1] + f64::from(before.velocity[2] * FIXED_DT),
+            p[0] + f64::from(before.velocity[0] * dt),
+            p[1] + f64::from(before.velocity[2] * dt),
         ];
         let rise = self.heights(projected, before.yaw).map_or(0.0, |hs| {
-            (hs.iter().sum::<f32>() - heights.iter().sum::<f32>()) / (4.0 * FIXED_DT)
+            (hs.iter().sum::<f32>() - heights.iter().sum::<f32>()) / (4.0 * dt)
         });
         self.state
             .step_with_surface_motion(
@@ -486,18 +552,18 @@ impl Voyage {
                     (distance <= self.tuning.support_reach()).then_some(distance)
                 }),
                 rise,
-                FIXED_DT,
+                dt,
                 &self.tuning,
             )
             .map_err(|e| e.to_string())?;
         let next = [
-            p[0] + f64::from(self.state.velocity[0] * FIXED_DT),
-            p[1] + f64::from(self.state.velocity[2] * FIXED_DT),
+            p[0] + f64::from(self.state.velocity[0] * dt),
+            p[1] + f64::from(self.state.velocity[2] * dt),
         ];
         let swept_start = [p[0], f64::from(before.position[1]), p[1]];
         let swept_end = [
             next[0],
-            f64::from(before.position[1] + self.state.velocity[1] * FIXED_DT),
+            f64::from(before.position[1] + self.state.velocity[1] * dt),
             next[1],
         ];
         if self
@@ -506,6 +572,7 @@ impl Voyage {
             .any(|b| swept_box(swept_start, swept_end, *b))
             || self.scene_mesh.swept(swept_start, swept_end)
         {
+            self.physics_stats[4] = self.physics_stats[4].saturating_add(1);
             self.state = before;
             self.state.velocity = [0.0; 3];
             self.hold = 3;
@@ -514,10 +581,11 @@ impl Voyage {
         match self.heights(next, self.state.yaw) {
             Ok(hs) if hs.iter().zip(heights).all(|(h, old)| h - old < 0.6) => {
                 for i in 0..3 {
-                    self.state.position[i] += self.state.velocity[i] * FIXED_DT;
+                    self.state.position[i] += self.state.velocity[i] * dt;
                 }
                 let floor = hs.into_iter().fold(f32::NEG_INFINITY, f32::max) + 0.25;
                 if self.state.position[1] < floor {
+                    self.physics_stats[6] = self.physics_stats[6].saturating_add(1);
                     self.state.position[1] = floor;
                     self.state.velocity[1] = self.state.velocity[1].max(0.0);
                 }
@@ -525,6 +593,15 @@ impl Voyage {
                 self.rebase();
             }
             result => {
+                let reason = result.as_ref().err().copied().unwrap_or(3);
+                let counter = if reason == 1 {
+                    2
+                } else if reason == 2 {
+                    3
+                } else {
+                    5
+                };
+                self.physics_stats[counter] = self.physics_stats[counter].saturating_add(1);
                 self.state = before;
                 self.state.velocity = [0.0; 3];
                 self.hold = result.err().unwrap_or(3);
@@ -879,12 +956,22 @@ impl Voyage {
 
     /// Conservative travel during the worker's maximum 0.1-second batch, including new thrust.
     pub fn frame_sweep_distance(&self) -> f64 {
-        let duration = f64::from(FIXED_DT) * 12.0;
-        let speed = f64::from(self.state.velocity[0]).hypot(f64::from(self.state.velocity[2]));
-        let thrust = (f64::from(self.tuning.acceleration)
-            + f64::from(self.tuning.boost_acceleration))
-            * f64::from(self.tuning.air_control).max(1.0);
-        (speed + thrust * duration).min(f64::from(self.tuning.boost_max_speed)) * duration
+        self.travel_bound(f64::from(FIXED_DT) * 12.0)
+    }
+
+    /// Ticks, substeps, missing terrain, unsupported surface, solid sweeps, steep rises, floor clamps, peak substeps.
+    pub fn physics_stats(&self) -> Vec<u32> {
+        self.physics_stats.to_vec()
+    }
+
+    pub fn set_admission_profiling(&mut self, enabled: bool) {
+        self.profile_admission = enabled;
+        self.admission_times.set([0.0; 9]);
+    }
+
+    /// Parse, terrain geometry, masks/materials, liquids, placements, validation, commit, render geometry, total add (ms).
+    pub fn admission_timings(&self) -> Vec<f64> {
+        self.admission_times.get().to_vec()
     }
 
     /// Indexed authored collision triangles in global east/up/south coordinates.
@@ -1086,12 +1173,41 @@ impl Voyage {
         {
             return Err(fail("Tile size/resident limit rejected"));
         }
-        let tile = adt_to_tile_mesh(bytes).map_err(|e| fail(&e.to_string()))?;
+        let now = || {
+            if self.profile_admission {
+                admission_now()
+            } else {
+                0.0
+            }
+        };
+        let started = now();
+        let mut times = [0.0; 9];
+        let built = if self.profile_admission {
+            let mut previous = started;
+            adt_to_tile_mesh_observed(bytes, |phase| {
+                let time = now();
+                let index = match phase {
+                    TerrainBuildPhase::Parse => 0,
+                    TerrainBuildPhase::Geometry => 1,
+                    TerrainBuildPhase::Materials => 2,
+                    TerrainBuildPhase::Liquids => 3,
+                    TerrainBuildPhase::Placements => 4,
+                };
+                times[index] += time - previous;
+                previous = time;
+            })
+        } else {
+            adt_to_tile_mesh(bytes)
+        };
+        times[8] = now() - started;
+        self.admission_times.set(times);
+        let tile = built.map_err(|e| fail(&e.to_string()))?;
+        let validation = now();
         let northwest = [
             -(f64::from(entry.y) - 32.0) * TILE,
             -(f64::from(entry.x) - 32.0) * TILE,
         ];
-        if tile.chunks.len() != 256
+        let invalid = tile.chunks.len() != 256
             || tile.chunks.iter().any(|c| {
                 c.positions.len() != 145
                     || c.indices.iter().any(|&i| i >= 145)
@@ -1112,11 +1228,26 @@ impl Voyage {
                                 || f64::from(p[i]) < northwest[i] - TILE - 0.01
                         })
                     })
-            })
-        {
+            });
+        times[5] = now() - validation;
+        times[8] = now() - started;
+        self.admission_times.set(times);
+        if invalid {
             return Err(fail("Tile geometry does not match its source coordinates"));
         }
+        let commit = now();
         self.resident.insert(index, tile);
+        times[6] = if self.profile_admission {
+            admission_now() - commit
+        } else {
+            0.0
+        };
+        times[8] = if self.profile_admission {
+            admission_now() - started
+        } else {
+            0.0
+        };
+        self.admission_times.set(times);
         Ok(())
     }
 
@@ -1205,6 +1336,11 @@ impl Voyage {
 
     /// Local tile positions and face normals, followed by material (0 ground, 2 water).
     pub fn geometry(&self, index: usize) -> Result<Vec<f32>, JsValue> {
+        let started = if self.profile_admission {
+            admission_now()
+        } else {
+            0.0
+        };
         let tile = self
             .resident
             .get(&index)
@@ -1249,6 +1385,11 @@ impl Voyage {
                     emit(&liquid.positions, &liquid.indices, 2.0);
                 }
             }
+        }
+        if self.profile_admission {
+            let mut times = self.admission_times.get();
+            times[7] = admission_now() - started;
+            self.admission_times.set(times);
         }
         Ok(out)
     }
@@ -1377,6 +1518,193 @@ pub(crate) mod tests {
             }
             assert_eq!(covered, count as usize);
         }
+    }
+
+    #[test]
+    fn resident_gentle_slope_does_not_become_a_wall_at_high_speed() {
+        use super::*;
+        for (speed, grade) in [(36.0, 0.2), (250.0, 0.35), (500.0, 0.2)] {
+            let mut world = Voyage::from_manifest(fixture(0.0)).unwrap();
+            let entry = &world.manifest.tiles[0];
+            let mut tile = crate::world::tests::flat_tile(entry.x, entry.y);
+            let northwest = (32.0 - f64::from(entry.x)) * TILE;
+            for vertex in tile.chunks.iter_mut().flat_map(|c| &mut c.positions) {
+                vertex[2] = (northwest - f64::from(vertex[1]) - 200.0) as f32 * grade;
+            }
+            world.resident.insert(0, tile);
+            world.state.yaw = -std::f32::consts::FRAC_PI_2;
+            world.state.velocity = [speed, speed * grade, 0.0];
+            world.tuning.max_speed = speed;
+            world.tuning.boost_max_speed = speed;
+            world.tuning.drag = 0.0;
+            let before = world.global();
+            let started = std::time::Instant::now();
+            for _ in 0..60 {
+                world
+                    .advance(Input {
+                        throttle: 1.0,
+                        ..Default::default()
+                    })
+                    .unwrap();
+                assert_eq!(world.hold, 0, "continuous grade {grade} at {speed} yd/s");
+            }
+            assert!(world.global()[0] - before[0] > f64::from(speed * FIXED_DT) * 60.0 * 0.98);
+            assert!(world.physics_stats[7] <= 9);
+            eprintln!(
+                "{speed} yd/s, 60 resident ticks, {} substeps, {:?}",
+                world.physics_stats[1],
+                started.elapsed()
+            );
+        }
+    }
+
+    #[test]
+    fn admission_profiling_preserves_actual_terrain_collision_materials_and_placements() {
+        let data = benilla_formats::wow_data_or_skip!();
+        let mut chain = benilla_formats::Chain::open(&data).unwrap();
+        for (index, map, x, y) in [(0, "Kalimdor", 39, 43), (1, "Azeroth", 32, 48)] {
+            let bytes = chain
+                .read_file(&format!("World\\Maps\\{map}\\{map}_{x}_{y}.adt"))
+                .unwrap();
+            let mut manifest = fixture(0.0);
+            manifest.regions[index].tile_origin = [x, y];
+            let entry = &mut manifest.tiles[index];
+            entry.x = x;
+            entry.y = y;
+            entry.bytes = bytes.len();
+            entry.file = format!("{map}_{x}_{y}.adt");
+            let mut plain = Voyage::from_manifest(manifest.clone()).unwrap();
+            let mut profiled = Voyage::from_manifest(manifest).unwrap();
+            profiled.set_admission_profiling(true);
+            plain.add_tile(index, &bytes).unwrap();
+            profiled.add_tile(index, &bytes).unwrap();
+            assert_eq!(
+                plain.geometry(index).unwrap(),
+                profiled.geometry(index).unwrap()
+            );
+            assert_eq!(
+                plain.tile_placements(index, &bytes).unwrap(),
+                profiled.tile_placements(index, &bytes).unwrap()
+            );
+            let a = plain.terrain_material(index).unwrap();
+            let b = profiled.terrain_material(index).unwrap();
+            assert_eq!(a.vertices(), b.vertices());
+            assert_eq!(a.indices(), b.indices());
+            assert_eq!(a.masks(), b.masks());
+            assert_eq!(a.paths(), b.paths());
+            for (a, b) in plain.resident[&index]
+                .chunks
+                .iter()
+                .zip(&profiled.resident[&index].chunks)
+            {
+                assert_eq!(a.positions, b.positions);
+                assert_eq!(a.holes, b.holes);
+            }
+            let times = profiled.admission_timings();
+            assert!(times.iter().all(|t| t.is_finite() && *t >= 0.0));
+            assert!(times[0] > 0.0 && times[7] > 0.0 && times[8] >= times[..7].iter().sum::<f64>());
+            assert_eq!(plain.admission_timings(), vec![0.0; 9]);
+            profiled.set_admission_profiling(false);
+            assert_eq!(profiled.admission_timings(), vec![0.0; 9]);
+        }
+    }
+
+    #[test]
+    fn support_substeps_preserve_thin_walls_holes_and_atomic_rebase_rollback() {
+        use super::*;
+        for kind in ["wall", "hole", "ledge", "missing"] {
+            let mut manifest = fixture(0.0);
+            if kind == "missing" {
+                manifest.regions[0].tile_count[0] = 2;
+                manifest.ocean[0] = TILE * 2.0;
+                let mut neighbor = manifest.tiles[0].clone();
+                neighbor.x += 1;
+                neighbor.file = format!("Kalimdor_{}_{}.adt", neighbor.x, neighbor.y);
+                manifest.tiles.push(neighbor);
+            }
+            let mut world = Voyage::from_manifest(manifest).unwrap();
+            let entry = &world.manifest.tiles[0];
+            let mut tile = crate::world::tests::flat_tile(entry.x, entry.y);
+            let x = match kind {
+                "hole" => {
+                    tile.chunks[22].holes = u16::MAX;
+                    198.0
+                }
+                "ledge" => {
+                    for chunk in tile.chunks.iter_mut().filter(|c| c.index_x >= 7) {
+                        for p in &mut chunk.positions {
+                            p[2] = 10.0;
+                        }
+                    }
+                    231.0
+                }
+                "missing" => 531.0,
+                _ => 255.8,
+            };
+            world.resident.insert(0, tile);
+            world.origin = [0.0, 64.0];
+            world.state.position = [x, 1.1, 0.0];
+            world.state.yaw = -std::f32::consts::FRAC_PI_2;
+            world.state.velocity = [500.0, 0.0, 0.0];
+            world.tuning.max_speed = 500.0;
+            world.tuning.boost_max_speed = 500.0;
+            if kind == "wall" {
+                world.scene_bounds = vec![[258.0, 0.0, 0.0, 258.1, 10.0, 500.0]];
+            }
+            let (position, origin, rebases) = (world.state.position, world.origin, world.rebases);
+            world
+                .advance(Input {
+                    throttle: 1.0,
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(
+                world.hold,
+                if kind == "missing" {
+                    1
+                } else if kind == "hole" {
+                    2
+                } else {
+                    3
+                },
+                "{kind}"
+            );
+            assert_eq!(world.state.position, position, "{kind}");
+            assert_eq!(world.origin, origin, "{kind}");
+            assert_eq!(world.rebases, rebases, "{kind}");
+            assert_eq!(world.state.velocity, [0.0; 3], "{kind}");
+        }
+    }
+
+    #[test]
+    fn default_tick_path_is_unchanged_and_extreme_substep_work_is_rejected_atomically() {
+        use super::*;
+        let mut a = Voyage::from_manifest(fixture(0.0)).unwrap();
+        let mut b = Voyage::from_manifest(fixture(0.0)).unwrap();
+        a.origin = [700.0, 300.0];
+        b.origin = a.origin;
+        for tick in 0..600 {
+            let input = Input {
+                throttle: if tick % 100 < 80 { 1.0 } else { -1.0 },
+                steer: if tick % 200 < 100 { 0.5 } else { -0.5 },
+                boost: tick % 80 < 20,
+                jump: tick % 120 == 0,
+                ..Default::default()
+            };
+            a.advance(input).unwrap();
+            b.advance_substep(input, FIXED_DT).unwrap();
+            assert_eq!(a.telemetry(), b.telemetry());
+        }
+        assert_eq!(a.physics_stats[7], 1);
+        a.tuning.max_speed = 5000.0;
+        a.tuning.boost_max_speed = 5000.0;
+        a.state.velocity = [5000.0, 0.0, 0.0];
+        let before = a.telemetry();
+        assert!(a
+            .advance(Input::default())
+            .unwrap_err()
+            .contains("64 support substeps"));
+        assert_eq!(a.telemetry(), before);
     }
 
     #[test]

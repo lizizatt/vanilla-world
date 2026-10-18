@@ -313,12 +313,12 @@ impl Voyage {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use benilla_formats::{ChunkMesh, TileMesh};
     use flats_racer_physics::Input;
 
-    fn flat_tile(x: u32, y: u32) -> TileMesh {
+    pub(crate) fn flat_tile(x: u32, y: u32) -> TileMesh {
         let mut chunks = Vec::new();
         for row in 0..16 {
             for col in 0..16 {
