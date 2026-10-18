@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { SceneStream, placementMatrix, transformPoint, transformedBounds, globalCollisionVertices, validatePopulation, modelPath, boundsDistance, boundsWithin } from './scene-stream.js';
+import { SceneStream, multiply, placementMatrix, transformPoint, transformedBounds, globalCollisionVertices, validatePopulation, modelPath, boundsDistance, boundsWithin } from './scene-stream.js';
 
 const p = (id, path = 'tree.mdx', x = 0) => ({ kind: 'm2', id, path, position: [x, 0, 0], rotation: [0, 180, 0], scale: 1 });
 const fixture = ({ cutout = false, texture = 'leaves.blp' } = {}) => {
@@ -71,6 +71,27 @@ test('ADT rotations preserve source axes, tilted scale, bounds and translation',
   assert.throws(() => placementMatrix({ ...p(1), scale: NaN }));
   assert.throws(() => modelPath('..\\secret'));
   assert.equal(modelPath('WORLD/Tree.MDX'), 'world\\tree.m2');
+});
+
+test('scalar transforms retain exact matrix products and every AABB corner',()=>{
+  const referenceProduct=(a,b)=>Array.from({length:16},(_,k)=>{
+    const row=k%4,col=Math.floor(k/4);
+    return a[row]*b[col*4]+a[row+4]*b[col*4+1]+a[row+8]*b[col*4+2]+a[row+12]*b[col*4+3];
+  });
+  for(let i=0;i<128;i++){
+    const a=placementMatrix({...p(i),rotation:[i*13,i*37,-i*19],scale:.1+i*.7,
+      position:[Math.sin(i)*100000,Math.cos(i)*100000,i]}),
+      b=placementMatrix({...p(i),rotation:[-i*11,i*29,i*7],scale:1+i*.1});
+    assert.deepEqual(multiply(a,b),referenceProduct(a,b));
+    for(const bounds of [[[-1,-2,-3],[4,5,6]],[[0,0,0],[0,0,0]],[[-1e100,-1,0],[1e100,1,0]]]){
+      const min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity];
+      for(let corner=0;corner<8;corner++){
+        const point=transformPoint(a,[0,1,2].map(k=>bounds[(corner>>k)&1][k]));
+        point.forEach((v,k)=>{min[k]=Math.min(min[k],v);max[k]=Math.max(max[k],v);});
+      }
+      assert.deepEqual(transformedBounds(bounds,a),[min,max]);
+    }
+  }
 });
 
 test('restore support columns retain lower collision beyond the visual radius without loading unrelated scenery',async()=>{

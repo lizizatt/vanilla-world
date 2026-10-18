@@ -14,11 +14,13 @@ const modelKey = (kind, p) => `${kind}:${p.path}:${JSON.stringify(p.skins || EMP
 
 const identity = () => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 export function multiply(a, b) {
-  return Array.from({ length: 16 }, (_, k) => {
+  const result = new Array(16);
+  for (let k = 0; k < 16; k++) {
     const row = k % 4, col = Math.floor(k / 4);
-    return a[row] * b[col * 4] + a[row + 4] * b[col * 4 + 1]
+    result[k] = a[row] * b[col * 4] + a[row + 4] * b[col * 4 + 1]
       + a[row + 8] * b[col * 4 + 2] + a[row + 12] * b[col * 4 + 3];
-  });
+  }
+  return result;
 }
 export function transformPoint(m, p) {
   return [0, 1, 2].map(r => m[r] * p[0] + m[r + 4] * p[1] + m[r + 8] * p[2] + m[r + 12]);
@@ -59,8 +61,11 @@ export function placementMatrix(p) {
 export function transformedBounds(bounds, matrix) {
   const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
   for (let i = 0; i < 8; i++) {
-    const p = transformPoint(matrix, [0, 1, 2].map(k => bounds[(i >> k) & 1][k]));
-    p.forEach((v, k) => { min[k] = Math.min(min[k], v); max[k] = Math.max(max[k], v); });
+    const x = bounds[i & 1][0], y = bounds[(i >> 1) & 1][1], z = bounds[(i >> 2) & 1][2];
+    for (let k = 0; k < 3; k++) {
+      const v = matrix[k] * x + matrix[k + 4] * y + matrix[k + 8] * z + matrix[k + 12];
+      min[k] = Math.min(min[k], v); max[k] = Math.max(max[k], v);
+    }
   }
   return [min, max];
 }
