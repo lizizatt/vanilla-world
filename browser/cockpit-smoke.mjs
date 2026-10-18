@@ -19,25 +19,52 @@ await context.addInitScript(()=>{
     const audio=Reflect.construct(target,args);audioContexts.push(audio);return audio;
   }});
 });
-const page=await context.newPage(),evidence={poses:{},reverse:{},errors:[]};
+const page=await context.newPage(),evidence={poses:{},reverse:{},cameraFrames:[],errors:[]};
 page.on('pageerror',error=>evidence.errors.push(error.message));
 page.on('console',message=>{if(message.type()==='error')evidence.errors.push(message.text());});
 const ready=async()=>{
   await page.waitForFunction(()=>!document.getElementById('select').disabled);
+  await page.evaluate(async()=>{
+    const {WorldRenderer}=await import('./world-renderer.js'),draw=WorldRenderer.prototype.draw;
+    const {craftMatrix}=await import('./world-camera.js');
+    window.cameraFrames=[];window.cameraPhase='cold';
+    WorldRenderer.prototype.draw=function(...args){
+      const clip=this.clipCamera;
+      if(window.clearanceFixture)this.clipCamera=(pivot)=>{
+        this.cameraCollisionReady=clearanceFixture==='geometry';return pivot;
+      };
+      if(window.jitterFixture){
+        args[0]=args[0].slice();
+        args[0][1]+=.15*Math.sin((performance.now()-jitterFixture)*Math.PI*16/1000);
+        args[0][7]=1;args[0][8]=0;
+      }
+      let stats;
+      try {stats=draw.apply(this,args);} finally {this.clipCamera=clip;}
+      window.cockpitProbe={rig:this,state:Array.from(args[0]),stats};
+      const p=args[0],record={phase:cameraPhase,t:performance.now(),dt:args[2],mode:this.cameraMode,
+        p:Array.from(p),eye:this.camera.slice(),origin:this.origin.slice(),blocked:this.cameraBlocked,
+        worldDraws:stats.worldDraws,ready:this.cameraCollisionReady,focus:document.hasFocus(),hidden:document.hidden};
+      if(this.cameraMode==='cockpit'){
+        const m=craftMatrix(p,this.origin,this.craft.metadata.scale),a=this.craft.anchor;
+        record.seatError=Math.hypot(...this.camera.map((n,i)=>n-(m[12+i]+m[i]*a[0]+m[4+i]*a[1]+m[8+i]*a[2])));
+      } else if(this.cameraMode==='chase'){
+        const heading=p[3]+(args[5]?Math.PI:0)+this.chase[0],pitch=this.chase[1],d=Math.max(0,(args[4].cameraDistance??15)-.15);
+        const expected=[p[0]-this.origin[0]+Math.sin(heading)*Math.cos(pitch)*d,
+          p[1]+3-Math.sin(pitch)*d+this.chaseBounce,p[2]-this.origin[1]+Math.cos(heading)*Math.cos(pitch)*d];
+        record.chaseError=Math.hypot(...this.camera.map((n,i)=>n-expected[i]));
+        record.radius=this.chaseDistance;record.bounce=this.chaseBounce;
+      }
+      if(cameraFrames.length<12000)cameraFrames.push(record);
+      return stats;
+    };
+  });
   await page.locator('#files').setInputFiles(process.env.WOW_DATA);
   await page.waitForFunction(()=>worldEvidence.ready||worldEvidence.errors.length,null,{timeout:180000});
   assert.deepEqual(await page.evaluate(()=>worldEvidence.errors),[]);
   await page.waitForFunction(()=>worldEvidence.render?.craftReady&&worldEvidence.render?.cockpitAvailable
     &&worldEvidence.state.scene.waitingCollision===0,null,{timeout:120000});
-  await page.evaluate(async()=>{
-    const {WorldRenderer}=await import('./world-renderer.js'),draw=WorldRenderer.prototype.draw;
-    WorldRenderer.prototype.draw=function(...args){
-      const stats=draw.apply(this,args);
-      window.cockpitProbe={rig:this,state:Array.from(args[0]),stats};
-      return stats;
-    };
-  });
 };
+const retainFrames=async()=>evidence.cameraFrames.push(...await page.evaluate(()=>cameraFrames));
 const settled=()=>page.waitForFunction(()=>worldEvidence.state.telemetry[7]===1
   &&worldEvidence.state.telemetry[8]===0&&worldEvidence.state.scene.waitingCollision===0,null,{timeout:20000});
 const reset=async()=>{
@@ -57,9 +84,7 @@ const capture=async name=>{
   });
   const matrix=craftMatrix(value.state,value.origin,value.metadata.scale);
   const expected=[0,1,2].map(i=>matrix[12+i]+matrix[i]*value.anchor[0]+matrix[4+i]*value.anchor[1]+matrix[8+i]*value.anchor[2]);
-  const clipped=await page.evaluate(({state,origin,expected})=>cockpitProbe.rig.clipCamera(
-    [state[0]-origin[0],state[1],state[2]-origin[1]],expected,origin),{...value,expected});
-  value.eyeError=Math.hypot(...value.eye.map((n,i)=>n-clipped[i]));
+  value.eyeError=Math.hypot(...value.eye.map((n,i)=>n-expected[i]));
   assert(value.eyeError<.0001,`${name}: eye must follow the rendered craft seat, without velocity lag`);
   assert.equal(value.stats.craftDraws,0,'Self geometry is hidden, not a scene-wide clipping workaround');
   assert(value.stats.detailedTiles>0||value.stats.horizonTiles>0||value.stats.sceneDraws>0,'World remains resident');
@@ -110,6 +135,26 @@ try {
   await reverse('native');
   await page.keyboard.down('KeyW');
   await page.waitForFunction(()=>worldEvidence.state.telemetry[14]>3);await capture('forward');
+  for(const reason of ['pending','geometry']){
+    await page.evaluate(reason=>{window.clearanceFixture=reason;cameraPhase=`blocked-${reason}`;},reason);
+    await page.waitForFunction(reason=>worldEvidence.render.cameraBlocked===reason,reason);
+    await page.waitForTimeout(200);
+    const blocked=await capture(`blocked-${reason}`);
+    assert.equal(blocked.stats.worldDraws,0);
+    assert(await page.locator('#camera-blocked').isVisible());
+    assert(await page.locator('#fly').isEnabled());
+    const png=await page.screenshot({path:fileURLToPath(new URL(`blocked-${reason}.png`,output))});
+    assert(await page.evaluate(async encoded=>{
+      const image=await createImageBitmap(new Blob([Uint8Array.from(atob(encoded),c=>c.charCodeAt(0))],{type:'image/png'}));
+      const canvas=new OffscreenCanvas(image.width,image.height),ctx=canvas.getContext('2d');
+      ctx.drawImage(image,0,0);image.close();
+      const pixels=ctx.getImageData(Math.floor(canvas.width*.85),Math.floor(canvas.height*.3),1,Math.floor(canvas.height*.45)).data;
+      return pixels.every((n,i)=>n===pixels[i%4]);
+    },png.toString('base64')),'Blocked frame freshly clears the world');
+  }
+  await page.evaluate(()=>{window.clearanceFixture=undefined;cameraPhase='recovery';});
+  await page.waitForFunction(()=>!worldEvidence.render.cameraBlocked&&worldEvidence.render.worldDraws>0);
+  await capture('blocked-recovery');
   await page.keyboard.down('KeyA');
   await page.waitForFunction(()=>Math.abs(worldEvidence.state.telemetry[4])>.01);await capture('turn');
   await page.keyboard.up('KeyA');await page.keyboard.down('ShiftLeft');
@@ -155,7 +200,7 @@ try {
   await reverse('controller-connected',true);
   await page.evaluate(()=>{clearInterval(padNoise);testPads=[];});
   await save();
-  await context.setOffline(true);await page.reload();await ready();await cockpit();
+  await retainFrames();await context.setOffline(true);await page.reload();await ready();await cockpit();
   assert.equal(await page.locator('#control-profile').inputValue(),'native');
   assert(!await page.locator('#sound').isChecked());
   await reverse('native-offline-reload');
@@ -164,7 +209,7 @@ try {
     const {worldSave}=await import('./world-store.js'),id=worldEvidence.info.id,record=await worldSave(id);
     delete record.settings.controls;await worldSave(id,record);
   });
-  await page.reload();await ready();await cockpit();
+  await retainFrames();await page.reload();await ready();await cockpit();
   assert.equal(await page.locator('#control-profile').inputValue(),'legacy');
   await reverse('legacy-offline-reload');
   await save();
@@ -183,6 +228,45 @@ try {
   await page.waitForFunction(()=>document.getElementById('world').width===1280&&document.getElementById('world').height===800);
   await capture('landscape-resize');
   await page.screenshot({path:fileURLToPath(new URL('cockpit-ocean.png',output))});
+  await page.locator('#preferences > summary').click();await page.locator('#tuning').click();
+  for(const [i,value] of [[0,500],[1,500],[2,2000]])await page.locator(`#tune-${i}`).fill(String(value));
+  await page.locator('#tuning-form button[type=submit]').click();
+  await page.waitForFunction(()=>document.getElementById('tuning-status').textContent==='Saved.');
+  await page.locator('#tuning-close').click();
+  await page.locator('#preferences > summary').click();
+  await page.locator('#world').focus();await page.keyboard.press('KeyF');
+  await page.evaluate(()=>{cameraPhase='chase-500';});
+  await page.keyboard.down('KeyW');
+  await page.waitForFunction(()=>worldEvidence.state.telemetry[14]>499);
+  await page.keyboard.down('KeyA');await page.waitForTimeout(700);
+  await page.keyboard.up('KeyA');await page.keyboard.up('KeyW');
+  await page.locator('#load').click();await page.waitForFunction(()=>document.getElementById('status').textContent==='Loaded.');
+  await page.locator('#world').focus();await page.keyboard.press('KeyF');
+  await page.evaluate(()=>{cameraPhase='chase-reverse';});
+  await page.keyboard.down('KeyS');await page.waitForTimeout(700);await page.keyboard.up('KeyS');
+  await page.locator('#load').click();await page.waitForFunction(()=>document.getElementById('status').textContent==='Loaded.');
+  await page.locator('#world').focus();await page.keyboard.press('KeyF');
+  await page.evaluate(()=>{cameraPhase='calibrated-vertical-jitter';window.jitterFixture=performance.now();});
+  await page.waitForTimeout(2000);
+  await page.evaluate(()=>{window.jitterFixture=undefined;});
+  await retainFrames();
+  const seats=evidence.cameraFrames.filter(f=>f.mode==='cockpit'),chase=evidence.cameraFrames.filter(f=>f.mode==='chase'&&f.phase.startsWith('chase-'));
+  evidence.maxSeatError=Math.max(...seats.map(f=>f.seatError));
+  evidence.maxChaseOffsetError=Math.max(...chase.map(f=>f.chaseError));
+  assert(evidence.maxSeatError<.0001);
+  assert(chase.length>30&&chase.some(f=>f.p[14]>499)&&chase.some(f=>f.p[14]<-5));
+  assert(evidence.maxChaseOffsetError<.0001);
+  const jitter=evidence.cameraFrames.filter(f=>f.phase==='calibrated-vertical-jitter').slice(30);
+  const range=a=>Math.max(...a)-Math.min(...a);
+  evidence.jitter={inputRange:range(jitter.map(f=>f.p[1])),cameraRange:range(jitter.map(f=>f.eye[1])),
+    fixture:'Render-only +/-0.15-yard 8 Hz grounded displacement; authoritative physics unchanged'};
+  assert(jitter.length>30&&evidence.jitter.inputRange>.25&&evidence.jitter.cameraRange<evidence.jitter.inputRange*.35);
+  for(const reason of ['pending','geometry']){
+    const frames=seats.filter(f=>f.blocked===reason&&f.phase===`blocked-${reason}`);
+    assert(frames.length>3&&frames.every(f=>f.worldDraws===0));
+    assert(Math.hypot(frames.at(-1).p[0]-frames[0].p[0],frames.at(-1).p[2]-frames[0].p[2])>.1,'Exact blocked seat keeps moving with the craft');
+  }
+  evidence.blockedFixture='Injected clearance classifications exercise the actual GPU clear/recover policy; not claims of physical obstruction';
   assert.deepEqual(evidence.errors,[]);
   evidence.browser=browser.version();
   evidence.controller='Synthetic standard Gamepad readings through navigator.getGamepads; no physical controller claim';

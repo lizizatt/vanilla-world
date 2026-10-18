@@ -42,7 +42,7 @@ The spawn height comes from the ADT, not a guessed sea-level floor.
 |---|---|
 | Drive | W thrust, S reverse, A/D steer, X brake, Space/J hop, Shift boost, Ctrl/C drift, F cockpit, V look behind, F9 reset |
 | Standard controller | Left stick steer, RT thrust minus LT reverse, RB boost, LB drift, A hop, right stick look/click cockpit, D-pad chase zoom, Y reset, Start drive/fly |
-| Chase camera | Right-drag or arrow-key orbit, wheel zoom; 0.5-second position filter by default |
+| Chase camera | Right-drag or arrow-key orbit, wheel zoom; vehicle-relative position with local distance/vertical damping |
 | Free flight | W/S forward/back, A/D strafe, Q/E altitude, arrows look, Shift fast |
 | World overview | Frames both complete coarse continents |
 | Return to vehicle | Returns to the parked hovercraft; does not teleport it to the flight camera |
@@ -121,19 +121,23 @@ height or an animated cockpit.
 **F**, the **Cockpit** button, or a right-stick click toggles functional first
 person. Its eye uses that actual posed attachment plus **0.75 model units along
 local up**, transformed with the same scale, heading and bank as the craft.
-It follows the confirmed craft pose without chase-camera lag and clips the whole
-body-to-eye segment against the existing camera collision data. The entire player
+It uses exactly the same presented craft pose and transform, without an independent
+position filter. The body-to-eye segment is checked against existing camera
+collision data without moving the eye away from the seat. The entire player
 craft, including its embedded goblin, is hidden to prevent self-geometry blocking
 the view; world scenery remains visible. Right-drag, arrows/right stick and V
 retain look controls. Wheel, D-pad or distance-slider zoom returns to chase.
 Fly parks the craft; F returns to cockpit. Reset preserves the view preference,
 and Save/Load retains it (legacy saves default to chase). Missing seat metadata
 falls back to chase with a short error; this is not exact native avatar-head parity.
-Unknown nearby collision bounds can temporarily retract the eye toward the body
-during loading; this conservative clipping is not bypassed for cockpit mode.
+Blocked or unresolved camera geometry temporarily clears the world view and shows
+a short status, while controls and the requested cockpit mode remain available.
+The camera stays at the moving seat and recovers automatically when clear; it never
+retracts, switches to chase, or freezes an old world frame. Unresolved bounds are
+reported as pending, not as proven physical obstruction.
 
 `node browser\cockpit-smoke.mjs` uses the normal app route and actual Edge input.
-It covers seat-relative eye positions in 15 motion/mode/rebase/resize cases,
+It captures before the first draw and covers seat-relative eye positions in motion/mode/rebase/resize cases,
 look/back, keyboard/button/controller toggles (including while W is held),
 self hiding, focus, sound recovery,
 and cockpit/mute preferences across offline reloads. S produces **actual backward
@@ -144,17 +148,36 @@ are injected through `navigator.getGamepads`; physical hardware is not automated
 The first run exposed controller activity stealing a held X brake, retained under
 `before-brake-priority.*`; held-key precedence fixes it. `npm --prefix browser test`
 automatically discovers all JavaScript unit suites, including cockpit coverage.
-Existing feel/audio/save/offline and full-viewport transparency checks also pass.
+Its additional clearance fixtures check fresh GPU clearing, a moving exact seat,
+and automatic recovery. Real Rust ocean driving checks chase offsets through
+500 yd/s acceleration/turning and reverse; a labelled render-only 8 Hz displacement
+checks vertical jitter attenuation without changing authoritative physics.
+Full-viewport checks preserve transparent unused areas and single 20% black control backdrops.
 
-**Handling** edits the 17 existing Rust physics parameters plus camera
-smoothing seconds. Rust validates the complete set; successful writes persist in
+The cache-v26 integrated gate passes 49 native and 148 JavaScript tests plus the
+matching-Wasm roof/ceiling/rebase checks. Edge 155 recorded 4,160 focused camera
+frames with no hidden frames or GPU errors: maximum seat-transform error
+1.44e-14 yards and unobstructed chase-offset error 2.96e-14 yards, including real
+500 yd/s forward/reverse motion. The calibrated vertical input span of 0.300 yards
+became 0.020 yards of camera motion; look pitch is damped consistently too.
+Four separate cold startup/reload cases retained 2,811 focused draws and stable
+default/tuned spawns. This measures camera attachment and onset correctness,
+not a hitch-free or maximum-frame-latency guarantee.
+
+**Handling** edits the 17 existing Rust physics parameters plus **Chase damping (s)**.
+The existing persisted `cameraSeconds` field now damps local distance expansion and
+grounded vertical suspension jitter, not world translation or cockpit position.
+Vertical compensation is bounded to 0.35 yards and clears for jumps, holds and
+resets; heading and translation stay relative to the current presented vehicle.
+Rust validates the complete physics set; successful writes persist in
 a separate per-install tuning record without overwriting the saved vehicle pose.
 Failed storage leaves active handling unchanged. There are no gameplay upper
 ceilings, but values must fit finite f32 physical domains, and extreme combinations
 can fail simulation explicitly. Brakes are held while the editor is open.
-Camera zoom is separately limited to 0-50 yards. Desired and filtered chase paths
-are clipped against loaded ground and the shared collision BVH; filtered lag cannot
-escape that 50-yard camera query window. This is not a world draw-distance limit.
+Camera zoom is separately limited to 0-50 yards. Desired and damped local chase paths
+are clipped against loaded ground and the shared collision BVH. Clearance contracts
+immediately and expands with the selected damping. There is no accumulating
+speed-dependent follow distance. The 50-yard query bound is not a world draw-distance limit.
 
 **Load** prepares destination terrain and the stationary support column before
 committing the vehicle pose. Authored bridges are queried at the **saved Y**, not

@@ -82,6 +82,6 @@ export function cameraView(rig,state,flight,dt,origin,settings={},lookBack=false
     ?Math.max(-.35,Math.min(.35,((rig.chaseBounce||0)-(state[1]-rig.chaseY))*(1-blend))):0;
   rig.chaseY=state[1];rig.chaseGrounded=grounded;
   rig.camera=clip(pivot.map((n,i)=>n+direction[i]*rig.chaseDistance+(i===1?rig.chaseBounce:0)));
-  const offset=pivot.map((n,i)=>n-rig.camera[i]);
+  const offset=pivot.map((n,i)=>n+(i===1?rig.chaseBounce:0)-rig.camera[i]);
   return {look:Math.hypot(...offset)>1e-6?unit(offset):direction.map(n=>-n),near:.1,collisionReady:!!rig.clipCamera};
 }

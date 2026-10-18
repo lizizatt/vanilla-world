@@ -51,8 +51,9 @@ test('grounded vertical jitter is damped without horizontal lag or unbounded cli
   const height=3+14.85*Math.sin(Math.atan(.3));
   for(let i=0;i<180;i++){
     state[0]=i*500/60;state[1]=2+.15*Math.sin(i*Math.PI/3);
-    cameraView(rig,state,undefined,1/60,[0,0],{});
+    const view=cameraView(rig,state,undefined,1/60,[0,0],{});
     assert.equal(rig.camera[0],state[0]);
+    assert(Math.abs(view.look[1]+Math.sin(Math.atan(.3)))<1e-9,'Vertical damping must not reintroduce terrain jitter through look pitch');
     if(i>60){raw.push(state[1]);drawn.push(rig.camera[1]);}
   }
   const span=a=>Math.max(...a)-Math.min(...a);
