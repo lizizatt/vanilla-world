@@ -1854,6 +1854,50 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn unreachable_ledge_preview_cannot_launch_a_braking_vehicle_or_leak_a_rejected_hop() {
+        let mut world = Voyage::from_manifest(fixture(0.0)).unwrap();
+        let entry = &world.manifest.tiles[0];
+        let mut tile = crate::world::tests::flat_tile(entry.x, entry.y);
+        for chunk in tile.chunks.iter_mut().filter(|c| c.index_x >= 7) {
+            for vertex in &mut chunk.positions {
+                vertex[2] = 10.0;
+            }
+        }
+        world.resident.insert(0, tile);
+        world.origin = [0.0, 64.0];
+        world.state.position = [231.0, 1.1, 0.0];
+        world.state.yaw = -std::f32::consts::FRAC_PI_2;
+        world.state.velocity = [500.0, 0.0, 0.0];
+        world.tuning.max_speed = 500.0;
+        world.tuning.boost_max_speed = 500.0;
+        world.tuning.braking = 1e6;
+        let before = world.state;
+        world
+            .advance_substep(
+                Input {
+                    brake: true,
+                    ..Default::default()
+                },
+                FIXED_DT,
+            )
+            .unwrap();
+        assert_eq!(world.hold, 0);
+        assert_eq!(world.state.position[0], before.position[0]);
+        assert!(world.state.position[1] - before.position[1] < SUPPORT_RISE);
+        world.state = before;
+        world
+            .advance(Input {
+                throttle: 1.0,
+                jump: true,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(world.hold, 3);
+        assert_eq!(world.state.position, before.position);
+        assert_eq!(world.state.jump_cooldown, before.jump_cooldown);
+    }
+
+    #[test]
     fn upward_feedforward_cap_preserves_accepted_downhill_response() {
         let mut world = Voyage::from_manifest(fixture(0.0)).unwrap();
         let entry = &world.manifest.tiles[0];

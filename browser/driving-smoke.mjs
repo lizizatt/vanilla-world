@@ -149,9 +149,12 @@ try{
     },source);
     await page.waitForTimeout(6000);
     await page.evaluate(async ()=>{
-      const p=startPose,s=await worldTest.request('probe',{points:[[p[0],p[2]]]});
-      assertReady(s[0]);
-      p[1]=Math.max(...s[0].slice(1,3).filter(Number.isFinite))+1.1;
+      const p=startPose,sin=Math.sin(p[3]),cos=Math.cos(p[3]);
+      const points=[[-.65,-.85],[.65,-.85],[-.65,.85],[.65,.85]]
+        .map(([x,z])=>[p[0]+x*cos+z*sin,p[2]-x*sin+z*cos]);
+      const s=await worldTest.request('probe',{points});
+      s.forEach(assertReady);
+      p[1]=Math.max(...s.flatMap(h=>h.slice(1,3).filter(Number.isFinite)))+(await worldTest.request('tuning'))[11];
       await worldTest.request('restore',{pose:p});
       function assertReady(s){if(s[0]!==0)throw Error(`Unavailable start surface ${s}`);}
     });
@@ -277,6 +280,7 @@ try{
         axes:[-(Math.sign(steer)*.18+steer*.82),0,t%40>=10&&t%40<20?.5:0,0],buttons}]);
     },50);
   },JSON.parse(process.env.WAYPOINTS));
+  if(process.env.WAYPOINTS)await page.keyboard.up('KeyW');
   const before=await page.evaluate(()=>structuredClone(worldEvidence.state));
   let stopped=0;
   for(let elapsed=0;elapsed<seconds;elapsed+=pulses?5:10){
@@ -307,7 +311,7 @@ try{
   data.before=before;data.environment=environment;
   await writeFile(new URL('raw.json',output),JSON.stringify(data));
   if(stopProfiles)await stopProfiles();
-  const settings={mode,straight,tuning:await page.evaluate(()=>worldTest.request('tuning')),
+  const settings={mode,straight,sourcePose:source,tuning:await page.evaluate(()=>worldTest.request('tuning')),
     video,sound,profile:cpuProfile,presentation,sceneUpdates,materialScheduling,inputPulses:pulses,...await page.evaluate(()=>{
     const canvas=document.getElementById('world'),rect=canvas.getBoundingClientRect();
     return {canvasWidth:canvas.width,canvasHeight:canvas.height,cssWidth:rect.width,cssHeight:rect.height,
@@ -359,11 +363,20 @@ try{
     return n+(r.p[5]>1&&!r.p[8]&&!r.wait&&a.p[5]>1&&!a.p[8]&&!a.wait?(r.t-a.t)/1000:0);
   },0);
   const movingFreezes=freezes.filter(f=>f.speed>1&&!f.hold&&!f.wait);
+  const rebaseSteps=data.responses.flatMap((r,i)=>{
+    const previous=data.responses[i-1];
+    if(!previous || r.p[13]===previous.p[13] || r.p[10]!==previous.p[10] || r.p[5]<1 || r.p[8] || r.wait)return [];
+    const index=data.draws.findIndex(d=>d[0]>=r.t);if(index<1)return [];
+    const a=data.draws[index-1],b=data.draws[index],step=Math.hypot(b[1]-a[1],b[3]-a[3]);
+    const expected=r.p[5]*(b[0]-a[0])/1000;
+    return [{at:r.t-data.start,step,expected,ratio:expected>0?step/expected:null}];
+  });
   const summary={settings,environment:{...environment,final:data.environmentEnd,
     sampleCount:data.samples.length,focusedSamples:data.samples.filter(s=>s.environment.hasFocus).length,
     hiddenSamples:data.samples.filter(s=>s.environment.hidden).length,events:data.environmentEvents},
     seconds:(data.end-data.start)/1000,distance,inputs:data.inputs,clientDropped:data.clientDropped,
-    movingSeconds,waypointsReached:data.waypoint,recoveries:data.recoveries?.length,
+    movingSeconds,waypointsReached:data.waypoint===undefined?undefined:data.waypoint-data.recoveries.length,
+    recoveries:data.recoveries?.length,
     movingFreezes:distribution(movingFreezes.map(f=>f.ms)),
     movingFreezesOver50:movingFreezes.filter(f=>f.ms>50).length,
     repeatedMovingDraws,rawRepeatedMovingDraws:raw.repeatedMovingDraws,inputLatency,
@@ -376,6 +389,7 @@ try{
     physicsBefore:before.physicsStats,physicsAfter:data.after.physicsStats,
     physicsDelta:data.after.physicsStats.slice(0,7).map((n,i)=>n-before.physicsStats[i]),
     peakSupportSubsteps:data.after.physicsStats[7],
+    rebaseSteps,rebaseStepRatio:distribution(rebaseSteps.map(r=>r.ratio).filter(Number.isFinite)),
     physicsFrameMs:distribution(data.responses.slice(1).map((r,i)=>r.timings.physicsMs-data.responses[i].timings.physicsMs)),
     handlerMs:distribution(data.responses.map(r=>r.transport.end-r.transport.begin)),
     handlerWaitMs:distribution(data.responses.map(r=>r.transport.begin-r.sent)),
