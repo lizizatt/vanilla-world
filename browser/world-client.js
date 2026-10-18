@@ -63,11 +63,17 @@ export class WorldClient {
     this.state=state;
     const p=state.telemetry,time=state.poseTime,previous=this.poseSamples.at(-1);
     if(time!==undefined && (!Number.isFinite(time) || !Array.isArray(p) || p.length<15
-      || !p.slice(0,5).every(Number.isFinite)))throw new Error('Invalid confirmed vehicle pose');
+      || !p.slice(0,15).every(Number.isFinite)))throw new Error('Invalid confirmed vehicle pose');
     if(time===undefined || this.poseFlying || p[8] || state.scene?.waitingCollision) {
       this.clearPose();
     } else {
-      if(previous && (time<previous.time || [10,11,12,13].some(i=>p[i]!==previous.p[i])))this.clearPose();
+      if(previous) {
+        const rebased=[11,12,13].some(i=>p[i]!==previous.p[i]);
+        const travel=Math.hypot(p[0]-previous.p[0],p[2]-previous.p[2]);
+        const bound=Math.max(p[5],previous.p[5])*(time-previous.time)/1000+1e-3;
+        // Samples are global: an origin-only translation must not restart the presentation delay.
+        if(time<previous.time || p[10]!==previous.p[10] || (rebased&&travel>bound))this.clearPose();
+      }
       if(this.poseSamples.at(-1)?.time===time)this.poseSamples[this.poseSamples.length-1]={time,p};
       else this.poseSamples.push({time,p});
       if(this.poseSamples.length>32)this.poseSamples.shift();
