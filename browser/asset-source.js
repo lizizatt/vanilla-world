@@ -310,7 +310,7 @@ export async function openDataSource(input) {
     return pending.finally(()=>{if(!background)foregroundReads--;});
   };
   return {
-    read, readFile: read, fingerprint, archives: selected.map(({ path }) => path), stats,
+    read, fingerprint, archives: selected.map(({ path }) => path), stats,
     close() {
       closed = true;
       return tail.then(() => { archives.length = 0; stats.indexBytes = 0; });

@@ -1,4 +1,4 @@
-export function worldBounds(manifest) {
+function worldBounds(manifest) {
   return manifest.horizons.map(h => {
     const r=manifest.regions[h.region],s=1600/3;
     return [r.placement[0]+(h.source_bounds[0]-r.tile_origin[0])*s,
