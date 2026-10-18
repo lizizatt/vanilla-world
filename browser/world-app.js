@@ -49,7 +49,7 @@ function syncSettings() {
   $('keyboard-guide').textContent=settings.controls==='legacy'
     ?'W/S thrust/reverse · A/D steer · X/Space brake · J hop · Shift boost · Ctrl/C drift · F9 reset.'
     :'W/S thrust/reverse · A/D steer · X brake · Space/J hop · Shift boost · Ctrl/C drift · F9 reset.';
-  canvas.setAttribute('aria-label',`World. ${$('keyboard-guide').textContent} More controls below.`);
+  canvas.setAttribute('aria-label',`World. ${$('keyboard-guide').textContent} More controls in Controls and settings.`);
   syncSound();
 }
 function syncSound() {

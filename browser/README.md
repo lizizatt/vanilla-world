@@ -80,6 +80,24 @@ Instructions and configuration are collapsed under **Controls & settings**;
 stream/cache counters update only while **Diagnostics** is open. Actual loading
 failures remain separately discoverable under **Loading issues**.
 
+The game fills the browser's entire content viewport, without requesting OS
+fullscreen or reserving space for panels. Controls and instruments have transparent
+backgrounds with text shadows and thin control outlines. Unused overlay space and
+the HUD pass pointer input through to the world; interactive controls remain
+focusable. Expanded help/settings scroll within a bounded overlay. Handling stays
+modal and holds the brakes, with a transparent backdrop.
+The existing renderer follows live canvas size/aspect and caps backing DPR at 2.
+For example, a 1280 x 800 content viewport now draws 1280 x 800 at DPR 1, rather
+than the old 1206 x 534 inset canvas. Earlier smaller-canvas performance results
+below are **not full-viewport FPS guarantees**.
+The viewport check covers the observed app content size (676 x 1315), 1280 x 800,
+360 x 640 and 640 x 360, plus DPR 2.5 capped to 2. It checks live projection aspect,
+zero page overflow, HUD/unused-overlay pointer pass-through, orbit, keyboard focus
+and unchanged scene pixels underneath transparent overlay backgrounds.
+Evidence is local under `test-results/viewport`; controls, sound recovery and
+offline saves also pass at full viewport with shell cache v20. These are functional
+checks, not a new performance benchmark or an OS-fullscreen test.
+
 The player craft resolves local display **10318** and renders its authored M2 and
 textures independently of scenery visibility. Its weighted **Stand frame 0**
 (absolute animation time 3333 ms) is baked once, preserving the chassis and embedded
@@ -228,6 +246,7 @@ node .\browser\overworld-smoke.mjs
 node .\browser\distant-smoke.mjs
 node .\browser\feel-smoke.mjs
 node .\browser\sound-smoke.mjs # Defaults to isolated http://127.0.0.1:4183; BASE_URL overrides it
+node .\browser\viewport-smoke.mjs # Same isolated-server default
 node .\browser\audio-smoke.mjs
 node .\browser\performance-smoke.mjs
 ```

@@ -10,8 +10,7 @@
   <h1 class="sr-only">Vanilla World</h1>
   <main>
     <section class="viewport" aria-label="Interactive racer view">
-      <canvas id="world" tabindex="0" aria-label="World. W thrust, S reverse, A D steer, X brake, Space or J hop. More controls below."></canvas>
-      <div class="overlay"><span id="status" role="status">Preparing graphics...</span></div>
+      <canvas id="world" tabindex="0" aria-label="World. W thrust, S reverse, A D steer, X brake, Space or J hop. More controls in Controls and settings."></canvas>
       <div id="welcome"><p>Choose your Classic 1.12 <strong>Data</strong> folder. Files stay on your computer.</p></div>
       <div class="meters" aria-label="Hover telemetry" hidden>
         <div class="speed-instrument"><span>Speed</span><strong id="speed">000</strong><span><b id="direction">IDLE</b> / YD/S</span><progress id="speed-meter" max="1" value="0" aria-label="Fraction of boost speed"></progress></div>
@@ -19,6 +18,7 @@
         <div class="boost-instrument"><span>Boost</span><strong id="boost">100%</strong><progress id="boost-meter" max="1" value="1" aria-label="Boost reserve"></progress></div>
       </div>
     </section>
+    <div class="interface">
     <section class="toolbar" aria-label="Local world and save controls">
       <button id="select" class="primary" disabled>Choose Data</button>
       <input id="files" type="file" webkitdirectory multiple hidden aria-label="Select Classic Data folder">
@@ -27,7 +27,10 @@
       <button id="resume-sound" hidden>Resume sound</button><span id="sound-status" role="status"></span>
       <button id="fly" disabled title="Free camera; your vehicle stays parked">Fly</button><button id="drive" disabled hidden>Drive</button>
     </section>
+    <div class="overlay"><span id="status" role="status">Preparing graphics...</span></div>
+    <div class="menu-stack">
     <details id="preferences"><summary>Controls &amp; settings</summary>
+      <div class="panel-content">
       <p id="keyboard-guide" class="controls">W/S thrust/reverse · A/D steer · X brake · Space/J hop · Shift boost · Ctrl/C drift · F9 reset.</p>
       <p class="controls">Camera: right-drag/arrows orbit · wheel zoom · V look back. Flight: W/S forward/back · A/D strafe · Q/E altitude · Shift fast.</p>
       <p class="controls">Controller: left stick steer · RT/LT thrust/reverse · RB boost · LB drift · A hop · right stick orbit · D-pad zoom · Y reset · Start fly/drive · Back help.</p>
@@ -44,6 +47,7 @@
         <button id="fallback" disabled>Choose folder as files</button>
       </div>
       <footer><span id="offline"></span><span id="permission"></span><button id="forget">Forget folder</button></footer>
+      </div>
     </details>
     <dialog id="tuning-panel" aria-labelledby="tuning-title"><form id="tuning-form">
       <h2 id="tuning-title">Handling</h2><p>Brakes held while editing.</p>
@@ -51,11 +55,15 @@
       <div class="toolbar"><button type="submit">Apply &amp; save</button><button id="tuning-defaults" type="button">Restore defaults</button><button id="tuning-close" type="button">Close</button></div>
     </form></dialog>
     <p id="error" role="alert" hidden></p>
-    <details id="resource-problems" hidden><summary>Loading issues</summary><pre id="problems"></pre></details>
+    <details id="resource-problems" hidden><summary>Loading issues</summary><pre id="problems" class="panel-content"></pre></details>
     <details id="diagnostics"><summary>Diagnostics</summary>
+      <div class="panel-content">
       <p id="place"></p><p id="coordinates"></p><p id="input-device"></p><p id="camera-status"></p>
       <p id="resident"></p><p id="details"></p><p id="material-status"></p><p id="population"></p><p id="craft-status"></p>
+      </div>
     </details>
+    </div>
+    </div>
   </main>
   <script type="module" src="./world-app.js"></script>
 </body>
