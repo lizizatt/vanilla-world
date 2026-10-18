@@ -45,7 +45,7 @@ export class WorldClient {
     return result;
   }
   frame(dt,throttle,steer,flags,focus,distant=true) {
-    if(!!focus!==this.poseFlying){this.clearPose();this.pendingHop=0;this.hopHeld=false;this.poseFlying=!!focus;}
+    if(!!focus!==this.poseFlying){this.discardFrame();this.poseFlying=!!focus;}
     const hop=!!(flags&8)&&!focus;
     if(hop&&!this.hopHeld)this.pendingHop=++this.hopSequence;
     this.hopHeld=hop;

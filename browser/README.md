@@ -703,6 +703,22 @@ runs, these are not an isolated timing comparison of the scalar transforms.
 They establish sustained ordinary road navigation, not hitch-free rendering or
 strict 50 ms/high-speed acceptance. Scene-update work remains a measured tail.
 
+### Cold spawn and mode transitions
+
+Cold spawn uses the active hover height (at least the collision floor clearance),
+not a fixed suspension offset. Persisted handling is applied before an unsaved
+spawn is reinitialized and revealed; a valid saved pose is restored unchanged.
+Switching fly/drive discards unsent time from the previous mode.
+
+With matching Wasm, an isolated server on 4185 and `WOW_DATA` set,
+`node browser\startup-smoke.mjs` captures from before opening the source: fresh
+spawn, first driving/fly-to-drive, saved reload, and hover-30 startup/reload.
+It records authoritative/presented poses, camera/clipping, input backlog and
+physics steps, with no warmup. Browser storage is isolated; service workers are
+disabled so instrumentation also covers reloads. Private traces/video remain
+under ignored `browser\test-results\startup`. This is an onset regression, not
+a sustained-driving stall gate.
+
 [ASSETS.md](ASSETS.md) documents the bounded MPQ reader, corruption semantics,
 77-file native/Node/Edge parity and the whole-install codec census. All 2,389,542
 compressed sectors in this installation used supported zlib; other installations

@@ -1,5 +1,5 @@
 //! Live archive topology and layout; WDT presence is independent of asynchronous ADT residency.
-use crate::voyage::{HorizonEntry, Manifest, Region, TILE, TileEntry, Voyage};
+use crate::voyage::{FLOOR_CLEARANCE, HorizonEntry, Manifest, Region, TILE, TileEntry, Voyage};
 use benilla_formats::WdlFile;
 use benilla_wdt::{WdtReader, WowVersion};
 use std::{collections::VecDeque, io::Cursor};
@@ -273,7 +273,7 @@ impl Voyage {
             (None, Some(w)) => w,
             _ => return Err(JsValue::from_str("Raceway has no support")),
         };
-        self.manifest.spawn[1] = f64::from(height) + 1.8;
+        self.manifest.spawn[1] = f64::from(height) + f64::from(self.tuning.hover_height.max(FLOOR_CLEARANCE));
         self.reset();
         Ok(())
     }
@@ -368,6 +368,28 @@ pub(crate) mod tests {
             chunks,
             doodads: vec![],
             wmos: vec![],
+        }
+    }
+
+    #[test]
+    fn spawn_uses_active_hover_without_a_suspension_launch_or_floor_snap() {
+        for hover in [0.1_f32, 1.1, 30.0] {
+            let mut world = Voyage::from_manifest(crate::voyage::tests::fixture(0.0)).unwrap();
+            let t = &world.manifest.tiles[0];
+            world.resident.insert(0, flat_tile(t.x, t.y));
+            let mut tuning = world.tuning();
+            tuning[11] = hover;
+            world.set_tuning(&tuning).unwrap();
+            world.initialize_spawn().unwrap();
+            let expected = hover.max(0.25);
+            assert_eq!(world.telemetry()[1], f64::from(expected));
+            for _ in 0..480 {
+                world.advance(Input::default()).unwrap();
+                assert_eq!(world.telemetry()[8], 0.0);
+                assert!((world.telemetry()[1] - f64::from(expected)).abs() < 1e-5);
+            }
+            world.reset();
+            assert_eq!(world.telemetry()[1], f64::from(expected));
         }
     }
 

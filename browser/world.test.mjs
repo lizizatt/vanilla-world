@@ -49,6 +49,18 @@ test('released hop survives coalescing and zero-tick replies until one numerical
   assert.equal(calls[4].fields.hop,0,'A held button is not a new discrete edge');
   calls[4].resolve({hopConsumed:2});await settle();
 });
+test('mode switches cannot spend queued flight time on the first driving step',async()=>{
+  for(const flying of [true,false]){
+    const {client,calls}=clientFixture(),oldFocus=flying?[0,20,0]:undefined,newFocus=flying?undefined:[0,20,0];
+    client.frame(.005,1,0,0,oldFocus);
+    client.frame(.08,1,0,0,oldFocus);
+    client.frame(.008,1,0,0,newFocus);
+    calls[0].resolve({pose:'old mode'});await settle();
+    assert.equal(calls[1].fields.dt,.008,'Only time sampled in the new mode may be drained');
+    assert.deepEqual(calls[1].fields.focus,newFocus);
+    calls[1].resolve({pose:'new mode'});await settle();
+  }
+});
 test('pause, flight and source replacement discard unconsumed hop edges',async()=>{
   for(const transition of [c=>c.discardFrame(),c=>c.frame(.01,0,0,0,[0,0,0]),c=>c.stop()]){
     const {client,calls}=clientFixture();

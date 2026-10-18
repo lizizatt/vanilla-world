@@ -133,6 +133,7 @@ async function open(selection,remember=false) {
       tuningValues=tune.values.slice();settings.cameraSeconds=tune.cameraSeconds;
     }
     const restored=await restore(save);
+    if(tune&&!restored)client.state=await client.request('reset');
     evidence.ready=true;report(restored?'Loaded.':'',restored);canvas.focus();
   } catch(error) {
     fail(error);report('');

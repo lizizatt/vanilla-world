@@ -13,7 +13,7 @@ pub const TILE: f64 = 1600.0 / 3.0;
 pub const MAX_RESIDENT: usize = 4;
 const SUPPORT_TRAVEL: f64 = 0.5;
 const SUPPORT_RISE: f32 = 0.6;
-const FLOOR_CLEARANCE: f32 = 0.25;
+pub(crate) const FLOOR_CLEARANCE: f32 = 0.25;
 const MAX_SUPPORT_SUBSTEPS: u32 = 64;
 
 #[cfg(target_arch = "wasm32")]
@@ -311,7 +311,7 @@ pub struct Voyage {
     scene_mesh: CollisionTree,
     scene_parts: HashMap<u32, CollisionTree>,
     state: State,
-    tuning: Tuning,
+    pub(crate) tuning: Tuning,
     origin: [f64; 2],
     rebases: u32,
     hold: u8,
