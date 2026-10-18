@@ -376,11 +376,14 @@ controls/audio/camera/save/offline check pass with shell cache v16.
 Driving now targets a fixed 30 ms history of confirmed physics poses, with no
 prediction or extrapolation. Camera and craft use the same presented pose;
 physics, audio and HUD remain authoritative. Holds, reset/restore, source/mode
-changes and rebases immediately invalidate the history. A newer authoritative
+changes, time reversal and real global-pose discontinuities invalidate the history.
+Ordinary floating-origin changes now retain it: positions in this queue are global,
+and the renderer subtracts the latest origin afterward. A newer authoritative
 hold stops buffered motion immediately. Without a bracket, drawing holds the
 latest confirmed pose rather than accumulating more delay.
 
-The final 180-second capture compared the actual presented pose with the current
+The historical 180-second capture below predates that origin-only correction.
+It compared the actual presented pose with the current
 raw client pose at every draw, under identical scheduling:
 
 | Measure | Raw | Presented |
@@ -596,6 +599,31 @@ the older, worse retained traces. No Rust/Wasm or collision-policy change is mad
 Integration passes 124 JavaScript tests plus the Edge controls/audio/material/
 save/offline check with shell cache v19; that functional check is not another
 performance comparison.
+
+### High-speed physics and readiness corrections
+
+The existing 120 Hz authoritative tick now divides long horizontal travel into
+distance-bounded support steps (maximum 64 per tick), rather than interpreting a
+smooth rise greater than 0.6 yards per tick as a wall. Solid sweeps, unsupported
+holes, missing tiles and whole-tick rollback remain enforced. Upward support
+feed-forward is capped to the admitted rise per substep; negative descent
+feed-forward is unchanged. This is a targeted physics correction, not a claim
+that every tuned trajectory is identical to the old implementation.
+
+Pending authored collision now uses both horizontal and vertical frame excursion
+bounds, including hop/downward velocity, support-floor corrections and f32
+rounding allowance. The same cylinder drives readiness and retained requests.
+Its circumsphere must fit the 850-yard scene coverage; extreme unsupported
+combinations fail before advancing physics. Selection refreshes before motion
+can carry that live cylinder outside its previous coverage sphere.
+
+After rebuilding Wasm, `node browser\pose-smoke.mjs` runs actual Rust telemetry
+through the production client and worker queue. It checks 250/500-yard-per-second
+origin-only rebases at ordinary and billion-yard offsets, plus a high-hop descent
+onto a previously pending roof: no ticks may run before collision arrives, and
+the loaded roof must stop the descent. These isolated checks do not establish
+full-world frame-rate or loading-latency guarantees. There is still no remote
+game server in this browser path; the retained queue is the local simulation worker.
 
 [ASSETS.md](ASSETS.md) documents the bounded MPQ reader, corruption semantics,
 77-file native/Node/Edge parity and the whole-install codec census. All 2,389,542

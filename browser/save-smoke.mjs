@@ -13,6 +13,14 @@ await context.addInitScript(()=>{
   Worker.prototype.postMessage=function(message,...args){
     if(['tuning','restore'].includes(message.action))
       saveRequests.push({action:message.action,pose:message.pose,values:message.values});
+    if(message.action==='restore'){
+      const receive=event=>{
+        if(event.data.id!==message.id)return;
+        window.savedRestoreReply=event.data;
+        this.removeEventListener('message',receive);
+      };
+      this.addEventListener('message',receive);
+    }
     return post.call(this,message,...args);
   };
 });
@@ -32,26 +40,28 @@ try {
   await ready();
   await page.waitForFunction(()=>worldEvidence.state.telemetry[7]===1&&worldEvidence.state.scene.waitingCollision===0);
   const before=await page.evaluate(()=>worldEvidence.state.telemetry.slice());
+  evidence.before=before;
   await page.locator('#preferences > summary').click();await page.locator('#tuning').click();
   await page.waitForFunction(()=>document.getElementById('tuning-panel').open);
   await page.locator('#tune-11').fill('30');
   await page.locator('#tuning-form button[type=submit]').click();
   await page.waitForFunction(()=>document.getElementById('tuning-status').textContent==='Saved.');
   await page.locator('#tuning-close').click();await page.locator('#preferences > summary').click();
-  await page.waitForFunction(y=>worldEvidence.state.telemetry[1]>y+28
+  await page.waitForFunction(y=>worldEvidence.state.telemetry[1]>y+25
     &&worldEvidence.state.telemetry[7]===1,before[1],{timeout:30000});
   await page.locator('#save').click();
   await page.waitForFunction(()=>document.getElementById('status').textContent==='Saved.');
   evidence.highHover=await saved();
-  assert(evidence.highHover.vehicle[1]>before[1]+28);
+  assert(evidence.highHover.vehicle[1]>before[1]+24,'The saved pose must exceed the old 20-yard ceiling');
   await context.setOffline(true);await page.reload();await ready();
   evidence.restoreOrder=await page.evaluate(()=>saveRequests);
   const tune=evidence.restoreOrder.findIndex(r=>r.action==='tuning'&&r.values?.[11]===30);
   const pose=evidence.restoreOrder.findIndex(r=>r.action==='restore');
   assert(tune>=0&&pose>tune,'Persisted handling must be applied before pose validation');
-  evidence.restored=await page.evaluate(()=>worldEvidence.state.telemetry.slice());
-  assert(Math.abs(evidence.restored[1]-evidence.highHover.vehicle[1])<1);
+  evidence.restored=await page.evaluate(()=>savedRestoreReply.result.telemetry);
+  assert.equal(evidence.restored[1],evidence.highHover.vehicle[1]);
   await page.locator('#preferences > summary').click();await page.locator('#tuning').click();
+  await page.waitForFunction(()=>document.getElementById('tuning-panel').open);
   assert.equal(await page.locator('#tune-11').inputValue(),'30');
   await page.locator('#tuning-close').click();await page.locator('#preferences > summary').click();
   const retained=await saved();
@@ -75,4 +85,8 @@ try {
   evidence.browser=browser.version();
   await writeFile(new URL('evidence.json',output),JSON.stringify(evidence,null,2));
   console.log(JSON.stringify(evidence,null,2));
+} catch(error) {
+  evidence.failure=error.stack;
+  await writeFile(new URL('failure.json',output),JSON.stringify(evidence,null,2));
+  throw error;
 } finally {await browser.close();}

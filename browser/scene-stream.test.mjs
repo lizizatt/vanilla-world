@@ -82,6 +82,9 @@ test('restore support columns retain lower collision beyond the visual radius wi
   await stream.pump();
   assert.equal(stream.snapshot().unresolvedCollision.length,0);
   assert(stream.snapshot().collisionInstances.some(i=>i.id==='1:m2:1'));
+  stream.setTile('1:0:0',[p(3,'far-ahead.m2',2000)]);
+  stream.update(1,[0,0,0],[2000,0,0],32);
+  assert(![...stream.requests.values()].some(r=>r.path==='far-ahead.m2'),'Ordinary forward prediction keeps its visual coverage cap');
 });
 
 test('scalar bounds distance preserves point and swept-box distances on every axis', () => {

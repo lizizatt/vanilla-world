@@ -778,6 +778,29 @@ test('failed destination collision or native occupancy keeps the old pose and re
   }
 });
 
+test('restore reports unchanged-revision capacity failure instead of spinning the worker queue',async()=>{
+  const f=collisionFixture();let pumps=0;
+  f.unresolved(2000);f.state.pending=1;
+  Object.assign(f.state.unresolvedCollision[0],{status:'PENDING',key:'deck'});
+  f.context.dependencies.scene.snapshot=()=>({...f.state});
+  f.context.dependencies.scene.pump=async()=>{
+    if(++pumps>1)throw new Error('Repeated a capacity-blocked pump without progress');
+    f.state.capacityBlocked=true;
+  };
+  await assert.rejects(f.request({action:'restore',pose:[2000,20,0,0]}),/scene budget/);
+  assert.equal(pumps,1);assert.equal(f.body[0],0);
+});
+
+test('restore explicitly reports failure to reacquire previously available terrain',async()=>{
+  const f=collisionFixture();
+  f.context.dependencies.world.required_tiles=()=>[7];
+  f.context.dependencies.world.restore=()=>{throw new Error('Rejected saved pose');};
+  runInContext('resident.add(7);stream=async()=>{resident.clear();};',f.context);
+  await assert.rejects(f.request({action:'restore',pose:[2000,20,0,0]}),
+    /Rejected saved pose; previous pose retained but scene recovery failed: Previous location terrain is unavailable/);
+  assert.equal(f.body[0],0);
+});
+
 test('frame timing separates post-tick camera scanning from physics queries',async()=>{
   let now=1000;
   const f=collisionFixture({now:()=>now});

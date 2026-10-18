@@ -337,6 +337,7 @@ async function preparePoseScene(pose) {
     if(sceneState.pending===0)
       throw new Error('Saved location collision cannot fit the available scene budget');
     await startScenePump();
+    sceneFocus=undefined;
     updateScene(focus,false,body);
     if(objectWait.length&&sceneState.capacityBlocked)
       throw new Error('Saved location collision cannot fit the available scene budget');
