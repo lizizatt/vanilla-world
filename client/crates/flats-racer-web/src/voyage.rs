@@ -450,7 +450,7 @@ impl Voyage {
             }
         }
         if result.availability != 1 {
-            if let Some(height) = self.scene_mesh.height(p, f64::from(body_y) + 0.6) {
+            if let Some(height) = self.scene_mesh.height(p, f64::from(body_y)) {
                 result.ground = Some(
                     result
                         .ground
@@ -621,17 +621,28 @@ impl Voyage {
             self.hold = 3;
             return Ok(());
         }
-        match self.heights(next, self.state.yaw) {
+        match self.heights_at(next, self.state.yaw, swept_end[1] as f32) {
             Ok(hs)
                 if hs
                     .iter()
                     .zip(heights)
                     .all(|(h, old)| h - old < SUPPORT_RISE) =>
             {
+                let floor = hs.into_iter().fold(f32::NEG_INFINITY, f32::max) + FLOOR_CLEARANCE;
+                let corrected_end = [swept_end[0], f64::from(floor), swept_end[2]];
+                if swept_end[1] < corrected_end[1]
+                    && (self.scene_bounds.iter().any(|b| swept_box(swept_end, corrected_end, *b))
+                        || self.scene_mesh.swept(swept_end, corrected_end))
+                {
+                    self.physics_stats[4] = self.physics_stats[4].saturating_add(1);
+                    self.state = before;
+                    self.state.velocity = [0.0; 3];
+                    self.hold = 3;
+                    return Ok(());
+                }
                 for i in 0..3 {
                     self.state.position[i] += self.state.velocity[i] * dt;
                 }
-                let floor = hs.into_iter().fold(f32::NEG_INFINITY, f32::max) + FLOOR_CLEARANCE;
                 if self.state.position[1] < floor {
                     self.physics_stats[6] = self.physics_stats[6].saturating_add(1);
                     self.state.position[1] = floor;
@@ -1982,6 +1993,112 @@ pub(crate) mod tests {
                 assert!(traveled <= bound + 0.0001, "{traveled} exceeds {bound}");
             }
         }
+    }
+
+    #[test]
+    fn floor_correction_cannot_cross_newly_admitted_collision() {
+        for shift in [0.0, 1.0e9] {
+            for jump in [false, true] {
+                let mut world = Voyage::from_manifest(fixture(shift)).unwrap();
+                let entry = &world.manifest.tiles[0];
+                let mut tile = crate::world::tests::flat_tile(entry.x, entry.y);
+                for vertex in tile.chunks.iter_mut().flat_map(|c| &mut c.positions) {
+                    vertex[2] = 1.0;
+                }
+                world.resident.insert(0, tile);
+                let x = shift + 200.0;
+                world.origin = [x, 64.0];
+                world.state = State::new([0.0, 1.1, 0.0], 0.3).unwrap();
+                world.state.bank = 0.2;
+                world.state.boost_reserve = 0.5;
+                world.tuning.hop_speed = 1.0;
+                let before = (world.state, world.origin, world.rebases);
+                world.scene_mesh = CollisionTree::new(&[
+                    x - 10.0, 1.65, 54.0, x + 10.0, 1.65, 54.0, x + 10.0, 1.65, 74.0,
+                    x - 10.0, 1.65, 54.0, x + 10.0, 1.65, 74.0, x - 10.0, 1.65, 74.0,
+                ])
+                .unwrap();
+                let point = [x, f64::from(world.state.position[1]), 64.0];
+                assert!(!world.scene_mesh.swept(point, point));
+                world
+                    .advance(Input {
+                        throttle: 1.0,
+                        steer: 0.5,
+                        boost: true,
+                        jump,
+                        ..Default::default()
+                    })
+                    .unwrap();
+                assert_eq!(world.hold, 3);
+                assert_eq!((world.state, world.origin, world.rebases), before);
+                assert_eq!(world.physics_stats[4], 1);
+                assert_eq!(world.physics_stats[6], 0);
+                world.scene_mesh = CollisionTree::default();
+                world.advance(Input::default()).unwrap();
+                assert_eq!(world.hold, 0, "A blocked correction must not embed the hull");
+                assert_eq!(world.state.position[1], 1.25);
+            }
+        }
+    }
+
+    #[test]
+    fn overhead_mesh_is_not_support_and_does_not_trap_a_clear_vehicle() {
+        for shift in [0.0, 1.0e9] {
+            let mut world = Voyage::from_manifest(fixture(shift)).unwrap();
+            let x = shift + 700.0;
+            world.restore_pose(&[x, 1.1, 64.0, 0.0]).unwrap();
+            world.scene_mesh = CollisionTree::new(&[
+                x - 10.0, 1.65, 54.0, x + 10.0, 1.65, 54.0, x + 10.0, 1.65, 74.0,
+                x - 10.0, 1.65, 54.0, x + 10.0, 1.65, 74.0, x - 10.0, 1.65, 74.0,
+            ])
+            .unwrap();
+            world.restore_pose(&[x, 1.1, 64.0, 0.0]).unwrap();
+            for _ in 0..60 {
+                world.advance(Input { throttle: 1.0, ..Default::default() }).unwrap();
+                assert_eq!(world.hold, 0);
+                let p = world.global();
+                let point = [p[0], f64::from(world.state.position[1]), p[1]];
+                assert!(!world.scene_mesh.swept(point, point));
+                assert!(world.state.position[1] < 1.65);
+            }
+            assert!(64.0 - world.global()[1] > 1.0);
+        }
+    }
+
+    #[test]
+    fn rising_motion_queries_bridge_support_at_the_proposed_height() {
+        let mut world = Voyage::from_manifest(fixture(0.0)).unwrap();
+        let entry = &world.manifest.tiles[0];
+        let mut tile = crate::world::tests::flat_tile(entry.x, entry.y);
+        for chunk in &mut tile.chunks {
+            chunk.holes = u16::MAX;
+        }
+        world.resident.insert(0, tile);
+        let mut vertices = vec![];
+        for (left, right, height) in [(180.0, 201.28, 0.59), (201.28, 220.0, 1.12)] {
+            vertices.extend([
+                left, height, 54.0, right, height, 54.0, right, height, 74.0,
+                left, height, 54.0, right, height, 74.0, left, height, 74.0,
+            ]);
+        }
+        world.scene_mesh = CollisionTree::new(&vertices).unwrap();
+        world.restore_pose(&[200.0, 1.1, 64.0, -std::f64::consts::FRAC_PI_2]).unwrap();
+        world.state.velocity = [500.0, 2000.0, 0.0];
+        world.tuning.max_speed = 500.0;
+        world.tuning.boost_max_speed = 500.0;
+        world.tuning.drag = 0.0;
+        world.tuning.spring = 0.0;
+        world.tuning.damping = 0.0;
+        let first_endpoint = [200.0 + f64::from(500.0 * (FIXED_DT / 9.0)), 64.0];
+        assert!(!world.scene_mesh.swept(
+            [200.0, 1.1, 64.0],
+            [first_endpoint[0], 1.1 + f64::from(2000.0 * (FIXED_DT / 9.0)), 64.0],
+        ));
+        assert!(world.heights_at(first_endpoint, world.state.yaw, 1.1).is_err());
+        world.advance(Input::default()).unwrap();
+        assert_eq!(world.hold, 0);
+        assert!(world.global()[0] > 204.0);
+        assert_eq!(world.physics_stats[7], 9);
     }
 
     #[test]

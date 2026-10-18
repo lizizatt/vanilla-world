@@ -78,6 +78,21 @@ test('held keyboard thrust and braking cannot be stolen by simultaneous controll
   assert.equal(input.sample(new Set(['KeyS']),[p],false).throttle,0);
   p.axes[2]=0.8;assert.equal(input.sample(new Set(),[p],true).throttle,1);
 });
+test('keyboard keeps driving priority without swallowing controller view and mode edges',()=>{
+  for(const [button,action,expected] of [[11,'cockpit',true],[3,'reset',true],[9,'flight',true],
+    [8,'help',true],[12,'zoom',1],[13,'zoom',-1]]){
+    const input=new WorldInput(),p=pad(),keys=new Set(['KeyW']);
+    p.buttons[6].value=1;p.buttons[button].pressed=true;
+    const first=input.sample(keys,[p],true);
+    assert.equal(first.throttle,1);assert.equal(first.flags,0);assert.equal(input.device,'keyboard');
+    assert.equal(first[action],expected);
+    assert(!input.sample(keys,[p],true)[action],'A held button is not a second edge');
+    p.buttons[button].pressed=false;input.sample(keys,[p],true);
+    p.buttons[button].pressed=true;
+    assert(!input.sample(keys,[p],false)[action],'Focused UI suppresses mode actions');
+    assert(!input.sample(keys,[p],true)[action],'Suppressed actions are not queued until focus returns');
+  }
+});
 test('original engine and noise beds are bounded stereo with periodic seams',()=>{
   for(let layer=0;layer<3;layer++) {
     const channels=[new Float32Array(48000),new Float32Array(48000)];

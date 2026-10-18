@@ -142,8 +142,13 @@ try {
   await page.locator('#preferences > summary').click();await page.locator('#world').focus();
   await page.evaluate(()=>{testPads=[{connected:true,mapping:'standard',index:0,axes:[0,0,0,0],
     buttons:Array.from({length:17},()=>({pressed:false,value:0}))}];});
+  await page.keyboard.down('KeyW');
   await padButton(11,false);
   await padButton(11,true);await cockpit();
+  evidence.mixedInputCockpit=await page.evaluate(()=>({...worldEvidence.input}));
+  assert.equal(evidence.mixedInputCockpit.throttle,1);
+  assert.equal(evidence.mixedInputCockpit.device,'keyboard');
+  await page.keyboard.up('KeyW');
   await page.evaluate(()=>{window.padNoise=setInterval(()=>{
     testPads[0].axes[0]=testPads[0].axes[0]>.4?.2:.8;testPads[0].buttons[7].value=.6;
   },50);});

@@ -1,4 +1,4 @@
-const CACHE = 'racer-shell-v22';
+const CACHE = 'racer-shell-v23';
 const FILES = ['./', './index.html', './world-app.js', './world-client.js', './world-worker.js', './world-renderer.js',
   './world-store.js', './world-camera.js', './camera-collision.js', './world-input.js', './world-audio.js', './world-tuning.js',
   './asset-source.js', './asset-folder.js', './scene-stream.js', './terrain-stream.js', './craft-stream.js', './flight.js',

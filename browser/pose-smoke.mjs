@@ -41,8 +41,27 @@ for(const speed of [250,500])for(const shift of [0,1e9]){
     }
     assert(rebases>=2,'Actual Rust simulation must cross multiple floating origins');
     console.log(JSON.stringify({speed,shift,rebases,maxStep,maxRebaseStep}));
-    if(speed===250&&shift===0)await fallingRoof(world);
+    if(speed===250&&shift===0){await fallingRoof(world);clearCeiling(world);}
   }finally{world.free();}
+}
+
+function clearCeiling(world){
+  world.set_scene_mesh(new Float64Array());
+  world.restore(new Float64Array([700,1.1,64,0]));
+  world.set_scene_mesh(new Float64Array([
+    690,1.65,54,710,1.65,54,710,1.65,74,
+    690,1.65,54,710,1.65,74,690,1.65,74]));
+  world.restore(new Float64Array([700,1.1,64,0]));
+  const start=Array.from(world.telemetry());
+  for(let i=0;i<60;i++){
+    world.tick(1,0,0);
+    const p=world.telemetry();
+    assert.equal(p[8],0,'A clear overhead mesh must not become supporting ground');
+    assert(p[1]+.5<1.65,'Motion must remain beneath the loaded ceiling');
+  }
+  const end=Array.from(world.telemetry());
+  assert(start[2]-end[2]>1,'The vehicle must escape beneath the ceiling without unloading it');
+  console.log(JSON.stringify({ceiling:1.65,startY:start[1],endY:end[1],clearanceMotion:start[2]-end[2],hold:end[8]}));
 }
 
 async function fallingRoof(world){

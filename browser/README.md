@@ -58,11 +58,13 @@ matching the controller's signed throttle without applying brake to reverse.
 A short hop tap survives an in-flight worker request or a zero-step frame.
 Its discrete edge is acknowledged after one fixed-step attempt, not held until
 landing; pause, reset, source and flight transitions discard unsent edges.
+Loading-readiness holds preserve the edge until physics resumes.
 Gamepad inputs use standard browser mappings,
 deadzone rescaling and press edges; disconnect, lost focus and editing controls
 clear thrust instead of leaving a stuck accelerator. Held keyboard controls take
 precedence over concurrent controller activity, including S reverse and X brake;
-controller activity can take over again after release. Flight retains keyboard
+controller view/mode press edges still work, and driving activity can take over
+again after release. Flight retains keyboard
 movement, with right-drag look.
 
 The amber/teal instruments show actual signed motion, airborne/hold state and
@@ -123,18 +125,22 @@ retain look controls. Wheel, D-pad or distance-slider zoom returns to chase.
 Fly parks the craft; F returns to cockpit. Reset preserves the view preference,
 and Save/Load retains it (legacy saves default to chase). Missing seat metadata
 falls back to chase with a short error; this is not exact native avatar-head parity.
+Unknown nearby collision bounds can temporarily retract the eye toward the body
+during loading; this conservative clipping is not bypassed for cockpit mode.
 
 `node browser\cockpit-smoke.mjs` uses the normal app route and actual Edge input.
 It covers seat-relative eye positions in 15 motion/mode/rebase/resize cases,
-look/back, keyboard/button/controller toggles, self hiding, focus, sound recovery,
+look/back, keyboard/button/controller toggles (including while W is held),
+self hiding, focus, sound recovery,
 and cockpit/mute preferences across offline reloads. S produces **actual backward
 displacement from rest**, not only a signed HUD value, in default, active-controller,
 native-reload and legacy-reload cases; opposing keys, release and X brake are checked.
 Local screenshots and JSON live under `test-results/cockpit`. Controller readings
 are injected through `navigator.getGamepads`; physical hardware is not automated.
 The first run exposed controller activity stealing a held X brake, retained under
-`before-brake-priority.*`; held-key precedence fixes it. The 133-test JS suite and
-existing feel/audio/save/offline and full-viewport transparency checks pass.
+`before-brake-priority.*`; held-key precedence fixes it. `npm --prefix browser test`
+automatically discovers all JavaScript unit suites, including cockpit coverage.
+Existing feel/audio/save/offline and full-viewport transparency checks also pass.
 
 **Handling** edits the 17 existing Rust physics parameters plus camera
 smoothing seconds. Rust validates the complete set; successful writes persist in
@@ -609,6 +615,11 @@ holes, missing tiles and whole-tick rollback remain enforced. Upward support
 feed-forward is capped to the admitted rise per substep; negative descent
 feed-forward is unchanged. This is a targeted physics correction, not a claim
 that every tuned trajectory is identical to the old implementation.
+Floor-height corrections are swept separately before positional commit, so they
+cannot push a previously clear hull through newly admitted authored collision.
+Only mesh surfaces at or below the queried body center count as support; a clear
+ceiling must not become a floor. Endpoint support uses the proposed body height
+so upward motion can still reach a higher bridge deck.
 
 Pending authored collision now uses both horizontal and vertical frame excursion
 bounds, including hop/downward velocity, support-floor corrections and f32
@@ -621,7 +632,8 @@ After rebuilding Wasm, `node browser\pose-smoke.mjs` runs actual Rust telemetry
 through the production client and worker queue. It checks 250/500-yard-per-second
 origin-only rebases at ordinary and billion-yard offsets, plus a high-hop descent
 onto a previously pending roof: no ticks may run before collision arrives, and
-the loaded roof must stop the descent. These isolated checks do not establish
+the loaded roof must stop the descent. It also checks restoration and real motion
+beneath a newly admitted low ceiling without unloading it. These isolated checks do not establish
 full-world frame-rate or loading-latency guarantees. There is still no remote
 game server in this browser path; the retained queue is the local simulation worker.
 

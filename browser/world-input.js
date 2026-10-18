@@ -24,19 +24,20 @@ export class WorldInput {
       const rising=pressed.map((p,i)=>p && !before?.pressed[i]);
       const activity=rising.some(Boolean) || analog.some((v,i)=>v!==0 && Math.abs(v-(before?.analog[i]||0))>.04);
       this.previous.set(pad.index,{analog,pressed});
-      if(accepts && activity && !keyboardHeld){this.active=pad.index;this.device='controller';}
+      if(accepts && activity){this.active=pad.index;if(!keyboardHeld)this.device='controller';}
       if(pad.index===this.active){selected={pad,analog};edges=rising;}
     }
     const idle={throttle:0,steer:0,flags:1,look:[0,0],zoom:0,cockpit:false,reset:false,flight:false,help:false};
     if(!accepts)return idle;
+    const actions={zoom:Number(!!edges[12])-Number(!!edges[13]),cockpit:!!edges[11],
+      reset:!!edges[3],flight:!!edges[9],help:!!edges[8]};
     if(this.device==='controller' && selected) {
       const {pad,analog:a}=selected;
-      return {throttle:a[1]-a[2],steer:-a[0],flags:(button(pad,5)?2:0)|(button(pad,4)?4:0)|(button(pad,0)?8:0),
-        look:a.slice(3),zoom:Number(!!edges[12])-Number(!!edges[13]),cockpit:!!edges[11],
-        reset:!!edges[3],flight:!!edges[9],help:!!edges[8]};
+      return {...actions,throttle:a[1]-a[2],steer:-a[0],flags:(button(pad,5)?2:0)|(button(pad,4)?4:0)|(button(pad,0)?8:0),
+        look:a.slice(3)};
     }
     const down=k=>Number(keys.has(k)),legacy=profile==='legacy';
-    return {...idle,throttle:down('KeyW')-down('KeyS'),steer:down('KeyA')-down('KeyD'),
+    return {...idle,...actions,throttle:down('KeyW')-down('KeyS'),steer:down('KeyA')-down('KeyD'),
       flags:(down('KeyX')||(legacy && down('Space')))|((down('ShiftLeft')||down('ShiftRight'))<<1)
         |((down('KeyC')||down('ControlLeft')||down('ControlRight'))<<2)
         |((down('KeyJ')||(!legacy && down('Space')))<<3),
