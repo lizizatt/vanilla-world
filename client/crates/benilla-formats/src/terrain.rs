@@ -420,8 +420,7 @@ pub fn adt_to_tile_mesh_observed(
             CombinedAlphaMap::new(
                 mcnk, /* has_big_alpha */ false, /* fix_alpha */ true,
             )
-            .as_slice()
-            .to_vec()
+            .into_vec()
         });
 
         let shadow = mcnk.shadow.as_ref().map(|sh| {

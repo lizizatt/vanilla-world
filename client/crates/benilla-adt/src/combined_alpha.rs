@@ -43,6 +43,11 @@ impl CombinedAlphaMap {
         &self.map
     }
 
+    /// Take the decoded RGBA bytes without copying them.
+    pub fn into_vec(self) -> Vec<u8> {
+        self.map
+    }
+
     fn ingest_chunk_layers(&mut self, chunk: &McnkChunk) {
         let (Some(mcly), Some(mcal)) = (&chunk.layers, &chunk.alpha) else {
             return;
@@ -73,13 +78,20 @@ impl CombinedAlphaMap {
 
     fn ingest_small(&mut self, raw: &[u8], offset: usize) {
         const PACKED: usize = W * W / 2;
-        if offset + PACKED <= raw.len() {
-            for &p in &raw[offset..offset + PACKED] {
-                if !self.set_next((p & 0x0F) * 17) {
-                    break;
+        if self.layer < 4 {
+            if let Some(packed) = raw.get(offset..).and_then(|tail| tail.get(..PACKED)) {
+                for (pair, &p) in self.map.as_chunks_mut::<8>().0.iter_mut().zip(packed) {
+                    pair[self.layer] = (p & 0x0F) * 17;
+                    pair[4 + self.layer] = (p >> 4) * 17;
                 }
-                if !self.set_next(((p >> 4) & 0x0F) * 17) {
-                    break;
+                if self.fix_alpha {
+                    for row in self.map.as_chunks_mut::<{ W * 4 }>().0 {
+                        row[(W - 1) * 4 + self.layer] = row[(W - 2) * 4 + self.layer];
+                    }
+                    for x in 0..W {
+                        self.map[((W - 1) * W + x) * 4 + self.layer] =
+                            self.map[((W - 2) * W + x) * 4 + self.layer];
+                    }
                 }
             }
         }
@@ -198,5 +210,43 @@ mod tests {
         let mut z = blank();
         z.ingest_small(&[0x00; W * W / 2], 0);
         assert_eq!(z.get(0, 0, 0), 0);
+    }
+
+    #[test]
+    fn packed_decode_matches_per_texel_reference_with_edges_and_missing_layers() {
+        let mut seed = 0x8754_1234u32;
+        let raw: Vec<u8> = (0..W * W * 2 + 17)
+            .map(|_| {
+                seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+                (seed >> 24) as u8
+            })
+            .collect();
+        for fix in [false, true] {
+            for offset in [0, 17, W * W, raw.len() - 1, raw.len(), usize::MAX] {
+                let mut actual = blank();
+                let mut expected = blank();
+                actual.fix_alpha = fix;
+                expected.fix_alpha = fix;
+                actual.map.fill(193);
+                expected.map.fill(193);
+                for _ in 0..6 {
+                    actual.ingest_small(&raw, offset);
+                    if let Some(packed) = raw.get(offset..).and_then(|tail| tail.get(..W * W / 2)) {
+                        for &p in packed {
+                            if !expected.set_next((p & 15) * 17) {
+                                break;
+                            }
+                            if !expected.set_next((p >> 4) * 17) {
+                                break;
+                            }
+                        }
+                    }
+                    expected.next_layer();
+                    assert_eq!(actual.as_slice(), expected.as_slice());
+                    assert_eq!((actual.x, actual.y, actual.layer), (0, 0, expected.layer));
+                }
+                assert_eq!(actual.into_vec(), expected.into_vec());
+            }
+        }
     }
 }

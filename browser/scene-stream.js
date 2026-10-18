@@ -103,14 +103,14 @@ function modelBytes(model) {
   return model.vertices.byteLength + model.indices.byteLength
     + model.collisionVertices.byteLength + model.collisionIndices.byteLength;
 }
+const REQUEST_PRIORITY = Object.freeze({ texture: 0, wmo: 1, group: 2, m2: 3 });
 function requestOrder(a, b) {
   if (!!a.distant !== !!b.distant) return a.distant ? 1 : -1;
-  const priority = { texture: 0, wmo: 1, group: 2, m2: 3 };
   const aCritical = !a.distant && a.kind !== 'texture' && (a.collisionScore ?? a.score) < 32;
   const bCritical = !b.distant && b.kind !== 'texture' && (b.collisionScore ?? b.score) < 32;
   if (aCritical !== bCritical) return aCritical ? -1 : 1;
-  if (aCritical) return priority[a.kind] - priority[b.kind] || a.score - b.score || a.key.localeCompare(b.key);
-  return a.score - b.score || priority[a.kind] - priority[b.kind] || a.key.localeCompare(b.key);
+  if (aCritical) return REQUEST_PRIORITY[a.kind] - REQUEST_PRIORITY[b.kind] || a.score - b.score || a.key.localeCompare(b.key);
+  return a.score - b.score || REQUEST_PRIORITY[a.kind] - REQUEST_PRIORITY[b.kind] || a.key.localeCompare(b.key);
 }
 
 export class SceneStream {
@@ -173,8 +173,8 @@ export class SceneStream {
     const candidates = new Map(), requests = new Map();
     const want = (key, request, score, distant) => {
       const previous = requests.get(key);
-      const next = { ...request, key, score, distant };
-      if (!previous || requestOrder(next, previous) < 0) requests.set(key, next);
+      request.key = key; request.score = score; request.distant = distant;
+      if (!previous || requestOrder(request, previous) < 0) requests.set(key, request);
     };
     const put = (id, instance) => {
       if (!candidates.has(id) || !instance.distant) candidates.set(id, instance);
