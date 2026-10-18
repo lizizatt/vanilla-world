@@ -98,7 +98,7 @@ try{
     replace(/const started=performance.now\(\);\r?\n    const p=world.telemetry\(\)/, 'drivingClock.input+=message.dt;drivingClock.batch=0;\n    const started=performance.now();\n    const p=world.telemetry()');
     replace("if(objectWait.length){accumulator=0;",'if(objectWait.length){drivingClock.objects+=message.dt+accumulator;accumulator=0;');
     replace('accumulator+=Math.min(Math.max(message.dt,0),.1);','drivingClock.dropped+=Math.max(0,message.dt-.1);accumulator+=Math.min(Math.max(message.dt,0),.1);');
-    replace('world.tick(message.throttle,message.steer,message.flags);','world.tick(message.throttle,message.steer,message.flags);drivingClock.steps++;drivingClock.batch++;');
+    replace('world.tick(message.throttle,message.steer,tickFlags);','world.tick(message.throttle,message.steer,tickFlags);drivingClock.steps++;drivingClock.batch++;');
     replace('return {telemetry:Array.from(world.telemetry()),','return {drivingClock:{...drivingClock,remainder:accumulator},drivingWork:globalThis.drivingWork.splice(0),telemetry:Array.from(world.telemetry()),');
     replace('function prepareTerrainMaterial() {',
       "function prepareTerrainMaterial() {if(terrainMaterials.size)drivingWork.push({kind:'material-preparation-frame',ms:0,frame:timings.frames,steps:drivingClock.batch,loads,index:terrainMaterials.values().next().value});");

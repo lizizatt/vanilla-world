@@ -450,6 +450,27 @@ function materialFixture() {
   return f;
 }
 
+test('hop edges survive zero ticks, are examined once, and are not buffered until landing',async()=>{
+  const f=frameFixture(),flags=[];
+  f.context.dependencies.world.tick=(_throttle,_steer,value)=>flags.push(value);
+  const send=(id,dt,hop,held=0)=>f.dispatch({id,action:'frame',dt,hop,throttle:0,steer:0,flags:held});
+  const ack=id=>f.events.find(e=>e.id===id).result.hopConsumed;
+  await send(1,.003,1);
+  assert.deepEqual(flags,[]);assert.equal(ack(1),0);
+  await send(2,.014,1);
+  assert.deepEqual(flags,[8,0]);assert.equal(ack(2),1);
+  assert.equal(f.body[7],0,'Even an airborne numerical attempt consumes the edge');
+  f.body[7]=1;
+  await send(3,1/120,1);
+  assert.equal(flags.at(-1),0,'Landing cannot replay an acknowledged press');
+  await send(4,.025,2,8);
+  assert.deepEqual(flags.slice(-3),[8,8,8]);assert.equal(ack(4),2);
+  await send(5,1/120,2);
+  assert.equal(flags.at(-1),0);
+  await send(6,.01,-1);
+  assert.match(f.events.find(e=>e.id===6).error,/Invalid hop sequence/);
+});
+
 test('admission materials wait for the catch-up reply without skipping readiness pumps',async()=>{
   const f=materialFixture();f.context.admissions.push(0);
   await f.frame(1);

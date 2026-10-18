@@ -55,6 +55,9 @@ Display switches do not disable collision.
 **Controls & settings** keeps the existing **Space key** choice: hop (default) or
 brake (legacy saves); J always hops. **S reverses and X brakes in both profiles**,
 matching the controller's signed throttle without applying brake to reverse.
+A short hop tap survives an in-flight worker request or a zero-step frame.
+Its discrete edge is acknowledged after one fixed-step attempt, not held until
+landing; pause, reset, source and flight transitions discard unsent edges.
 Gamepad inputs use standard browser mappings,
 deadzone rescaling and press edges; disconnect, lost focus and editing controls
 clear thrust instead of leaving a stuck accelerator. Flight retains keyboard

@@ -3,6 +3,7 @@ export class WorldClient {
     this.onEvent=onEvent;this.onError=onError;this.next=0;this.requests=new Map();
     this.elapsed=0;this.inFlight=false;this.canFrame=canFrame;
     this.poseSamples=[];this.poseFlying=false;
+    this.hopSequence=0;this.pendingHop=0;this.hopHeld=false;
   }
   stop() {
     this.worker?.terminate();this.worker=undefined;
@@ -44,13 +45,16 @@ export class WorldClient {
     return result;
   }
   frame(dt,throttle,steer,flags,focus,distant=true) {
-    if(!!focus!==this.poseFlying){this.clearPose();this.poseFlying=!!focus;}
+    if(!!focus!==this.poseFlying){this.clearPose();this.pendingHop=0;this.hopHeld=false;this.poseFlying=!!focus;}
+    const hop=!!(flags&8)&&!focus;
+    if(hop&&!this.hopHeld)this.pendingHop=++this.hopSequence;
+    this.hopHeld=hop;
     this.elapsed=Math.min(.1,this.elapsed+dt);
     this.pendingFrame={throttle,steer,flags,focus,distant,sampleTime:performance.now()};
     this.flushFrame();
   }
   discardFrame() {
-    this.pendingFrame=undefined;this.elapsed=0;this.clearPose();
+    this.pendingFrame=undefined;this.elapsed=0;this.pendingHop=0;this.hopHeld=false;this.clearPose();
   }
   clearPose() {
     this.poseSamples.length=0;this.poseState=undefined;this.lastPoseTime=undefined;
@@ -96,8 +100,11 @@ export class WorldClient {
     if(this.inFlight || !this.pendingFrame)return;
     const worker=this.worker,fields=this.pendingFrame,elapsed=this.elapsed;
     this.pendingFrame=undefined;this.elapsed=0;this.inFlight=true;
-    this.request('frame',{dt:elapsed,...fields}).then(state=>{
-      if(this.worker===worker)this.recordPose(state);
+    this.request('frame',{dt:elapsed,...fields,hop:this.pendingHop}).then(state=>{
+      if(this.worker===worker){
+        if(state.hopConsumed===this.pendingHop)this.pendingHop=0;
+        this.recordPose(state);
+      }
     }).catch(error=>{
       if(this.worker===worker){
         this.discardFrame();

@@ -22,12 +22,41 @@ test('worker replies immediately drain one coalesced latest-input frame with the
   assert.equal(calls.length,2);assert.deepEqual(client.state,{pose:1});
   const {sampleTime,...fields}=calls[1].fields;
   assert(Number.isFinite(sampleTime));
-  assert.deepEqual(fields,{dt:.05,throttle:-1,steer:.2,flags:2,focus:[4,5,6],distant:false});
+  assert.deepEqual(fields,{dt:.05,throttle:-1,steer:.2,flags:2,focus:[4,5,6],distant:false,hop:0});
   client.frame(.09,1,0,0);client.frame(.09,0,0,1);
   calls[1].resolve({pose:2});await settle();
   assert.equal(calls.length,3);assert.equal(calls[2].fields.dt,.1);assert.equal(calls[2].fields.throttle,0);
   calls[2].resolve({pose:3});await settle();
   assert.equal(calls.length,3);assert(!client.inFlight);assert.equal(client.elapsed,0);
+});
+test('released hop survives coalescing and zero-tick replies until one numerical step acknowledges it',async()=>{
+  const {client,calls}=clientFixture();
+  client.frame(.016,1,0,0);
+  client.frame(.016,1,0,8);
+  client.frame(.016,-1,.2,0);
+  calls[0].resolve({hopConsumed:0});await settle();
+  assert.equal(calls[1].fields.hop,1);assert.equal(calls[1].fields.flags,0);
+  assert.equal(calls[1].fields.throttle,-1);assert.equal(calls[1].fields.dt,.032);
+  calls[1].resolve({hopConsumed:0});await settle();
+  client.frame(.003,0,0,0);
+  assert.equal(calls[2].fields.hop,1,'A zero-tick reply cannot consume the edge');
+  client.frame(.01,0,0,8);
+  assert.equal(client.pendingHop,2);
+  calls[2].resolve({hopConsumed:1});await settle();
+  assert.equal(calls[3].fields.hop,2,'An old acknowledgement cannot erase a newer press');
+  calls[3].resolve({hopConsumed:2});await settle();
+  client.frame(.01,0,0,8);
+  assert.equal(calls[4].fields.hop,0,'A held button is not a new discrete edge');
+  calls[4].resolve({hopConsumed:2});await settle();
+});
+test('pause, flight and source replacement discard unconsumed hop edges',async()=>{
+  for(const transition of [c=>c.discardFrame(),c=>c.frame(.01,0,0,0,[0,0,0]),c=>c.stop()]){
+    const {client,calls}=clientFixture();
+    client.frame(.003,0,0,8);
+    transition(client);assert.equal(client.pendingHop,0);
+    calls[0].resolve({hopConsumed:0});await settle();
+    assert(calls.every(call=>call.fields.focus||call.fields.hop<=1));
+  }
 });
 test('pause and frame failure discard queued time without retrying stale input',async()=>{
   let active=true;

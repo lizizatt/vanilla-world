@@ -23,7 +23,7 @@ function startCraft() {
 let resident=new Set(),failures=new Map(),loads=0,evictions=0,peak=0,horizon;
 let terrainRead;
 const terrainMaterials=new Set();
-let materialFrameReady=false,materialTimer,materialTimerToken=0,materialGeneration=0;
+let materialFrameReady=false,materialTimer,materialTimerToken=0,materialGeneration=0,hopConsumed=0;
 let sentAssets=new Set(),sentTextures=new Set(),sceneState,sceneSignature='';
 let sentInstances=new Map();
 let sentSceneRegion;
@@ -409,7 +409,7 @@ function finishFrame(message) {
 function snapshot() {
   horizon.wasmPeakBytes=Math.max(horizon.wasmPeakBytes,wasm.memory.buffer.byteLength);
   const terrainState=terrain.snapshot();
-  return {telemetry:Array.from(world.telemetry()),poseTime,resident:Array.from(resident),required:Array.from(world.required_tiles()),
+  return {telemetry:Array.from(world.telemetry()),poseTime,hopConsumed,resident:Array.from(resident),required:Array.from(world.required_tiles()),
     failures:Array.from(failures.values()),loads,evictions,peak,limit:LIMIT,horizon,source:source.stats,
     scene:sceneState?{instances:sceneState.instances.length,assets:sceneState.cachedAssets,bytes:sceneState.cachedBytes,
       pending:sceneState.pending,errors:sceneState.errors,population:sceneState.populationStatus,
@@ -436,6 +436,7 @@ async function handle(message) {
     terrain?.clear();
     terrainRead=undefined;
     poseTime=undefined;
+    hopConsumed=0;
     terrainMaterials.clear();
     report('Opening local MPQ archives and patch chain');
     source=await openDataSource(message.folder);
@@ -467,6 +468,7 @@ async function handle(message) {
   }
   if(!world)throw new Error('Local world is not open');
   if(message.action==='frame') {
+    if(message.hop!==undefined&&(!Number.isSafeInteger(message.hop)||message.hop<0))throw new Error('Invalid hop sequence');
     if(message.sampleTime!==undefined && !Number.isFinite(message.sampleTime))throw new Error('Invalid input sample time');
     const started=performance.now();
     const p=world.telemetry(),focus=message.focus || Array.from(p.slice(0,3));
@@ -482,7 +484,12 @@ async function handle(message) {
       if(objectWait.length){accumulator=0;measureHold('objects',elapsed);}
       else {
         accumulator+=Math.min(Math.max(message.dt,0),.1);
-        while(accumulator>=1/120){world.tick(message.throttle,message.steer,message.flags);advanced=true;accumulator-=1/120;}
+        while(accumulator>=1/120){
+          const tickFlags=message.flags|((message.hop||0)>hopConsumed?8:0);
+          world.tick(message.throttle,message.steer,tickFlags);
+          if(message.hop)hopConsumed=Math.max(hopConsumed,message.hop);
+          advanced=true;accumulator-=1/120;
+        }
         const hold=world.telemetry()[8];
         measureHold(hold===1?'terrain':hold===3?'solid':hold===2?'unsupported':'clear',elapsed);
       }
