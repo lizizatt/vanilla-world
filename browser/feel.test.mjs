@@ -4,7 +4,7 @@ import {cameraView} from './world-camera.js';
 import {WorldInput} from './world-input.js';
 import {fillEngineBuffer,EngineEnvelope,WorldAudio} from './world-audio.js';
 import {TUNING_FIELDS,validateTuningRecord} from './world-tuning.js';
-import {CameraCollision} from './camera-collision.js';
+import {CameraCollision,prepareDetail} from './camera-collision.js';
 
 test('local chase distance damping is time-based, rebases precisely, and clips after filtering',()=>{
   const state=[100,2,100,0],settings={cameraSeconds:.5,cameraDistance:15};
@@ -350,8 +350,18 @@ test('camera terrain allocation preserves a full tile and exact bucket membershi
   const collision=new CameraCollision(),placement=[-500,700];
   collision.event({event:'detail',removed:[],tiles:[{index:1,placement,vertices:source}]});
   const tile=collision.tiles.get(1);
-  assert.deepEqual(tile,{placement,vertices:new Float32Array(vertices),buckets});
+  assert.deepEqual(tile.vertices,new Float32Array(vertices));assert.deepEqual(tile.placement,placement);
+  assert.deepEqual(buckets,buckets.map((_,i)=>Array.from(tile.triangles.subarray(tile.offsets[i],tile.offsets[i+1]))));
   assert.equal(tile.vertices.buffer.byteLength,vertices.length*4,'Only ground vertices retain storage');
+});
+test('prepared and direct camera terrain produce the same clipping and reject corrupt indices',()=>{
+  const vertices=new Float32Array([0,3,0,0,1,0,0, 10,3,0,0,1,0,0, 0,3,10,0,1,0,0]);
+  const event={event:'detail',removed:[],seams:[],tiles:[{index:0,placement:[0,0],vertices}]};
+  const direct=new CameraCollision(),prepared=new CameraCollision();
+  direct.event(event);prepared.event(prepareDetail(structuredClone(event)));
+  assert.deepEqual(prepared.clip([1,1,1],[1,5,1],[0,0]),direct.clip([1,1,1],[1,5,1],[0,0]));
+  const damaged=prepareDetail(structuredClone(event));damaged.tiles[0].camera.triangles[0]=99;
+  assert.throws(()=>prepared.event(damaged),/Invalid camera terrain index/);
 });
 test('camera terrain buckets clip ground, skip water and guard expected unloaded tiles',()=>{
   const collision=new CameraCollision(),size=1600/3;

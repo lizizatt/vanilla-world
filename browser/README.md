@@ -390,9 +390,9 @@ full-detail scene preload or a Bevy/VMaNGOS port.
 `far-worker.js` owns distant ADT placement parsing, M2/WMO/BLP decoding and visual
 selection. Its separate cache is bounded to **96 geometry/root resources,
 96 textures, 32 MiB decoded payload and 256 visual instances**. It exports no
-collision arrays or NPCs. The original worker alone owns physics, near terrain,
-all required collision candidates and the single serialized MPQ reader/index.
-Source extraction still runs there; distant parsing/selection no longer does.
+collision arrays or NPCs. The original worker alone owns physics, near terrain and all required collision
+candidates. The serialized MPQ reader/index now belongs to `asset-worker.js`;
+neither physics nor the distant worker retains a second archive index.
 Required terrain/collision reads take priority over background reads, including
 sector-level deferral. Flight does not wait for the parked vehicle's terrain.
 Far progress or failure never declares near collision ready.
@@ -431,7 +431,7 @@ limits were not doubled. Oversized instances do not suppress all subsequent
 smaller instances. Frustum culls and actual budget omissions are reported
 separately. All near collision candidates survive visual selection.
 
-**Bounded release evidence, not universal smoothness acceptance.** The earlier
+**Historical `5c7f281` release evidence, not universal smoothness acceptance.** The earlier
 same-worker implementation regressed: repeated scans/sorts dominated selections
 of 12--15 thousand candidates. Exact placement/bounds reuse and bounded-prefix
 selection helped but did not pass consistently. The separate-worker architecture
@@ -498,7 +498,66 @@ wet/dry/hole masks remain exact; no guessed below-sea flooding hides gaps.
 The separately reported tan triangular strip was not reproduced at bounded
 Tanaris poses and is not claimed fixed by these changes.
 
-`scenery-smoke.mjs` records staged forest/city pixels, demand, both worker heaps,
+### Partial async-loading checkpoint (not released)
+
+The checkout is based on `31fd878`, including its merged Rust physics and liquid
+scanner. `asset-worker.js` now owns archive extraction, near BLP decode/mip
+generation, terrain camera indexing and liquid-vertex extraction. IndexedDB
+operations were already asynchronous; one reusable connection now replaces
+opening/closing it for every liquid record. Version changes close the connection,
+failed opens remain explicit, and save/tuning keys are unchanged.
+
+There is one source operation and one unacknowledged result at a time, with a
+64-operation queue guard and a 64 MiB encoded-file guard. Required source reads
+precede optional work and can cancel background extraction between sectors.
+Late source results are rejected. Detail preparation keeps one active batch and
+one coalesced pending tile set, preserving ordered removal/admission without
+blocking physics. The main thread receives typed camera indices and liquid
+vertices instead of rebuilding them. WebGPU resource creation/upload still
+occurs on the main thread; terrain texture uploads retain their per-frame budget.
+Near geometry decoding/admission and near selection still have synchronous
+sections; making a function return a Promise does not move its CPU work.
+
+Exact hull/camera predicates still run every frame. A conservative cached
+candidate window reduces their repeated scan without removing unknown WMO roots
+or changing readiness. No speed, collision, 8/24 residency or rendering budgets
+were reduced.
+
+The initial final comparison's fixed-wall-time distance assertion failed because
+the reverse baseline spent 254 ms waiting for a collision asset and covered less
+ground. Preserved equal-path analysis instead selects the largest common
+five-yard-rounded distance ending at least 200 ms before solid contact:
+**580--581 yards, 6.02--6.07 active seconds**. All four captures use the same
+150/300 tuning, fresh contexts, video and no trace/CPU sampler. The approximately
+six-second source-focus preparation and uncontrolled OS cache still apply.
+
+| Equal-path result | Forward baseline / checkpoint | Reverse baseline / checkpoint |
+| --- | ---: | ---: |
+| Reply p95 (ms) | 15.2 / 12.7 | 20.2 / 11.5 |
+| Active handler p95 (ms) | 10.2 / 10.1 | 14.5 / 9.3 |
+| Active handler p99 (ms) | 22.6 / 29.4 | 30.9 / 19.0 |
+| Moving stalls over 50 ms | 0 / 0 | 0 / 0 |
+| Longest moving stall (ms) | 27.9 / 47.9 | 34.0 / 35.4 |
+| New object holds (duration ms) | 1 (80.9) / 1 (65.8) | 1 (254) / 0 (0) |
+| New terrain holds | 0 / 0 | 0 / 0 |
+
+**Forward p99 regresses; this is not a release or loading-hitch closure.**
+Remaining long active handlers contain 31--44 ms near selections and one combined
+terrain admission/selection of 64 ms. The follow-up must separate/slice visual
+selection while preserving immediate collision demand, then pass both orders
+without a p99 regression or moving stalls over 50 ms.
+
+The checkpoint passes 202 JavaScript and 45 Rust tests (one ignored), plus actual
+forest/city and transition checks. Forest/city retain 8/24 tiles and produce
+4940/3706 far-scene pixels with zero background drift. The added source worker
+sampled 1.8 MiB Wasm and 0.7/11.1 MiB used JS heap, with 40.6/32.4 MiB backing
+storage including its single 12.5 MiB archive index. Do not add Wasm twice.
+Source/result transfer peak was 42.3 MiB, including a multi-tile prepared detail
+packet; one active/pending batch and parsing copies are additional to decoded
+caches. Edge GPU counters sampled 407/476 MiB dedicated plus about 98 MiB shared.
+These are samples, not hard whole-process peaks.
+
+`scenery-smoke.mjs` records staged forest/city pixels, demand, all three worker heaps,
 tracked GPU allocations and Windows GPU-process residency. Sample waits use
 deadlines and record actual elapsed time so measurement overhead does not
 silently extend the next loading interval. `SCENERY_CASE=coast` records cold onset,

@@ -343,9 +343,15 @@ export class WorldRenderer {
         this.release(this.tiles.get(t.index));
         this.releaseMaterial(this.materialPending.get(t.index)?.gpu);this.materialPending.delete(t.index);
         const entry=this.manifest.tiles[t.index];
-        const liquid=[];
-        for(let i=0;i<t.vertices.length;i+=7)if(t.vertices[i+6]===2)liquid.push(...t.vertices.subarray(i,i+7));
-        this.tiles.set(t.index,{...this.drawable(t.vertices,t.placement),liquid:new Float32Array(liquid),
+        let liquid=t.liquid;
+        if(liquid===undefined){
+          const values=[];
+          for(let i=0;i<t.vertices.length;i+=7)if(t.vertices[i+6]===2)values.push(...t.vertices.subarray(i,i+7));
+          liquid=new Float32Array(values);
+        }
+        if(!(liquid instanceof Float32Array)||liquid.length%21||liquid.byteLength>t.vertices.byteLength)
+          throw Error('Invalid prepared terrain liquid');
+        this.tiles.set(t.index,{...this.drawable(t.vertices,t.placement),liquid,
           entry,cell:entry.x+64*entry.y});
       }
       const entries=[...this.tiles.values()].map(t=>t.entry);

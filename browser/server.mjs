@@ -2,7 +2,7 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.json':'application/json' };
-const allowed = /^\/(?:index\.html|world-(?:app|client|worker|store|renderer|camera|input|audio|tuning)\.js|far-(?:worker|stream|channel)\.js|asset-(?:source|folder)\.js|(?:scene|terrain|water|craft)-stream\.js|camera-collision\.js|flight\.js|style\.css|sw\.js|local\/npc-spawns\.json|pkg\/flats_racer_web(?:_bg\.wasm|\.js))$/;
+const allowed = /^\/(?:index\.html|world-(?:app|client|worker|store|renderer|camera|input|audio|tuning)\.js|far-(?:worker|stream|channel)\.js|asset-(?:source|folder|channel|worker)\.js|(?:scene|terrain|water|craft)-stream\.js|camera-collision\.js|flight\.js|style\.css|sw\.js|local\/npc-spawns\.json|pkg\/flats_racer_web(?:_bg\.wasm|\.js))$/;
 const server = http.createServer(async (request, response) => {
   let path;
   try { path = new URL(request.url, 'http://localhost').pathname; }

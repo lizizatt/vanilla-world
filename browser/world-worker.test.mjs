@@ -4,6 +4,7 @@ import {readFile} from 'node:fs/promises';
 import {createContext,runInContext} from 'node:vm';
 import {transformedBounds,globalCollisionVertices,SCENE_LIMITS,placementMatrix,boundsWithin,boundsDistance} from './scene-stream.js';
 import {FAR_LIMITS} from './far-stream.js';
+import {prepareDetail} from './camera-collision.js';
 
 // Exercise the actual worker queue with synthetic archive/Wasm boundaries, without starting WebGPU.
 const worker=(await readFile(new URL('./world-worker.js',import.meta.url),'utf8'))
@@ -24,6 +25,49 @@ function boot(events=[],clock=performance) {
   };
   return context;
 }
+
+test('cached unresolved broad phase preserves exact moving hull and camera predicates',()=>{
+  const context=boot();
+  const candidates=Array.from({length:6400},(_,i)=>{
+    const p=[(i%80)*25-1000,Math.floor(i/80)*25-1000,i%11*9-45];
+    return {kind:i%31?'m2':'wmo',boundsKnown:i%7!==0,bounds:[p,p.map(v=>v+3)]};
+  });
+
+  context.candidates=candidates;
+  runInContext('sceneState={unresolvedCollision:candidates};globalThis.near=nearUnresolved;',context);
+  for(let i=0;i<160;i++) {
+    const p=[i*2-150,i-80,i%35-15],radius=i%17+32,vertical=i%19+32;
+    const shortlist=context.near(p,i<80?0:1,radius,vertical);
+    const exact=x=>(x.kind==='wmo'&&!x.boundsKnown)||boundsWithin(x.bounds,p,x.boundsKnown?radius:Math.max(32,radius),vertical);
+    assert.deepEqual(shortlist.filter(exact).map(x=>candidates.indexOf(x)),
+      candidates.filter(exact).map(x=>candidates.indexOf(x)));
+    const camera=x=>(x.kind==='wmo'&&!x.boundsKnown)||boundsWithin(x.bounds,p,84);
+    assert.deepEqual(context.near(p,i<80?0:1).filter(camera).map(x=>candidates.indexOf(x)),
+      candidates.filter(camera).map(x=>candidates.indexOf(x)));
+  }
+  assert(context.near([0,0,0],1).length<640,'The cached filter must actually reduce live work');
+  runInContext('sceneState={unresolvedCollision:[]};',context);
+  assert.equal(context.near([0,0,0],1).length,0);
+});
+test('detail preprocessing never blocks physics and coalesces at most one pending tile set',async()=>{
+  const events=[],context=boot(events),jobs=[];
+  context.dependencies={prepareDetail:data=>new Promise((resolve,reject)=>jobs.push({data,resolve,reject}))};
+  runInContext('source=dependencies;globalThis.send=sendDetail;',context);
+  const tile=index=>({index,placement:[0,0],vertices:new Float32Array()});
+  context.send({event:'detail',tiles:[tile(0)],removed:[],seams:[]});
+  context.send({event:'detail',tiles:[tile(1)],removed:[],seams:[]});
+  context.send({event:'detail',tiles:[tile(2)],removed:[1],seams:[]});
+  assert.equal(jobs.length,1);assert.equal(events.length,0);
+  jobs[0].resolve(prepareDetail(jobs[0].data));await settle();
+  assert.equal(jobs.length,2);assert.deepEqual(Array.from(jobs[1].data.tiles,t=>t.index),[2]);
+  assert.deepEqual([...jobs[1].data.removed],[1]);
+  jobs[1].resolve(prepareDetail(jobs[1].data));await settle();
+  assert.deepEqual(events.map(e=>Array.from(e.tiles,t=>t.index)),[[0],[2]]);
+  context.send({event:'detail',tiles:[tile(3)],removed:[],seams:[]});
+  runInContext('source={};detailBusy=false;detailPending=undefined;',context);
+  jobs[2].resolve(prepareDetail(jobs[2].data));await settle();
+  assert.equal(events.length,2,'A replaced source cannot publish its delayed geometry');
+});
 function fixture(xs=[0,1,20,21]) {
   const reads=[],added=[],materials=[],pending=new Map(),required=[0];
   const context=boot();
@@ -175,7 +219,7 @@ function collisionFixture(clock=performance,instanceDeltas=true) {
     manifest:{spawn:f.spawn,ocean:[10000,0,20000,0],regions:[{placement:[0,0],tile_origin:[32,32]}]},scene,
   };
   runInContext(`({world,manifest,scene}=dependencies);
-    horizon={wasmPeakBytes:0};source={stats:{}};
+    horizon={wasmPeakBytes:0};source={stats:{},close(){},refresh(){}};
     terrain={snapshot:()=>({errors:[]}),retry:async()=>{},clear:()=>{}};
     stream=async()=>{};
     globalThis.request=handle;
@@ -406,7 +450,7 @@ test('legacy clients receive full instance lists for resource-only scene updates
 test('only explicit open capability true enables resource-only instance deltas',async()=>{
   for(const capability of [undefined,false,'true',1,true]) {
     const f=collisionFixture();
-    f.context.openDataSource=async()=>{throw new Error('Stop after capability negotiation');};
+    f.context.openAssetSource=async()=>{throw new Error('Stop after capability negotiation');};
     await assert.rejects(f.request({action:'open',sceneInstanceDeltas:capability}),/Stop after capability/);
     assert.equal(runInContext('sceneInstanceDeltas',f.context),capability===true);
   }
@@ -415,7 +459,7 @@ test('only explicit open capability true enables resource-only instance deltas',
 test('post-response visuals require a separate explicit capability',async()=>{
   for(const capability of [undefined,false,'true',1,true]) {
     const f=collisionFixture();
-    f.context.openDataSource=async()=>{throw new Error('Stop after capability negotiation');};
+    f.context.openAssetSource=async()=>{throw new Error('Stop after capability negotiation');};
     await assert.rejects(f.request({action:'open',sceneInstanceDeltas:true,postFrameVisuals:capability}),/Stop after capability/);
     assert.equal(runInContext('postFrameVisuals',f.context),capability===true);
   }
@@ -424,7 +468,7 @@ test('post-response visuals require a separate explicit capability',async()=>{
 test('ordered instance updates require a separate explicit capability',async()=>{
   for(const capability of [undefined,false,'true',1,true]) {
     const f=collisionFixture();
-    f.context.openDataSource=async()=>{throw new Error('Stop after capability negotiation');};
+    f.context.openAssetSource=async()=>{throw new Error('Stop after capability negotiation');};
     await assert.rejects(f.request({action:'open',sceneInstanceUpdates:capability}),/Stop after capability/);
     assert.equal(runInContext('sceneInstanceUpdates',f.context),capability===true);
   }
@@ -568,7 +612,7 @@ test('eviction and reimport cancel stale material callbacks, and source replacem
   await f.context.fireTimer();assert.equal(f.events.filter(e=>e.event==='material').length,1);
   f.context.admissions.push(1);await f.frame(3);
   const oldSource=[...f.context.timers.values()][0];
-  f.context.openDataSource=async()=>{throw Error('Source replacement stopped');};
+  f.context.openAssetSource=async()=>{throw Error('Source replacement stopped');};
   await f.dispatch({id:4,action:'open',postFrameVisuals:true});
   oldSource.callback();await runInContext('queue',f.context);
   assert.match(f.events.find(e=>e.id===4).error,/Source replacement stopped/);
@@ -612,7 +656,7 @@ test('late terrain pump completion cannot schedule work after source cancellatio
   f.context.terrainPump=()=>new Promise(r=>{resolve=r;});
   runInContext('terrain.pump=terrainPump;',f.context);
   await f.frame(1);
-  f.context.openDataSource=async()=>{throw Error('Source replacement stopped');};
+  f.context.openAssetSource=async()=>{throw Error('Source replacement stopped');};
   await f.dispatch({id:2,action:'open',postFrameVisuals:true});
   resolve(true);await settle();
   assert.equal(f.context.timers.size,0);
@@ -814,5 +858,8 @@ test('frame timing separates post-tick camera scanning from physics queries',asy
   const result=await f.request({action:'frame',dt:1/120,throttle:0,steer:0,flags:0});
   assert.equal(result.timings.physicsMs,2);
   assert.equal(result.timings.cameraUnknownMs,5);
-  assert.equal(result.timings.sceneMs,5);
+  assert.equal(result.timings.sceneMs,10,'First query includes the conservative broad phase');
+  const firstSceneMs=result.timings.sceneMs;
+  const second=await f.request({action:'frame',dt:1/120,throttle:0,steer:0,flags:0});
+  assert.equal(second.timings.sceneMs-firstSceneMs,5,'Stable coverage only runs the exact predicate');
 });

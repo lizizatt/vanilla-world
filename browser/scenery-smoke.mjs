@@ -16,7 +16,7 @@ async function workerHeaps() {
   const root=await browser.newBrowserCDPSession(),heaps=[];
   try {
     const {targetInfos}=await root.send('Target.getTargets');
-    for(const target of targetInfos.filter(t=>t.type==='worker'&&/\/(?:world|far)-worker\.js$/.test(t.url))) {
+    for(const target of targetInfos.filter(t=>t.type==='worker'&&/\/(?:world|far|asset)-worker\.js$/.test(t.url))) {
       const {sessionId}=await root.send('Target.attachToTarget',{targetId:target.targetId,flatten:false});
       const usage=await new Promise((resolve,reject)=>{
         const timer=setTimeout(()=>{root.off('Target.receivedMessageFromTarget',receive);reject(Error('Worker heap probe timed out'));},10000);
@@ -34,7 +34,8 @@ async function workerHeaps() {
       heaps.push({url:target.url,...usage});
       await root.send('Target.detachFromTarget',{sessionId});
     }
-    if(process.env.BASELINE!=='1')assert(heaps.some(h=>h.url.endsWith('/far-worker.js')),'Measure the extra worker, not only the near heap');
+    if(process.env.BASELINE!=='1')for(const name of ['far','asset'])
+      assert(heaps.some(h=>h.url.endsWith(`/${name}-worker.js`)),'Measure every extra worker, not only the near heap');
     const {processInfo}=await root.send('SystemInfo.getProcessInfo');
     const ids=processInfo.map(p=>p.id);
     assert(ids.length&&ids.every(Number.isSafeInteger));

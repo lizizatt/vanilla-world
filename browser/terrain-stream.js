@@ -76,7 +76,11 @@ export class TerrainStream {
         try {
           let mips=this.cache.get(path);
           if(mips){this.cacheHits++;this.cache.delete(path);}
-          else {mips=terrainMips(this.decode(await this.source.read(path)));this.loads++;}
+          else {
+            mips=this.source.readTexture?(await this.source.readTexture(path,'mips')).mips
+              :terrainMips(this.decode(await this.source.read(path)));
+            this.loads++;
+          }
           if(generation!==this.generation)return;
           this.cache.set(path,mips);
           while(this.cache.size>TERRAIN_CACHE_LIMIT)this.cache.delete(this.cache.keys().next().value);
@@ -90,7 +94,11 @@ export class TerrainStream {
               ...layers.flatMap(l=>l.mips.map(m=>m.buffer))]);
             tile.done=true;tile.vertices=tile.indices=tile.masks=tile.layers=undefined;
           }
-        } catch(error){this.errors.set(`tile:${tile.index}`,`Terrain texture ${path}: ${error.message||error}`);}
+        } catch(error){
+          if(generation!==this.generation)return;
+          if(error.code==='DEFERRED')return true;
+          this.errors.set(`tile:${tile.index}`,`Terrain texture ${path}: ${error.message||error}`);
+        }
       }else if(this.catalog&&this.far.length){
         const patch=this.far.shift(),id=`${patch.region}:${patch.x}:${patch.y}`;
         if(this.farDone.has(id))return;
@@ -99,9 +107,10 @@ export class TerrainStream {
         const path=this.catalog.get(key(`${map}\\map${patch.x}_${patch.y}.blp`));
         if(!path){this.missingMinimaps.set(id,`${map} ${patch.x},${patch.y}`);this.failedFar.push(patch);return;}
         try {
-          const texture=this.decode(await this.source.read(path,{background:true}));
+          const texture=this.source.readTexture?await this.source.readTexture(path,'minimap')
+            :this.decode(await this.source.read(path,{background:true}));
           if(generation!==this.generation)return;
-          const rgba=resizeRgba(texture.width,texture.height,texture.rgba,MINIMAP_SIZE);
+          const rgba=this.source.readTexture?texture.rgba:resizeRgba(texture.width,texture.height,texture.rgba,MINIMAP_SIZE);
           this.emit({event:'horizon-material',...patch,rgba},[rgba.buffer]);this.minimaps++;
         }catch(error){
           if(generation!==this.generation)return;

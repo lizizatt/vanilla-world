@@ -1,14 +1,27 @@
 const DATABASE='vanilla-world-local-overworld';
 export const LAYOUT_VERSION=3;
+let connection;
 
-async function database() {
-  return new Promise((resolve,reject)=>{
+function database() {
+  if(connection)return connection;
+  const pending=new Promise((resolve,reject)=>{
+    let failed=false;
     const request=indexedDB.open(DATABASE,1);
     request.onupgradeneeded=()=>request.result.createObjectStore('saves');
-    request.onsuccess=()=>resolve(request.result);
-    request.onerror=()=>reject(request.error);
-    request.onblocked=()=>reject(new Error('World saves are blocked by another tab.'));
+    request.onsuccess=()=>{
+      const db=request.result;
+      if(failed){db.close();return;}
+      const invalidate=()=>{if(connection===pending)connection=undefined;};
+      db.onversionchange=()=>{invalidate();db.close();};
+      db.onclose=invalidate;
+      resolve(db);
+    };
+    request.onerror=()=>{failed=true;reject(request.error);};
+    request.onblocked=()=>{failed=true;reject(new Error('World saves are blocked by another tab.'));};
   });
+  connection=pending;
+  void pending.catch(()=>{if(connection===pending)connection=undefined;});
+  return pending;
 }
 async function stored(key,record) {
   const db=await database();
@@ -16,9 +29,9 @@ async function stored(key,record) {
     const tx=db.transaction('saves',record===undefined?'readonly':'readwrite');
     const store=tx.objectStore('saves');
     const request=record===undefined?store.get(key):store.put(record,key);
-    tx.oncomplete=()=>{db.close();resolve(request.result);};
-    tx.onerror=()=>{db.close();reject(tx.error);};
-    tx.onabort=()=>{db.close();reject(tx.error || new Error('World save transaction aborted.'));};
+    tx.oncomplete=()=>resolve(request.result);
+    tx.onerror=()=>reject(tx.error);
+    tx.onabort=()=>reject(tx.error || new Error('World save transaction aborted.'));
   });
 }
 export const worldSave=(sourceId,record)=>stored(`${LAYOUT_VERSION}:${sourceId}`,record);

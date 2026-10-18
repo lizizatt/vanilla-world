@@ -1,6 +1,6 @@
 import init,{Voyage,world_manifest} from './pkg/flats_racer_web.js';
 import * as wasmTypes from './pkg/flats_racer_web.js';
-import {openDataSource} from './asset-source.js';
+import {openAssetSource} from './asset-channel.js';
 import {SceneStream,SCENE_LIMITS,transformedBounds,globalCollisionVertices,boundsWithin,boundsDistance} from './scene-stream.js';
 import {TerrainStream} from './terrain-stream.js';
 import {loadCraft} from './craft-stream.js';
@@ -25,6 +25,27 @@ function startCraft() {
 }
 let resident=new Set(),failures=new Map(),loads=0,evictions=0,peak=0,horizon;
 let terrainRead;
+let detailPending,detailBusy=false;
+function sendDetail(data) {
+  if(!source.prepareDetail){postMessage(data,[...data.tiles,...data.seams].map(t=>t.vertices.buffer));return;}
+  detailPending??={tiles:new Map(),removed:new Set()};
+  for(const index of data.removed){detailPending.tiles.delete(index);detailPending.removed.add(index);}
+  for(const tile of data.tiles)detailPending.tiles.set(tile.index,tile);
+  detailPending.seams=data.seams;
+  flushDetail();
+}
+function flushDetail() {
+  if(detailBusy||!detailPending)return;
+  const pending=detailPending,owner=source;
+  detailPending=undefined;detailBusy=true;
+  void owner.prepareDetail({event:'detail',tiles:[...pending.tiles.values()],
+    removed:[...pending.removed],seams:pending.seams}).then(data=>{
+    if(source===owner)postMessage(data,[...data.tiles.flatMap(t=>[t.vertices.buffer,t.liquid.buffer,
+      t.camera.vertices.buffer,t.camera.offsets.buffer,t.camera.triangles.buffer]),...data.seams.map(t=>t.vertices.buffer)]);
+  }).catch(error=>{if(source===owner)sceneFault(error);}).finally(()=>{
+    if(source===owner){detailBusy=false;flushDetail();}
+  });
+}
 const terrainMaterials=new Set();
 let materialFrameReady=false,materialTimer,materialTimerToken=0,materialGeneration=0,hopConsumed=0;
 let sentAssets=new Set(),sentTextures=new Set(),sceneState,sceneSignature='';
@@ -55,6 +76,7 @@ function startFarWorker() {
   if(sceneState)far.near(sceneState.instances.map(i=>i.id));
 }
 let objectWait=[],cameraUnknown=[],lastHoldTime=0,lastHold='clear',holdRun=0;
+let unresolvedWindow;
 const holds=Object.fromEntries(['terrain','objects','solid','unsupported'].map(key=>[key,{episodes:0,ms:0,maxMs:0}]));
 function measureHold(kind,elapsed) {
   if(kind==='clear'){lastHold=kind;holdRun=0;return;}
@@ -152,7 +174,7 @@ async function stream(p,pin,fill=false) {
   }
   if(tiles.length || removed.length) {
     const seams=Array.from(resident,index=>({index,vertices:world.horizon_seams(index)}));
-    postMessage({event:'detail',tiles,removed,seams},[...tiles,...seams].map(t=>t.vertices.buffer));
+    sendDetail({event:'detail',tiles,removed,seams});
     report(failures.size?`${failures.size} unavailable terrain tiles; retry after correcting access/data.`:`Detailed terrain ready: ${resident.size}/${LIMIT} tiles.`);
   }
 }
@@ -189,9 +211,22 @@ function sourcePosition(region,p) {
   return [-(p[2]-r.placement[1]+(r.tile_origin[1]-32)*TILE),
     -(p[0]-r.placement[0]+(r.tile_origin[0]-32)*TILE),p[1]];
 }
+function nearUnresolved(p,region,radius=84,vertical=84) {
+  radius=Math.max(84,radius);vertical=Math.max(84,vertical);
+  const previous=unresolvedWindow;
+  if(!previous||previous.state!==sceneState||previous.revision!==sceneRevision||previous.region!==region||
+    radius>previous.radius||vertical>previous.vertical||
+    Math.hypot(...p.map((v,a)=>v-previous.position[a]))>=16) {
+    // This is only a conservative broad phase; exact hull/camera predicates still run every frame.
+    unresolvedWindow={state:sceneState,revision:sceneRevision,region,position:p.slice(),radius,vertical,
+      candidates:sceneState.unresolvedCollision.filter(i=>(i.kind==='wmo'&&!i.boundsKnown)||
+        boundsWithin(i.bounds,p,radius+16,vertical+16))};
+  }
+  return unresolvedWindow.candidates;
+}
 function updateCameraUnknown(body,region) {
   const p=sourcePosition(region,body);
-  cameraUnknown=sceneState.unresolvedCollision.filter(i=>(i.kind==='wmo'&&!i.boundsKnown)
+  cameraUnknown=nearUnresolved(p,region).filter(i=>(i.kind==='wmo'&&!i.boundsKnown)
     || boundsWithin(i.bounds,p,84));
 }
 function sceneFault(error) {
@@ -244,7 +279,7 @@ function updateScene(focus,publish=true,restoring) {
   }
   sceneRevision=scene.revision;
   const bodySource=sourcePosition(region,body);
-  objectWait=sceneState.unresolvedCollision.filter(i=>{
+  objectWait=(restoring?sceneState.unresolvedCollision:nearUnresolved(bodySource,region,radius,verticalRadius)).filter(i=>{
     if(i.kind==='wmo' && !i.boundsKnown)return true;
     // shortcut: unknown M2 extents use a 32-yard proximity guard until their authored hull is decoded.
     const guard=i.boundsKnown?radius:Math.max(32,radius);
@@ -488,12 +523,15 @@ async function handle(message) {
     terrain?.clear();
     water?.clear();
     terrainRead=undefined;
+    detailPending=undefined;detailBusy=false;
     poseTime=undefined;
     hopConsumed=0;
     terrainMaterials.clear();
     report('Opening local MPQ archives and patch chain');
     far?.close();
-    source=await openDataSource(message.folder);
+    const previousSource=source;source=undefined;
+    previousSource?.close();
+    source=await openAssetSource(message.folder);
     const wdts=[],wdls=[];
     for(const map of ['Kalimdor','Azeroth']) {
       report(`Reading ${map} authoritative topology and distant terrain`);
@@ -534,6 +572,7 @@ async function handle(message) {
     const terrainStart=performance.now();await stream([focus[0],focus[2]],!message.focus);
     timings.terrainMs+=performance.now()-terrainStart;
     const sceneStart=performance.now();updateScene(focus,!postFrameVisuals);timings.sceneMs+=performance.now()-sceneStart;
+    source.refresh?.();
     const physicsStart=performance.now();let advanced=false;
     if(!message.focus) {
       const now=performance.now(),elapsed=lastHoldTime?Math.min(now-lastHoldTime,1000):0;lastHoldTime=now;

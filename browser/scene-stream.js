@@ -495,6 +495,15 @@ export class SceneStream {
   async load(request) {
     const readStart = performance.now();
     const generation=this.generation,background=!request.required&&(request.distant||request.score>=128);
+    const shouldDefer=()=>generation!==this.generation || !this.requests.has(request.key)
+      || [...this.requests.values()].some(r=>r.required&&!this.cache.has(r.key)&&!this.failures.has(r.key));
+    if(request.kind==='texture'&&this.source.readTexture) {
+      try {
+        const value=await this.source.readTexture(request.path,'rgba',shouldDefer);
+        this.timings.loads++;
+        return {value,bytes:value.rgba.byteLength};
+      } finally {this.timings.readMs+=performance.now()-readStart;}
+    }
     let bytes;
     try { bytes = await this.source.read(request.path,{background,shouldDefer:background?()=>
       generation!==this.generation || !this.requests.has(request.key)
