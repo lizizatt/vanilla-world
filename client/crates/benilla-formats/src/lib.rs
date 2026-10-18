@@ -46,7 +46,8 @@ pub use cinematics::{
     CinematicSequence, CinematicView, SEQUENCE_CAMERAS,
 };
 pub use creatures::{
-    load_creature_catalog, CreatureCatalog, CreatureModel, FootprintParams, NpcAppearance,
+    load_creature_catalog, parse_creature_catalog, CreatureCatalog, CreatureModel, FootprintParams,
+    NpcAppearance,
 };
 pub use macro_icons::load_macro_icons;
 mod macro_icons;
@@ -155,7 +156,7 @@ pub use light::{Atmosphere, LightCatalog, Submersion, ZERO_KEY_COLOR, ZERO_KEY_S
 mod loading_screen;
 pub use loading_screen::{load_loading_screens, LoadingScreenCatalog};
 mod liquid;
-pub use liquid::{LiquidKind, LiquidMesh};
+pub use liquid::{LiquidKind, LiquidMesh, adt_bytes_to_liquid_only};
 mod maps;
 pub use maps::{load_map_catalog, MapBattlegroundColumns, MapCatalog};
 mod anim_data;
@@ -263,7 +264,7 @@ pub use models::{
     parse_m2_cch_marker, parse_m2_collision_hull, parse_m2_event_markers,
     parse_m2_global_sequence_bones, parse_m2_lights, parse_m2_pane_cameras,
     parse_m2_playable_animation_lookup, parse_m2_portrait_camera, parse_m2_render_submeshes,
-    parse_m2_skeleton, parse_m2_string_anchors, parse_wmo_fogs, parse_wmo_lights,
+    parse_m2_skeleton, bake_m2_stand_pose, parse_m2_string_anchors, parse_wmo_fogs, parse_wmo_lights,
     parse_wmo_portals, parse_wmo_root, rotation_2x2, shipped_glue_art_extent, uv_transform,
     wmo_group_doodad_refs, wmo_group_fixed_colors, wmo_group_footprint_tris, wmo_group_header,
     wmo_group_light_refs, wmo_group_liquid_mesh, wmo_group_raw_colors, wmo_group_submeshes,
@@ -281,10 +282,10 @@ pub use models::{
 };
 mod terrain;
 pub use terrain::{
-    adt_to_tile_mesh, area_id_at, find_tile_near, ground_effect_at, impassable_at, load_tile_mesh,
-    load_tiles_around, mcsh_shadowed_at, terrain_height_at, triangle_z_at, ChunkMesh, Doodad,
-    MapTiles, TileMesh, WmoInstance, ALPHA_MAP_SIZE, CHUNK_SIZE, SHADOW_MAP_SIZE, STORMWIND_XY,
-    TERRAIN_LAYER_TILES, TILE_SIZE,
+    adt_to_tile_mesh, adt_to_tile_mesh_observed, area_id_at, find_tile_near, ground_effect_at,
+    impassable_at, load_tile_mesh, load_tiles_around, mcsh_shadowed_at, terrain_height_at,
+    triangle_z_at, ChunkMesh, Doodad, MapTiles, TerrainBuildPhase, TileMesh, WmoInstance,
+    ALPHA_MAP_SIZE, CHUNK_SIZE, SHADOW_MAP_SIZE, STORMWIND_XY, TERRAIN_LAYER_TILES, TILE_SIZE,
 };
 mod wdl;
 /// World (x, y) to ADT tile `(col, row)`; minimap `map<X>_<Y>.blp` names use the same order.

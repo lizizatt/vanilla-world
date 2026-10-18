@@ -68,6 +68,137 @@ pub fn parse_m2_skeleton(bytes: &[u8]) -> Result<Skeleton> {
     Ok(Skeleton { bones })
 }
 
+/// Bake the first authored Stand frame once, preserving each vertex's full skin weights.
+/// This bounded path rejects required billboard/parent overrides and global bone tracks.
+/// Attachment 0, when authored, is returned in the same posed space as the geometry.
+pub fn bake_m2_stand_pose(
+    bytes: &[u8],
+    submeshes: &mut [crate::RenderSubmesh],
+) -> Result<Option<M2Attachment>> {
+    use anyhow::{bail, ensure};
+    use glam::{Affine3A, Quat, Vec3};
+
+    let skeleton = parse_m2_skeleton(bytes)?;
+    ensure!(
+        !skeleton.bones.is_empty() && skeleton.bones.len() <= 256,
+        "Invalid static rig size"
+    );
+    let mut seat = parse_m2_attachments(bytes)?.into_iter().find(|a| a.id == 0);
+    let mut needed = vec![false; skeleton.bones.len()];
+    for joint in submeshes
+        .iter()
+        .flat_map(|s| s.joints.iter().zip(&s.weights))
+        .flat_map(|(j, w)| j.iter().zip(w).filter(|(_, w)| **w > 0.0).map(|(&j, _)| j))
+        .chain(seat.iter().map(|a| a.bone))
+    {
+        *needed
+            .get_mut(joint as usize)
+            .ok_or_else(|| anyhow::anyhow!("Invalid Stand skin joint"))? = true;
+    }
+    for i in (0..needed.len()).rev() {
+        if needed[i] && skeleton.bones[i].parent >= 0 {
+            let parent = skeleton.bones[i].parent as usize;
+            ensure!(parent < i, "Invalid Stand bone hierarchy");
+            needed[parent] = true;
+        }
+    }
+    ensure!(
+        skeleton
+            .bones
+            .iter()
+            .zip(&needed)
+            .all(|(b, used)| !used || (b.billboard.is_none() && b.parent_arm.is_none()))
+            && parse_m2_global_sequence_bones(bytes).is_empty(),
+        "Static Stand bake does not support required billboard/parent overrides or global bone tracks"
+    );
+    let animations = parse_m2_animations(bytes);
+    let stand = animations
+        .iter()
+        .find(|a| a.anim_id == 0)
+        .ok_or_else(|| anyhow::anyhow!("Model has no authored Stand sequence"))?;
+    let mut skin = vec![Affine3A::IDENTITY; skeleton.bones.len()];
+    for (i, bone) in skeleton.bones.iter().enumerate() {
+        if !needed[i] {
+            continue;
+        }
+        let parent = if bone.parent < 0 {
+            Affine3A::IDENTITY
+        } else {
+            ensure!((bone.parent as usize) < i, "Invalid Stand bone hierarchy");
+            skin[bone.parent as usize]
+        };
+        let keys = stand.bones.iter().find(|k| k.bone as usize == i);
+        let pivot = Vec3::from_array(bone.pivot);
+        let translation = keys
+            .and_then(|k| k.translation.first())
+            .map_or(Vec3::ZERO, |(_, t)| Vec3::from_array(*t));
+        let rotation = keys
+            .and_then(|k| k.rotation.first())
+            .map_or(Quat::IDENTITY, |(_, q)| Quat::from_array(*q));
+        let scale = keys
+            .and_then(|k| k.scale.first())
+            .map_or(Vec3::ONE, |(_, s)| Vec3::from_array(*s));
+        ensure!(
+            pivot.is_finite()
+                && translation.is_finite()
+                && rotation.is_finite()
+                && rotation.length_squared() > 1e-8
+                && scale.is_finite(),
+            "Invalid Stand transform"
+        );
+        // Native joint locals are pivot-parent_pivot + translation; inverse bind is T(-pivot).
+        let matrix = parent
+            * Affine3A::from_scale_rotation_translation(
+                scale,
+                rotation.normalize(),
+                pivot + translation,
+            )
+            * Affine3A::from_translation(-pivot);
+        ensure!(matrix.is_finite(), "Non-finite Stand skin matrix");
+        skin[i] = matrix;
+    }
+    for sub in submeshes {
+        let count = sub.positions.len();
+        ensure!(
+            count == sub.normals.len() && count == sub.joints.len() && count == sub.weights.len(),
+            "Inconsistent Stand skin streams"
+        );
+        for i in 0..count {
+            let mut position = Vec3::ZERO;
+            let mut normal = Vec3::ZERO;
+            for (&joint, &weight) in sub.joints[i].iter().zip(&sub.weights[i]) {
+                ensure!(
+                    weight.is_finite() && weight >= 0.0,
+                    "Invalid Stand skin weight"
+                );
+                if weight == 0.0 {
+                    continue;
+                }
+                let Some(matrix) = skin.get(joint as usize) else {
+                    bail!("Invalid Stand skin joint");
+                };
+                position += matrix.transform_point3(Vec3::from_array(sub.positions[i])) * weight;
+                normal += matrix.transform_vector3(Vec3::from_array(sub.normals[i])) * weight;
+            }
+            ensure!(
+                position.is_finite() && normal.is_finite() && normal.length_squared() > 1e-8,
+                "Invalid posed Stand vertex"
+            );
+            sub.positions[i] = position.to_array();
+            sub.normals[i] = normal.normalize().to_array();
+        }
+    }
+    if let Some(attachment) = &mut seat {
+        let matrix = skin
+            .get(attachment.bone as usize)
+            .ok_or_else(|| anyhow::anyhow!("Invalid Stand attachment bone"))?;
+        attachment.position = matrix
+            .transform_point3(Vec3::from_array(attachment.position))
+            .to_array();
+    }
+    Ok(seat)
+}
+
 /// One attachment point (`0` shield, `1`/`2` right/left hand), position in raw WoW model space.
 #[derive(Debug, Clone, Copy)]
 pub struct M2Attachment {

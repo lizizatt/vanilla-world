@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vanilla World</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <h1 class="sr-only">Vanilla World</h1>
+  <main>
+    <section class="viewport" aria-label="Interactive racer view">
+      <canvas id="world" tabindex="0" aria-label="World. W thrust, S reverse, A D steer, X brake, Space or J hop. More controls in Controls and settings."></canvas>
+      <div id="welcome"><p>Choose your Classic 1.12 <strong>Data</strong> folder. Files stay on your computer.</p></div>
+      <div class="meters" aria-label="Hover telemetry" hidden>
+        <div class="speed-instrument"><span>Speed</span><strong id="speed">000</strong><span><b id="direction">IDLE</b> / YD/S</span><progress id="speed-meter" max="1" value="0" aria-label="Fraction of boost speed"></progress></div>
+        <div class="state-instrument"><strong id="drive-state">PARKED</strong><span id="motion"></span></div>
+        <div class="boost-instrument"><span>Boost</span><strong id="boost">100%</strong><progress id="boost-meter" max="1" value="1" aria-label="Boost reserve"></progress></div>
+      </div>
+    </section>
+    <div class="interface">
+    <section class="toolbar" aria-label="Local world and save controls">
+      <button id="select" class="primary" disabled>Choose Data</button>
+      <input id="files" type="file" webkitdirectory multiple hidden aria-label="Select Classic Data folder">
+      <button id="save" disabled>Save</button><button id="load" disabled>Load</button>
+      <label class="sound-control"><input id="sound" type="checkbox"> Sound</label>
+      <button id="resume-sound" hidden>Resume sound</button><span id="sound-status" role="status"></span>
+      <button id="fly" disabled title="Free camera; your vehicle stays parked">Fly</button><button id="drive" disabled hidden>Drive</button>
+    </section>
+    <div class="overlay"><span id="status" role="status">Preparing graphics...</span></div>
+    <div class="overlay" id="camera-blocked" role="status" hidden></div>
+    <div class="menu-stack">
+    <details id="preferences"><summary>Controls &amp; settings</summary>
+      <div class="panel-content">
+      <p id="keyboard-guide" class="controls">W/S thrust/reverse · A/D steer · X brake · Space/J hop · Shift boost · Ctrl/C drift · F9 reset.</p>
+      <p class="controls">Camera: F cockpit · right-drag/arrows look · wheel chase zoom · V look back. Flight: W/S forward/back · A/D strafe · Q/E altitude · Shift fast.</p>
+      <p class="controls">Controller: left stick steer · RT/LT thrust/reverse · RB boost · LB drift · A hop · right stick look/click cockpit · D-pad chase zoom · Y reset · Start fly/drive · Back help.</p>
+      <div class="preferences">
+        <label>Space key <select id="control-profile"><option value="native">Hop</option><option value="legacy">Brake</option></select></label>
+        <label>Camera distance <input id="camera-distance" type="range" min="0" max="50" step="0.5" value="15" aria-label="Chase distance in yards"></label>
+        <label><input id="horizon" type="checkbox" checked> Distant terrain</label>
+        <label><input id="scenery" type="checkbox" checked> Scenery</label>
+        <label><input id="distant" type="checkbox" checked> Distant models</label>
+      </div>
+      <div class="toolbar">
+        <button id="reset" disabled title="Return to raceway without overwriting your save">Reset</button><button id="retry" disabled>Retry loading</button>
+        <button id="overview" disabled>Overview</button><button id="tuning" disabled>Handling</button><button id="cockpit" disabled aria-pressed="false" title="F or right-stick click; wheel returns to chase">Cockpit</button>
+        <button id="fallback" disabled>Choose folder as files</button>
+      </div>
+      <footer><span id="offline"></span><span id="permission"></span><button id="forget">Forget folder</button></footer>
+      </div>
+    </details>
+    <dialog id="tuning-panel" aria-labelledby="tuning-title"><form id="tuning-form">
+      <h2 id="tuning-title">Handling</h2><p>Driving input is ignored while editing; the vehicle can coast.</p>
+      <div id="tuning-fields"></div><p id="tuning-status" role="status"></p>
+      <div class="toolbar"><button type="submit">Apply &amp; save</button><button id="tuning-defaults" type="button">Restore defaults</button><button id="tuning-close" type="button">Close</button></div>
+    </form></dialog>
+    <p id="error" role="alert" hidden></p>
+    <details id="resource-problems" hidden><summary>Loading issues</summary><pre id="problems" class="panel-content"></pre></details>
+    <details id="diagnostics"><summary>Diagnostics</summary>
+      <div class="panel-content">
+      <p id="place"></p><p id="coordinates"></p><p id="input-device"></p><p id="camera-status"></p>
+      <p id="resident"></p><p id="details"></p><p id="material-status"></p><p id="population"></p><p id="craft-status"></p>
+      </div>
+    </details>
+    </div>
+    </div>
+  </main>
+  <script type="module" src="./world-app.js"></script>
+</body>
+</html>

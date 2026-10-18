@@ -213,12 +213,14 @@ pub enum ParsedAdt {
 #[derive(Debug)]
 pub enum Error {
     Truncated(&'static str),
+    Invalid(&'static str),
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::Truncated(w) => write!(f, "truncated ADT: {w}"),
+            Error::Invalid(w) => write!(f, "invalid ADT: {w}"),
         }
     }
 }
@@ -670,6 +672,8 @@ pub fn scan_adt_placements(cursor: &mut Cursor<&[u8]>) -> Result<AdtPlacements> 
 
 mod combined_alpha;
 pub use combined_alpha::CombinedAlphaMap;
+mod liquid_summary;
+pub use liquid_summary::{McnkLiquidSummary, scan_adt_liquids};
 
 #[cfg(test)]
 mod tests {

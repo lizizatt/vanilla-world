@@ -14,6 +14,11 @@
 /build/
 /_install/
 /target-racer/
+/target-web/
+/target-nearby/
+/browser/pkg/
+/browser/node_modules/
+/browser/test-results/
 
 # Credentials belong outside the checkout; these are additional guardrails.
 .env

@@ -1,0 +1,19 @@
+{
+  "name": "vanilla-world-browser-racer",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test --test-concurrency=1 .",
+    "test:world": "node overworld-smoke.mjs",
+    "test:performance": "node performance-smoke.mjs",
+    "test:assets": "node asset-smoke.mjs",
+    "test:scene": "node scene-smoke.mjs",
+    "test:distant": "node distant-smoke.mjs",
+    "test:terrain": "node terrain-smoke.mjs",
+    "test:feel": "node feel-smoke.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}

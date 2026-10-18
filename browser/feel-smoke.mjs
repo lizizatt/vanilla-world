@@ -1,0 +1,136 @@
+import {chromium} from 'playwright';
+import assert from 'node:assert/strict';
+import {mkdir,writeFile} from 'node:fs/promises';
+import {fileURLToPath} from 'node:url';
+
+if(!process.env.WOW_DATA)throw new Error('Set WOW_DATA to your read-only Classic Data directory');
+const out=new URL('./test-results/feel/',import.meta.url);
+await mkdir(out,{recursive:true});
+const browser=await chromium.launch({channel:'msedge',headless:true,ignoreDefaultArgs:['--mute-audio','--autoplay-policy=no-user-gesture-required']});
+const page=await browser.newPage({viewport:{width:1440,height:1000}});
+const errors=[],checks={};
+page.on('pageerror',e=>errors.push(e.message));
+page.on('console',m=>{if(m.type()==='error')errors.push(m.text());});
+const ready=async()=>{
+  await page.waitForFunction(()=>!document.getElementById('select').disabled);
+  await page.locator('#files').setInputFiles(process.env.WOW_DATA);
+  await page.waitForFunction(()=>worldEvidence.ready || worldEvidence.errors.length,{},{timeout:180000});
+  assert.deepEqual(await page.evaluate(()=>worldEvidence.errors),[]);
+};
+try {
+  await page.goto(`${process.env.BASE_URL || 'http://127.0.0.1:4173'}/?test`);
+  await ready();
+  await page.waitForFunction(()=>worldEvidence.state.scene?.waitingCollision===0 && worldEvidence.state.telemetry[7]===1,{},{timeout:120000});
+  await page.waitForFunction(()=>worldEvidence.cameraCollision?.terrainTiles>0 && worldEvidence.cameraCollision.triangles>0,{},{timeout:120000});
+  assert.equal(await page.locator('#control-profile').inputValue(),'native');
+  await page.keyboard.down('KeyS');
+  await page.waitForFunction(()=>worldEvidence.input.throttle===-1 && !(worldEvidence.input.flags&1) && worldEvidence.state.telemetry[14]<-1);
+  checks.nativeReverse=true;
+  await page.keyboard.up('KeyS');
+  await page.keyboard.down('KeyX');
+  await page.waitForFunction(()=>worldEvidence.input.flags===1 && worldEvidence.input.throttle===0 && worldEvidence.state.telemetry[5]<.3);
+  await page.keyboard.up('KeyX');checks.separateBrake=true;
+  const floor=await page.evaluate(()=>worldEvidence.state.telemetry[1]);
+  await page.keyboard.down('Space');
+  await page.waitForFunction(y=>worldEvidence.state.telemetry[1]>y+.4,floor,{timeout:10000});
+  await page.keyboard.up('Space');checks.nativeHop=true;
+  await page.waitForFunction(()=>worldEvidence.state.telemetry[7]===1);
+  await page.locator('#preferences > summary').click();
+  await page.locator('#control-profile').selectOption('legacy');await page.locator('#world').focus();
+  assert.match(await page.locator('#keyboard-guide').innerText(),/X\/Space brake/);
+  await page.keyboard.down('KeyS');
+  await page.waitForFunction(()=>worldEvidence.input.throttle===-1 && !(worldEvidence.input.flags&1));
+  await page.keyboard.up('KeyS');checks.legacyReverse=true;
+  await page.locator('#control-profile').selectOption('native');await page.locator('#world').focus();
+  await page.keyboard.down('KeyX');await page.waitForTimeout(400);await page.keyboard.up('KeyX');
+
+  const fakePad={connected:true,mapping:'standard',index:0,axes:[0,0,1,0],buttons:Array.from({length:17},()=>({pressed:false,value:0}))};
+  fakePad.buttons[6].value=1;
+  await page.evaluate(p=>worldTest.gamepads([p]),fakePad);
+  await page.waitForFunction(()=>worldEvidence.input.device==='controller' && worldEvidence.input.throttle===-1 && worldEvidence.input.look[0]===1);
+  fakePad.buttons[7].value=1;
+  await page.evaluate(p=>worldTest.gamepads([p]),fakePad);
+  await page.waitForFunction(()=>worldEvidence.input.throttle===0);
+  await page.evaluate(()=>worldTest.gamepads([]));
+  await page.waitForFunction(()=>worldEvidence.input.device==='keyboard' && worldEvidence.input.throttle===0);
+  checks.standardGamepadMapping='Browser frame path using synthetic standard-Gamepad values; physical controller not automated';
+  const distance=Number(await page.locator('#camera-distance').inputValue());
+  const canvas=await page.locator('#world').boundingBox();
+  await page.mouse.move(canvas.x+canvas.width/2,canvas.y+canvas.height/2);
+  await page.mouse.wheel(0,100);
+  await page.waitForFunction(d=>Number(document.getElementById('camera-distance').value)>d,distance);
+  checks.wheelZoom=true;
+
+  await page.locator('#sound').check();
+  await page.waitForFunction(()=>worldEvidence.audio?.state==='running' && worldEvidence.audio.voices===3);
+  await page.waitForFunction(()=>worldTest.audioRms()>.001,{},{timeout:10000});
+  checks.audioRms=await page.evaluate(()=>worldTest.audioRms());
+  await page.locator('#sound').uncheck();
+  await page.waitForFunction(()=>worldEvidence.audio.state==='suspended' && !worldEvidence.audio.enabled);
+  await page.locator('#sound').check();
+  await page.waitForFunction(()=>worldEvidence.audio.state==='running' && worldEvidence.audio.voices===3);
+  checks.audioVoiceReuse=true;
+  await page.locator('#sound').uncheck();
+
+  await page.waitForFunction(()=>!document.getElementById('tuning').disabled);
+  const initial=await page.evaluate(()=>worldTest.request('tuning'));
+  await page.locator('#tuning').click();
+  await page.waitForFunction(()=>document.getElementById('tuning-panel').open);
+  await page.locator('#tune-1').fill('1');await page.locator('#tuning-form button[type=submit]').click();
+  await page.waitForFunction(()=>document.getElementById('tuning-status').textContent.includes('retained'));
+  assert.deepEqual(await page.evaluate(()=>worldTest.request('tuning')),initial);
+  await page.locator('#tune-0').fill('42');await page.locator('#tune-1').fill('80');await page.locator('#tune-17').fill('0.25');
+  await page.evaluate(()=>{window.originalOpen=indexedDB.open;indexedDB.open=()=>{throw new DOMException('Simulated tuning write failure','QuotaExceededError');};});
+  await page.locator('#tuning-form button[type=submit]').click();
+  await page.waitForFunction(()=>document.getElementById('tuning-status').textContent.includes('Simulated'));
+  assert.deepEqual(await page.evaluate(()=>worldTest.request('tuning')),initial);
+  await page.evaluate(()=>{indexedDB.open=window.originalOpen;delete window.originalOpen;});
+  await page.locator('#tuning-form button[type=submit]').click();
+  await page.waitForFunction(()=>document.getElementById('tuning-status').textContent.startsWith('Saved'));
+  checks.tuning=await page.evaluate(()=>worldTest.request('tuning'));
+  assert.equal(checks.tuning[0],42);assert.equal(checks.tuning[1],80);
+  checks.failedWritePreservesActiveTuning=true;
+  await page.locator('#tuning-close').click();
+  await page.waitForFunction(()=>worldEvidence.render.texturedTerrainTiles===worldEvidence.state.limit
+    && worldEvidence.render.craftReady && worldEvidence.render.craftPose==='stand-frame-0',{},{timeout:120000});
+  await page.locator('#scenery').uncheck();
+  await page.waitForFunction(()=>worldEvidence.render.craftDraws===6 && worldEvidence.render.sceneDraws===6);
+  await page.locator('#fly').click();
+  await page.waitForFunction(()=>worldEvidence.mode==='fly' && worldEvidence.render.craftDraws===0);
+  await page.locator('#drive').click();
+  await page.waitForFunction(()=>worldEvidence.mode==='drive' && worldEvidence.render.craftDraws===6);
+  await page.locator('#scenery').check();
+  await page.waitForFunction(()=>worldEvidence.render.sceneDraws>6
+    && worldEvidence.render.texturedTerrainTiles===worldEvidence.state.limit);
+  checks.craft={pose:'stand-frame-0',independentOfScenery:true,hiddenInFlight:true};
+  assert.equal(await page.evaluate(()=>worldEvidence.render.craftTriangles),1566);
+  await page.waitForFunction(()=>worldEvidence.mode==='drive'
+    && document.getElementById('drive-state').textContent!=='FLIGHT'
+    && document.getElementById('speed').textContent!=='FLY');
+  await page.locator('#save').click();
+  await page.waitForFunction(()=>document.getElementById('status').textContent.startsWith('Saved'));
+  await page.locator('#preferences > summary').click();
+  await page.screenshot({path:fileURLToPath(new URL('native-instruments.png',out))});
+  checks.cameraCollision=await page.evaluate(()=>worldEvidence.cameraCollision);
+  await page.context().setOffline(true);await page.reload();await ready();
+  assert.deepEqual(await page.evaluate(()=>worldTest.request('tuning')),checks.tuning);
+  assert.equal(await page.locator('#control-profile').inputValue(),'native');
+  assert.equal(Number(await page.locator('#camera-distance').inputValue()),distance+1);
+  await page.locator('#preferences > summary').click();
+  await page.locator('#tuning').click();
+  await page.waitForFunction(()=>document.getElementById('tuning-panel').open);
+  assert.equal(Number(await page.locator('#tune-17').inputValue()),.25);
+  await page.locator('#tuning-close').click();
+  checks.offlineTuningReload=true;
+  await page.evaluate(async()=>{
+    const {worldSave}=await import('./world-store.js'),id=worldEvidence.info.id,save=await worldSave(id);
+    delete save.settings.controls;await worldSave(id,save);
+  });
+  await page.reload();await ready();
+  assert.equal(await page.locator('#control-profile').inputValue(),'legacy');
+  checks.legacySaveCompatibility=true;
+  assert.deepEqual(errors,[]);
+  const result={browser:browser.version(),checks,errors};
+  await writeFile(new URL('evidence.json',out),JSON.stringify(result,null,2));
+  console.log(JSON.stringify(result,null,2));
+} finally {await browser.close();}

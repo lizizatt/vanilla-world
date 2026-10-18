@@ -347,11 +347,23 @@ pub(crate) fn creature_display_info_extra_schema() -> Schema {
 
 /// Load the creature DBCs from the patch chain into a [`CreatureCatalog`].
 pub fn load_creature_catalog(chain: &mut Chain) -> Result<CreatureCatalog> {
+    let models = chain
+        .read_file(CREATURE_MODEL_DATA)
+        .with_context(|| format!("reading {CREATURE_MODEL_DATA}"))?;
+    let display = chain
+        .read_file(CREATURE_DISPLAY_INFO)
+        .with_context(|| format!("reading {CREATURE_DISPLAY_INFO}"))?;
+    let mut catalog = parse_creature_catalog(&models, &display)?;
+    // Best-effort: without it only humanoid NPCs lose their skins; the caller logs `extra_len()`.
+    catalog.extra = load_creature_display_info_extra(chain).unwrap_or_default();
+    Ok(catalog)
+}
+
+/// Parse the two core display/model tables without IO. Humanoid appearance data is not included;
+/// use [`load_creature_catalog`] for NPCs requiring CreatureDisplayInfoExtra.
+pub fn parse_creature_catalog(model_bytes: &[u8], display_bytes: &[u8]) -> Result<CreatureCatalog> {
     let models = {
-        let bytes = chain
-            .read_file(CREATURE_MODEL_DATA)
-            .with_context(|| format!("reading {CREATURE_MODEL_DATA}"))?;
-        let rs = parse(&bytes, creature_model_data_schema(), "CreatureModelData")?;
+        let rs = parse(model_bytes, creature_model_data_schema(), "CreatureModelData")?;
         let mut m = HashMap::with_capacity(rs.records().len());
         for r in rs.records() {
             if let (Some(id), Some(name)) = (u32_at(r, 0), str_at(&rs, r, 2)) {
@@ -378,11 +390,8 @@ pub fn load_creature_catalog(chain: &mut Chain) -> Result<CreatureCatalog> {
     };
 
     let display = {
-        let bytes = chain
-            .read_file(CREATURE_DISPLAY_INFO)
-            .with_context(|| format!("reading {CREATURE_DISPLAY_INFO}"))?;
         let rs = parse(
-            &bytes,
+            display_bytes,
             creature_display_info_schema(),
             "CreatureDisplayInfo",
         )?;
@@ -406,13 +415,10 @@ pub fn load_creature_catalog(chain: &mut Chain) -> Result<CreatureCatalog> {
         d
     };
 
-    // Best-effort: without it only humanoid NPCs lose their skins; the caller logs `extra_len()`.
-    let extra = load_creature_display_info_extra(chain).unwrap_or_default();
-
     Ok(CreatureCatalog {
         display,
         models,
-        extra,
+        extra: HashMap::new(),
     })
 }
 

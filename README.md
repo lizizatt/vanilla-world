@@ -14,6 +14,14 @@ Windows-only, source-build local server bootstrap; the client remains separate.
 
 ## Building and running
 
+For the local **browser overworld explorer**, see
+[browser/README.md](browser/README.md). It reuses Rust racer physics and terrain
+formats in Wasm with an alternate WebGPU renderer. Select your own Data folder
+to start at the Thousand Needles raceway, with complete coarse continents,
+streamed detailed terrain/scenery, optional private static NPCs and local
+drive/flight saves. Four collision-critical ADTs remain resident at a time.
+This is **not** a Bevy/VMaNGOS port or a completed singleplayer RPG.
+
 Run component commands from their own directories, not the monorepo root.
 See the [Benilla README](client/README.md),
 [Benilla contribution/build guide](client/docs/CONTRIBUTING.md),
