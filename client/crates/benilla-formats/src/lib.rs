@@ -156,7 +156,7 @@ pub use light::{Atmosphere, LightCatalog, Submersion, ZERO_KEY_COLOR, ZERO_KEY_S
 mod loading_screen;
 pub use loading_screen::{load_loading_screens, LoadingScreenCatalog};
 mod liquid;
-pub use liquid::{LiquidKind, LiquidMesh, adt_bytes_to_liquid_only};
+pub use liquid::{LiquidKind, LiquidMesh};
 mod maps;
 pub use maps::{load_map_catalog, MapBattlegroundColumns, MapCatalog};
 mod anim_data;

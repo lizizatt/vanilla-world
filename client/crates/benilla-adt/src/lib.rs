@@ -547,82 +547,6 @@ fn read_mclq_block(sub: &[u8]) -> Option<MclqChunk> {
     })
 }
 
-/// One MCNK's liquid-only summary: its grid index, raw WoW position (so an [`MclqChunk`]'s
-/// absolute heights line up) and its liquid blocks. Every other sub-chunk (height, normal, layer,
-/// alpha, shadow) is left unparsed: the racer's distant water needs only the ~1 KB MCLQ blocks a
-/// wet MCNK carries, never the far larger per-MCNK height/alpha/shadow data [`read_mcnk`] also
-/// reads for the near-field renderer.
-#[derive(Debug, Clone)]
-pub struct McnkLiquidSummary {
-    pub index_x: u32,
-    pub index_y: u32,
-    pub position: [f32; 3],
-    /// The MCLQ block(s) this MCNK carries; empty on a dry chunk.
-    pub liquids: Vec<MclqChunk>,
-}
-
-/// Scan a root ADT for every MCNK's liquid-only summary: the 128-byte header and its MCLQ
-/// sub-chunk(s) alone, by the same offset-walk [`read_mcnk`] uses for MCLQ. No MCVT, MCNR, MCLY,
-/// MCAL or MCSH bytes are read, copied or decoded.
-pub fn scan_adt_liquids(cursor: &mut Cursor<&[u8]>) -> Result<Vec<McnkLiquidSummary>> {
-    let b: &[u8] = cursor.get_ref();
-    let mut out = Vec::new();
-    for (magic, data) in chunks(b) {
-        if &magic == b"KNCM" {
-            out.push(read_mcnk_liquid_only(data)?);
-        }
-    }
-    Ok(out)
-}
-
-/// [`read_mcnk`]'s header fields plus its MCLQ offset walk, with every other sub-chunk skipped.
-fn read_mcnk_liquid_only(data: &[u8]) -> Result<McnkLiquidSummary> {
-    if data.len() < 128 {
-        return Err(Error::Truncated("MCNK header"));
-    }
-    let h = &data[..128];
-    let flags = h.u32_at(0x00).ok_or(Error::Truncated("MCNK header"))?;
-    let index_x = h.u32_at(0x04).ok_or(Error::Truncated("MCNK header"))?;
-    let index_y = h.u32_at(0x08).ok_or(Error::Truncated("MCNK header"))?;
-    let position = [
-        h.f32_at(0x68).ok_or(Error::Truncated("MCNK header"))?,
-        h.f32_at(0x6C).ok_or(Error::Truncated("MCNK header"))?,
-        h.f32_at(0x70).ok_or(Error::Truncated("MCNK header"))?,
-    ];
-
-    // The same offset-or-offset-minus-8 locate `read_mcnk` uses, scoped to just MCLQ.
-    let locate = |ofs: u32, magic: &[u8; 4]| -> Option<(usize, usize)> {
-        if ofs == 0 {
-            return None;
-        }
-        let ofs = ofs as usize;
-        for hdr in [Some(ofs), ofs.checked_sub(8)].into_iter().flatten() {
-            if data.bytes_at(hdr, 4) == Some(magic.as_slice()) {
-                let size = data.u32_at(hdr + 4)?;
-                return Some((hdr + 8, size as usize));
-            }
-        }
-        None
-    };
-    let slice = |start: usize, len: usize| &data[start..start.saturating_add(len).min(data.len())];
-
-    let mut liquids = Vec::new();
-    if let Some((p, _)) = locate(
-        h.u32_at(0x60).ok_or(Error::Truncated("MCNK header"))?,
-        b"QLCM",
-    ) {
-        let size_liquid = h.u32_at(0x64).ok_or(Error::Truncated("MCNK header"))? as usize;
-        liquids = read_mclq_blocks(slice(p, size_liquid), flags);
-    }
-
-    Ok(McnkLiquidSummary {
-        index_x,
-        index_y,
-        position,
-        liquids,
-    })
-}
-
 /// A root ADT's placement records alone: the doodad/WMO name tables (`MMDX`/`MMID`/`MWMO`/`MWID`)
 /// and the placement chunks (`MDDF`/`MODF`), with every `MCNK` (terrain, texture, liquid) skipped
 /// entirely — the racer's distant vegetation/building LOD needs only these few-KB top-level
@@ -847,26 +771,6 @@ mod tests {
         assert_eq!(liquids[1].tile_flags[0] & 0xf, 1, "block 1 is the ocean");
         assert_eq!(liquids[1].min_height, 0.0);
 
-        // The liquid-only scan skips MCVT/MCNR/MCLY/MCAL/MCSH entirely, but must find the exact
-        // same MCLQ blocks `read_mcnk` does, at the same header index/position.
-        let summaries = scan_adt_liquids(&mut Cursor::new(b.as_slice())).expect("scans");
-        assert_eq!(summaries.len(), 1);
-        assert_eq!(summaries[0].index_x, root.mcnk_chunks[0].header.index_x);
-        assert_eq!(summaries[0].index_y, root.mcnk_chunks[0].header.index_y);
-        assert_eq!(summaries[0].position, root.mcnk_chunks[0].header.position);
-        assert_eq!(summaries[0].liquids.len(), 2);
-        assert_eq!(summaries[0].liquids[0].tile_flags[0] & 0xf, 4);
-        assert_eq!(summaries[0].liquids[1].tile_flags[0] & 0xf, 1);
-    }
-
-    /// A dry MCNK (no set liquid bit, no MCLQ sub-chunk) scans to an empty liquid list, not an
-    /// error: most of a distant tile's chunks are dry land.
-    #[test]
-    fn a_dry_mcnk_scans_to_no_liquids() {
-        let b = chunk(b"KNCM", &mcnk_with_mcvt());
-        let summaries = scan_adt_liquids(&mut Cursor::new(b.as_slice())).expect("scans");
-        assert_eq!(summaries.len(), 1);
-        assert!(summaries[0].liquids.is_empty());
     }
 
     /// `0x68d890` reads the magma pair as `u16 → i32`, so `0xffff` is 65535, never −1.

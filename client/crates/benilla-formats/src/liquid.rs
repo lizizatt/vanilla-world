@@ -123,14 +123,6 @@ const RIVER_DEPTH_V_SATURATION: f32 = 42.0;
 /// byte/yd against the river's 8.96, and 83.4 % of ocean vertices sit at 255.
 const OCEAN_DEPTH_V_SATURATION: f32 = 255.0;
 
-/// Authored liquid meshes without decoding terrain/materials. The whole decompressed ADT is
-/// still required; only root framing, MCNK headers and MCLQ structure are validated here.
-pub fn adt_bytes_to_liquid_only(bytes: &[u8]) -> anyhow::Result<Vec<LiquidMesh>> {
-    let summaries = benilla_adt::scan_adt_liquids(&mut std::io::Cursor::new(bytes))?;
-    Ok(summaries.iter().flat_map(|s| s.liquids.iter()
-        .filter_map(move |mclq| build_liquid_mesh(mclq, s.position))).collect())
-}
-
 /// `WOW_OCEAN_DEPTH_DIV=<divisor>` overrides [`OCEAN_DEPTH_V_SATURATION`] for one run, read once;
 /// 42 puts the river's ramp on the sea for a side-by-side at a shoreline.
 fn ocean_depth_v_divisor() -> f32 {
