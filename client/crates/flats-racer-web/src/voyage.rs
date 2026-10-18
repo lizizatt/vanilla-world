@@ -12,6 +12,7 @@ use wasm_bindgen::prelude::*;
 pub const TILE: f64 = 1600.0 / 3.0;
 pub const MAX_RESIDENT: usize = 4;
 const SUPPORT_TRAVEL: f64 = 0.5;
+const HULL_HALF_HEIGHT: f64 = 0.5;
 const SUPPORT_RISE: f32 = 0.6;
 pub(crate) const FLOOR_CLEARANCE: f32 = 0.25;
 const MAX_SUPPORT_SUBSTEPS: u32 = 64;
@@ -338,6 +339,11 @@ impl Voyage {
             )
             .map_err(|e| e.to_string())?,
             tuning: Tuning {
+                max_speed: 150.0,
+                boost_max_speed: 300.0,
+                acceleration: 50.0,
+                boost_acceleration: 50.0,
+                hover_height: 3.0,
                 air_control: 0.9,
                 ..Tuning::default()
             },
@@ -626,7 +632,8 @@ impl Voyage {
                 if hs
                     .iter()
                     .zip(heights)
-                    .all(|(h, old)| h - old < SUPPORT_RISE) =>
+                    .all(|(h, old)| h - old < SUPPORT_RISE
+                        || f64::from(*h) + HULL_HALF_HEIGHT <= swept_start[1].min(swept_end[1])) =>
             {
                 let floor = hs.into_iter().fold(f32::NEG_INFINITY, f32::max) + FLOOR_CLEARANCE;
                 let corrected_end = [swept_end[0], f64::from(floor), swept_end[2]];
@@ -930,7 +937,7 @@ fn swept_triangle(start: [f64; 3], end: [f64; 3], triangle: &[[f64; 3]; 3]) -> b
             continue;
         }
         let values = tri.map(|p| dot(p, axis));
-        let radius = axis[0].abs() * 1.1 + axis[1].abs() * 0.5 + axis[2].abs() * 1.1;
+        let radius = axis[0].abs() * 1.1 + axis[1].abs() * HULL_HALF_HEIGHT + axis[2].abs() * 1.1;
         let low = values.into_iter().fold(f64::INFINITY, f64::min) - radius;
         let high = values.into_iter().fold(f64::NEG_INFINITY, f64::max) + radius;
         let delta = dot(motion, axis);
@@ -950,13 +957,13 @@ fn swept_triangle(start: [f64; 3], end: [f64; 3], triangle: &[[f64; 3]; 3]) -> b
 }
 
 fn swept_box(start: [f64; 3], end: [f64; 3], bounds: [f64; 6]) -> bool {
-    if start[1].min(end[1]) - 0.5 >= bounds[4] {
+    if start[1].min(end[1]) - HULL_HALF_HEIGHT >= bounds[4] {
         return false;
     }
     let mut enter: f64 = 0.0;
     let mut exit: f64 = 1.0;
     for axis in 0..3 {
-        let margin = if axis == 1 { 0.5 } else { 1.1 };
+        let margin = if axis == 1 { HULL_HALF_HEIGHT } else { 1.1 };
         let low = bounds[axis] - margin;
         let high = bounds[axis + 3] + margin;
         let delta = end[axis] - start[axis];
@@ -1778,10 +1785,12 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn default_tick_path_is_unchanged_and_extreme_substep_work_is_rejected_atomically() {
+    fn legacy_tick_path_is_unchanged_and_extreme_substep_work_is_rejected_atomically() {
         use super::*;
         let mut a = Voyage::from_manifest(fixture(0.0)).unwrap();
         let mut b = Voyage::from_manifest(fixture(0.0)).unwrap();
+        a.tuning = Tuning { air_control: 0.9, ..Tuning::default() };
+        b.tuning = a.tuning;
         a.origin = [700.0, 300.0];
         b.origin = a.origin;
         for tick in 0..600 {
@@ -2042,9 +2051,60 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn steep_terrain_edges_still_block_when_the_actual_hull_cannot_clear_them() {
+        for (height, blocked) in [(1.4, true), (1.6, false)] {
+            let mut world=Voyage::from_manifest(fixture(0.0)).unwrap();
+            let tile=&world.manifest.tiles[0];
+            let mut raised=crate::world::tests::flat_tile(tile.x,tile.y);
+            for chunk in &mut raised.chunks {for p in &mut chunk.positions {p[2]=1.0;}}
+            world.resident.insert(0,raised);
+            world.tuning.hover_height=height;
+            world.restore_pose(&[535.0,f64::from(height),64.0,std::f64::consts::FRAC_PI_2]).unwrap();
+            world.state.velocity=[-36.0,0.0,0.0];
+            for _ in 0..12 {
+                world.advance(Input {throttle:1.0,..Default::default()}).unwrap();
+                if world.hold!=0 {break;}
+            }
+            assert_eq!(world.hold==3,blocked,"height={height}");
+            if blocked {assert!(world.physics_stats[5]>0);} else {assert!(world.global()[0]<533.0);}
+        }
+    }
+
+    #[test]
+    fn elevated_vehicle_clears_low_support_edges_without_a_false_solid_hold() {
+        for shift in [0.0, 1.0e9] {
+            for height in [3.0, 30.0] {
+                for speed in [150.0, 300.0] {
+                    let mut world = Voyage::from_manifest(fixture(shift)).unwrap();
+                    let x = shift + 700.0;
+                    world.tuning.hover_height = height;
+                    world.tuning.max_speed = 150.0;
+                    world.tuning.boost_max_speed = 300.0;
+                    world.tuning.acceleration = 50.0;
+                    world.tuning.boost_acceleration = 50.0;
+                    world.restore_pose(&[x, f64::from(height), 64.0, -std::f64::consts::FRAC_PI_2]).unwrap();
+                    world.state.velocity = [speed, 0.0, 0.0];
+                    world.scene_mesh = CollisionTree::new(&[
+                        x+4.0,1.0,54.0,x+10.0,1.0,54.0,x+10.0,1.0,74.0,
+                        x+4.0,1.0,54.0,x+10.0,1.0,74.0,x+4.0,1.0,74.0,
+                    ]).unwrap();
+                    for _ in 0..20 {
+                        world.advance(Input {throttle:1.0,boost:true,..Default::default()}).unwrap();
+                        assert_eq!(world.hold, 0, "clear hull blocked at {height}yd/{speed}yd/s; counters={:?}",world.physics_stats);
+                    }
+                    assert!(world.global()[0] > x+15.0);
+                    assert_eq!(world.physics_stats[4],0);
+                    assert_eq!(world.physics_stats[5],0);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn overhead_mesh_is_not_support_and_does_not_trap_a_clear_vehicle() {
         for shift in [0.0, 1.0e9] {
             let mut world = Voyage::from_manifest(fixture(shift)).unwrap();
+            world.tuning.hover_height = 1.1;
             let x = shift + 700.0;
             world.restore_pose(&[x, 1.1, 64.0, 0.0]).unwrap();
             world.scene_mesh = CollisionTree::new(&[
@@ -2279,6 +2339,22 @@ pub(crate) mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn browser_defaults_match_requested_handling_and_reset_preserves_overrides() {
+        let mut world=Voyage::from_manifest(fixture(0.0)).unwrap();
+        let tile=&world.manifest.tiles[0];
+        world.resident.insert(0,crate::world::tests::flat_tile(tile.x,tile.y));
+        assert_eq!(world.tuning(),vec![150.0,300.0,50.0,50.0,30.0,0.25,2.2,10.0,8.0,1.5,1.3,3.0,90.0,18.0,24.0,7.0,0.9]);
+        world.initialize_spawn().unwrap();
+        assert_eq!(world.state.position[1],3.0);
+        world.tuning.hover_height=7.0;
+        world.tuning.max_speed=42.0;
+        world.reset();world.initialize_spawn().unwrap();
+        assert_eq!(world.state.position[1],7.0);
+        assert_eq!(world.tuning.max_speed,42.0);
+        assert_eq!(Tuning::default().max_speed,36.0,"Native defaults are not changed by the web adapter");
+    }
 
     #[test]
     fn authored_bounds_block_swept_thin_walls_but_not_rooftop_support() {

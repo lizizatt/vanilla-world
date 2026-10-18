@@ -94,7 +94,8 @@ control outlines. Buttons inside a shaded group do not add a second dark layer.
 Unused overlay space and
 the HUD pass pointer input through to the world; interactive controls remain
 focusable. Expanded help/settings scroll within a bounded overlay. Handling stays
-modal and holds the brakes, with a transparent backdrop.
+modal with a transparent backdrop. Editing ignores driving input but does not
+apply the brakes; the vehicle can coast.
 The existing renderer follows live canvas size/aspect and caps backing DPR at 2.
 For example, a 1280 x 800 content viewport now draws 1280 x 800 at DPR 1, rather
 than the old 1206 x 534 inset canvas. Earlier smaller-canvas performance results
@@ -173,11 +174,49 @@ Rust validates the complete physics set; successful writes persist in
 a separate per-install tuning record without overwriting the saved vehicle pose.
 Failed storage leaves active handling unchanged. There are no gameplay upper
 ceilings, but values must fit finite f32 physical domains, and extreme combinations
-can fail simulation explicitly. Brakes are held while the editor is open.
+can fail simulation explicitly. Opening Handling does not apply the brakes.
+Form typing and controller input cannot drive while it is open; ordinary
+window-blur/visibility safety and the explicit X brake are unchanged.
 Camera zoom is separately limited to 0-50 yards. Desired and damped local chase paths
 are clipped against loaded ground and the shared collision BVH. Clearance contracts
 immediately and expands with the selected damping. There is no accumulating
 speed-dependent follow distance. The 50-yard query bound is not a world draw-distance limit.
+
+Current browser defaults, requested from the user's Handling screenshot, are:
+cruise/boost **150/300 yd/s**, thrust/extra boost thrust **50/50**, braking 30,
+drag 0.25, turn rate 2.2, turn response 10, grip 8, drift grip 1.5, drift turn
+multiplier 1.3, hover height **3 yd**, spring 90, damping 18, gravity 24, hop speed
+7, air control 0.9 and chase damping **0.5 s**. Fresh Rust worlds and Restore
+defaults agree. Existing saved handling overrides remain authoritative; Reset
+retains active handling. Shared native-client physics defaults are unchanged.
+Historical performance measurements below used the former 36/50 yd/s defaults,
+not these new speed caps.
+
+### Elevated obstacle clearance
+
+The support-edge guard previously stopped any per-probe rise of 0.6 yards,
+even when the obstacle was well below an elevated vehicle. It now permits
+such a rise only below the entire swept hull's **0.5-yard half-height**.
+Real mesh/bounds collisions, protruding terrain, missing geometry, unsupported
+holes, floor correction and the independent presentation timeline are unchanged.
+
+Actual Edge reproduction used the supplied rounded Gadgetzan coordinates
+(-1055 E, 6446 S) and the requested handling. Live Y/heading were unavailable:
+ground+3 overlapped authored geometry and was explicitly rejected, so matched
+before/after runs started at the verified clear Y=41.8907 (ground+6). Three
+directions previously stopped after 55.10, 0 and 1.28 yards with repeated
+steep-support rejects, zero solid sweeps and zero collision-readiness waits.
+They subsequently covered 171.22, 110.95 and 166.59 yards with no steep-support
+rejects; the middle route correctly stopped on a real mesh collision.
+The old scene-capacity indicator was not the blocking reason in these runs.
+
+`obstacle-smoke.mjs` also checks an isolated low-platform/true-wall fixture,
+Handling-open coasting and key isolation, saved override reload, Restore defaults
+and explicit braking. For before/after comparison it requires the local pre-fix
+`8b0fb5f` Wasm saved as `test-results/elevated-obstacles/before.wasm`; this generated
+binary and the evidence are deliberately untracked. Run against an isolated
+server with `WOW_DATA` and `BASE_URL=http://127.0.0.1:4183`.
+This is not a strict all-world hitch or high-speed-route acceptance.
 
 **Load** prepares destination terrain and the stationary support column before
 committing the vehicle pose. Authored bridges are queried at the **saved Y**, not
@@ -323,6 +362,10 @@ native minimap colors in two 2048-square atlas pages (32 MiB); missing mappings
 stay explicit. Material status reports textured tile residency, CPU terrain-cache
 size, minimap progress and pending/error counts. Static sunlight/fog remain an approximation, not DBC time-of-day
 lighting or full native water sheen.
+Missing optional minimap mappings are grouped into a count with expandable
+locations (18 on the tested installation), not individual resource errors.
+Corrupt mapped textures and required terrain/collision failures remain explicit;
+an absent map preview is not evidence of blocked physics.
 
 The bounded distant-model port reuses the native strict geometry/material
 boundary and complete authored M2 leaf batches rather than copying Bevy's

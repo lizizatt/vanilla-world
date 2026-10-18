@@ -264,8 +264,9 @@ function frame(now) {
     return;
   }
   try {
-    const accepts=document.activeElement===canvas && document.hasFocus() && !$('tuning-panel').open;
-    const controls=input.sample(keys,testPads || Array.from(navigator.getGamepads?.() || []),accepts,settings.controls);
+    const focused=document.hasFocus(),editing=$('tuning-panel').open;
+    const accepts=document.activeElement===canvas && focused && !editing;
+    const controls=input.sample(keys,testPads || Array.from(navigator.getGamepads?.() || []),accepts,settings.controls,!focused||!editing);
     if(controls.reset)$('reset').click();
     if(controls.flight)$(flight?'drive':'fly').click();
     if(controls.help)$('preferences').open=!$('preferences').open;
@@ -312,16 +313,23 @@ function frame(now) {
       $('resident').textContent=`${s.resident.length}/4 terrain tiles · ${stats.horizonTiles} distant patches · ${scene?.instances||0} scene instances`;
       $('population').textContent=scene?.population || 'Reading static population…';
       $('material-status').textContent=s.terrain
-        ?`Terrain textures ${stats.texturedTerrainTiles}/${s.resident.length} · terrain cache ${(s.terrain.bytes/1048576).toFixed(1)} MiB · far minimaps ${s.terrain.minimaps}/${s.horizon.patches} (${s.terrain.farPending} pending, ${s.terrain.errors.length} resource errors)`
+        ?`Terrain textures ${stats.texturedTerrainTiles}/${s.resident.length} · terrain cache ${(s.terrain.bytes/1048576).toFixed(1)} MiB · far minimaps ${s.terrain.minimaps}/${s.horizon.patches} (${s.terrain.farPending} pending, ${s.terrain.missingMinimaps?.length||0} unavailable previews, ${s.terrain.errors.length} resource errors)`
         :'Terrain material progress unavailable';
       if(s.water)$('material-status').textContent+=` · authored water ${s.water.resident} tiles / ${(s.water.bytes/1048576).toFixed(1)} MiB (${s.water.pending} pending${s.water.deferred?`, ${s.water.deferred} background deferrals`:''}${s.water.limited?', nearest-water cache full':''})`;
       $('details').textContent=`${client.info.archiveCount} local archives · ${((scene?.bytes||0)/1048576).toFixed(1)} MiB scene cache · ${scene?.pending||0} pending assets${scene?.capacityBlocked?' · scene capacity reached':''}${!flight&&scene?.waitingCollision?` · waiting for ${scene.waitingCollision} nearby collision assets`:''}${stats.gpuOmittedInstances?` · ${stats.gpuOmittedInstances} meshes beyond GPU budget`:''}`;
       $('craft-status').textContent=stats.craftReady?`Authored racer display 10318 / ${stats.craftPose}`
         :stats.craftStatus==='failed'?'Player craft failed to load; temporary body remains':'Loading authored player craft; temporary body shown';
       }
-      $('problems').textContent=[...s.failures,...(s.distant?.failures||[]),...(s.terrain?.errors||[]),...(scene?.errors||[]),
-        ...(stats.craftError?[`Player craft: ${stats.craftError}`]:[])].map(e=>typeof e==='string'?e:JSON.stringify(e)).join('\n');
-      $('resource-problems').hidden=!$('problems').textContent;
+      const errors=[...s.failures,...(s.distant?.failures||[]),...(s.terrain?.errors||[]),...(scene?.errors||[]),
+        ...(stats.craftError?[`Player craft: ${stats.craftError}`]:[])].map(e=>typeof e==='string'?e:JSON.stringify(e));
+      const missing=s.terrain?.missingMinimaps||[];
+      $('resource-problems').querySelector('summary').textContent=[
+        errors.length?`${errors.length} loading issues`:'',
+        missing.length?`${missing.length} optional map previews unavailable`:'',
+      ].filter(Boolean).join(' · ');
+      $('problems').textContent=[...errors,...(missing.length?
+        ['Optional map previews are absent from this installation. Terrain and collision are unaffected.',...missing]:[])].join('\n');
+      $('resource-problems').hidden=!errors.length&&!missing.length;
       evidence.fps=(frames-hudFrames)*1000/(now-hudTime);hudFrames=frames;hudTime=now;
     }
   } catch(error){running=false;fail(error);}

@@ -37,7 +37,7 @@ export function minimapCatalog(bytes) {
 export class TerrainStream {
   constructor(source,wasm,emit) {
     this.source=source;this.wasm=wasm;this.emit=emit;
-    this.tiles=new Map();this.cache=new Map();this.errors=new Map();this.far=[];this.farDone=new Set();this.failedFar=[];
+    this.tiles=new Map();this.cache=new Map();this.errors=new Map();this.missingMinimaps=new Map();this.far=[];this.farDone=new Set();this.failedFar=[];
     this.loads=0;this.cacheHits=0;this.minimaps=0;this.busy=false;this.generation=0;
   }
   async init(manifest) {
@@ -97,7 +97,7 @@ export class TerrainStream {
         this.farDone.add(id);
         const map=this.manifest.regions[patch.region].map;
         const path=this.catalog.get(key(`${map}\\map${patch.x}_${patch.y}.blp`));
-        if(!path){this.errors.set(id,`No authored minimap for ${map} ${patch.x},${patch.y}`);this.failedFar.push(patch);return;}
+        if(!path){this.missingMinimaps.set(id,`${map} ${patch.x},${patch.y}`);this.failedFar.push(patch);return;}
         try {
           const texture=this.decode(await this.source.read(path));
           if(generation!==this.generation)return;
@@ -114,16 +114,16 @@ export class TerrainStream {
     return {pending:[...this.tiles.values()].filter(t=>!t.done).length,cache:this.cache.size,
       bytes:[...this.cache.values()].reduce((sum,mips)=>sum+mips.reduce((n,m)=>n+m.byteLength,0),0),
       loads:this.loads,cacheHits:this.cacheHits,minimaps:this.minimaps,farPending:this.far.length,
-      errors:[...this.errors.values()]};
+      errors:[...this.errors.values()],missingMinimaps:[...this.missingMinimaps.values()]};
   }
   async retry() {
-    this.errors.clear();
+    this.errors.clear();this.missingMinimaps.clear();
     if(!this.catalog)await this.init(this.manifest);
     for(const patch of this.failedFar)this.farDone.delete(`${patch.region}:${patch.x}:${patch.y}`);
     this.far.push(...this.failedFar);this.failedFar=[];
   }
   clear() {
-    this.generation++;this.tiles.clear();this.cache.clear();this.errors.clear();
+    this.generation++;this.tiles.clear();this.cache.clear();this.errors.clear();this.missingMinimaps.clear();
     this.far=[];this.farDone.clear();this.failedFar=[];this.catalog=undefined;
   }
 }

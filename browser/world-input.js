@@ -9,7 +9,7 @@ const value=(pad,index)=>axis(pad.buttons[index]?.value, .08);
 export class WorldInput {
   constructor(){this.device='keyboard';this.active=undefined;this.previous=new Map();}
   keyboard(){this.device='keyboard';}
-  sample(keys,pads,accepts,profile='native') {
+  sample(keys,pads,accepts,profile='native',brakeWhenInactive=true) {
     const connected=pads.filter(p=>p?.connected && p.mapping==='standard');
     const keyboardHeld=keys.size>0;
     if(accepts&&keyboardHeld)this.device='keyboard';
@@ -27,7 +27,7 @@ export class WorldInput {
       if(accepts && activity){this.active=pad.index;if(!keyboardHeld)this.device='controller';}
       if(pad.index===this.active){selected={pad,analog};edges=rising;}
     }
-    const idle={throttle:0,steer:0,flags:1,look:[0,0],zoom:0,cockpit:false,reset:false,flight:false,help:false};
+    const idle={throttle:0,steer:0,flags:brakeWhenInactive?1:0,look:[0,0],zoom:0,cockpit:false,reset:false,flight:false,help:false};
     if(!accepts)return idle;
     const actions={zoom:Number(!!edges[12])-Number(!!edges[13]),cockpit:!!edges[11],
       reset:!!edges[3],flight:!!edges[9],help:!!edges[8]};

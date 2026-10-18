@@ -191,6 +191,21 @@ function fixture(paths=['a.blp']) {
 class Texture {
   metadata(){return '{"width":1,"height":1}';}rgba(){return new Uint8Array([11,23,57,255]);}free(){}
 }
+test('absent optional minimap mappings are notices; failed mapped textures stay actionable errors',async()=>{
+  const stream=new TerrainStream({read:async()=>{throw Error('corrupt mapped image');}},
+    {SceneTexture:Texture},()=>{});
+  stream.manifest={regions:[{map:'Kalimdor'}]};
+  stream.catalog=new Map([['kalimdor\\map1_1.blp','mapped.blp']]);
+  stream.addHorizon(0,0,0);stream.addHorizon(0,1,1);
+  await stream.pump();await stream.pump();
+  assert.deepEqual(stream.snapshot().missingMinimaps,['Kalimdor 0,0']);
+  assert.equal(stream.snapshot().errors.length,1);
+  assert.match(stream.snapshot().errors[0],/corrupt mapped image/);
+  await stream.retry();
+  assert.deepEqual(stream.snapshot().missingMinimaps,[]);
+  await stream.pump();assert.equal(stream.snapshot().missingMinimaps.length,1);
+  stream.clear();assert.deepEqual(stream.snapshot().missingMinimaps,[]);
+});
 test('one read per pump, shared cache, transferable copies, eviction and reload are bounded',async()=>{
   let reads=0;
   const messages=[],stream=new TerrainStream({read:async()=>{reads++;return new Uint8Array(1);}},

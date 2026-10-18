@@ -109,6 +109,15 @@ test('gamepad triggers subtract, noisy sticks never steal input, edges and disco
   assert.equal(input.sample(keys,[],true).throttle,1);
   assert.equal(input.device,'keyboard');
 });
+test('Handling ignores form/controller input without braking; blur and explicit X still brake',()=>{
+  const input=new WorldInput(),p=pad();
+  p.buttons[7].value=1;p.buttons[3].pressed=true;
+  const editing=input.sample(new Set(['KeyW','KeyX','Space']),[p],false,'native',false);
+  assert.equal(editing.flags,0);assert.equal(editing.throttle,0);assert.equal(editing.steer,0);
+  assert(!editing.reset);assert(!editing.cockpit);
+  assert.equal(input.sample(new Set(),[p],false,'native',true).flags,1);
+  assert.equal(input.sample(new Set(['KeyX']),[],true).flags,1);
+});
 test('held keyboard thrust and braking cannot be stolen by simultaneous controller activity',()=>{
   const input=new WorldInput(),p=pad();
   p.buttons[7].value=1;input.sample(new Set(),[p],true);
@@ -294,6 +303,11 @@ test('tuning accepts native physical domains without gameplay ceilings and retai
     {values:record.values.map((n,i)=>i===1?100:n)},{values:record.values.map((n,i)=>i===14?0:n)},
     {values:record.values.map((n,i)=>i===8?1e100:n)}])assert.throws(()=>validateTuningRecord({...record,...change}),/retained/);
   assert.equal(record.values[1],500);
+});
+test('fresh Handling and Restore defaults use the user-provided values without migrating saved overrides',()=>{
+  assert.deepEqual(TUNING_FIELDS.map(f=>f[1]),[150,300,50,50,30,.25,2.2,10,8,1.5,1.3,3,90,18,24,7,.9]);
+  const saved={version:1,values:[36,50,18,22,30,.25,2.2,10,8,1.5,1.3,1.1,90,18,24,7,.9],cameraSeconds:.7};
+  assert.equal(validateTuningRecord(saved),saved);assert.equal(saved.values[0],36);assert.equal(saved.values[11],1.1);
 });
 test('camera uses the shared object BVH and rejects corrupt topology',()=>{
   const collision=new CameraCollision();
