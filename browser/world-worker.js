@@ -31,6 +31,7 @@ let sceneInstanceDeltas=false;
 let sceneInstanceUpdates=false;
 let postFrameVisuals=false,sceneRegion,frameWorkMs=0;
 let sceneFocus,sceneUpdated=0,sceneRevision=-1;
+let sceneReadinessRadius=0;
 let sceneSubmissionPending=true;
 let scenePumpError;
 const collisionBounds=new Map();
@@ -95,6 +96,9 @@ function startDistantRead() {
     } finally {distantJob=undefined;}
   })();
 }
+function recordTerrainFailure(index,error) {
+  failures.set(index,`${manifest.tiles[index].file}: ${error?.code || 'PARSE'} ${error?.message || String(error)}`);
+}
 async function stream(p,pin,fill=false) {
   const required=pin?Array.from(world.required_tiles()):[];
   if(required.length>LIMIT)throw new Error('Support footprint exceeds the four-tile collision budget.');
@@ -155,9 +159,6 @@ async function stream(p,pin,fill=false) {
         measureHold('terrain',performance.now()-started);lastHoldTime=performance.now();
       }
     }
-    function recordTerrainFailure(index,error) {
-      failures.set(index,`${manifest.tiles[index].file}: ${error?.code || 'PARSE'} ${error?.message || String(error)}`);
-    }
   }
   if(tiles.length || removed.length) {
     const seams=Array.from(resident,index=>({index,vertices:world.horizon_seams(index)}));
@@ -215,13 +216,18 @@ function updateScene(focus,publish=true) {
   const region=focusRegion(focus);
   sceneRegion=region;
   const body=world.telemetry(),r=manifest.regions[region],signed=body[14] ?? body[5];
+  const sweep=world.frame_sweep_distance(),radius=4+sweep;
+  if(radius>SCENE_LIMITS.radius)throw new Error('Frame sweep exceeds the streamed scene collision coverage');
   const predicted=[focus[0]-Math.sin(body[3])*signed,focus[1],focus[2]-Math.cos(body[3])*signed];
   const moved=sceneFocus?Math.hypot(...focus.map((v,a)=>v-sceneFocus[a])):Infinity;
   // Static 850-yard candidates outlive this bounded visual refresh; readiness and the swept hull run every frame.
-  const changed=moved>=16 || ((moved>0 || scene.selectionRevision!==scene.revision) && performance.now()-sceneUpdated>=250);
+  const changed=moved>=16 || Math.max(32,radius)+moved>sceneReadinessRadius ||
+    ((moved>0 || scene.selectionRevision!==scene.revision) && performance.now()-sceneUpdated>=250);
   if(changed) {
     const start=performance.now();
-    scene.update(region===0?1:0,sourcePosition(region,focus),sourcePosition(region,predicted));
+    const requestedRadius=Math.min(SCENE_LIMITS.radius,Math.max(32,radius)+16);
+    scene.update(region===0?1:0,sourcePosition(region,focus),sourcePosition(region,predicted),requestedRadius);
+    sceneReadinessRadius=requestedRadius;
     timings.selectionMs+=performance.now()-start;
     sceneFocus=focus.slice();sceneUpdated=performance.now();
   }
@@ -232,8 +238,7 @@ function updateScene(focus,publish=true) {
     sceneSubmissionPending=true;
   }
   sceneRevision=scene.revision;
-  const sweep=world.frame_sweep_distance(),bodySource=sourcePosition(region,body),radius=4+sweep;
-  if(radius>SCENE_LIMITS.radius)throw new Error('Frame sweep exceeds the streamed scene collision coverage');
+  const bodySource=sourcePosition(region,body);
   objectWait=sceneState.unresolvedCollision.filter(i=>{
     if(i.kind==='wmo' && !i.boundsKnown)return true;
     // shortcut: unknown M2 extents use a 32-yard proximity guard until their authored hull is decoded.

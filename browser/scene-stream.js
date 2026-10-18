@@ -158,9 +158,11 @@ export class SceneStream {
     this.populationStatus = `Static local NPC snapshot: ${pack.provenance.source}; no server behavior`;
     this.revision++;
   }
-  update(map, position, predicted = position) {
-    if (![0, 1].includes(map) || !finite(position, 3) || !finite(predicted, 3)) throw new Error('Invalid scene observer');
+  update(map, position, predicted = position, collisionRadius = 32) {
+    if (![0, 1].includes(map) || !finite(position, 3) || !finite(predicted, 3) ||
+      !Number.isFinite(collisionRadius) || collisionRadius < 0) throw new Error('Invalid scene observer');
     this.map = map; this.position = position; this.predicted = predicted; this.clock++;
+    this.collisionRadius = collisionRadius;
     const low = position.map((v, a) => Math.min(v, predicted[a]));
     const high = position.map((v, a) => Math.max(v, predicted[a]));
     const collisionDistance = bounds => boundsDistance(bounds, low, high);
@@ -273,7 +275,8 @@ export class SceneStream {
     this.instances = visible.sort((a, b) => Number(a.distant) - Number(b.distant)
       || a.score - b.score || a.id.localeCompare(b.id)).slice(0, this.limits.instances);
     const keep = new Set(this.instances.map(i => i.key));
-    for (const i of this.collisionCandidates) if (collisionDistance(i.bounds) < 32) {
+    for (const i of this.collisionCandidates) if (collisionDistance(i.bounds) < 32 ||
+      boundsWithin(i.bounds, position, i.boundsKnown ? collisionRadius : Math.max(32, collisionRadius))) {
       keep.add(i.key);
       const root = requests.get(i.key)?.rootKey;
       if (root) keep.add(root);
@@ -345,7 +348,7 @@ export class SceneStream {
     } finally {
       this.busy = false;
       if (loaded && generation === this.generation && (!deferSelection || loadedRoot))
-        this.update(this.map, this.position, this.predicted);
+        this.update(this.map, this.position, this.predicted, this.collisionRadius);
     }
   }
   resourceCount(kind) {

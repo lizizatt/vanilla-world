@@ -134,6 +134,17 @@ test('failed prefetched terrain stays unavailable and exposes its error rather t
   assert.deepEqual(f.reads,[1],'Failed expected terrain requires explicit retry');
 });
 
+test('failed stale prefetch is reported and cleared even after its tile leaves demand',async()=>{
+  const f=fixture();
+  await f.stream([0,0],true);
+  f.pending.get(1).reject(Object.assign(new Error('stale missing tile'),{code:'NOT_FOUND'}));
+  await settle();
+  await f.stream([20*1600/3,0],false);
+  assert.match(f.state().failures[0],/tile1.adt: NOT_FOUND stale missing tile/);
+  await f.stream([20*1600/3,0],false);
+  assert.equal(f.reads.filter(i=>i===1).length,1);
+});
+
 function collisionFixture(clock=performance,instanceDeltas=true) {
   const events=[],context=boot(events,clock),body=Array(15).fill(0),built=[],updates=[],parts=new Map();
   const state={instances:[],collisionInstances:[],unresolvedCollision:[],assets:new Map(),textures:new Map()};
@@ -225,6 +236,18 @@ test('newly decoded colliders bypass anchor cadence immediately',async()=>{
   assert.equal(f.built[1].length,18);
   assert.equal(f.updates[1].supplied,9,'Only the new instance crosses the Wasm boundary');
   assert.deepEqual(f.updates[1].counts.toSorted(),[0,1]);
+});
+
+test('readiness demand refreshes for acceleration and retains a bounded movement margin',async()=>{
+  const f=collisionFixture({now:()=>0}),seen=[];
+  const scene=f.context.dependencies.scene,update=scene.update;
+  scene.update=function(...args){seen.push(args);return update.apply(this,args);};
+  await f.update();assert.equal(seen.at(-1)[3],48);
+  f.sweep=50;await f.update();assert.equal(seen.at(-1)[3],70);
+  const count=seen.length;f.body[0]=10;await f.update();
+  assert.equal(seen.length,count,'The selection margin covers this movement without reselecting every frame');
+  f.sweep=65;await f.update();assert.equal(seen.at(-1)[3],85);
+  f.sweep=840;await f.update();assert.equal(seen.at(-1)[3],SCENE_LIMITS.radius);
 });
 
 test('unchanged submissions skip asset traversal but readiness follows every body and sweep update',async()=>{
