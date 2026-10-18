@@ -111,6 +111,28 @@ test('sector extraction yields a task to physics without interleaving archive re
     await source.close();
   }
 });
+test('optional extraction yields at background priority and defers to newly queued assets',async()=>{
+  const path='file',bytes=Buffer.from('bounded background work'.repeat(2000));
+  const source=await openDataSource([entry('terrain.MPQ',fixture(path,bytes))]);
+  const clock=Object.getOwnPropertyDescriptor(globalThis,'performance');
+  const scheduler=Object.getOwnPropertyDescriptor(globalThis,'scheduler');
+  let now=0,foreground,priority;
+  Object.defineProperty(globalThis,'performance',{configurable:true,value:{now:()=>now+=5}});
+  Object.defineProperty(globalThis,'scheduler',{configurable:true,value:{postTask:(fn,options)=>{
+    priority=options.priority;foreground=source.read(path);
+    return new Promise(resolve=>setTimeout(()=>resolve(fn()),0));
+  }}});
+  try {
+    await assert.rejects(source.read(path,{background:true}),code('DEFERRED'));
+    assert.equal(priority,'background');
+    assert.deepEqual(Buffer.from(await foreground),bytes);
+    assert.deepEqual(Buffer.from(await source.read(path)),bytes);
+  } finally {
+    Object.defineProperty(globalThis,'performance',clock);
+    if(scheduler)Object.defineProperty(globalThis,'scheduler',scheduler);else delete globalThis.scheduler;
+    await source.close();
+  }
+});
 test('unsupported codec, truncated archive, oversized asset and indexes fail explicitly', async () => {
   const path = 'file';
   const unsupported = await openDataSource([entry('dbc.MPQ', fixture(path, 'a'.repeat(8000), { method: 8 }))]);

@@ -1,6 +1,7 @@
 import {modelPath} from './scene-stream.js';
 import {MINIMAP_SIZE,TERRAIN_TEXTURE_SIZE} from './terrain-stream.js';
 import {cameraView,craftMatrix,cockpitAnchor} from './world-camera.js';
+import {COAST_GPU_LIMIT} from './water-stream.js';
 export {craftMatrix} from './world-camera.js';
 const SKY=[.08,.15,.20,1];
 const sub=(a,b)=>a.map((v,i)=>v-b[i]);
@@ -145,7 +146,8 @@ export class WorldRenderer {
   constructor(canvas,device) {
     this.canvas=canvas;this.device=device;this.format=navigator.gpu.getPreferredCanvasFormat();
     this.context=canvas.getContext('webgpu');this.context.configure({device,format:this.format,alphaMode:'opaque'});
-    this.tiles=new Map();this.seams=new Map();this.horizon=[];this.water=[];this.indices=new Map();
+    this.tiles=new Map();this.seams=new Map();this.horizon=[];this.water=[];this.coast=new Map();this.indices=new Map();
+    this.coastBytes=0;
     this.assets=new Map();this.textures=new Map();this.items=new Map();this.instances=[];this.pipelines=new Map();
     this.materialPending=new Map();this.minimapAtlases=[];
     this.pendingEvents=[];
@@ -236,8 +238,8 @@ export class WorldRenderer {
     this.sceneBundle=undefined;this.sceneBundleBuilds=0;
     this.releaseCraft();
     this.craftError=undefined;
-    for(const item of [...this.tiles.values(),...this.seams.values(),...this.horizon,...this.water])this.release(item);
-    this.tiles.clear();this.seams.clear();this.horizon=[];this.water=[];
+    for(const item of [...this.tiles.values(),...this.seams.values(),...this.horizon,...this.water,...this.coast.values()])this.release(item);
+    this.tiles.clear();this.seams.clear();this.horizon=[];this.water=[];this.coast.clear();this.coastBytes=0;
     for(const index of this.indices.values())index.destroy();this.indices.clear();
     for(const asset of this.assets.values()){asset.vertices.destroy();asset.indices.destroy();}this.assets.clear();
     for(const texture of this.textures.values())texture.destroy();this.textures.clear();
@@ -298,6 +300,21 @@ export class WorldRenderer {
       this.materialPending.set(data.index,{data,cursor:0});
     }
     else if(data.event==='exterior-water')this.water.push(this.drawable(data.vertices,data.placement));
+    else if(data.event==='coast-water'){
+      const entry=this.manifest.tiles[data.index],v=data.vertices;
+      if(!Number.isInteger(data.index)||!entry||!(v instanceof Float32Array)||!v.length||v.length%21||
+        v.byteLength>8*1024*1024||!Array.isArray(data.removed)||data.removed.includes(data.index)||
+        new Set(data.removed).size!==data.removed.length)throw Error('Invalid distant water payload');
+      const bytes=this.coastBytes+v.byteLength-(this.coast.get(data.index)?.buffer.size||0)
+        -data.removed.reduce((n,index)=>n+(this.coast.get(index)?.buffer.size||0),0);
+      if(bytes>COAST_GPU_LIMIT)throw Error('Distant water GPU budget exceeded');
+      for(const index of data.removed){this.release(this.coast.get(index));this.coast.delete(index);}
+      this.release(this.coast.get(data.index));
+      const region=this.manifest.regions[entry.region];
+      this.coast.set(data.index,this.drawable(v,[region.placement[0]+(entry.x-region.tile_origin[0])*1600/3,
+        region.placement[1]+(entry.y-region.tile_origin[1])*1600/3]));
+      this.coastBytes=bytes;
+    }
     else if(data.event==='detail') {
       for(const index of data.removed){
         this.release(this.tiles.get(index));this.tiles.delete(index);
@@ -490,7 +507,8 @@ export class WorldRenderer {
     this.cameraLook=look;
     const view=[...this.camera,200000,...right,0,...up,0,...look,0];
     const distant=settings.horizon?this.horizon.filter(h=>!this.tiles.has(h.near)):[];
-    const terrain=this.cameraBlocked?[]:[...distant,...this.tiles.values(),...(settings.horizon?this.seams.values():[]),...this.water];
+    const coastal=settings.horizon?[...this.coast].filter(([index])=>!this.tiles.has(index)).map(([,item])=>item):[];
+    const terrain=this.cameraBlocked?[]:[...distant,...this.tiles.values(),...(settings.horizon?this.seams.values():[]),...this.water,...coastal];
     if(!flight&&!this.craft&&!this.cameraBlocked)terrain.push(this.body);
     let uniformCount=0;
     const u=this.uniformData,aspect=width/height;
@@ -559,6 +577,7 @@ export class WorldRenderer {
       craftDraws:draws.filter(d=>d.craft).length,craftPose:this.craft?.metadata.pose||'placeholder',craftGpuBytes:this.craft?.bytes||0,
       craftReady:!!this.craft,cockpitAvailable:!!this.craft?.anchor,cameraMode:this.cameraMode,
       cameraBlocked:this.cameraBlocked,worldDraws:terrain.length+draws.length,
+      coastalWaterTiles:coastal.length,coastalWaterGpuBytes:this.coastBytes,
       craftStatus:this.craft?'ready':this.craftError?'failed':'loading',
       craftTriangles:this.craft?this.craft.asset.count/3:0,craftError:this.craftError,
       npcInstances:this.instances.filter(i=>i.id.includes(':npc:')).length,

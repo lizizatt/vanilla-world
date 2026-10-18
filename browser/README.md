@@ -223,6 +223,92 @@ Loaded ADTs replace their WDL patches atomically. Edge strips bridge coarse/deta
 height differences visually, not physically. Both use real projected depth;
 coarse terrain can still produce visibly angular cliffs and shorelines.
 
+### Authored distant water
+
+The large offshore "curtains" in the coast captures were predominantly exposed
+coarse seabed, not the ADT/WDL edge strips: the Tanaris sample contains authored
+underwater drops of 515 yards, versus a 29.14-yard maximum detailed edge strip.
+Removing the strips did not remove those curtains. Distant water now uses
+authored MCLQ coverage and heights; WDL positions, coastlines, holes, exterior
+ocean topology, fog and physics are unchanged.
+
+`WaterStream` reads one local ADT at a time, nearest-first, then runs a
+header/liquid-only Rust scan after the physics reply. It does not instantiate
+terrain, collision, textures or placements. Root framing, MCNK headers and
+MCLQ offsets/grids are checked; unrelated ADT payloads are intentionally not
+validated by this scanner. Existing liquid meshing preserves wet/dry masks and
+kinds. Only Still/Ocean surfaces are rendered, as in the detailed adapter.
+Exactly flat wet-cell rectangles are merged; holes and non-flat surfaces remain.
+
+Optional reads yield in one-millisecond sector-work slices at background task
+priority where supported, with a timer fallback. They defer between sectors
+when ordinary asset reads queue, retaining one serialized extraction buffer.
+Deferrals are counted and retried, not shown as corrupt assets. Real source or
+parse errors remain visible and retryable. Mode/focus changes reorder unresolved
+work without rescanning completed tiles; source replacement cancels publication
+from the old stream. Startup and physics never await completion of the water map.
+
+The fixed **64 MiB** cache holds all **1301 wet tiles / 50,326,920 bytes
+(48.0 MiB)** in the tested installation; 404 dry tiles need no GPU geometry.
+This is not a process-memory limit: the one source file (maximum 64 MiB),
+Rust parsing and upload copies, main-thread/driver storage and up to four
+overlapping detailed-water tiles are additional. Detailed admission suppresses
+the corresponding distant water atomically; eviction reveals it again.
+Other installations exceeding the cache retain nearer water and report the
+capacity limit rather than claiming full coverage.
+
+Coverage is progressive, including on offline reload: no new persistent
+derived-asset cache was added to the save/settings database. A full scan returns
+2,111,901,065 decompressed ADT bytes for this installation. Aggregate archive
+range-read counters also include minimaps, scenery, terrain and deferred reads;
+they are not water-only compressed-byte counts. The existing approximate water
+shader and coarse land silhouettes remain, and unscanned far water can still
+show exposed seabed until its authored data arrives.
+
+The final Edge capture completed all 1705 scans in **146.4 seconds online and
+148.4 seconds offline**, with 302/312 foreground deferrals and no water errors.
+Aggregate archive ranges returned 4.245/4.252 GB; liquid parse wall-time maxima
+were 5.7/3.9 ms. Worker Wasm high-water memory was 57.25 MiB. The instrumented
+page reported about 57/82 MiB of JavaScript heap at completion, not a measured
+process-memory peak or a sum including all GPU/driver allocations.
+
+The local coast check requires complete coverage, compares both coasts at
+900/120-yard heights, exercises approach/retreat and render-origin rebases, and
+repeats full coverage offline with matching payload sizes and boundary samples:
+
+```powershell
+$env:BASE_URL = 'http://127.0.0.1:4183'
+$env:LABEL = 'after'
+node .\browser\coast-smoke.mjs
+```
+
+`test-results/coast/after/geometry.json` and adjacent screenshots are private
+evidence, not assets to publish. The ignored native
+`whole_continent_liquid_budget` test performs a sequential liquid-only census;
+normal native tests compare representative coasts, a river mouth, Crystal Lake
+and the below-sea raceway against the existing full parser.
+
+The existing `driving-smoke.mjs` accepts `COAST_WATER=0` for a **test-only**
+disabled-stream comparison; normal operation always enables the stream.
+Four alternating 30-second Gold Road runs after backpressure, with video and
+fresh contexts, produced:
+
+| Measurement | Disabled runs | Enabled runs |
+| --- | --- | --- |
+| Moving freezes over 50 ms | 1 / 3 | 2 / 0 |
+| Longest moving freeze (ms) | 61.2 / 108.4 | 55.1 / 42.5 |
+| Reply interval p95 (ms) | 15.7 / 15.1 | 17.1 / 16.7 |
+| Longest reply interval (ms) | 87.4 / 105.8 | 80.0 / 65.6 |
+| Additional water tiles parsed while driving | 0 / 0 | 13 / 20 |
+
+All runs covered about 1077 yards and seven waypoints with 30/30 focused samples.
+The enabled stream yielded to ordinary reads 500/485 times; maximum liquid parse
+time was 1.1/1.0 ms. This preserves foreground progress, at the cost of slower
+water loading while driving. The roughly 1.5 ms p95 reply cost remains; these
+short shared-host samples do **not** prove no regression or a strict 50 ms
+maximum. The first implementation without source backpressure failed its cold
+comparison (2 to 6 long freezes) and was not accepted on screenshots alone.
+
 Nearby models use authored geometry, transforms, BLP textures, UVs, alpha cutoff,
 material blending and depth. The scene budget is **96 geometry/root resources,
 192 dependent textures, 96 MiB decoded payload and 1024 instances**. These are not

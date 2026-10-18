@@ -68,6 +68,11 @@ async function startProfiles(){
   };
 }
 try{
+  if(process.env.COAST_WATER==='0')await context.route('**/water-stream.js',async route=>{
+    const response=await route.fetch(),source=await response.text();
+    assert(source.includes('class WaterStream'),'Water comparison must disable only the optional stream');
+    await route.fulfill({response,body:source+'\nWaterStream.prototype.pump=function(){};\n'});
+  });
   if(mode==='fly')await context.route('**/flight.js',async route=>{
     const response=await route.fetch(),source=await response.text();
     assert(source.includes('8000 : 1200'),'Matched flight must replace only free-flight speed');
@@ -371,7 +376,8 @@ try{
     const expected=r.p[5]*(b[0]-a[0])/1000;
     return [{at:r.t-data.start,step,expected,ratio:expected>0?step/expected:null}];
   });
-  const summary={settings,environment:{...environment,final:data.environmentEnd,
+  const summary={settings,water:{enabled:process.env.COAST_WATER!=='0',before:before.water,after:data.after.water},
+    sourceBefore:before.source,sourceAfter:data.after.source,environment:{...environment,final:data.environmentEnd,
     sampleCount:data.samples.length,focusedSamples:data.samples.filter(s=>s.environment.hasFocus).length,
     hiddenSamples:data.samples.filter(s=>s.environment.hidden).length,events:data.environmentEvents},
     seconds:(data.end-data.start)/1000,distance,inputs:data.inputs,clientDropped:data.clientDropped,

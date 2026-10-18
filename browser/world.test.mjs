@@ -266,6 +266,7 @@ test('direct uniform packing matches shader layouts and cached bindings follow t
     blend:'opaque',transparent:false,pipeline:{},alphaCutoff:.5,emissive:true}]};
   const horizon={placement:[origin[0]+32,origin[1]+48],region:0,near:5,cell:9};
   const detail={placement:[origin[0]+64,origin[1]+80],edgeMask:3,cell:10};
+  const coastNear={placement:detail.placement},coastFar={placement:horizon.placement};
   let groups=0;
   Object.assign(renderer,{canvas:{clientWidth:128,clientHeight:64,width:128,height:64},depth:texture(),
     context:{getCurrentTexture:texture},device:{queue:{writeBuffer(){},submit(){}},
@@ -273,7 +274,7 @@ test('direct uniform packing matches shader layouts and cached bindings follow t
       createCommandEncoder:()=>({beginRenderPass:()=>({end(){}}),finish:()=>({})})},
     uploadMaterials(){},drawTerrain(_pass,items){this.drawnTerrain=items;},drawScene(_pass,draws){this.drawnScene=draws;},
     uniformData:new Float32Array(16384*64),frameUniforms:{},body:{placement:[0,0]},
-    horizon:[horizon],tiles:new Map([[1,detail]]),seams:new Map(),water:[],
+    horizon:[horizon],tiles:new Map([[1,detail]]),seams:new Map(),water:[],coast:new Map([[1,coastNear],[5,coastFar]]),coastBytes:0,
     instances:[instance],assets:new Map([['model',asset]]),textures:new Map([['model.blp',texture()]]),
     items:new Map(),white:texture(),manifest:{regions:[region]},sceneRegion:0,
     materialPending:new Map(),minimapAtlases:[]});
@@ -281,6 +282,7 @@ test('direct uniform packing matches shader layouts and cached bindings follow t
   const old=globalThis.devicePixelRatio;globalThis.devicePixelRatio=1;
   try{
     renderer.draw(state,undefined,1/60,123,{horizon:true,scenery:true});
+    assert(!renderer.drawnTerrain.includes(coastNear)&&renderer.drawnTerrain.includes(coastFar),'Detailed water replaces its far surface, not neighboring water');
     const u=renderer.uniformData,view=[...u.slice(0,16)],p=[.125,20,.25];
     for(const item of renderer.drawnTerrain){
       const body=item===renderer.body,base=item.offset/4;
@@ -290,9 +292,13 @@ test('direct uniform packing matches shader layouts and cached bindings follow t
     const base=renderer.drawnScene[0].item.offset/4;
     assert.deepEqual(u.slice(base,base+40),new Float32Array([...view,2,123,0,.1,
       ...renderMatrix(instance.matrix,region,origin),.5,1,0,0]));
+    renderer.tiles.set(5,{...detail,placement:horizon.placement});
     renderer.draw(state,undefined,1/60,124,{horizon:true,scenery:true});assert.equal(groups,1);
+    assert(!renderer.drawnTerrain.includes(coastFar));
+    renderer.tiles.delete(5);
     renderer.textures.set('model.blp',texture());
     renderer.draw(state,undefined,1/60,125,{horizon:true,scenery:true});assert.equal(groups,2);
+    assert(renderer.drawnTerrain.includes(coastFar),'Evicting detailed terrain restores authored far water');
     renderer.assets.set('model',{...asset,vertices:{}});
     renderer.draw(state,undefined,1/60,126,{horizon:true,scenery:true});assert.equal(groups,3);
   } finally{if(old===undefined)delete globalThis.devicePixelRatio;else globalThis.devicePixelRatio=old;}

@@ -215,7 +215,7 @@ class Archive {
     if (used !== want) fail('CORRUPT', `${path}: short decompressed sector (${used}, expected ${want})`);
     return output;
   }
-  async read(path, block) {
+  async read(path, block, defer) {
     const { offset, packed, size, flags } = block;
     if (!(flags & EXISTS) || flags & DELETED) fail('NOT_FOUND', `${path}: deleted by ${this.name}`);
     if (flags & 0x00100000) fail('UNSUPPORTED', `${path}: incremental MPQ patch`);
@@ -244,9 +244,11 @@ class Archive {
     } else if (packed !== size) fail('CORRUPT', `${path}: stored size mismatch`);
     let yielded = performance.now();
     for (let i = 0; i < count; i++) {
+      if(defer?.())fail('DEFERRED',`${path}: optional extraction yielded to queued assets`);
       // Resolved sector promises otherwise starve the worker's queued physics messages.
-      if (performance.now() - yielded >= 4) {
-        await new Promise(resolve => setTimeout(resolve, 0));
+      if (performance.now() - yielded >= (defer?1:4)) {
+        if(defer&&globalThis.scheduler?.postTask)await scheduler.postTask(()=>{},{priority:'background'});
+        else await new Promise(resolve => setTimeout(resolve, 0));
         this.stats.extractionYields++;
         yielded = performance.now();
       }
@@ -286,23 +288,25 @@ export async function openDataSource(input) {
   const identity = JSON.stringify(selected.map(({ path, file }) => [path, file.size, file.lastModified ?? 0]));
   const digest = await crypto.subtle.digest('SHA-256', encoder.encode(identity));
   const fingerprint = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
-  let closed = false, tail = Promise.resolve();
-  const read = path => {
+  let closed = false, tail = Promise.resolve(),foregroundReads=0;
+  const read = (path,{background=false}={}) => {
+    if(!background)foregroundReads++;
     // Serialize extraction so simultaneous scene requests cannot multiply decode buffers.
     const pending = tail.then(async () => {
       if (closed) fail('CLOSED', 'Data source is closed');
+      if(background&&foregroundReads)fail('DEFERRED','Optional extraction yielded to queued assets');
       const normalized = normalizeGamePath(path);
       for (let i = archives.length - 1; i >= 0; i--) {
         const block = archives[i].find(normalized);
         if (block) {
-          try { return await archives[i].read(normalized, block); }
+          try { return await archives[i].read(normalized, block,background?()=>foregroundReads>0:undefined); }
           finally { archives[i].window = null; }
         }
       }
       fail('NOT_FOUND', `File not in Data patch chain: ${path}`);
     });
     tail = pending.then(() => undefined, () => undefined);
-    return pending;
+    return pending.finally(()=>{if(!background)foregroundReads--;});
   };
   return {
     read, readFile: read, fingerprint, archives: selected.map(({ path }) => path), stats,

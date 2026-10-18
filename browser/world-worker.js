@@ -4,11 +4,12 @@ import {openDataSource} from './asset-source.js';
 import {SceneStream,SCENE_LIMITS,transformedBounds,globalCollisionVertices,boundsWithin,boundsDistance} from './scene-stream.js';
 import {TerrainStream} from './terrain-stream.js';
 import {loadCraft} from './craft-stream.js';
+import {WaterStream} from './water-stream.js';
 
 const TILE=1600/3,LIMIT=4;
 let wasm;
 const ready=init().then(exports=>(wasm=exports));
-let world,source,manifest,placements,scene,terrain,accumulator=0,queue=Promise.resolve();
+let world,source,manifest,placements,scene,terrain,water,accumulator=0,queue=Promise.resolve();
 let poseTime;
 const terrainErrors=new Map();
 let terrainFocus='';
@@ -63,6 +64,7 @@ function tileKey(index) {
   return `${t.region===0?1:0}:${t.x}:${t.y}`;
 }
 function prepareDistant(focus,enabled) {
+  water?.setFocus(focus);
   const region=focusRegion(focus),p=[focus[0],focus[2]];
   const r=manifest.regions[region],x=Math.floor((p[0]-r.placement[0])/TILE)+r.tile_origin[0],
     y=Math.floor((p[1]-r.placement[1])/TILE)+r.tile_origin[1],key=`${region}:${x}:${y}`;
@@ -449,7 +451,9 @@ function startOptionalWork(message) {
   if(message.focus || Array.from(world.required_tiles()).every(i=>resident.has(i)))startDistantRead();
   if(!objectWait.length) {
     pumpTerrainMaterials();
-    if(Array.from(world.required_tiles()).every(i=>resident.has(i)))startCraft();
+    const terrainReady=Array.from(world.required_tiles()).every(i=>resident.has(i));
+    if(terrainReady)startCraft();
+    if(message.focus||terrainReady)water?.pump();
   }
 }
 function finishFrame(message) {
@@ -479,7 +483,8 @@ function snapshot() {
       unresolvedCollision:cameraUnknown}:undefined,
     holds,timings,craft,collision:Array.from(world.collision_stats()),
     collisionMappedBytes:[...collisionInstances.values()].reduce((n,c)=>n+(c.vertices?.byteLength||0),0),
-    terrain:{...terrainState,errors:[...terrainState.errors,...terrainErrors.values()],
+    water:water?.snapshot(),
+    terrain:{...terrainState,errors:[...terrainState.errors,...terrainErrors.values(),...(water?.errors.values()||[])],
       prefetch:terrainRead?{index:terrainRead.index,pending:!terrainRead.ready,bytes:terrainRead.bytes?.byteLength||0}:null},
     distant:{resident:distantResident.size,peak:distantPeak,limit:12,loads:distantLoads,
       pending:distantWanted.filter(i=>!distantResident.has(i) && !distantFailures.has(i)).length,
@@ -493,6 +498,7 @@ async function handle(message) {
     postFrameVisuals=message.postFrameVisuals===true;
     materialGeneration++;cancelMaterialTimer();materialFrameReady=false;
     terrain?.clear();
+    water?.clear();
     terrainRead=undefined;
     poseTime=undefined;
     hopConsumed=0;
@@ -514,6 +520,7 @@ async function handle(message) {
     });
     scene=new SceneStream(source,wasmTypes);
     terrain=new TerrainStream(source,wasmTypes,(message,transfers)=>postMessage(message,transfers));
+    water=new WaterStream(source,wasmTypes,manifest,(message,transfers)=>postMessage(message,transfers));
     void terrain.init(manifest);
     const population=await fetch('./local/npc-spawns.json');
     if(population.ok)scene.setPopulation(await population.json());
@@ -573,7 +580,7 @@ async function handle(message) {
     world.initialize_spawn();accumulator=0;poseTime=undefined;
   } else if(message.action==='retry') {
     scenePumpError=undefined;sceneSubmissionPending=true;
-    failures.clear();distantFailures.clear();scene.retry();
+    failures.clear();distantFailures.clear();scene.retry();water?.retry();
     if(craft.error)craft={ready:false,pending:false};
     await terrain.retry();
     for(const index of terrainErrors.keys()) {
