@@ -1,7 +1,7 @@
 import init,{Voyage,world_manifest} from './pkg/flats_racer_web.js';
 import * as wasmTypes from './pkg/flats_racer_web.js';
 import {openDataSource} from './asset-source.js';
-import {SceneStream,SCENE_LIMITS,transformedBounds,globalCollisionVertices,boundsWithin} from './scene-stream.js';
+import {SceneStream,SCENE_LIMITS,transformedBounds,globalCollisionVertices,boundsWithin,boundsDistance} from './scene-stream.js';
 import {TerrainStream} from './terrain-stream.js';
 import {loadCraft} from './craft-stream.js';
 
@@ -33,7 +33,7 @@ let postFrameVisuals=false,sceneRegion,frameWorkMs=0;
 let sceneFocus,sceneUpdated=0,sceneRevision=-1;
 let sceneReadinessRadius=0;
 let sceneSubmissionPending=true;
-let scenePumpError;
+let scenePumpError,scenePump;
 const collisionBounds=new Map();
 let collisionCount=0;
 let collisionSignature='';
@@ -209,16 +209,22 @@ function sceneFault(error) {
   if(postFrameVisuals)postMessage({event:'world-error',error:`${error.code?`${error.code}: `:''}${error.message || error}`});
 }
 function startScenePump() {
-  void scene.pump(true).catch(sceneFault);
+  if(!scenePump) {
+    const pump=scene.pump(true).catch(sceneFault);
+    scenePump=pump;
+    void pump.finally(()=>{if(scenePump===pump)scenePump=undefined;});
+  }
+  return scenePump;
 }
-function updateScene(focus,publish=true) {
+function updateScene(focus,publish=true,restoring) {
   if(scenePumpError)throw scenePumpError;
   const region=focusRegion(focus);
   sceneRegion=region;
-  const body=world.telemetry(),r=manifest.regions[region],signed=body[14] ?? body[5];
-  const sweep=world.frame_sweep_distance(),radius=4+sweep;
+  const body=restoring||world.telemetry(),r=manifest.regions[region],signed=body[14] ?? body[5];
+  const sweep=restoring?0:world.frame_sweep_distance(),radius=4+sweep;
   if(radius>SCENE_LIMITS.radius)throw new Error('Frame sweep exceeds the streamed scene collision coverage');
-  const predicted=[focus[0]-Math.sin(body[3])*signed,focus[1],focus[2]-Math.cos(body[3])*signed];
+  const predicted=restoring?[focus[0],-Number.MAX_VALUE,focus[2]]:
+    [focus[0]-Math.sin(body[3])*signed,focus[1],focus[2]-Math.cos(body[3])*signed];
   const moved=sceneFocus?Math.hypot(...focus.map((v,a)=>v-sceneFocus[a])):Infinity;
   // Static 850-yard candidates outlive this bounded visual refresh; readiness and the swept hull run every frame.
   const changed=moved>=16 || Math.max(32,radius)+moved>sceneReadinessRadius ||
@@ -242,7 +248,9 @@ function updateScene(focus,publish=true) {
   objectWait=sceneState.unresolvedCollision.filter(i=>{
     if(i.kind==='wmo' && !i.boundsKnown)return true;
     // shortcut: unknown M2 extents use a 32-yard proximity guard until their authored hull is decoded.
-    return boundsWithin(i.bounds,bodySource,i.boundsKnown?radius:Math.max(32,radius));
+    const guard=i.boundsKnown?radius:Math.max(32,radius);
+    return restoring?boundsDistance(i.bounds,sourcePosition(region,predicted),bodySource)<guard:
+      boundsWithin(i.bounds,bodySource,guard);
   });
   const reach=Math.max(120,32+52+sweep);
   if(!collisionFocus || collisionFocus.region!==region || reach>collisionFocus.reach ||
@@ -307,6 +315,42 @@ function updateScene(focus,publish=true) {
     timings.collisionBuildMs+=performance.now()-start;timings.collisionBuilds++;
   }
   if(publish)publishScene(region);
+}
+async function preparePoseScene(pose) {
+  const body=Array(15).fill(0);body.splice(0,4,...pose);
+  const focus=body.slice(0,3);
+  if(scenePump)await scenePump;
+  sceneFocus=undefined;collisionFocus=undefined;
+  updateScene(focus,false,body);
+  while(objectWait.length) {
+    const failed=objectWait.find(i=>i.status!=='PENDING');
+    if(failed)throw new Error(`Saved location collision unavailable: ${failed.key} (${failed.status})`);
+    if(sceneState.pending===0)
+      throw new Error('Saved location collision cannot fit the available scene budget');
+    await startScenePump();
+    updateScene(focus,false,body);
+    if(objectWait.length&&sceneState.capacityBlocked)
+      throw new Error('Saved location collision cannot fit the available scene budget');
+  }
+}
+async function restorePose(pose) {
+  const previous=Array.from(world.telemetry()).slice(0,4);
+  const previousRequired=Array.from(world.required_tiles()).filter(i=>resident.has(i));
+  try {
+    await stream([pose[0],pose[2]],false,true);
+    await preparePoseScene(pose);
+    world.restore(new Float64Array(pose));
+    accumulator=0;poseTime=undefined;
+  } catch(error) {
+    try {
+      await stream([previous[0],previous[2]],false,true);
+      if(previousRequired.some(i=>!resident.has(i)))throw new Error('Previous location terrain is unavailable');
+      await preparePoseScene(previous);
+    } catch(recovery) {
+      throw new Error(`${error.message}; previous pose retained but scene recovery failed: ${recovery.message}`,{cause:error});
+    }
+    throw error;
+  } finally {sceneFocus=undefined;collisionFocus=undefined;}
 }
 function publishScene(region) {
   if(!sceneSubmissionPending)return;
@@ -511,9 +555,9 @@ async function handle(message) {
     const elapsed=performance.now()-started;timings.frames++;timings.totalMs+=elapsed;timings.maxMs=Math.max(timings.maxMs,elapsed);
     frameWorkMs=elapsed;
   } else if(message.action==='restore') {
-    if(!Array.isArray(message.pose)||message.pose.length!==4||!message.pose.every(Number.isFinite))throw new Error('Invalid parked pose');
-    await stream([message.pose[0],message.pose[2]],false,true);
-    world.restore(new Float64Array(message.pose));accumulator=0;poseTime=undefined;
+    if(!Array.isArray(message.pose)||message.pose.length!==4||
+      !message.pose.every(v=>Number.isFinite(v)&&Math.abs(v)<1e12))throw new Error('Invalid parked pose');
+    await restorePose(message.pose);
   } else if(message.action==='reset') {
     await stream([manifest.spawn[0],manifest.spawn[2]],false,true);
     world.initialize_spawn();accumulator=0;poseTime=undefined;
@@ -542,7 +586,7 @@ async function handle(message) {
   } else if(message.action!=='snapshot')throw new Error('Unknown world operation');
   if(message.action==='restore' || message.action==='reset' || message.action==='retry') {
     const body=world.telemetry();
-    await updateScene(Array.from(body.slice(0,3)));
+    if(message.action!=='restore')updateScene(Array.from(body.slice(0,3)));
     updateCameraUnknown(body,focusRegion(body));
   }
   return snapshot();

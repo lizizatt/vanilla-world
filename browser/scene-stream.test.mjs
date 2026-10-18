@@ -69,6 +69,17 @@ test('ADT rotations preserve source axes, tilted scale, bounds and translation',
   assert.equal(modelPath('WORLD/Tree.MDX'), 'world\\tree.m2');
 });
 
+test('restore support columns retain lower collision beyond the visual radius without loading unrelated scenery',async()=>{
+  const f=fixture(),stream=new SceneStream(f.source,f.wasm);
+  stream.setTile('1:0:0',[p(1,'deck.m2'),p(2,'outside.m2',100)]);
+  stream.update(1,[0,0,2000],[0,0,-Number.MAX_VALUE],32);
+  assert([...stream.requests.values()].some(r=>r.path==='deck.m2'));
+  assert(![...stream.requests.values()].some(r=>r.path==='outside.m2'));
+  await stream.pump();
+  assert.equal(stream.snapshot().unresolvedCollision.length,0);
+  assert(stream.snapshot().collisionInstances.some(i=>i.id==='1:m2:1'));
+});
+
 test('scalar bounds distance preserves point and swept-box distances on every axis', () => {
   const bounds = [[-2, -3, -4], [5, 6, 7]];
   const points = [[0, 0, 0], [-2, -3, -4], [5, 6, 7], [9, -8, 12], [-9, 8, -12], [1e200, -1e200, 1e200]];

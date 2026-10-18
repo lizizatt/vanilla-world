@@ -191,7 +191,8 @@ export class SceneStream {
       bounds ||= [matrix.slice(12, 15), matrix.slice(12, 15)];
       const score = boundsDistance(bounds, position);
       const radius = distant ? this.limits.distantRadius : this.limits.radius;
-      if ((kind !== 'wmo' || asset || p.bounds) && score > radius) return;
+      if ((kind !== 'wmo' || asset || p.bounds) && score > radius
+        && (distant || collisionDistance(bounds) > collisionRadius)) return;
       want(key, { kind, path, skins, collisionScore: collisionDistance(bounds) }, score, distant);
       put(id, { id, key, matrix, bounds, boundsKnown: !!p.bounds || !!asset?.bounds, score, kind, distant });
       if (kind === 'wmo' && asset) {
@@ -221,7 +222,7 @@ export class SceneStream {
           const groupId = expanded.groupIds[index];
           if (distant && candidates.has(groupId)) return;
           const groupBounds = expanded.groups[index], d = boundsDistance(groupBounds, position);
-          if (d > radius) return;
+          if (d > radius && (distant || collisionDistance(groupBounds) > collisionRadius)) return;
           const groupKey = `group:${path}:${index}`;
           want(groupKey, { kind: 'group', path: `${path.slice(0, -4)}_${String(index).padStart(3, '0')}.wmo`,
             rootKey: key, collisionScore: collisionDistance(groupBounds) }, d, distant);

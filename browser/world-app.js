@@ -122,13 +122,13 @@ async function open(selection,remember=false) {
     evidence.info=result.info;evidence.source='local Data archives';
     $('welcome').hidden=true;enabled(true);running=true;
     const save=await worldSave(result.info.id);
-    const restored=await restore(save);
     const tune=await worldTuning(result.info.id);
     if(tune) {
       validateTuningRecord(tune);
       await client.request('tuning',{values:tune.values});
       tuningValues=tune.values.slice();settings.cameraSeconds=tune.cameraSeconds;
     }
+    const restored=await restore(save);
     evidence.ready=true;report(restored?'Loaded.':'',restored);canvas.focus();
   } catch(error) {
     fail(error);report('');
@@ -170,8 +170,10 @@ async function operation(action) {
 $('save').addEventListener('click',()=>operation(async()=>{
   const state=await client.request('snapshot'),p=state.telemetry;
   const {cameraSeconds,...displaySettings}=settings;
-  await worldSave(client.info.id,{version:1,layout:LAYOUT_VERSION,sourceId:client.info.id,
-    mode:flight?'fly':'drive',vehicle:[p[0],p[1],p[2],p[3]],camera:flight?.slice(),settings:displaySettings});
+  const record={version:1,layout:LAYOUT_VERSION,sourceId:client.info.id,
+    mode:flight?'fly':'drive',vehicle:[p[0],p[1],p[2],p[3]],camera:flight?.slice(),settings:displaySettings};
+  validateWorldSave(record,client.info.id);
+  await worldSave(client.info.id,record);
   report('Saved.',true);
 }));
 $('load').addEventListener('click',()=>operation(async()=>{

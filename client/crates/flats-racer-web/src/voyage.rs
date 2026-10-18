@@ -374,6 +374,10 @@ impl Voyage {
     }
 
     pub fn sample(&self, p: [f64; 2]) -> Surface {
+        self.sample_at(p, self.state.position[1])
+    }
+
+    fn sample_at(&self, p: [f64; 2], body_y: f32) -> Surface {
         let mut result = Surface {
             ground: None,
             water: None,
@@ -442,10 +446,7 @@ impl Voyage {
             }
         }
         if result.availability != 1 {
-            if let Some(height) = self
-                .scene_mesh
-                .height(p, f64::from(self.state.position[1]) + 0.6)
-            {
+            if let Some(height) = self.scene_mesh.height(p, f64::from(body_y) + 0.6) {
                 result.ground = Some(
                     result
                         .ground
@@ -455,11 +456,11 @@ impl Voyage {
             }
             for b in &self.scene_bounds {
                 if p[0] >= b[0] && p[0] <= b[3] && p[1] >= b[2] && p[1] <= b[5] {
-                    if f64::from(self.state.position[1]) >= b[4] - 0.1 {
+                    if f64::from(body_y) >= b[4] - 0.1 {
                         result.ground =
                             Some(result.ground.map_or(b[4] as f32, |g| g.max(b[4] as f32)));
                         result.availability = 0;
-                    } else if f64::from(self.state.position[1]) + 0.6 >= b[1] {
+                    } else if f64::from(body_y) + 0.6 >= b[1] {
                         result.solid = true;
                     }
                 }
@@ -469,18 +470,53 @@ impl Voyage {
     }
 
     fn heights(&self, p: [f64; 2], yaw: f32) -> Result<[f32; 4], u8> {
+        self.heights_at(p, yaw, self.state.position[1])
+    }
+
+    fn heights_at(&self, p: [f64; 2], yaw: f32, body_y: f32) -> Result<[f32; 4], u8> {
         let (sin, cos) = yaw.sin_cos();
         let mut heights = [0.0; 4];
         for (i, [x, _, z]) in PROBE_OFFSETS.into_iter().enumerate() {
-            let surface = self.sample([
-                p[0] + f64::from(x * cos + z * sin),
-                p[1] + f64::from(-x * sin + z * cos),
-            ]);
+            let surface = self.sample_at(
+                [
+                    p[0] + f64::from(x * cos + z * sin),
+                    p[1] + f64::from(-x * sin + z * cos),
+                ],
+                body_y,
+            );
             heights[i] = surface
                 .support()
                 .ok_or(if surface.availability == 1 { 1 } else { 2 })?;
         }
         Ok(heights)
+    }
+
+    fn restore_pose(&mut self, pose: &[f64]) -> Result<(), String> {
+        if pose.len() != 4 || pose.iter().any(|v| !v.is_finite()) {
+            return Err("Save requires a finite global pose".into());
+        }
+        let state =
+            State::new([0.0, pose[1] as f32, 0.0], pose[3] as f32).map_err(|e| e.to_string())?;
+        let heights = self
+            .heights_at([pose[0], pose[2]], state.yaw, state.position[1])
+            .map_err(|_| "Saved location is unloaded or outside supported surfaces")?;
+        let floor = heights.into_iter().fold(f32::NEG_INFINITY, f32::max) + 0.25;
+        if state.position[1] < floor {
+            return Err("Saved height is below the supported surface".into());
+        }
+        let point = [pose[0], f64::from(state.position[1]), pose[2]];
+        if self.scene_mesh.swept(point, point)
+            || self
+                .scene_bounds
+                .iter()
+                .any(|b| swept_box(point, point, *b))
+        {
+            return Err("Saved vehicle overlaps authored collision".into());
+        }
+        self.origin = [pose[0], pose[2]];
+        self.state = state;
+        self.hold = 0;
+        Ok(())
     }
 
     pub(crate) fn advance(&mut self, input: Input) -> Result<(), String> {
@@ -1304,24 +1340,7 @@ impl Voyage {
     }
 
     pub fn restore(&mut self, pose: &[f64]) -> Result<(), JsValue> {
-        if pose.len() != 4 || pose.iter().any(|v| !v.is_finite()) {
-            return Err(JsValue::from_str("Save requires a finite global pose"));
-        }
-        let hs = self
-            .heights([pose[0], pose[2]], pose[3] as f32)
-            .map_err(|_| {
-                JsValue::from_str("Saved location is unloaded or outside supported surfaces")
-            })?;
-        let floor = f64::from(hs.into_iter().fold(f32::NEG_INFINITY, f32::max));
-        if pose[1] < floor + 0.2 || pose[1] > floor + 20.0 {
-            return Err(JsValue::from_str("Saved height is outside supported range"));
-        }
-        let state = State::new([0.0, pose[1] as f32, 0.0], pose[3] as f32)
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
-        self.origin = [pose[0], pose[2]];
-        self.state = state;
-        self.hold = 0;
-        Ok(())
+        self.restore_pose(pose).map_err(|e| JsValue::from_str(&e))
     }
 
     pub fn reset(&mut self) {
@@ -1859,6 +1878,87 @@ pub(crate) mod tests {
         let surface = world.sample([10.0, 10.0]);
         assert_eq!(surface.availability, 1);
         assert!(surface.support().is_none());
+    }
+
+    #[test]
+    fn restore_accepts_reachable_high_hover_and_airborne_poses() {
+        let mut world = Voyage::from_manifest(fixture(0.0)).unwrap();
+        world.origin = [1000.0, 64.0];
+        world.state = State::new([0.0, 30.0, 0.0], 0.0).unwrap();
+        world.tuning.hover_height = 30.0;
+        for _ in 0..600 {
+            world.advance(Input::default()).unwrap();
+        }
+        let saved = [1000.0, f64::from(world.state.position[1]), 64.0, 0.0];
+        assert!(saved[1] > 29.9);
+        world.restore_pose(&saved).unwrap();
+        assert_eq!(f64::from(world.state.position[1]), saved[1]);
+        world.restore_pose(&[1000.0, 2000.0, 64.0, 0.0]).unwrap();
+        assert_eq!(world.state.position[1], 2000.0);
+    }
+
+    #[test]
+    fn restore_queries_destination_height_over_holes_and_rejects_occupied_poses_atomically() {
+        for shift in [0.0, 1.0e9] {
+            let mut world = Voyage::from_manifest(fixture(shift)).unwrap();
+            let entry = &world.manifest.tiles[0];
+            let mut tile = crate::world::tests::flat_tile(entry.x, entry.y);
+            for chunk in &mut tile.chunks {
+                chunk.holes = u16::MAX;
+            }
+            world.resident.insert(0, tile);
+            let x = shift + 200.0;
+            world.scene_mesh = CollisionTree::new(&[
+                x - 20.0,
+                20.0,
+                40.0,
+                x + 20.0,
+                20.0,
+                40.0,
+                x - 20.0,
+                20.0,
+                90.0,
+                x + 20.0,
+                20.0,
+                40.0,
+                x + 20.0,
+                20.0,
+                90.0,
+                x - 20.0,
+                20.0,
+                90.0,
+            ])
+            .unwrap();
+            assert!(
+                world.heights([x, 64.0], 0.0).is_err(),
+                "Old body Y cannot see the destination deck"
+            );
+            world.restore_pose(&[x, 21.1, 64.0, 0.0]).unwrap();
+            assert_eq!(world.global(), [x, 64.0]);
+            world.state.velocity = [12.0, 3.0, 4.0];
+            world.state.bank = 0.2;
+            world.state.boost_reserve = 0.5;
+            let previous = (world.state, world.origin, world.hold, world.rebases);
+            for pose in [
+                vec![x, 20.4, 64.0, 0.0],
+                vec![x, 19.0, 64.0, 0.0],
+                vec![x, f64::MAX, 64.0, 0.0],
+                vec![x, 21.1, 64.0, f64::NAN],
+                vec![x, 21.1, 64.0],
+            ] {
+                assert!(world.restore_pose(&pose).is_err());
+                assert_eq!(
+                    (world.state, world.origin, world.hold, world.rebases),
+                    previous
+                );
+            }
+            world.resident.clear();
+            assert!(world.restore_pose(&[x, 21.1, 64.0, 0.0]).is_err());
+            assert_eq!(
+                (world.state, world.origin, world.hold, world.rebases),
+                previous
+            );
+        }
     }
 
     use super::*;

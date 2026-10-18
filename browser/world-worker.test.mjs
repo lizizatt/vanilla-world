@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {readFile} from 'node:fs/promises';
 import {createContext,runInContext} from 'node:vm';
-import {transformedBounds,globalCollisionVertices,SCENE_LIMITS,placementMatrix,boundsWithin} from './scene-stream.js';
+import {transformedBounds,globalCollisionVertices,SCENE_LIMITS,placementMatrix,boundsWithin,boundsDistance} from './scene-stream.js';
 
 // Exercise the actual worker queue with synthetic archive/Wasm boundaries, without starting WebGPU.
 const worker=(await readFile(new URL('./world-worker.js',import.meta.url),'utf8'))
@@ -13,7 +13,7 @@ function boot(events=[],clock=performance) {
   const context=createContext({init:async()=>({memory:{buffer:new ArrayBuffer(0)}}),performance:clock,postMessage:message=>events.push(message),
     setTimeout:(callback,delay)=>{const id=++nextTimer;timers.set(id,{callback,delay});return id;},
     clearTimeout:id=>timers.delete(id),
-    transformedBounds,globalCollisionVertices,SCENE_LIMITS,boundsWithin});
+    transformedBounds,globalCollisionVertices,SCENE_LIMITS,boundsWithin,boundsDistance});
   runInContext(worker,context);
   context.timers=timers;
   context.fireTimer=async()=>{
@@ -701,6 +701,51 @@ test('restore, reset and retry return camera unknown bounds matching the immedia
   const retried=await f.request({action:'retry'});
   assert.equal(retried.telemetry[0],50);
   assert.deepEqual(Array.from(retried.scene.unresolvedCollision,i=>[i.id,i.status]),[['100','PENDING']]);
+});
+
+test('restore waits for destination support collision before atomically committing the pose',async()=>{
+  const f=collisionFixture(),order=[];
+  f.state.pending=1;
+  f.unresolved(2000);
+  Object.assign(f.state.unresolvedCollision[0],{status:'PENDING',key:'deck'});
+  let release;
+  f.context.dependencies.scene.pump=async()=>{
+    order.push('read');
+    await new Promise(resolve=>{release=resolve;});
+    f.state.unresolvedCollision=[];f.add(2000);
+    order.push('collision-ready');
+  };
+  f.context.dependencies.world.restore=pose=>{
+    assert.equal(f.built.at(-1).length,9,'Destination geometry is submitted before native validation');
+    order.push('restore');f.body.splice(0,4,...pose);
+  };
+  const pending=f.request({action:'restore',pose:[2000,2000,0,0]});
+  await settle();
+  assert.equal(f.body[0],0);assert.deepEqual(order,['read']);
+  release();const result=await pending;
+  assert.deepEqual(order,['read','collision-ready','restore']);
+  assert.equal(result.telemetry[0],2000);assert.equal(result.telemetry[1],2000);
+});
+
+test('failed destination collision or native occupancy keeps the old pose and restores old scene demand',async()=>{
+  for(const collisionFailure of [false,true]){
+    const f=collisionFixture(),streams=[];
+    f.body[0]=50;f.body[1]=1.1;
+    f.context.streams=streams;
+    runInContext('stream=async(p)=>streams.push(Array.from(p));',f.context);
+    if(collisionFailure){
+      f.unresolved(2000);
+      Object.assign(f.state.unresolvedCollision[0],{status:'CORRUPT',key:'deck'});
+    } else {
+      f.context.dependencies.world.restore=()=>{throw new Error('Saved vehicle overlaps authored collision');};
+    }
+    const previous=f.body.slice();
+    await assert.rejects(f.request({action:'restore',pose:[2000,20,0,0]}),
+      collisionFailure?/collision unavailable/:/overlaps authored collision/);
+    assert.deepEqual(f.body,previous);
+    assert.deepEqual(streams.map(p=>Array.from(p)),[[2000,0],[50,0]]);
+    assert.deepEqual(f.waiting(),[]);
+  }
 });
 
 test('frame timing separates post-tick camera scanning from physics queries',async()=>{

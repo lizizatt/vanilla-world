@@ -146,6 +146,21 @@ Camera zoom is separately limited to 0-50 yards. Desired and filtered chase path
 are clipped against loaded ground and the shared collision BVH; filtered lag cannot
 escape that 50-yard camera query window. This is not a world draw-distance limit.
 
+**Load** prepares destination terrain and the stationary support column before
+committing the vehicle pose. Authored bridges are queried at the **saved Y**, not
+the old vehicle height. Rust checks finite state, the same floor clearance used
+by driving, and occupied hull geometry; it does not impose the old floor+20-yard
+ceiling on legal high-hover or airborne saves. Invalid restoration leaves the
+old vehicle state intact and restores old scene demand. If that recovery cannot
+read previously available terrain/collision, it reports the recovery failure
+explicitly rather than moving the vehicle or inventing empty ground.
+Persisted handling loads before the saved pose, and outgoing saves are validated
+before overwriting IndexedDB. Native tests cover hover30, airborne height2000,
+bridge-over-hole support, billion-yard origins, occupancy and atomic rejection;
+worker/scene tests cover destination read ordering and failure recovery.
+`node browser\save-smoke.mjs` exercises legal hover30 save/offline reopen and
+preservation of the previous record after an injected invalid outgoing snapshot.
+
 Save keys include layout version 3 and an SHA-256 fingerprint of ordered archive
 metadata. This is not a full-content archive hash. Different installations/layouts
 do not silently relocate one another's saves. Legacy racer/voyage IndexedDB
