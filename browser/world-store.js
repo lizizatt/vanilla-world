@@ -34,6 +34,7 @@ export function validateWorldSave(save,sourceId) {
     || !save.settings || typeof save.settings.horizon!=='boolean' || typeof save.settings.scenery!=='boolean'
     || (save.settings.distant!==undefined && typeof save.settings.distant!=='boolean')
     || (save.settings.sound!==undefined && typeof save.settings.sound!=='boolean')
+    || (save.settings.cockpit!==undefined && typeof save.settings.cockpit!=='boolean')
     || (save.settings.controls!==undefined && !['native','legacy'].includes(save.settings.controls))
     || (save.settings.cameraDistance!==undefined && (typeof save.settings.cameraDistance!=='number'
       || !Number.isFinite(save.settings.cameraDistance) || save.settings.cameraDistance<0 || save.settings.cameraDistance>50))) {

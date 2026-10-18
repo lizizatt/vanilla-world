@@ -15,7 +15,7 @@ const evidence={ready:false,frames:0,errors:[],mode:'drive'};
 window.worldEvidence=evidence;
 let renderer,folder,flight,running=false,busy=false,last=0,frames=0,hudTime=0,hudFrames=0,permissionNeeded=false;
 let orbit=[0,0],dragging=false,soundAttempt=0,soundError='',soundTime=0,reportTimer,testPads,frozenPresentation=false,tuningValues=TUNING_FIELDS.map(f=>f[1]);
-const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:false};
+const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:false,cockpit:false};
 const settings={...defaults};
 const report=(text,temporary=false)=>{
   clearTimeout(reportTimer);if($('status').textContent!==text)$('status').textContent=text;
@@ -72,12 +72,16 @@ async function resumeAudio(gesture=false) {
   } finally {if(attempt===soundAttempt)syncSound();}
 }
 function zoom(steps) {
+  if(settings.cockpit){settings.cockpit=false;renderer.camera=undefined;}
   settings.cameraDistance=Math.max(0,Math.min(50,settings.cameraDistance-steps));
   $('camera-distance').value=settings.cameraDistance;
 }
 function cockpit() {
-  report('Cockpit unavailable: no rider model is selected.',true);
-  evidence.cockpit={available:false,reason:'Selected rider head height and animated seat frame unavailable'};
+  if(!running || busy)return;
+  settings.cockpit=!!flight || !settings.cockpit;flight=undefined;
+  renderer.camera=undefined;orbit=[0,0];canvas.focus();
+  if(settings.cockpit&&!renderer.craft?.anchor)
+    report(renderer.craft?'Cockpit unavailable: craft has no posed seat.':'Cockpit waiting for craft.',true);
 }
 function fillTuning(values,seconds) {
   [...values,seconds].forEach((n,i)=>$(`tune-${i}`).value=n);
@@ -96,7 +100,7 @@ async function restore(save) {
   validateWorldSave(save,client.info.id);
   if(!save)return false;
   client.state=await client.request('restore',{pose:save.vehicle});
-  Object.assign(settings,{distant:true,controls:'legacy',cameraDistance:15,sound:false},save.settings);syncSettings();
+  Object.assign(settings,{distant:true,controls:'legacy',cameraDistance:15,sound:false,cockpit:false},save.settings);syncSettings();
   if(!settings.sound)pauseAudio();else resumeAudio();
   flight=save.mode==='fly'?save.camera.slice():undefined;
   renderer.camera=undefined;
@@ -191,7 +195,10 @@ $('horizon').addEventListener('change',()=>{settings.horizon=$('horizon').checke
 $('scenery').addEventListener('change',()=>{settings.scenery=$('scenery').checked;});
 $('distant').addEventListener('change',()=>{settings.distant=$('distant').checked;});
 $('control-profile').addEventListener('change',()=>{settings.controls=$('control-profile').value;keys.clear();input.keyboard();syncSettings();});
-$('camera-distance').addEventListener('input',()=>{settings.cameraDistance=Number($('camera-distance').value);});
+$('camera-distance').addEventListener('input',()=>{
+  settings.cameraDistance=Number($('camera-distance').value);
+  if(settings.cockpit){settings.cockpit=false;renderer.camera=undefined;}
+});
 $('sound').addEventListener('change',()=>{settings.sound=$('sound').checked;if(settings.sound)resumeAudio(true);else pauseAudio();canvas.focus();});
 $('resume-sound').addEventListener('click',()=>{canvas.focus();resumeAudio(true);});
 $('cockpit').addEventListener('click',cockpit);
@@ -221,6 +228,7 @@ canvas.addEventListener('keydown',event=>{
   if(DRIVE_KEYS.has(event.code)) {
     event.preventDefault();keys.add(event.code);if(!event.repeat)input.keyboard();
     if(!event.repeat && event.code==='F9')$('reset').click();
+    if(!event.repeat && event.code==='KeyF' && !event.ctrlKey && !event.altKey)cockpit();
     if(!event.repeat && event.code==='KeyV' && event.ctrlKey && event.altKey && !event.shiftKey)cockpit();
     resumeAudio(true);
   }
@@ -268,6 +276,7 @@ function frame(now) {
     audio.update(client.state,controls,dt,document.hasFocus()&&!$('tuning-panel').open&&!flight&&!frozenPresentation);
     frames++;Object.assign(evidence,{frames,state:client.state,mode:flight?'fly':'drive',camera:flight?.slice(),render:stats,adapter:renderer.adapter});
     evidence.input={...controls,device:input.device};evidence.view=renderer.camera?.slice();
+    evidence.cockpit={requested:settings.cockpit,active:renderer.cameraMode==='cockpit',available:stats.cockpitAvailable};
     evidence.cameraCollision={ready:cameraCollision.ready,terrainTiles:cameraCollision.tiles.size,triangles:(cameraCollision.tree?.vertices.length||0)/9};
     if(now-hudTime>250) {
       const s=client.state,p=s.telemetry,scene=s.scene;
@@ -279,11 +288,13 @@ function frame(now) {
       $('boost').textContent=`${Math.round(p[6]*100)}%`;$('boost-meter').value=p[6];
       $('speed-meter').value=Math.min(1,p[5]/tuningValues[1]);
       $('drive').hidden=!flight;$('fly').hidden=!!flight;
+      $('cockpit').setAttribute('aria-pressed',String(settings.cockpit&&!flight));
       $('motion').textContent=flight?'':scene?.waitingCollision||p[8]===1?'Loading nearby ground'
         :p[8]===2?'Unsupported surface':p[8]===3?'Obstacle or steep ground':'';
       if($('diagnostics').open) {
       $('input-device').textContent=input.device==='controller'?'Controller':'Keyboard';
-      $('camera-status').textContent=flight?'Flight camera is collision-free':!cameraCollision.ready?'Chase clearance waiting for geometry'
+      $('camera-status').textContent=flight?'Flight camera is collision-free':settings.cockpit
+        ?renderer.cameraMode==='cockpit'?'Cockpit / posed seat':'Cockpit waiting for craft or camera geometry':!cameraCollision.ready?'Chase clearance waiting for geometry'
         :cameraCollision.coverageLimited?'Camera lag limited to its collision window':'Chase collision ready';
       $('place').textContent=flight?'FREE FLIGHT':p[10]===-1?'THE GREAT SEA':p[10]===1?'EASTERN KINGDOMS':'KALIMDOR';
       $('coordinates').textContent=`${(flight?.[0]??p[0]).toFixed(0)} E / ${(flight?.[2]??p[2]).toFixed(0)} S`;

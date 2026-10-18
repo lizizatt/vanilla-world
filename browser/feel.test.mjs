@@ -52,16 +52,31 @@ test('both keyboard profiles reverse like the controller, with distinct brake an
   assert.equal(input.sample(new Set(['KeyW']),[],false).throttle,0);
 });
 test('gamepad triggers subtract, noisy sticks never steal input, edges and disconnect are safe',()=>{
-  const input=new WorldInput(),p=pad(),keys=new Set(['KeyW']);
+  const input=new WorldInput(),p=pad(),keys=new Set();
   p.axes[0]=.17;input.sample(keys,[p],true);assert.equal(input.device,'keyboard');
   p.buttons[6].value=1;p.axes[2]=1;
   let state=input.sample(keys,[p],true);assert.equal(state.throttle,-1);assert.equal(state.look[0],1);
   p.buttons[7].value=1;p.buttons[11].pressed=true;
   state=input.sample(keys,[p],true);assert.equal(state.throttle,0);assert(state.cockpit);
   assert(!input.sample(keys,[p],true).cockpit);
-  input.keyboard();input.sample(keys,[p],true);assert.equal(input.device,'keyboard');
+  keys.add('KeyW');input.keyboard();input.sample(keys,[p],true);assert.equal(input.device,'keyboard');
   assert.equal(input.sample(keys,[],true).throttle,1);
   assert.equal(input.device,'keyboard');
+});
+test('held keyboard thrust and braking cannot be stolen by simultaneous controller activity',()=>{
+  const input=new WorldInput(),p=pad();
+  p.buttons[7].value=1;input.sample(new Set(),[p],true);
+  assert.equal(input.device,'controller');
+  for(const keys of [new Set(['KeyS']),new Set(['KeyW','KeyS'])]){
+    p.axes[2]=p.axes[2]===1?.5:1;
+    const value=input.sample(keys,[p],true);
+    assert.equal(value.throttle,keys.has('KeyW')?0:-1);assert.equal(value.flags,0);assert.equal(input.device,'keyboard');
+  }
+  p.axes[2]=.4;
+  const brake=input.sample(new Set(['KeyX']),[p],true);
+  assert.equal(brake.throttle,0);assert.equal(brake.flags,1);assert.equal(input.device,'keyboard');
+  assert.equal(input.sample(new Set(['KeyS']),[p],false).throttle,0);
+  p.axes[2]=0.8;assert.equal(input.sample(new Set(),[p],true).throttle,1);
 });
 test('original engine and noise beds are bounded stereo with periodic seams',()=>{
   for(let layer=0;layer<3;layer++) {

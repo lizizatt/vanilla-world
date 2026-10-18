@@ -1,4 +1,4 @@
-export const DRIVE_KEYS=new Set(['KeyW','KeyS','KeyA','KeyD','KeyQ','KeyE','KeyC','KeyJ','KeyV','KeyX',
+export const DRIVE_KEYS=new Set(['KeyW','KeyS','KeyA','KeyD','KeyQ','KeyE','KeyC','KeyJ','KeyV','KeyX','KeyF',
   'ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','ShiftLeft','ShiftRight','ControlLeft','ControlRight',
   'AltLeft','AltRight','F9']);
 const axis=(value,deadzone)=>Number.isFinite(value) && Math.abs(value)>deadzone
@@ -11,6 +11,8 @@ export class WorldInput {
   keyboard(){this.device='keyboard';}
   sample(keys,pads,accepts,profile='native') {
     const connected=pads.filter(p=>p?.connected && p.mapping==='standard');
+    const keyboardHeld=keys.size>0;
+    if(accepts&&keyboardHeld)this.device='keyboard';
     for(const id of this.previous.keys())if(!connected.some(p=>p.index===id))this.previous.delete(id);
     if(this.active!==undefined && !connected.some(p=>p.index===this.active)) {
       this.active=undefined;this.device='keyboard';
@@ -22,7 +24,7 @@ export class WorldInput {
       const rising=pressed.map((p,i)=>p && !before?.pressed[i]);
       const activity=rising.some(Boolean) || analog.some((v,i)=>v!==0 && Math.abs(v-(before?.analog[i]||0))>.04);
       this.previous.set(pad.index,{analog,pressed});
-      if(accepts && activity){this.active=pad.index;this.device='controller';}
+      if(accepts && activity && !keyboardHeld){this.active=pad.index;this.device='controller';}
       if(pad.index===this.active){selected={pad,analog};edges=rising;}
     }
     const idle={throttle:0,steer:0,flags:1,look:[0,0],zoom:0,cockpit:false,reset:false,flight:false,help:false};

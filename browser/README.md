@@ -40,8 +40,8 @@ The spawn height comes from the ADT, not a guessed sea-level floor.
 
 | Mode | Controls |
 |---|---|
-| Drive | W thrust, S reverse, A/D steer, X brake, Space/J hop, Shift boost, Ctrl/C drift, V look behind, F9 reset |
-| Standard controller | Left stick steer, RT thrust minus LT reverse, RB boost, LB drift, A hop, right stick orbit, D-pad zoom, Y reset, Start drive/fly |
+| Drive | W thrust, S reverse, A/D steer, X brake, Space/J hop, Shift boost, Ctrl/C drift, F cockpit, V look behind, F9 reset |
+| Standard controller | Left stick steer, RT thrust minus LT reverse, RB boost, LB drift, A hop, right stick look/click cockpit, D-pad chase zoom, Y reset, Start drive/fly |
 | Chase camera | Right-drag or arrow-key orbit, wheel zoom; 0.5-second position filter by default |
 | Free flight | W/S forward/back, A/D strafe, Q/E altitude, arrows look, Shift fast |
 | World overview | Frames both complete coarse continents |
@@ -60,7 +60,9 @@ Its discrete edge is acknowledged after one fixed-step attempt, not held until
 landing; pause, reset, source and flight transitions discard unsent edges.
 Gamepad inputs use standard browser mappings,
 deadzone rescaling and press edges; disconnect, lost focus and editing controls
-clear thrust instead of leaving a stuck accelerator. Flight retains keyboard
+clear thrust instead of leaving a stuck accelerator. Held keyboard controls take
+precedence over concurrent controller activity, including S reverse and X brake;
+controller activity can take over again after release. Flight retains keyboard
 movement, with right-drag look.
 
 The amber/teal instruments show actual signed motion, airborne/hold state and
@@ -109,6 +111,30 @@ Stand pose, not live animation. A temporary body remains while loading or after 
 explicit craft error, and the craft is hidden during free flight. The mount's raw
 and posed attachment 0 are available, but do not supply a selected rider's head
 height or an animated cockpit.
+
+**F**, the **Cockpit** button, or a right-stick click toggles functional first
+person. Its eye uses that actual posed attachment plus **0.75 model units along
+local up**, transformed with the same scale, heading and bank as the craft.
+It follows the confirmed craft pose without chase-camera lag and clips the whole
+body-to-eye segment against the existing camera collision data. The entire player
+craft, including its embedded goblin, is hidden to prevent self-geometry blocking
+the view; world scenery remains visible. Right-drag, arrows/right stick and V
+retain look controls. Wheel, D-pad or distance-slider zoom returns to chase.
+Fly parks the craft; F returns to cockpit. Reset preserves the view preference,
+and Save/Load retains it (legacy saves default to chase). Missing seat metadata
+falls back to chase with a short error; this is not exact native avatar-head parity.
+
+`node browser\cockpit-smoke.mjs` uses the normal app route and actual Edge input.
+It covers seat-relative eye positions in 15 motion/mode/rebase/resize cases,
+look/back, keyboard/button/controller toggles, self hiding, focus, sound recovery,
+and cockpit/mute preferences across offline reloads. S produces **actual backward
+displacement from rest**, not only a signed HUD value, in default, active-controller,
+native-reload and legacy-reload cases; opposing keys, release and X brake are checked.
+Local screenshots and JSON live under `test-results/cockpit`. Controller readings
+are injected through `navigator.getGamepads`; physical hardware is not automated.
+The first run exposed controller activity stealing a held X brake, retained under
+`before-brake-priority.*`; held-key precedence fixes it. The 133-test JS suite and
+existing feel/audio/save/offline and full-viewport transparency checks pass.
 
 **Handling** edits the 17 existing Rust physics parameters plus camera
 smoothing seconds. Rust validates the complete set; successful writes persist in

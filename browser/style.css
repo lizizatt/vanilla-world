@@ -28,6 +28,7 @@ canvas { display: block; width: 100%; height: 100%; outline-offset: -4px; }
 .toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex-shrink: 0; max-width: 100%; }
 button, .button { position: relative; padding: 7px 10px; background: transparent; border: 1px solid #d7edf780; border-radius: 4px; color: #edf5f7; cursor: pointer; font: inherit; text-shadow: inherit; }
 button:hover, .button:hover { border-color: #fff; text-decoration: underline; }
+button[aria-pressed=true] { border-color: #86e4de; text-decoration: underline; }
 button:disabled { opacity: .4; cursor: wait; }
 :is(button, input, select, summary, canvas):focus-visible, .button:focus-within { outline: 2px solid #86e4de; outline-offset: 2px; }
 canvas:focus-visible { outline-offset: -3px; }

@@ -1,6 +1,7 @@
 import {modelPath} from './scene-stream.js';
 import {MINIMAP_SIZE,TERRAIN_TEXTURE_SIZE} from './terrain-stream.js';
-import {cameraView} from './world-camera.js';
+import {cameraView,craftMatrix,cockpitAnchor} from './world-camera.js';
+export {craftMatrix} from './world-camera.js';
 const SKY=[.08,.15,.20,1];
 const sub=(a,b)=>a.map((v,i)=>v-b[i]);
 const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
@@ -30,16 +31,6 @@ export function sceneSelection(instances,assets) {
 export function terrainEdgeMask(entry,neighbors) {
   return [[-1,0],[1,0],[0,-1],[0,1]].reduce((mask,[dx,dy],edge)=>
     neighbors.some(t=>t.region===entry.region&&t.x===entry.x+dx&&t.y===entry.y+dy)?mask:mask|(1<<edge),0);
-}
-export function craftMatrix(state,origin,scale) {
-  const c=Math.cos(state[3]),s=Math.sin(state[3]),cb=Math.cos(state[4]),sb=Math.sin(state[4]);
-  const m=new Float32Array(16);
-  for(const [column,v] of [[0,[0,0,-1]],[1,[-1,0,0]],[2,[0,1,0]]]){
-    const x=v[0]*cb-v[1]*sb,y=v[0]*sb+v[1]*cb,z=v[2];
-    m.set([(x*c+z*s)*scale,y*scale,(-x*s+z*c)*scale,0],column*4);
-  }
-  m.set([state[0]-origin[0],state[1],state[2]-origin[1],1],12);
-  return m;
 }
 const terrainShader=`
 struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,body:vec4f,settings:vec4f,tile:vec4f};
@@ -279,13 +270,13 @@ export class WorldRenderer {
         data.asset.indices.length>60000||data.textures.length>16)throw Error('Invalid authored craft payload');
       const bytes=data.asset.vertices.byteLength+data.asset.indices.byteLength+data.textures.reduce((n,t)=>n+t.rgba.byteLength,0);
       if(bytes>32*1024*1024)throw Error('Authored craft exceeds GPU budget');
-      const batches=this.prepareBatches(data.asset.batches);
+      const anchor=cockpitAnchor(data.metadata),batches=this.prepareBatches(data.asset.batches);
       this.releaseCraft();
       this.craftError=undefined;
       this.craft={asset:{vertices:this.buffer(data.asset.vertices,GPUBufferUsage.VERTEX),
         indices:this.buffer(data.asset.indices,GPUBufferUsage.INDEX),batches,count:data.asset.indices.length},
         textures:new Map(data.textures.map(t=>[t.key,this.texture(t.width,t.height,t.rgba)])),
-        metadata:data.metadata,items:new Map(),instance:{id:'player-craft',key:'10318',craft:true},bytes};
+        metadata:data.metadata,anchor,items:new Map(),instance:{id:'player-craft',key:'10318',craft:true},bytes};
     }
     else if(data.event==='craft-error')this.craftError=data.error;
     else if(data.event==='horizon-index'){
@@ -494,8 +485,9 @@ export class WorldRenderer {
     }
     const origin=flight?[Math.round(flight[0]),Math.round(flight[2])]:[state[11],state[12]];
     const p=[state[0]-origin[0],state[1],state[2]-origin[1]];
-    const {look,near}=cameraView(this,state,flight,dt,origin,settings,lookBack);
-    const right=unit(cross(look,[0,1,0])),up=cross(right,look);
+    const {look,near,up:cameraUp}=cameraView(this,state,flight,dt,origin,settings,lookBack);
+    const right=unit(cross(look,cameraUp||[0,1,0])),up=cross(right,look);
+    this.cameraLook=look;
     const view=[...this.camera,200000,...right,0,...up,0,...look,0];
     const distant=settings.horizon?this.horizon.filter(h=>!this.tiles.has(h.near)):[];
     const terrain=[...distant,...this.tiles.values(),...(settings.horizon?this.seams.values():[]),...this.water];
@@ -547,7 +539,7 @@ export class WorldRenderer {
         append(asset,instance,this.sceneMatrix(instance,r,origin),this.textures,this.items);
       }
     }
-    if(!flight&&this.craft)append(this.craft.asset,this.craft.instance,
+    if(!flight&&this.craft&&this.cameraMode!=='cockpit')append(this.craft.asset,this.craft.instance,
       craftMatrix(state,origin,this.craft.metadata.scale),this.craft.textures,this.craft.items);
     draws.sort((a,b)=>a.batch.transparent-b.batch.transparent || (a.batch.transparent?b.distance-a.distance:0));
     if(uniformCount)this.device.queue.writeBuffer(this.frameUniforms,0,this.uniformData.buffer,0,uniformCount*256);
@@ -565,7 +557,8 @@ export class WorldRenderer {
       uniformUploads:uniformCount?1:0,uniformBytes:uniformCount*256,terrainBundleBuilds:this.terrainBundleBuilds,
       sceneBundleBuilds:this.sceneBundleBuilds,
       craftDraws:draws.filter(d=>d.craft).length,craftPose:this.craft?.metadata.pose||'placeholder',craftGpuBytes:this.craft?.bytes||0,
-      craftReady:!!this.craft,craftStatus:this.craft?'ready':this.craftError?'failed':'loading',
+      craftReady:!!this.craft,cockpitAvailable:!!this.craft?.anchor,cameraMode:this.cameraMode,
+      craftStatus:this.craft?'ready':this.craftError?'failed':'loading',
       craftTriangles:this.craft?this.craft.asset.count/3:0,craftError:this.craftError,
       npcInstances:this.instances.filter(i=>i.id.includes(':npc:')).length,
       wmoInstances:this.instances.filter(i=>i.kind==='group').length,

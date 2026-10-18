@@ -54,8 +54,8 @@ try {
     const distance=Number(await page.locator('#camera-distance').inputValue());
     await page.locator('#camera-distance').focus();await page.keyboard.press('ArrowRight');
     assert.equal(Number(await page.locator('#camera-distance').inputValue()),distance+.5);
-    await page.locator('#cockpit').click();
-    assert.match(await page.locator('#status').textContent(),/Cockpit unavailable/);
+    await page.locator('#cockpit').scrollIntoViewIfNeeded();
+    assert(await page.locator('#cockpit').isVisible());
     assert.deepEqual(await page.evaluate(()=>[document.documentElement.scrollWidth,document.documentElement.scrollHeight]),[width,height]);
     await page.locator('#preferences > summary').click();
     const point={x:Math.floor(width/2),y:height-28};
