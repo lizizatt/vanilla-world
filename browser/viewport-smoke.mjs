@@ -79,17 +79,25 @@ try {
   await page.locator('#drive').click();
   await page.waitForFunction(()=>worldEvidence.mode==='drive'&&document.getElementById('drive').hidden
     &&document.getElementById('speed').textContent!=='FLY');
-  const transparent=await page.evaluate(()=>[...document.querySelectorAll(
-    '.interface,.menu-stack,.toolbar,.overlay,.meters,button,summary,details,.panel-content,dialog,select,input[type=number]'
-  )].map(element=>({element:element.id||element.className||element.tagName,
-    background:getComputedStyle(element).backgroundColor,image:getComputedStyle(element).backgroundImage})));
-  for(const style of transparent){assert.equal(style.background,'rgba(0, 0, 0, 0)',style.element);assert.equal(style.image,'none');}
-  evidence.transparentStyles=transparent;
+  const backdrops=await page.evaluate(()=>[...document.querySelectorAll(
+    '.interface,.menu-stack,.toolbar,.overlay,.meters,button,summary,details,.panel-content,dialog,select,input[type=number],#welcome,#error,.sound-control'
+  )].map(element=>{
+    const style=getComputedStyle(element),shell=element.matches('.interface,.menu-stack,.toolbar,details'),
+      nestedControl=element.matches('button,.button,select,input[type=number]')&&element.closest('.panel-content,dialog');
+    return {element:element.id||element.className||element.tagName,
+      expected:shell||nestedControl?'rgba(0, 0, 0, 0)':'rgba(0, 0, 0, 0.2)',
+      background:style.backgroundColor,image:style.backgroundImage,opacity:style.opacity};
+  }));
+  for(const style of backdrops){
+    assert.equal(style.background,style.expected,style.element);
+    assert.equal(style.image,'none');assert.equal(style.opacity,'1','Text and icons must not be faded with the plate');
+  }
+  evidence.backdropStyles=backdrops;
   const points=await page.evaluate(()=>{
     const meter=document.querySelector('.meters').getBoundingClientRect(),button=document.getElementById('select').getBoundingClientRect();
     const summary=document.querySelector('#preferences > summary').getBoundingClientRect();
-    return [{x:meter.left+4,y:meter.top+4},{x:button.left+4,y:button.top+4},
-      {x:summary.right+20,y:summary.top+5}];
+    return [{x:meter.left+4,y:meter.top+4,alpha:.2},{x:button.left+4,y:button.top+4,alpha:.2},
+      {x:summary.right+20,y:summary.top+5,alpha:0}];
   });
   assert.equal(await page.evaluate(p=>document.elementFromPoint(p.x,p.y).id,points[2]),'world','Unused menu width must not intercept clicks');
   await page.locator('#world').focus();
@@ -111,12 +119,28 @@ try {
       return points.map(p=>Array.from(ctx.getImageData(Math.round(p.x),Math.round(p.y),3,3).data));
     };
     const a=await pixels(visible),b=await pixels(bare);
-    return a.map((values,i)=>({point:points[i],maxDifference:Math.max(...values.map((n,j)=>Math.abs(n-b[i][j])))}));
+    return a.map((values,i)=>({point:points[i],maxError:Math.max(...values.map((n,j)=>
+      Math.abs(n-(j%4===3?b[i][j]:b[i][j]*(1-points[i].alpha)))))}));
   },{visible:visible.toString('base64'),bare:bare.toString('base64'),points});
-  for(const patch of evidence.backgroundPixels)assert.equal(patch.maxDifference,0,'Overlay background must leave scene pixels unchanged');
+  for(const patch of evidence.backgroundPixels)assert(patch.maxError<=1,'Plate pixels must be exactly one 20% black blend; unused overlay stays transparent');
   await context.close();
   const highDpr=await open({width:360,height:640},2.5);
   await size(highDpr.page,360,640);await size(highDpr.page,640,360);
+  await size(highDpr.page,1280,800);
+  await highDpr.page.locator('#preferences > summary').click();
+  for(const [name,region,source,yaw] of [
+    ['bright-coast',0,[-9800,-5000,900],Math.PI/2],
+    ['dark-terrain',1,[-9450,-100,180],0],
+  ]){
+    const pose=await highDpr.page.evaluate(({region,source,yaw})=>{
+      const r=worldEvidence.info.manifest.regions[region],offset=32*1600/3;
+      const p=[-source[1]+r.placement[0]+offset,source[2],-source[0]+r.placement[1]+offset,yaw,-.45];
+      worldTest.focus(p);return p;
+    },{region,source,yaw});
+    await highDpr.page.waitForFunction(p=>worldEvidence.mode==='fly'&&Math.abs(worldEvidence.camera[1]-p[1])<1,pose);
+    await highDpr.page.waitForTimeout(6000);
+    await highDpr.page.screenshot({path:fileURLToPath(new URL(`${name}.png`,output))});
+  }
   await highDpr.context.close();
   assert.deepEqual(evidence.errors,[]);
   await writeFile(new URL('evidence.json',output),JSON.stringify(evidence,null,2));

@@ -88,8 +88,10 @@ stream/cache counters update only while **Diagnostics** is open. Actual loading
 failures remain separately discoverable under **Loading issues**.
 
 The game fills the browser's entire content viewport, without requesting OS
-fullscreen or reserving space for panels. Controls and instruments have transparent
-backgrounds with text shadows and thin control outlines. Unused overlay space and
+fullscreen or reserving space for panels. Buttons and compact text/instrument
+groups have a 20% black backdrop, with fully opaque text, text shadows and thin
+control outlines. Buttons inside a shaded group do not add a second dark layer.
+Unused overlay space and
 the HUD pass pointer input through to the world; interactive controls remain
 focusable. Expanded help/settings scroll within a bounded overlay. Handling stays
 modal and holds the brakes, with a transparent backdrop.
@@ -100,7 +102,9 @@ below are **not full-viewport FPS guarantees**.
 The viewport check covers the observed app content size (676 x 1315), 1280 x 800,
 360 x 640 and 640 x 360, plus DPR 2.5 capped to 2. It checks live projection aspect,
 zero page overflow, HUD/unused-overlay pointer pass-through, orbit, keyboard focus
-and unchanged scene pixels underneath transparent overlay backgrounds.
+and exact single-layer 20% black compositing under controls, while unused overlay
+space leaves scene pixels unchanged. Bright-coast and dark-terrain screenshots
+cover readability without changing the existing layout.
 Evidence is local under `test-results/viewport`; controls, sound recovery and
 offline saves also pass at full viewport with shell cache v20. These are functional
 checks, not a new performance benchmark or an OS-fullscreen test.

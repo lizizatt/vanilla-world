@@ -26,10 +26,10 @@ canvas { display: block; width: 100%; height: 100%; outline-offset: -4px; }
 .meters #speed-meter::-webkit-progress-value { background: #ffb34d; }
 .meters[data-held=true] #drive-state { color: #ffb34d; }
 .toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex-shrink: 0; max-width: 100%; }
-button, .button { position: relative; padding: 7px 10px; background: transparent; border: 1px solid #d7edf780; border-radius: 4px; color: #edf5f7; cursor: pointer; font: inherit; text-shadow: inherit; }
+button, .button { position: relative; padding: 7px 10px; background: rgba(0,0,0,.2); border: 1px solid #d7edf780; border-radius: 4px; color: #edf5f7; cursor: pointer; font: inherit; text-shadow: inherit; }
 button:hover, .button:hover { border-color: #fff; text-decoration: underline; }
 button[aria-pressed=true] { border-color: #86e4de; text-decoration: underline; }
-button:disabled { opacity: .4; cursor: wait; }
+button:disabled { color: #94a0a6; border-color: #60707a; cursor: wait; }
 :is(button, input, select, summary, canvas):focus-visible, .button:focus-within { outline: 2px solid #86e4de; outline-offset: 2px; }
 canvas:focus-visible { outline-offset: -3px; }
 input[type=file] { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
@@ -52,7 +52,7 @@ details { margin: 0 0 8px; }
 .sound-control { display: flex; align-items: center; gap: 5px; }
 .preferences { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 10px 0; }
 .preferences label { display: flex; gap: 8px; align-items: center; }
-select, input[type=number] { background: transparent; color: #edf5f7; border: 1px solid #d7edf780; border-radius: 4px; padding: 6px; font: inherit; text-shadow: inherit; }
+select, input[type=number] { background: rgba(0,0,0,.2); color: #edf5f7; border: 1px solid #d7edf780; border-radius: 4px; padding: 6px; font: inherit; text-shadow: inherit; }
 option { background: #0a121b; }
 dialog { width: min(740px, calc(100% - 24px)); max-height: calc(100dvh - 24px); overflow: auto; background: transparent; color: #edf5f7; border: 0; padding: 16px; text-shadow: inherit; }
 dialog::backdrop { background: transparent; }
@@ -62,5 +62,7 @@ dialog h2 { color: #ffb34d; margin-top: 0; }
 #tuning-fields input { width: 110px; min-width: 0; }
 #tuning-status { color: #ffb34d; min-height: 1.5em; }
 #sound-status { font-size: 12px; }
+.meters, .overlay, #welcome, #error, .sound-control, #sound-status:not(:empty), summary, .panel-content, dialog { background: rgba(0,0,0,.2); }
+.panel-content :is(button, .button, select, input[type=number]), dialog :is(button, .button, select, input[type=number]) { background: transparent; }
 [hidden] { display: none !important; }
 @media (max-width: 700px) { .meters { gap: 8px; padding: 8px; } .meters strong { font-size: 20px; } .meters span { font-size: 9px; } #tuning-fields { grid-template-columns: 1fr; } }
