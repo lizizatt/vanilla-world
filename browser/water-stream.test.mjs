@@ -1,11 +1,70 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {WaterStream,validLiquidGeometry} from './water-stream.js';
+import {WaterStream,validLiquidGeometry,deepOceanBacking} from './water-stream.js';
 import {WorldRenderer} from './world-renderer.js';
 const manifest={spawn:[0,0,0],regions:[{map:'Test',placement:[0,0],tile_origin:[0,0]}],
   tiles:[0,1,2].map(x=>({region:0,x,y:0,file:`Test_${x}_0.adt`}))};
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 const geometry=()=>Float32Array.from({length:42},(_,i)=>i%7===4?1:i%7===6?2:0);
+function oceanBoundaryFixture() {
+  const bytes=new Uint8Array(12+8+128+588+812),v=new DataView(bytes.buffer),base=20;
+  const tag=(p,s)=>bytes.set(new TextEncoder().encode(s),p);
+  tag(0,'REVM');v.setUint32(4,4,true);v.setUint32(8,18,true);
+  tag(12,'KNCM');v.setUint32(16,bytes.length-base,true);
+  v.setUint32(base,9,true);v.setUint32(base+4,15,true);v.setUint32(base+8,2,true);
+  v.setUint32(base+0x14,128,true);v.setUint32(base+0x60,716,true);v.setUint32(base+0x64,812,true);
+  v.setFloat32(base+0x70,-503.43399,true);
+  tag(base+128,'TVCM');v.setUint32(base+132,580,true);
+  tag(base+716,'QLCM');v.setUint32(base+720,804,true);
+  const cells=base+716+8+656;
+  for(let row=0;row<8;row++)bytes.set([1,15,15,15,15,15,15,1],cells+row*8);
+  return {bytes,v,base,cells};
+}
+test('deep exterior dry strips get visual backing without changing authored cells',()=>{
+  const {bytes}=oceanBoundaryFixture(),original=bytes.slice(),backing=deepOceanBacking(bytes,2);
+  assert.equal(backing.length,42);assert(validLiquidGeometry(backing));
+  assert(Math.abs(backing[0]-504.1666667)<.001);assert(Math.abs(backing[7]-529.1666667)<.001);
+  assert(backing.filter((_,i)=>i%7===6).every(m=>m===4));
+  assert.deepEqual(bytes,original);
+});
+test('Kalimdor_44_37 MCNK (15,2) sea-level dry strip gets only bounded exterior backing',()=>{
+  const {bytes,v,base}=oceanBoundaryFixture();
+  const floor=v.getFloat32(base+0x70,true);
+  for(let i=0;i<145;i++)v.setFloat32(base+136+i*4,i%17===0?0:-floor,true);
+  const original=bytes.slice();
+  assert.equal(deepOceanBacking(bytes,2).length,42);
+  assert.deepEqual(bytes,original);
+  assert.equal(deepOceanBacking(bytes,0).length,0,'No exterior connectivity');
+  v.setFloat32(base+136+2*4,-floor+.02,true);
+  const backing=deepOceanBacking(bytes,2);
+  assert(backing.length>0);
+  const point=[(15*8+1.5)*1600/384, (2*8+.5)*1600/384];
+  for(let i=0;i<backing.length;i+=42)assert(!(point[0]>backing[i]&&point[0]<backing[i+7]
+    &&point[1]>backing[i+2]&&point[1]<backing[i+16]),'Above-sea dry cell remains unfilled');
+});
+test('inland dry cells, lakes, shallow terrain, holes and disconnected ocean edges get no backing',()=>{
+  assert.equal(deepOceanBacking(oceanBoundaryFixture().bytes,0).length,0);
+  for(const change of [
+    f=>f.v.setUint32(f.base+4,8,true),
+    f=>f.v.setUint32(f.base,4,true),
+    f=>f.v.setFloat32(f.base+0x70,.02,true),
+    f=>{f.v.setFloat32(f.base+0x70,-10,true);for(let row=0;row<8;row++)f.bytes[f.cells+row*8]=15;},
+    f=>f.v.setUint16(f.base+0x3c,1,true),
+    f=>{for(let row=0;row<8;row++)f.bytes[f.cells+row*8+7]=15;},
+    f=>f.v.setFloat32(f.base+716+8+12,.1,true),
+  ]){
+    const f=oceanBoundaryFixture();change(f);assert.equal(deepOceanBacking(f.bytes,2).length,0);
+  }
+  assert.throws(()=>deepOceanBacking(new Uint8Array(2),2),/Invalid ocean backing ADT/);
+});
+test('only actual exterior geometry supplies ocean connectivity',()=>{
+  const f=fixture(),tile={region:0,x:44,y:37},outside=new Float32Array(42);
+  assert.equal(f.stream.exteriorEdges(tile),0);
+  outside[0]=45*1600/3;outside[2]=37*1600/3;f.stream.setExterior(0,outside);
+  assert.equal(f.stream.exteriorEdges(tile),2);
+  assert.equal(f.stream.exteriorEdges({...tile,x:40}),0);
+  f.stream.clear();assert.equal(f.stream.exteriorEdges(tile),0);
+});
 function fixture() {
   const reads=[],events=[],pending=[];
   let parses=0;
@@ -101,4 +160,17 @@ test('GPU water replacements release old resources and use exact detailed-tile p
     textures:new Map(),items:new Map(),materialPending:new Map(),minimapAtlases:[]});
   rig.reset();
   assert.equal(rig.coastBytes,0);assert.equal(rig.coast.size,0);assert.equal(released.length,2);
+});
+test('near-water backing shares its bounded GPU buffer and draws only the appended vertices',()=>{
+  const draws=[],rig=Object.create(WorldRenderer.prototype),vertices=new Float32Array(84);
+  vertices.set(geometry());vertices.set(deepOceanBacking(oceanBoundaryFixture().bytes,2),42);
+  Object.assign(rig,{manifest,coast:new Map(),coastBytes:0,terrainBundleBuilds:0,
+    drawable:(v,placement)=>({placement,count:v.length/7,buffer:{size:v.byteLength,destroy(){}}}),
+    device:{createRenderBundleEncoder:()=>({setPipeline(){},setBindGroup(){},setVertexBuffer(){},
+      draw:(...args)=>draws.push(args),finish:()=>({})})}});
+  rig.event({event:'coast-water',index:0,removed:[],vertices});
+  const item=rig.coast.get(0);
+  assert.equal(item.backing.buffer,item.buffer);assert.equal(rig.coastBytes,vertices.byteLength);
+  rig.drawTerrain({executeBundles(){}},[item.backing]);
+  assert.deepEqual(draws,[[6,1,6]]);
 });

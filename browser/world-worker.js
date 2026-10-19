@@ -233,6 +233,7 @@ async function buildHorizon(wdls) {
   for(let region=0;region<2;region++)world.add_horizon(region,wdls[region]);
   for(let region=0;region<2;region++) {
     const exterior=world.exterior_geometry(region);
+    water?.setExterior(region,exterior);
     postMessage({event:'exterior-water',region,placement:manifest.regions[region].placement,vertices:exterior},[exterior.buffer]);
     const patches=world.horizon_patches(region),indices=world.horizon_indices(region);
     horizon.gpuBytes+=indices.byteLength;

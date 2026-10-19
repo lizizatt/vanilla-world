@@ -81,7 +81,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   let mapColor=textureSample(minimap,mapSampler,mapUv);
   if(v.material==3.0 && u.tile.w>=0.0){color=mix(color,mapColor.rgb,mapColor.a);}
   if(v.material==1.0){color=vec3f(.1,.89,.82)*light;}
-  if(v.material==2.0){color=mix(vec3f(.025,.18,.29),vec3f(.06,.36,.48),ripple);}
+  if(v.material==2.0 || v.material==4.0){color=mix(vec3f(.025,.18,.29),vec3f(.06,.36,.48),ripple);}
   let fog=clamp(length(v.p-u.eye.xyz)/150000.0,0.0,.93);
   return vec4f(mix(color,vec3f(.08,.15,.20),fog),1);
 }`;
@@ -330,8 +330,14 @@ export class WorldRenderer {
       for(const index of data.removed){this.release(this.coast.get(index));this.coast.delete(index);}
       this.release(this.coast.get(data.index));
       const region=this.manifest.regions[entry.region];
-      this.coast.set(data.index,this.drawable(v,[region.placement[0]+(entry.x-region.tile_origin[0])*1600/3,
-        region.placement[1]+(entry.y-region.tile_origin[1])*1600/3]));
+      const item=this.drawable(v,[region.placement[0]+(entry.x-region.tile_origin[0])*1600/3,
+        region.placement[1]+(entry.y-region.tile_origin[1])*1600/3]);
+      let first=v.length/7;
+      while(first>0&&v[(first-1)*7+6]===4)first--;
+      if(first<v.length/7){
+        item.backing={...item,first,count:v.length/7-first};
+      }
+      this.coast.set(data.index,item);
       this.coastBytes=bytes;
     }
     else if(data.event==='detail') {
@@ -508,7 +514,7 @@ export class WorldRenderer {
       for(const item of terrain){
         encoder.setBindGroup(0,item.group,[item.offset]);encoder.setVertexBuffer(0,item.buffer);
         if(item.region!==undefined){encoder.setIndexBuffer(this.indices.get(item.region),'uint32');encoder.drawIndexed(3072);}
-        else encoder.draw(item.count);
+        else encoder.draw(item.count,1,item.first||0);
       }
       encoder.setPipeline(this.splatPipeline);
       for(const tile of terrain)if(tile.material){
@@ -558,7 +564,8 @@ export class WorldRenderer {
     this.cameraLook=look;
     const view=[...this.camera,200000,...right,0,...up,0,...look,0];
     const distant=settings.horizon?this.horizon.filter(h=>!this.tiles.has(h.near)):[];
-    const coastal=settings.horizon?[...this.coast].filter(([index])=>!this.tiles.has(index)).map(([,item])=>item):[];
+    const coastal=[...this.coast].flatMap(([index,item])=>
+      this.tiles.has(index)?item.backing?[item.backing]:[]:settings.horizon?[item]:[]);
     const terrain=this.cameraBlocked?[]:[...distant,...this.tiles.values(),...(settings.horizon?this.seams.values():[]),...this.water,...coastal];
     if(!flight&&!this.craft&&!this.cameraBlocked)terrain.push(this.body);
     let uniformCount=0;

@@ -137,7 +137,7 @@ try {
       const frame=await page.evaluate(()=>{
         const {rig,stats}=coastProbe;
         return {origin:rig.origin.slice(),camera:rig.camera.slice(),tiles:[...rig.tiles.keys()],
-          suppressed:[...rig.coast.keys()].filter(i=>rig.tiles.has(i)),resident:rig.coast.size,
+          suppressed:[...rig.coast].filter(([i,item])=>rig.tiles.has(i)&&!item.backing).map(([i])=>i),resident:rig.coast.size,
           drawn:stats.coastalWaterTiles,bytes:rig.coastBytes};
       });
       assert.equal(frame.drawn,frame.resident-frame.suppressed.length);
