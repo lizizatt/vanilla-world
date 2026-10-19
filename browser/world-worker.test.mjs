@@ -26,6 +26,20 @@ function boot(events=[],clock=performance) {
   return context;
 }
 
+test('optional visual reads never gate an already collision-ready pose',async()=>{
+  const context=boot();
+  runInContext(`
+    scenePump=new Promise(()=>{});
+    updateScene=()=>{objectWait=[];};
+    globalThis.prepare=preparePoseScene;
+  `,context);
+  let complete=false;
+  const ready=context.prepare([0,0,0,0]).then(()=>{complete=true;});
+  await settle();
+  assert(complete,'A pending NPC/visual read cannot delay pose readiness');
+  await ready;
+});
+
 test('cached unresolved broad phase preserves exact moving hull and camera predicates',()=>{
   const context=boot();
   const candidates=Array.from({length:6400},(_,i)=>{

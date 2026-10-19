@@ -414,7 +414,6 @@ function updateScene(focus,publish=true,restoring) {
 async function preparePoseScene(pose) {
   const body=Array(15).fill(0);body.splice(0,4,...pose);
   const focus=body.slice(0,3);
-  if(scenePump)await scenePump;
   sceneFocus=undefined;collisionFocus=undefined;
   updateScene(focus,false,body);
   while(objectWait.length) {

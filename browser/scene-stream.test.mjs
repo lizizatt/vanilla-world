@@ -232,20 +232,45 @@ test('collision index updates only changed placements and resources, including d
   stream.clear();assert.equal(stream.collisionIndex,undefined);
 });
 
-test('collision index preserves NPC neighborhoods and replaces changed model keys',()=>{
+test('collision index never retains NPCs across population and neighborhood changes',()=>{
   const f=fixture(),stream=new SceneStream(f.source,f.wasm);
   const pack={version:1,provenance:{source:'test',redistribution:'private-local-only'},
     models:{7:{path:'creature.m2',scale:1,skins:[]}},
     spawns:[{id:9,map:1,displayId:7,position:[0,0,0],orientation:0,scale:1}]};
   stream.asyncVisuals=true;stream.collisionReach=152;
   stream.setPopulation(pack);stream.update(1,[0,0,0]);
-  assert.deepEqual(stream.collisionCandidates.map(i=>i.id),['1:npc:9']);
+  assert.deepEqual(stream.collisionCandidates,[]);
   pack.models[7].skins=['replacement.blp'];
   stream.setPopulation(pack);stream.update(1,[0,0,0]);
-  assert.equal(stream.collisionCandidates[0].key,'m2:creature.m2:["replacement.blp"]');
+  assert.deepEqual(stream.collisionCandidates,[]);
   stream.update(1,[9000,9000,0]);assert.equal(stream.collisionIndex.rows.size,0);
-  stream.update(1,[0,0,0]);assert.equal(stream.collisionIndex.rows.size,1);
+  stream.update(1,[0,0,0]);assert.equal(stream.collisionIndex.rows.size,0);
   stream.update(0,[0,0,0]);assert.equal(stream.collisionIndex.rows.size,0);
+});
+
+test('NPC visuals never create hulls, readiness waits or required requests, even with a shared static model',async()=>{
+  for(const asyncVisuals of [false,true]){
+    const f=fixture(),stream=new SceneStream(f.source,f.wasm);
+    stream.asyncVisuals=asyncVisuals;
+    stream.setPopulation({version:1,provenance:{source:'test',redistribution:'private-local-only'},
+      models:{7:{path:'creature.m2',scale:1,skins:[]}},
+      spawns:[{id:9,map:1,displayId:7,position:[0,0,0],orientation:0,scale:1}]});
+    const update=async()=>{
+      stream.update(1,[0,0,100],[0,0,-100],152,200);
+      if(asyncVisuals)await stream.prepareVisuals();
+    };
+    await update();
+    assert.deepEqual(stream.collisionCandidates,[]);
+    assert.deepEqual(stream.snapshot().unresolvedCollision,[],'An unloaded NPC cannot block a support sweep');
+    assert([...stream.requests.values()].every(r=>!r.required));
+    await stream.pump();
+    assert.equal(stream.snapshot().instances[0].id,'1:npc:9','The NPC still renders');
+    assert.deepEqual(stream.snapshot().collisionInstances,[],'Loaded authored creature hulls are not submitted');
+    stream.setTile('1:0:0',[p(1,'creature.m2')]);await update();await stream.pump();
+    assert.deepEqual(stream.snapshot().collisionInstances.map(i=>i.id),['1:m2:1'],
+      'An authored solid using the same model keeps collision');
+    assert(stream.snapshot().instances.some(i=>i.id==='1:npc:9'));
+  }
 });
 
 test('indexed WMO roots keep immediate groups without rebuilding distant doodad bounds',async()=>{

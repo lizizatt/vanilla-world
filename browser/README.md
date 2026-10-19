@@ -814,7 +814,8 @@ Near placement descriptors now occupy conservative 128-yard horizontal cells.
 Movement queries the collision-anchor and predicted-demand region instead of
 enumerating every nearby tile's placements. Metadata changes reconcile only
 changed memberships; geometry admission/eviction immediately relocates entries
-for affected model keys. NPCs keep the original five-by-five tile neighborhood.
+for affected model keys. NPCs keep the original five-by-five visual neighborhood
+but are excluded from the collision index.
 WMO roots remain always considered, with existing group/doodad expansion and
 early doodad rejection. Oversized bounds use an always-considered set rather
 than unlimited cell memberships; oversized queries fall back to enumeration.
@@ -929,10 +930,22 @@ Do not commit, upload or redistribute it. See [SCENE.md](SCENE.md) for the optio
 private export commands and schema.
 
 Without that companion the app explicitly reports no NPC population. NPCs are
-static bind-pose appearances, not live server entities. Equipment, complete
+visual-only, static bind-pose appearances, not live server entities. They never
+enter collision candidates, hull sweeps, camera obstruction or readiness waits,
+even when their model has an authored hull. Static world props sharing that model
+remain solid. Equipment, complete
 humanoid customization, animation, event/pool scheduling, quests and combat are
 not implemented. Baked humanoid bodies omit unresolved hair/cape batches rather
 than drawing fake opaque cards.
+
+The `npc-collision-final` isolated both-order gate against `ab7c899` covers
+585--587 yards and at least six active seconds at unchanged 150/300 tuning.
+Handler p99 is **4.7/4.4 ms** (baseline 11.3/6.5), with no moving >50 ms tails
+or terrain/object holds in the candidate runs. Selection including preparation
+still reaches 8.1/27.9 ms, active terrain admission 10.5/10.4 ms, and geometry
+slices 28.2/22.0 ms: this is a p99 pass, not a hard all-work 20 ms guarantee.
+114 focused tests cover visual NPC residency, shared-model static solids,
+collision-index exclusion and pose readiness during pending optional reads.
 
 ## Checks and evidence
 

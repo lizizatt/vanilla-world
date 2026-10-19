@@ -308,7 +308,7 @@ export class SceneStream {
     this.populationModels = pack.models;
     this.npcMatrices = new WeakMap();
     this.populationStatus = `Static local NPC snapshot: ${pack.provenance.source}; no server behavior`;
-    this.revision++;this.collisionRevision++;this.placementRevision++;
+    this.revision++;
   }
   npcMatrix(npc,model) {
     let matrix=this.npcMatrices.get(npc);
@@ -322,18 +322,11 @@ export class SceneStream {
   collisionPlacements(map,position,predicted,radius) {
     let index=this.collisionIndex;
     if(!index||index.map!==map)this.collisionIndex=index=new CollisionPlacementIndex(map,this.cache);
-    const tx=Math.floor((17066.666666666668-position[1])/(1600/3));
-    const ty=Math.floor((17066.666666666668-position[0])/(1600/3)),npcKey=this.npcs?`${tx}:${ty}`:'';
-    if(index.metadataRevision!==this.placementRevision||index.npcKey!==npcKey){
+    if(index.metadataRevision!==this.placementRevision){
       index.stamp++;let order=0;
       for(const p of this.placementList(this.tiles,map))index.retain(p,placementId(p,map),p.matrix,p.kind,order++);
-      if(this.npcs)for(let x=tx-2;x<=tx+2;x++)for(let y=ty-2;y<=ty+2;y++)
-        for(const npc of this.npcs.get(`${map}:${x}:${y}`)||[]){
-          const model=this.populationModels[npc.displayId];
-          index.retain(model,`${map}:npc:${npc.id}`,this.npcMatrix(npc,model),'m2',order++);
-        }
       for(const row of index.rows.values())if(row.stamp!==index.stamp)index.remove(row);
-      index.metadataRevision=this.placementRevision;index.npcKey=npcKey;
+      index.metadataRevision=this.placementRevision;
     }
     if(index.geometryRevision!==this.collisionRevision){
       index.refresh();index.geometryRevision=this.collisionRevision;
@@ -382,7 +375,7 @@ export class SceneStream {
       request.key = key; request.score = score; request.distant = distant;
       if (!previous || requestOrder(request, previous) < 0) requests.set(key, request);
     };
-    const put = (id,p,matrix,bounds,boundsKnown,score,kind,distant,rootKey) => {
+    const put = (id,p,matrix,bounds,boundsKnown,score,kind,distant,rootKey,collidable=true) => {
       let entries=this.placementInstances.get(matrix);
       if(!entries){entries=new Map();this.placementInstances.set(matrix,entries);}
       let instance=entries.get(id);
@@ -391,11 +384,12 @@ export class SceneStream {
         entries.set(id,instance);
       }
       instance.bounds=bounds;instance.boundsKnown=boundsKnown;instance.score=score;instance.distant=distant;
+      instance.collidable=collidable;
       instance.collisionScore=undefined;
       if(distant)farCandidates.push(instance);
       else candidates.set(id,instance);
     };
-    const add = (p, id, matrix, kind = p.kind, distant = false) => {
+    const add = (p, id, matrix, kind = p.kind, distant = false, collidable = true) => {
       if (distant && (candidates.has(id)||this.nearVisible?.has(id))) return;
       const path = p.path;
       const skins = p.skins || EMPTY_SKINS;
@@ -417,7 +411,7 @@ export class SceneStream {
         && (distant || !supportColumn || collisionDistance(bounds) > collisionRadius)) return;
       if(kind==='wmo')
         want(key, { kind, path, skins, collisionScore: distant?undefined:collisionDistance(bounds) }, score, distant);
-      if(kind!=='wmo' || !asset)put(id,p,matrix,bounds,!!p.bounds||!!boundsAsset?.bounds,score,kind,distant);
+      if(kind!=='wmo' || !asset)put(id,p,matrix,bounds,!!p.bounds||!!boundsAsset?.bounds,score,kind,distant,undefined,collidable);
       if (kind === 'wmo' && asset) {
         let placements = this.expanded.get(asset);
         if (!placements) { placements = new WeakMap(); this.expanded.set(asset, placements); }
@@ -479,14 +473,15 @@ export class SceneStream {
         for (const npc of this.npcs.get(`${map}:${x}:${y}`) || []) {
           const model = this.populationModels[npc.displayId];
           const matrix=this.npcMatrix(npc,model);
-          add(model, `${map}:npc:${npc.id}`, matrix, 'm2');
+          add(model, `${map}:npc:${npc.id}`, matrix, 'm2', false, false);
           if(mode==='visual'&&++processed%64===0)yield;
         }
       }
     }
     const all = [...candidates.values(),...farCandidates];
+    const nearCandidates = all.filter(i => !i.distant);
     // Preserve every near solid and its order, even when the visual budget is full.
-    this.collisionCandidates = all.filter(i => !i.distant);
+    this.collisionCandidates = nearCandidates.filter(i => i.collidable);
     const requireCollisions=keep=>{
       for (const i of this.collisionCandidates) {
         i.collisionScore=collisionDistance(i.bounds);
@@ -520,9 +515,9 @@ export class SceneStream {
     }
     const visualOrder=(a,b)=>Number(b.score<128)-Number(a.score<128)
       || (a.score<128?a.score-b.score:b.prominence-a.prominence) || a.score-b.score || a.id.localeCompare(b.id);
-    const near = selectionPrefix(this.collisionCandidates,this.limits.instances,visualOrder);
+    const near = selectionPrefix(nearCandidates,this.limits.instances,visualOrder);
     if(mode==='visual')yield;
-    const farCount=all.length-this.collisionCandidates.length;
+    const farCount=farCandidates.length;
     const reserved = Math.min(farCount,Math.max(1,Math.floor(this.limits.instances/4)));
     const farLimit=Math.max(reserved,this.limits.instances-near.length);
     const modelCandidates=all.filter(i=>i.distant&&i.kind==='m2'),unknownModels=new Map();

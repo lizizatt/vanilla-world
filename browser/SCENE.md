@@ -67,6 +67,8 @@ WMO groups have known transformed boxes; unknown M2 bounds are only placement po
 space. The physics integration must conservatively gate nearby unresolved points
 and known boxes, not freeze for every far `pending` resource. These bounds do not
 prove an unparsed model's true extent.
+NPC spawn instances are visual-only and never enter collision or unresolved
+collision demand; a static world placement sharing their model is unaffected.
 
 Worker buffers must stay attached for reuse/collision. Copy and transfer each newly
 visible asset/texture once; release main-thread/GPU copies when absent from the
