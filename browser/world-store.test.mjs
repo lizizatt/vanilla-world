@@ -21,12 +21,12 @@ function store() {
   runInContext(code+'\nglobalThis.api={worldSave,worldTuning,worldLiquids};',context);
   return {...context.api,opens,transactions,records};
 }
-test('liquids and saved overrides share one asynchronous connection without changing record keys',async()=>{
+test('liquids and saved overrides share one asynchronous connection while preserving save and tuning keys',async()=>{
   const s=store();
   await Promise.all([s.worldSave('install',{pose:1}),s.worldTuning('install',{speed:150}),
     s.worldLiquids('install','0:1:2',new Float32Array([1,2,3]))]);
   assert.equal(s.opens.length,1);assert.equal(s.transactions.length,3);
-  assert.deepEqual([...s.records.keys()].sort(),['3:install','liquids:1:install:0:1:2','tuning:3:install']);
+  assert.deepEqual([...s.records.keys()].sort(),['3:install','liquids:2:install:0:1:2','tuning:3:install']);
   assert.equal((await s.worldTuning('install')).speed,150);
   assert.equal(s.opens.length,1);assert(!s.opens[0].result.closed);
   s.opens[0].result.onversionchange();assert(s.opens[0].result.closed);

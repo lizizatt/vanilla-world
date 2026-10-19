@@ -5,6 +5,24 @@ physics and ADT/WDT/WDL/M2/WMO/BLP parsers through WebAssembly. This is an alter
 WebGPU rendering adapter, **not a Bevy/VMaNGOS port or a completed singleplayer RPG**.
 It does not connect to or modify the native server, database or account system.
 
+## Terrain-material ordering correction
+
+Yielded detail geometry could arrive after its terrain material. The renderer
+discarded that early material, leaving a permanently untextured tile. Material
+extraction now waits for published detail of the same tile admission; eviction
+and source replacement invalidate that permission. Collision admission still
+proceeds immediately, without waiting for visual preprocessing.
+
+Isolated Edge reproduction on port 4183 now reaches 8/8 textured flats tiles and
+1/1 Tanaris tiles with no dropped materials. The `material-order` both-order
+150/300 comparison against `31fd878` covered about 585 yards and 6.10 active
+seconds per current run: handler p99 **4.9/4.9 ms** versus **23.5/23.5 ms**,
+with **0/0 moving freezes over 50 ms** and no current-run loading holds.
+Fresh browser/worker contexts included source-focus preparation; OS cache was
+uncontrolled. This is a bounded driving gate, not a universal 20 ms guarantee.
+The independently reproduced authored ocean gap predates this async regression
+and is not fixed by material ordering.
+
 ## Run locally
 
 Use a current hardware-accelerated Edge or Chrome. From the repository root:
@@ -269,7 +287,8 @@ coarse seabed, not the ADT/WDL edge strips: the Tanaris sample contains authored
 underwater drops of 515 yards, versus a 29.14-yard maximum detailed edge strip.
 Removing the strips did not remove those curtains. Distant water now uses
 authored MCLQ coverage and heights; WDL positions, coastlines, holes, exterior
-ocean topology, fog and physics are unchanged.
+ocean topology, fog and physics are unchanged. The visual-only boundary backing
+exception below supplements certain authored-dry ocean cells.
 
 `WaterStream` reads one local ADT at a time, then runs a
 header/liquid-only Rust scan after the physics reply. It does not instantiate
@@ -294,17 +313,20 @@ work without rescanning completed tiles; source replacement cancels publication
 from the old stream. Startup and physics never await completion of the water map.
 
 The fixed **64 MiB** cache holds all **1301 wet tiles / 50,326,920 bytes
-(48.0 MiB)** in the tested installation; 404 dry tiles need no GPU geometry.
+(48.0 MiB)** of authored water in the tested installation; boundary backing adds
+32,424 bytes, for **50,359,344 bytes** total. The 404 dry tiles need no GPU geometry.
 This is not a process-memory limit: the one source file (maximum 64 MiB),
 Rust parsing and upload copies, main-thread/driver storage and up to eight
 overlapping detailed-water tiles are additional. Detailed admission suppresses
-the corresponding distant water atomically; eviction reveals it again.
+the corresponding authored distant water atomically; eviction reveals it again.
+Visual boundary backing remains visible across that transition, sharing the same
+bounded GPU buffer rather than duplicating it.
 Other installations exceeding the cache retain nearer water and report the
 capacity limit rather than claiming full coverage.
 
 Coverage is progressive on a fresh installation/browser profile. Compact
 validated liquid geometry (including exact empty/dry tiles) is stored under
-`liquids:1:<install fingerprint>:<region>:<x>:<y>` in the existing IndexedDB
+`liquids:2:<install fingerprint>:<region>:<x>:<y>` in the existing IndexedDB
 object store. Reloads reuse it without ADT extraction. Saves and handling
 records are separate and unchanged. Cache damage or unavailable persistence
 produces an explicit notice and falls back to authoritative Data reads.
@@ -315,6 +337,53 @@ range-read counters also include minimaps, scenery, terrain and deferred reads;
 they are not water-only compressed-byte counts. The existing approximate water
 shader and coarse land silhouettes remain, and unscanned far water can still
 show exposed seabed until its authored data arrives.
+
+**Approved exterior-boundary exception.** A reproduced 25-yard slit in
+`Kalimdor_44_37`, MCNK `(15,2)`, also occurs on `31fd878`. Each MCLQ row is
+`[1,15,15,15,15,15,15,1]`: six authored-dry cells between ocean cells. The
+MCNK base is -503.434 yards, but its dry-strip MCVT offsets put the terrain
+exactly at sea level, not deep underwater. A visual backing now fills only
+eligible dry cells; it never modifies MCLQ masks, terrain or collision/physics.
+
+Eligibility requires an Ocean MCNK without terrain holes, flat sea-level
+MCLQ vertices, only Ocean/dry cell kinds, and a fully wet outward edge next
+to an absent-WDT tile in the verified exterior-ocean geometry. Normally every
+terrain vertex in the chunk must be more than 32 yards below sea level.
+The narrowly authorized exception also permits a dry cell whose four corners
+and center are at/below sea level within **0.01 yard**, bounded on both sides
+along a row or column by ocean cells, with a wet-cell path from at least one
+of those bounds to the exterior. Inland/non-exterior cells, lakes, above-sea
+terrain and unbounded shallow dry areas do not qualify. Adjacent accepted dry
+cells are compacted into rectangles without overlapping authored wet cells.
+The native parser and physics retain the original dry coverage.
+
+Isolated Edge captures confirm that the former sky-through slit has backing,
+both at altitude and after detailed tile admission; 232 JavaScript tests include
+the real cell's synthetic flag/height pattern and negative coverage. Complete
+coast/rebase/offline checks retain all 1705 records within 64 MiB, with a
+7.3 ms maximum uncached water parse/backing stage. Cold coverage still took
+104.9 seconds from source open; cached offline coverage took 26.9 seconds and
+1705 cache hits. Neither is instant first-load coastal coverage.
+
+The `ocean-backing` both-order 150/300 gate against `31fd878` covers about
+585 yards / 6.10 active seconds, with source-focus preparation, fresh contexts
+and uncontrolled OS cache:
+
+| Measurement (forward / reverse) | Current |
+| --- | --- |
+| Active handler p99 | **5.8 / 4.6 ms** (baseline 27.6 / 23.9) |
+| Moving freezes over 50 ms | **0 / 0** |
+| Collision selection maximum, including preparation | 15.9 / 15.6 ms |
+| Terrain admission maximum during active segment | 9.9 / 13.1 ms |
+| Active handler maximum | 23.1 / 22.2 ms |
+
+There were no current-run terrain/object loading holds. The p99 gate passes,
+but not every task fits 20 ms: cumulative background visual slices reached
+23.3/30.4 ms and geometry slices 28.3/12.6 ms through the segment. This is not
+universal hitch-free acceptance. Existing procedural water stripes/moire,
+unlocated tan strips and other unknown-pose slivers remain unverified.
+Shell cache v30 refreshes the offline modules; prior derived-water rows are
+left untouched, while save/tuning keys and records remain unchanged.
 
 The earlier `8b0fb5f` Edge capture completed all 1705 scans in **146.4 seconds online and
 148.4 seconds offline**, with 302/312 foreground deferrals and no water errors.

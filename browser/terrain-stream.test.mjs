@@ -58,7 +58,7 @@ test('terrain bundles preserve draws and refresh on residency, order and materia
   assert.deepEqual(executed[0],[
     ['setPipeline','terrain'],['setBindGroup',0,'far',[0]],['setVertexBuffer',0,'far-vertices'],
     ['setIndexBuffer','horizon-indices','uint32'],['drawIndexed',3072],
-    ['setBindGroup',0,'near',[256]],['setVertexBuffer',0,'near-vertices'],['draw',6],['setPipeline','splat'],
+    ['setBindGroup',0,'near',[256]],['setVertexBuffer',0,'near-vertices'],['draw',6,1,0],['setPipeline','splat'],
   ]);
   renderer.drawTerrain(pass,[horizon,detail]);
   assert.equal(executed[1],executed[0]);assert.equal(renderer.terrainBundleBuilds,1);

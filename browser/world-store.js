@@ -36,7 +36,7 @@ async function stored(key,record) {
 }
 export const worldSave=(sourceId,record)=>stored(`${LAYOUT_VERSION}:${sourceId}`,record);
 export const worldTuning=(sourceId,record)=>stored(`tuning:${LAYOUT_VERSION}:${sourceId}`,record);
-export const worldLiquids=(sourceId,tile,record)=>stored(`liquids:1:${sourceId}:${tile}`,record);
+export const worldLiquids=(sourceId,tile,record)=>stored(`liquids:2:${sourceId}:${tile}`,record);
 export function validateWorldSave(save,sourceId) {
   if (!save) return;
   const pose=p=>Array.isArray(p) && p.length===4 && p.every(v=>typeof v==='number' && Number.isFinite(v) && Math.abs(v)<1e12);

@@ -186,6 +186,36 @@ test('terrain materials follow the physics reply and evicted pending work never 
   stale.visuals();assert.deepEqual(stale.materials,[]);
 });
 
+test('terrain materials wait for published detail, not just completed collision admission',async()=>{
+  const f=fixture([0,1]),jobs=[];
+  f.context.dependencies.source.prepareDetail=data=>new Promise(resolve=>jobs.push({data,resolve}));
+  runInContext('postFrameVisuals=true;',f.context);
+  await f.stream([0,0],true);f.pending.get(1).resolve(new Uint8Array([1]));await settle();
+  await f.stream([0,0],true);
+  f.visuals();assert.deepEqual(f.materials,[]);
+  for(let i=0;i<4;i++)await f.context.fireTimer();
+  assert.equal(jobs.length,1);
+  f.visuals();assert.deepEqual(f.materials,[],'Source-worker preprocessing must finish before material extraction');
+  jobs[0].resolve(prepareDetail(jobs[0].data));await settle();
+  assert(f.events.some(e=>e.event==='detail'));
+  await f.context.fireTimer();
+  assert.deepEqual(f.materials,[1]);
+});
+
+test('an old detail reply cannot authorize materials for a readmitted tile index',async()=>{
+  const f=fixture([0,1]),jobs=[];
+  f.context.dependencies.source.prepareDetail=data=>new Promise(resolve=>jobs.push({data,resolve}));
+  await f.stream([0,0],true);f.pending.get(1).resolve(new Uint8Array([1]));await settle();
+  await f.stream([0,0],true);
+  runInContext('tileVersions.set(1,++nextTileVersion);detailReady.delete(1);',f.context);
+  jobs[0].resolve(prepareDetail(jobs[0].data));await settle();
+  f.visuals();assert.deepEqual(f.materials,[]);
+  runInContext(`sendDetail({event:'detail',removed:[],seams:[],
+    tiles:[{index:1,version:tileVersions.get(1),placement:[0,0],vertices:new Float32Array()}]});`,f.context);
+  jobs[1].resolve(prepareDetail(jobs[1].data));await settle();
+  f.visuals();assert.deepEqual(f.materials,[1]);
+});
+
 test('prefetched ADT becoming required waits for the same read and keeps current support pinned',async()=>{
   const f=fixture();
   await f.stream([0,0],true);
@@ -614,7 +644,7 @@ function materialFixture() {
   f.context.dependencies.world.terrain_material=i=>({index:i});
   runInContext(`stream=async()=>{
     const index=admissions.shift();
-    if(index!==undefined){resident.add(index);terrainMaterials.add(index);loads++;}
+    if(index!==undefined){resident.add(index);detailReady.add(index);terrainMaterials.add(index);loads++;}
   };
   terrain.setTile=(index,material)=>postMessage({event:'material',index,material});
   globalThis.materialState=()=>({pending:[...terrainMaterials],errors:[...terrainErrors.values()]});`,f.context);
