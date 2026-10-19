@@ -5,6 +5,24 @@ physics and ADT/WDT/WDL/M2/WMO/BLP parsers through WebAssembly. This is an alter
 WebGPU rendering adapter, **not a Bevy/VMaNGOS port or a completed singleplayer RPG**.
 It does not connect to or modify the native server, database or account system.
 
+## Terrain-material ordering correction
+
+Yielded detail geometry could arrive after its terrain material. The renderer
+discarded that early material, leaving a permanently untextured tile. Material
+extraction now waits for published detail of the same tile admission; eviction
+and source replacement invalidate that permission. Collision admission still
+proceeds immediately, without waiting for visual preprocessing.
+
+Isolated Edge reproduction on port 4183 now reaches 8/8 textured flats tiles and
+1/1 Tanaris tiles with no dropped materials. The `material-order` both-order
+150/300 comparison against `31fd878` covered about 585 yards and 6.10 active
+seconds per current run: handler p99 **4.9/4.9 ms** versus **23.5/23.5 ms**,
+with **0/0 moving freezes over 50 ms** and no current-run loading holds.
+Fresh browser/worker contexts included source-focus preparation; OS cache was
+uncontrolled. This is a bounded driving gate, not a universal 20 ms guarantee.
+The independently reproduced authored ocean gap predates this async regression
+and is not fixed by material ordering.
+
 ## Run locally
 
 Use a current hardware-accelerated Edge or Chrome. From the repository root:

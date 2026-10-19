@@ -26,6 +26,8 @@ function startCraft() {
 let resident=new Set(),failures=new Map(),loads=0,evictions=0,peak=0,horizon;
 let terrainRead;
 let detailPending,detailBusy=false;
+const tileVersions=new Map(),detailReady=new Set();
+let nextTileVersion=0;
 const geometryPending=new Set(),geometryRemoved=new Set();
 let geometryJob,geometryRevision=0,geometryDirty=false;
 function queueGeometry(tiles,removed) {
@@ -40,7 +42,7 @@ function flushGeometry() {
   const steps=(function*(){
     const tiles=[],seams=[];
     for(const index of geometryPending){
-      tiles.push({index,placement:placements[index],vertices:world.geometry(index)});yield;
+      tiles.push({index,version:tileVersions.get(index),placement:placements[index],vertices:world.geometry(index)});yield;
     }
     for(const index of resident){seams.push({index,vertices:world.horizon_seams(index)});yield;}
     return {event:'detail',tiles,removed:[...geometryRemoved],seams};
@@ -63,12 +65,18 @@ function flushGeometry() {
   });
 }
 function sendDetail(data) {
-  if(!source.prepareDetail){postMessage(data,[...data.tiles,...data.seams].map(t=>t.vertices.buffer));return;}
+  if(!source.prepareDetail){publishDetail(data,[...data.tiles,...data.seams].map(t=>t.vertices.buffer));return;}
   detailPending??={tiles:new Map(),removed:new Set()};
   for(const index of data.removed){detailPending.tiles.delete(index);detailPending.removed.add(index);}
   for(const tile of data.tiles)detailPending.tiles.set(tile.index,tile);
   detailPending.seams=data.seams;
   flushDetail();
+}
+function publishDetail(data,transfers) {
+  postMessage(data,transfers);
+  for(const tile of data.tiles)if(resident.has(tile.index)&&tileVersions.get(tile.index)===tile.version)
+    detailReady.add(tile.index);
+  scheduleTerrainMaterials();
 }
 function flushDetail() {
   if(detailBusy||!detailPending)return;
@@ -76,7 +84,7 @@ function flushDetail() {
   detailPending=undefined;detailBusy=true;
   void owner.prepareDetail({event:'detail',tiles:[...pending.tiles.values()],
     removed:[...pending.removed],seams:pending.seams}).then(data=>{
-    if(source===owner)postMessage(data,[...data.tiles.flatMap(t=>[t.vertices.buffer,t.liquid.buffer,
+    if(source===owner)publishDetail(data,[...data.tiles.flatMap(t=>[t.vertices.buffer,t.liquid.buffer,
       t.camera.vertices.buffer,t.camera.offsets.buffer,t.camera.triangles.buffer]),...data.seams.map(t=>t.vertices.buffer)]);
   }).catch(error=>{if(source===owner)sceneFault(error);}).finally(()=>{
     if(source===owner){detailBusy=false;flushDetail();}
@@ -161,7 +169,7 @@ async function stream(p,pin,fill=false) {
   for(const index of resident) if(!wanted.includes(index)) {
     world.remove_tile(index);scene.removeTile(tileKey(index));terrain.removeTile(index);terrainErrors.delete(index);
     if(terrainMaterials.delete(index) && !terrainMaterials.size)cancelMaterialTimer();
-    resident.delete(index);removed.push(index);evictions++;
+    resident.delete(index);tileVersions.delete(index);detailReady.delete(index);removed.push(index);evictions++;
   }
   let prefetches=0;
   for(const index of wanted) {
@@ -198,7 +206,8 @@ async function stream(p,pin,fill=false) {
       sceneFocus=undefined;
       const vertices=postFrameVisuals?undefined:world.geometry(index);
       resident.add(index);loads++;peak=Math.max(peak,resident.size);
-      tiles.push({index,placement:placements[index],vertices});
+      const version=++nextTileVersion;tileVersions.set(index,version);detailReady.delete(index);
+      tiles.push({index,version,placement:placements[index],vertices});
       terrainMaterials.add(index);
     } catch(error) {
       world.remove_tile(index);scene.removeTile(tileKey(index));
@@ -485,7 +494,7 @@ function cancelMaterialTimer() {
 }
 function prepareTerrainMaterial() {
   if(materialBusy)return;
-  const index=terrainMaterials.values().next().value;
+  const index=[...terrainMaterials].find(i=>detailReady.has(i));
   if(index!==undefined) {
     terrainMaterials.delete(index);
     try {
@@ -510,13 +519,14 @@ function pumpTerrainMaterials() {
 }
 function scheduleTerrainMaterials(pending=false) {
   if(!postFrameVisuals || materialTimer!==undefined || (!terrainMaterials.size&&!pending))return;
-  const token=materialTimerToken,index=terrainMaterials.values().next().value;
+  const token=materialTimerToken,index=[...terrainMaterials].find(i=>detailReady.has(i));
+  if(index===undefined&&!pending)return;
   // Give the next input reply priority, but finish bounded near-tile work even when input stops.
   materialTimer=setTimeout(()=>{
     queue=queue.then(()=>{
       if(token!==materialTimerToken)return;
       materialTimer=undefined;
-      if(index!==undefined && terrainMaterials.values().next().value===index)prepareTerrainMaterial();
+      if(index!==undefined && terrainMaterials.has(index)&&detailReady.has(index))prepareTerrainMaterial();
       pumpTerrainMaterials();
       scheduleTerrainMaterials();
     }).catch(sceneFault);
@@ -579,6 +589,7 @@ async function handle(message) {
     water?.clear();
     terrainRead=undefined;
     detailPending=undefined;detailBusy=false;
+    tileVersions.clear();detailReady.clear();nextTileVersion=0;
     geometryJob=undefined;geometryRevision++;geometryDirty=false;
     geometryPending.clear();geometryRemoved.clear();
     poseTime=undefined;
