@@ -91,6 +91,13 @@ test('patches win, deleted files never fall back, queue survives errors', async 
   const corrupt = await openDataSource([base, entry('patch.MPQ', fixture(path, 'a'.repeat(9000), { corruptOffsets: true }))]);
   await assert.rejects(corrupt.read(path), code('CORRUPT'));
 });
+test('archive progress counts successfully opened indexes, not requested or elapsed work',async()=>{
+  const progress=[],data=fixture('file','test');
+  const source=await openDataSource([entry('terrain.MPQ',data),entry('patch.MPQ',data)],p=>progress.push(p));
+  assert.deepEqual(progress.map(p=>[p.completed,p.total]),[[0,2],[1,2],[2,2]]);
+  assert.equal(progress.at(-1).archive,'patch.MPQ');
+  await source.close();
+});
 test('sector extraction yields a task to physics without interleaving archive reads', async () => {
   const path='file',bytes=Buffer.from('bounded sector work'.repeat(2000));
   const source=await openDataSource([entry('terrain.MPQ',fixture(path,bytes))]);

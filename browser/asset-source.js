@@ -265,7 +265,7 @@ class Archive {
   }
 }
 
-export async function openDataSource(input) {
+export async function openDataSource(input,onProgress=()=>{}) {
   let catalog = Array.isArray(input) ? input : await catalogDataFolder(input);
   for (const entry of catalog) {
     if (!entry || typeof entry.path !== 'string' || !entry.file || !Number.isSafeInteger(entry.file.size) ||
@@ -280,10 +280,12 @@ export async function openDataSource(input) {
   if (!selected.length) fail('INVALID_FOLDER', 'No known WoW 1.12 MPQs in this folder; select Data, not the install parent');
   const stats = { indexBytes: 0, readBytes: 0, readCalls: 0, maxReadBytes: 0, windowBytes: 0, extractionYields: 0 };
   const archives = [];
+  onProgress({completed:0,total:selected.length});
   for (const entry of selected) {
     const archive = new Archive(entry, stats);
     await archive.open();
     archives.push(archive);
+    onProgress({completed:archives.length,total:selected.length,archive:entry.path});
   }
   const identity = JSON.stringify(selected.map(({ path, file }) => [path, file.size, file.lastModified ?? 0]));
   const digest = await crypto.subtle.digest('SHA-256', encoder.encode(identity));

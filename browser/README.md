@@ -53,6 +53,30 @@ not your Data directory.
 
 ## Explore
 
+Selecting Data now opens a full-screen, art-free loading view with accessible
+stage text and a progress bar. Counts are completed archives, topology files
+or horizon tiles **within the current stage**, not an estimated percentage of
+time remaining. Unknown-size work is indeterminate. Entry waits for required
+near terrain, collision and its rendered detail; it does not wait for all
+optional scenery, textures, distant-worker work or water. No physics time is
+advanced by this readiness preparation. Errors dismiss the modal and retain
+the existing error message. Shell cache v31 includes the loading view.
+
+With `WOW_DATA` set, `node browser\loading-smoke.mjs` records cold-profile and same-profile
+warm startup timelines on isolated port 4183. Set `CHECK_SCREEN=1` to also check
+modal/escape behavior, real progress counts and invalid-folder cleanup. Warm
+means retained browser storage after a twelve-second streaming interval, not
+a fully warmed world; OS filesystem cache is uncontrolled. The harness uses
+a test-only instrumented nested worker and leaves production CSP unchanged.
+Its private JSON traces include archive/source queue times and IDB operations.
+The loading-screen-only checkpoint passed 234 JavaScript tests and the
+both-order 150/300 driving gate against a fully pinned `24db173` server:
+p99 **5.9/5.0 ms** versus **10.0/5.0 ms**, with zero moving >50 ms tails over
+about 585 yards / 6.06 active seconds. One cold/warm startup pair measured
+**5.53/3.83 seconds to first motion**, versus baseline **3.88/4.14 seconds**.
+The screen alone is not a loading-speed improvement; it waits for actual
+collision and rendered support instead of exposing an unfinished world.
+
 You start on actual raceway terrain in `Kalimdor_39_43.adt`, in Thousand Needles.
 The spawn height comes from the ADT, not a guessed sea-level floor.
 

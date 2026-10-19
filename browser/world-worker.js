@@ -129,7 +129,7 @@ function measureHold(kind,elapsed) {
   if(lastHold!==kind){counter.episodes++;holdRun=0;}
   counter.ms+=elapsed;holdRun+=elapsed;counter.maxMs=Math.max(counter.maxMs,holdRun);lastHold=kind;
 }
-const report=text=>postMessage({event:'progress',text});
+const report=(text,progress={})=>postMessage({event:'progress',text,...progress});
 const assetPath=t=>`World\\Maps\\${manifest.regions[t.region].map}\\${t.file}`;
 function distance(index,p) {
   const a=placements[index];
@@ -231,11 +231,13 @@ async function buildHorizon(wdls) {
   horizon={patches:0,vertices:0,gpuBytes:0,cpuParsedBound:0,wasmPeakBytes:0,regions:[]};
   const start=performance.now();
   for(let region=0;region<2;region++)world.add_horizon(region,wdls[region]);
+  const patchesByRegion=[0,1].map(region=>world.horizon_patches(region));
+  const total=patchesByRegion.reduce((n,p)=>n+p.length/5,0);
   for(let region=0;region<2;region++) {
     const exterior=world.exterior_geometry(region);
     water?.setExterior(region,exterior);
     postMessage({event:'exterior-water',region,placement:manifest.regions[region].placement,vertices:exterior},[exterior.buffer]);
-    const patches=world.horizon_patches(region),indices=world.horizon_indices(region);
+    const patches=patchesByRegion[region],indices=world.horizon_indices(region);
     horizon.gpuBytes+=indices.byteLength;
     postMessage({event:'horizon-index',region,indices},[indices.buffer]);
     horizon.regions.push({region,patches:patches.length/5});
@@ -246,7 +248,7 @@ async function buildHorizon(wdls) {
       terrain.addHorizon(region,patches[i],patches[i+1]);
       postMessage({event:'horizon',region,source:Array.from(patches.slice(i,i+2)),
         placement:Array.from(patches.slice(i+2,i+4)),near:patches[i+4],vertices},[vertices.buffer]);
-      if(i%20===15) {report(`Preparing distant terrain: ${horizon.patches} authored tiles`);await new Promise(resolve=>setTimeout(resolve,0));}
+      if(i%20===15) {report('Preparing distant terrain',{stage:'terrain',completed:horizon.patches,total});await new Promise(resolve=>setTimeout(resolve,0));}
     }
   }
   horizon.cpuParsedBound=world.horizon_cpu_bound();horizon.buildMs=performance.now()-start;
@@ -600,11 +602,13 @@ async function handle(message) {
     far?.close();
     const previousSource=source;source=undefined;
     previousSource?.close();
-    source=await openAssetSource(message.folder);
+    source=await openAssetSource(message.folder,undefined,data=>postMessage(data));
+    report('World and archive workers ready');
     const wdts=[],wdls=[];
     for(const map of ['Kalimdor','Azeroth']) {
-      report(`Reading ${map} authoritative topology and distant terrain`);
+      report(`Reading ${map} topology and terrain`,{stage:'topology',completed:wdts.length+wdls.length,total:4});
       wdts.push(await source.read(`World\\Maps\\${map}\\${map}.wdt`));
+      report(`Reading ${map} topology and terrain`,{stage:'topology',completed:wdts.length+wdls.length,total:4});
       wdls.push(await source.read(`World\\Maps\\${map}\\${map}.wdl`));
     }
     const json=world_manifest(wdts[0],wdls[0],wdts[1],wdls[1]);

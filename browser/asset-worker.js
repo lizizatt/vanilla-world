@@ -26,7 +26,8 @@ async function pump() {
   try {
     if(job.action==='open') {
       if(source)throw Error('Asset source already open');
-      wasm=await init();source=await openDataSource(job.folder);
+      wasm=await init();source=await openDataSource(job.folder,progress=>
+        postMessage({event:'progress',stage:'archives',text:'Indexing local archives',...progress}));
       reply(job,{fingerprint:source.fingerprint,archives:source.archives});
     } else if(job.action==='detail') {
       if(!source)throw Error('Asset source is not open');
