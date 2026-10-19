@@ -274,6 +274,18 @@ test('stable collision anchor avoids edge rebuilds while retaining camera and hu
   assert.equal(f.built[1].length,18);
 });
 
+test('asynchronous visuals leave collision selection unchanged until geometry or swept demand changes',async()=>{
+  const f=collisionFixture(),scene=f.context.dependencies.scene;
+  scene.asyncVisuals=true;scene.collisionRevision=0;scene.collisionSelectionRevision=-1;
+  let selections=0;
+  scene.update=function(){selections++;this.collisionSelectionRevision=this.collisionRevision;this.selectionRevision=this.revision;};
+  await f.update();assert.equal(selections,1);
+  scene.revision++;await f.update();assert.equal(selections,1,'Material/visual publication cannot require a collision rescan');
+  scene.collisionRevision++;scene.revision++;await f.update();assert.equal(selections,2,'Geometry changes bypass the cadence');
+  f.sweep=64;await f.update();assert.equal(selections,3,'An expanded swept hull cannot wait for visual work');
+  f.body[0]=20;await f.update();assert.equal(selections,4,'Movement refreshes immediate collision demand');
+});
+
 test('newly decoded colliders bypass anchor cadence immediately',async()=>{
   const f=collisionFixture();
   f.add(100);await f.update();
@@ -592,6 +604,28 @@ test('consecutive admissions stay bounded and idle timers complete every pending
   for(let i=0;i<4;i++)await f.context.fireTimer();
   assert.deepEqual(f.events.filter(e=>e.event==='material').map(e=>e.index),[0,1,2,3]);
   assert.equal(f.context.timers.size,0);assert.deepEqual(f.state().errors,[]);
+});
+
+test('only one asynchronous material is active while frames and pending admissions continue',async()=>{
+  const f=materialFixture(),started=[],pending=[];
+  f.context.prepareAsync=index=>{started.push(index);return new Promise(resolve=>pending.push(resolve));};
+  runInContext('terrain.prepareTile=prepareAsync;',f.context);
+  f.context.admissions.push(0,1);await f.frame(1);await f.frame(2);await f.frame(3);await f.frame(4);
+  assert.deepEqual(started,[0]);assert.deepEqual(f.state().pending,[1]);
+  assert(f.events.some(e=>e.id===4),'Physics replies cannot wait for material copies');
+  pending.shift()();await settle();await f.frame(5);assert.deepEqual(started,[0,1]);
+  pending.shift()();await settle();
+});
+
+test('old asynchronous material completion cannot rearm work during source replacement',async()=>{
+  const f=materialFixture();let resume;
+  f.context.prepareAsync=()=>new Promise(resolve=>{resume=resolve;});
+  runInContext('terrain.prepareTile=prepareAsync;',f.context);
+  f.context.admissions.push(0);await f.frame(1);await f.frame(2);
+  f.context.openAssetSource=async()=>{throw Error('Source replacement stopped');};
+  await f.dispatch({id:3,action:'open',postFrameVisuals:true});
+  resume();await settle();
+  assert.equal(f.context.timers.size,0);assert.deepEqual(f.state().pending,[]);
 });
 
 test('idle material work runs behind an already queued catch-up and cancelled callbacks cannot repeat it',async()=>{

@@ -35,6 +35,143 @@ test('bounded visual selection exactly matches full sorting without sorting the 
   assert(comparisons<items.length*2,'Rejected far candidates need only a comparison against the retained tail');
 });
 
+test('visual selection yields, commits the same ranking, and never owns immediate collision demand',async()=>{
+  const f=fixture(),sync=new SceneStream(f.source,f.wasm),stream=new SceneStream(f.source,f.wasm);
+  stream.asyncVisuals=true;stream.collisionReach=152;
+  const placements=Array.from({length:6400},(_,id)=>p(id,`tree${id%12}.m2`,id%800));
+  for(const s of [sync,stream]){s.setTile('1:0:0',placements.map(p=>({...p})));s.update(1,[0,0,0]);}
+  let yields=0;stream.yieldVisual=async()=>{yields++;};
+  const collision=stream.collisionCandidates,requests=stream.requests;
+  const work=stream.prepareVisuals();
+  assert.equal(stream.instances.length,0);
+  assert([...requests.values()].some(r=>r.required),'Required demand exists before any visual slice');
+  await work;
+  assert(yields>=100,'Candidate enumeration must yield repeatedly, not wrap one synchronous selection');
+  assert.deepEqual(stream.instances.map(i=>i.id),sync.instances.map(i=>i.id));
+  assert.equal(stream.collisionCandidates,collision,'Visual commit cannot replace authoritative collision candidates');
+  assert.deepEqual([...stream.requests.keys()].sort(),[...sync.requests.keys()].sort());
+  assert.equal(stream.prepareVisuals(),undefined,'An unchanged scene must not select again');
+});
+
+test('sliced collision demand matches full demand across motion, support columns and loaded broad hulls',()=>{
+  const f=fixture(),sync=new SceneStream(f.source,f.wasm),stream=new SceneStream(f.source,f.wasm);
+  stream.asyncVisuals=true;stream.collisionReach=152;
+  const placements=Array.from({length:1200},(_,id)=>({...p(id,`tree${id}.m2`,id%300-150),
+    position:[id%300-150,id%127-63,id%200-100]}));
+  placements.push(p(2000,'wide.m2',700));
+  for(const s of [sync,stream]){
+    s.setTile('1:0:0',placements.map(p=>({...p})));
+    s.cache.set('m2:wide.m2:[]',{value:{vertices:new Float32Array(),indices:new Uint32Array(),batches:[],
+      bounds:[[-1,-1,-1],[1,1,1]],collisionBounds:[[-800,-100,-100],[800,100,100]]},bytes:0,used:0});
+  }
+  for(let step=0;step<40;step++){
+    const position=[step*3,20,step*2],predicted=[step*3+150,20,step%2?step*2:-Number.MAX_VALUE];
+    for(const s of [sync,stream])s.update(1,position,predicted,54,84);
+    const required=s=>[...s.requests.values()].filter(r=>r.required).map(r=>r.key).sort();
+    assert.deepEqual(required(stream),required(sync));
+    assert(stream.collisionCandidates.some(i=>i.id==='1:m2:2000'),
+      'Collision bounds, not just render bounds, determine whether decoded geometry enters the shortlist');
+    const nearby=s=>s.snapshot().unresolvedCollision.filter(i=>boundsWithin(i.bounds,position,84,84)).map(i=>i.id);
+    assert.deepEqual(nearby(stream),nearby(sync));
+  }
+});
+
+test('required loading preempts pending visuals and invalidates their stale resource revision',async()=>{
+  const f=fixture(),stream=new SceneStream(f.source,f.wasm,{jobs:1});
+  stream.asyncVisuals=true;stream.setTile('1:0:0',[p(1)]);
+  stream.update(1,[0,0,0]);
+  let resume;stream.yieldVisual=()=>new Promise(resolve=>{resume=resolve;});
+  const work=stream.prepareVisuals();
+  await stream.pump(true);
+  assert.equal(f.reads(),1,'Required geometry must load without waiting for a visual draft');
+  resume();await work;
+  assert.equal(stream.instances.length,0,'Changed resource bounds invalidate the old visual draft');
+  stream.yieldVisual=async()=>{};
+  await stream.prepareVisuals();
+  assert.equal(stream.instances.length,1);
+  assert.equal(stream.instances[0].boundsKnown,true);
+});
+
+test('map replacement and clear reject queued visual results',async()=>{
+  for(const clear of [false,true]){
+    const f=fixture(),stream=new SceneStream(f.source,f.wasm);
+    stream.asyncVisuals=true;stream.setTile('1:0:0',[p(1)]);
+    stream.setTile('0:0:0',[p(2)]);
+    stream.update(1,[0,0,0]);
+    let resume;stream.yieldVisual=()=>new Promise(resolve=>{resume=resolve;});
+    const work=stream.prepareVisuals();
+    if(clear)stream.clear();else stream.update(0,[0,0,0]);
+    resume();await work;
+    assert.equal(stream.instances.length,0);
+    if(!clear){
+      stream.yieldVisual=async()=>{};await stream.prepareVisuals();
+      assert.deepEqual(stream.instances.map(i=>i.id),['0:m2:2']);
+    }
+  }
+});
+
+test('collision bounds enclose hull vertices without changing authored visual bounds',async()=>{
+  const f=fixture(),makeModel=f.wasm.SceneModel.m2;
+  f.wasm.SceneModel.m2=()=>{
+    const model=makeModel();
+    model.collision_vertices=()=>new Float32Array([-300,0,-20,500,0,0,0,700,2]);
+    return model;
+  };
+  const stream=new SceneStream(f.source,f.wasm);
+  const {value}=await stream.load({kind:'m2',path:'wide.m2',skins:[],score:0});
+  assert.deepEqual(value.bounds,[[-1,-1,0],[1,1,2]]);
+  assert.deepEqual(value.collisionBounds,[[-300,-1,-20],[500,700,2]]);
+});
+
+test('visual commits and material changes do not invalidate authoritative candidate selection',async()=>{
+  const f=fixture({cutout:true}),stream=new SceneStream(f.source,f.wasm,{jobs:1});
+  stream.asyncVisuals=true;stream.yieldVisual=async()=>{};
+  stream.setTile('1:0:0',[p(1)]);stream.update(1,[0,0,0]);
+  const before=stream.collisionRevision;
+  await stream.pump(true);
+  assert(stream.collisionRevision>before,'New geometry must invalidate collision immediately');
+  stream.update(1,[0,0,0]);
+  const geometry=stream.collisionRevision;
+  await stream.prepareVisuals();
+  assert.equal(stream.collisionRevision,geometry);
+  assert.equal(stream.collisionSelectionRevision,geometry);
+  await stream.pump(true);
+  assert(stream.cache.has('texture:leaves.blp'));
+  assert.equal(stream.collisionRevision,geometry);
+  stream.evict('texture:leaves.blp');assert.equal(stream.collisionRevision,geometry);
+  stream.evict('m2:tree.m2:[]');assert(stream.collisionRevision>geometry);
+});
+
+test('current required demand overrides a stale higher-ranked visual request',()=>{
+  const f=fixture(),stream=new SceneStream(f.source,f.wasm),key='m2:tree.m2:[]';
+  stream.visualRequests=new Map([[key,{key,kind:'m2',score:0,collisionScore:0,distant:false}]]);
+  stream.collisionRequests=new Map([[key,{key,kind:'m2',score:30,collisionScore:30,required:true,distant:false}]]);
+  stream.mergeRequests();
+  assert.equal(stream.requests.get(key).required,true);
+  assert.equal(stream.foregroundKey,key);
+});
+
+test('a stationary near/far budget transition refreshes visual selection',async()=>{
+  const f=fixture(),stream=new SceneStream(f.source,f.wasm,{instances:1});
+  stream.asyncVisuals=true;stream.yieldVisual=async()=>{};
+  stream.setTile('1:0:0',[p(1),p(2)]);stream.update(1,[0,0,0]);
+  await stream.prepareVisuals();assert.equal(stream.instances.length,1);
+  stream.limits.instances=2;await stream.prepareVisuals();assert.equal(stream.instances.length,2);
+  assert.equal(stream.prepareVisuals(),undefined);
+});
+
+test('new distant placements do not build exact transforms on the collision path',()=>{
+  const f=fixture(),stream=new SceneStream(f.source,f.wasm);
+  stream.asyncVisuals=true;stream.collisionReach=152;
+  stream.setTile('1:0:0',Array.from({length:6400},(_,id)=>p(id,'tree.m2',600+id%100)));
+  stream.cache.set('m2:tree.m2:[]',{value:{bounds:[[-1,-1,0],[1,1,2]]},bytes:0,used:0});
+  let transforms=0;const original=stream.instanceBounds.bind(stream);
+  stream.instanceBounds=(...args)=>{transforms++;return original(...args);};
+  stream.update(1,[0,0,0]);
+  assert.equal(transforms,0);
+  assert.equal(stream.collisionCandidates.length,0);
+});
+
 test('unknown placement bounds are reused without hiding later authored model bounds',async()=>{
   const f=fixture(),stream=new SceneStream(f.source,f.wasm);
   stream.setDistantTile('1:0:0',[p(1,'tree.m2',1400)]);

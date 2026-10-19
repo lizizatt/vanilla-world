@@ -47,7 +47,7 @@ function flushDetail() {
   });
 }
 const terrainMaterials=new Set();
-let materialFrameReady=false,materialTimer,materialTimerToken=0,materialGeneration=0,hopConsumed=0;
+let materialFrameReady=false,materialTimer,materialTimerToken=0,materialGeneration=0,materialBusy=false,hopConsumed=0;
 let sentAssets=new Set(),sentTextures=new Set(),sceneState,sceneSignature='';
 let sentInstances=new Map();
 let sentSceneRegion;
@@ -235,6 +235,8 @@ function sceneFault(error) {
   if(postFrameVisuals)postMessage({event:'world-error',error:`${error.code?`${error.code}: `:''}${error.message || error}`});
 }
 function startScenePump() {
+  const owner=scene,visual=scene.prepareVisuals?.();
+  if(visual)void visual.catch(error=>{if(scene===owner)sceneFault(error);});
   if(!scenePump) {
     const pump=scene.pump(true).catch(sceneFault);
     scenePump=pump;
@@ -253,14 +255,16 @@ function updateScene(focus,publish=true,restoring) {
   if(!Number.isFinite(radius) || !Number.isFinite(verticalRadius) || radius<4 || verticalRadius<4 ||
     coverage>SCENE_LIMITS.radius)
     throw new Error('Frame sweep exceeds the streamed scene collision coverage');
+  scene.collisionReach=Math.max(120,32+52+sweep)+32;
   const predicted=restoring?[focus[0],-Number.MAX_VALUE,focus[2]]:
     [focus[0]-Math.sin(body[3])*signed,focus[1],focus[2]-Math.cos(body[3])*signed];
   const moved=sceneFocus?Math.hypot(...focus.map((v,a)=>v-sceneFocus[a])):Infinity;
-  // Static 850-yard candidates outlive this bounded visual refresh; readiness and the swept hull run every frame.
-  const changed=moved>=16 || Math.max(32,radius)+moved>sceneReadinessRadius ||
+  // Geometry revisions are immediate; texture and visual publications cannot change collision demand.
+  const changed=scene.asyncVisuals&&scene.collisionSelectionRevision!==scene.collisionRevision ||
+    moved>=16 || Math.max(32,radius)+moved>sceneReadinessRadius ||
     Math.max(32,verticalRadius)+moved>sceneReadinessVertical ||
     coverage+moved>SCENE_LIMITS.radius ||
-    ((moved>0 || scene.selectionRevision!==scene.revision) && performance.now()-sceneUpdated>=250);
+    ((moved>0 || !scene.asyncVisuals&&scene.selectionRevision!==scene.revision) && performance.now()-sceneUpdated>=250);
   if(changed) {
     const start=performance.now();
     const requestedRadius=Math.min(SCENE_LIMITS.radius,Math.max(32,radius)+16);
@@ -440,11 +444,22 @@ function cancelMaterialTimer() {
   materialTimer=undefined;
 }
 function prepareTerrainMaterial() {
+  if(materialBusy)return;
   const index=terrainMaterials.values().next().value;
   if(index!==undefined) {
     terrainMaterials.delete(index);
-    try {terrain.setTile(index,world.terrain_material(index));}
-    catch(error) {terrainErrors.set(index,`Terrain material ${manifest.tiles[index].file}: ${error.message || error}`);}
+    try {
+      if(postFrameVisuals&&terrain.prepareTile){
+        const owner=terrain,generation=materialGeneration;materialBusy=true;
+        void terrain.prepareTile(index,world.terrain_material(index)).catch(error=>{
+          if(terrain===owner&&generation===materialGeneration&&resident.has(index))
+            terrainErrors.set(index,`Terrain material ${manifest.tiles[index].file}: ${error.message || error}`);
+        }).finally(()=>{
+          if(terrain===owner&&generation===materialGeneration){materialBusy=false;scheduleTerrainMaterials(true);}
+        });
+      }else terrain.setTile(index,world.terrain_material(index));
+    }
+    catch(error) {materialBusy=false;terrainErrors.set(index,`Terrain material ${manifest.tiles[index].file}: ${error.message || error}`);}
   }
 }
 function pumpTerrainMaterials() {
@@ -519,7 +534,7 @@ async function handle(message) {
     sceneInstanceDeltas=message.sceneInstanceDeltas===true;
     sceneInstanceUpdates=message.sceneInstanceUpdates===true;
     postFrameVisuals=message.postFrameVisuals===true;
-    materialGeneration++;cancelMaterialTimer();materialFrameReady=false;
+    materialGeneration++;cancelMaterialTimer();materialFrameReady=false;materialBusy=false;
     terrain?.clear();
     water?.clear();
     terrainRead=undefined;
@@ -546,6 +561,7 @@ async function handle(message) {
       return [r.placement[0]+(t.x-r.tile_origin[0])*TILE,r.placement[1]+(t.y-r.tile_origin[1])*TILE];
     });
     scene=new SceneStream(source,wasmTypes);
+    scene.asyncVisuals=true;
     startFarWorker();
     terrain=new TerrainStream(source,wasmTypes,(message,transfers)=>postMessage(message,transfers));
     water=new WaterStream(source,wasmTypes,manifest,(message,transfers)=>postMessage(message,transfers));

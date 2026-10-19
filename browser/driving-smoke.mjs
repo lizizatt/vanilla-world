@@ -168,11 +168,18 @@ try{
       body=body.replaceAll(call,`(()=>{const started=performance.now();try{return ${call};}finally{drivingWork.push({kind:${JSON.stringify(call)},ms:performance.now()-started,
         ${call==='world.add_tile(index,bytes)'||call==='world.geometry(index)'?'rustStages:Array.from(world.admission_timings()),':''}index});}})()`);
     }
-    const materialCall='terrain.setTile(index,world.terrain_material(index))';
-    assert(body.includes(materialCall),'Missing terrain material profiling hook');
-    body=body.replaceAll(materialCall,`(()=>{let start=performance.now();const material=world.terrain_material(index);
-      drivingWork.push({kind:'terrain-material-build',ms:performance.now()-start});start=performance.now();
-      try{return terrain.setTile(index,material);}finally{drivingWork.push({kind:'terrain-material-copy',ms:performance.now()-start});}})()`);
+    for(const method of ['setTile','prepareTile']){
+      const materialCall=`terrain.${method}(index,world.terrain_material(index))`;
+      if(method==='setTile')assert(body.includes(materialCall),'Missing terrain material profiling hook');
+      body=body.replaceAll(materialCall,`(()=>{const start=performance.now(),material=world.terrain_material(index);
+        drivingWork.push({kind:'terrain-material-build',ms:performance.now()-start});
+        for(const name of ['vertices','indices','masks']){
+          const read=material[name].bind(material);
+          material[name]=()=>{const began=performance.now();try{return read();}
+            finally{drivingWork.push({kind:'terrain-material-'+name,ms:performance.now()-began});}};
+        }
+        return terrain.${method}(index,material);})()`);
+    }
     await route.fulfill({response,body});
   });
   await page.goto(process.env.WORLD_URL || 'http://127.0.0.1:4185/?test');

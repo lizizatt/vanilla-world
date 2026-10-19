@@ -498,7 +498,7 @@ wet/dry/hole masks remain exact; no guessed below-sea flooding hides gaps.
 The separately reported tan triangular strip was not reproduced at bounded
 Tanaris poses and is not claimed fixed by these changes.
 
-### Partial async-loading checkpoint (not released)
+### Partial async-loading checkpoint `eb9ce1f` (not released)
 
 The checkout is based on `31fd878`, including its merged Rust physics and liquid
 scanner. `asset-worker.js` now owns archive extraction, near BLP decode/mip
@@ -556,6 +556,73 @@ Source/result transfer peak was 42.3 MiB, including a multi-tile prepared detail
 packet; one active/pending batch and parsing copies are additional to decoded
 caches. Edge GPU counters sampled 407/476 MiB dedicated plus about 98 MiB shared.
 These are samples, not hard whole-process peaks.
+
+### Near-selection follow-up (unreleased; 20 ms gate still open)
+
+The second local checkpoint separates immediate collision demand from a single
+yieldable visual-selection draft. Candidate enumeration, prominence calculation
+and material requests yield in groups of 64 using background scheduler tasks
+(timer fallback). The bounded-prefix ranking itself still runs synchronously
+within a background turn. Completed visuals publish atomically; resource,
+source, map and near/far budget changes invalidate stale drafts. Optional scene
+loads pause during a draft; required geometry continues and always overrides
+older visual requests. No worker, archive index or full geometry cache is added.
+
+Collision selection now rejects conservatively distant placements before building
+exact transforms or computing distances. Its bounds include actual collision
+vertices, not merely render bounds, and its horizontal window covers the collision
+submission anchor and swept demand. Exact readiness predicates remain immediate,
+including unknown WMO roots and restore support columns. Geometry admission,
+eviction and metadata changes invalidate collision selection immediately;
+texture changes and visual publications do not. The 150/300 handling, 8/24
+residency, visual budgets and collision behavior are unchanged.
+
+Terrain material buffer extraction also yields separately for vertices, indices
+and masks, outside the physics request queue. One material handle can be active,
+with remaining resident indices pending. Eviction/source replacement cancels
+publication and frees the old handle; failed extraction stays explicit. This
+does not split an individual Wasm getter, terrain admission, or GPU upload.
+
+**Do not release this follow-up yet.** Some intermediate comparisons passed, but
+subsequent source revisions/repeats did not consistently satisfy both limits.
+The latest `scenery-async-material-{forward,reverse}-{before,after}` captures
+against `31fd878` cover 585.2--586.2 yards and 6.08--6.11 active seconds, ending at
+least 200 ms before solid contact. Settings are matched at 150/300, video on,
+sound/profiling off, fresh browser contexts; OS cache remains uncontrolled.
+
+| Latest equal-path result | Forward baseline / follow-up | Reverse baseline / follow-up |
+| --- | ---: | ---: |
+| Active handler p95 (ms) | 12.4 / 4.9 | 9.2 / 4.3 |
+| Active handler p99 (ms) | 28.2 / **26.2** | 24.9 / 8.4 |
+| Reply p95 (ms) | 18.6 / 12.1 | 15.8 / 5.8 |
+| Moving stalls over 50 ms | 0 / 0 | 1 / 0 |
+
+The explicit gate requires p99 at most **20 ms in both orders**, no p99 regression,
+and no moving stalls over 50 ms. The latest forward p99 fails. Full 30-second
+object-hold totals, reported separately rather than hidden in motion statistics,
+are 1 (476.1 ms) / 1 (313.4 ms) forward and 1 (116.5 ms) / 0 reverse; terrain holds
+are zero. Post-contact trajectories are not accepted as matched driving evidence.
+
+Worst-case work is **not** below 20 ms: the latest matched forward run includes
+62.2 ms collision selection and 25.8 ms combined terrain admission; its largest
+handler is 63.3 ms. Background visual slices reached 50.4 ms over the full capture.
+The newly separated material getters measured at most 7.1 ms in these matched
+segments, versus an earlier unsliced 78.3 ms aggregate extraction. Terrain
+admission still combines `add_tile`, placement extraction, render geometry and
+seam generation. Splitting that aggregate is possible; an indivisible >20 ms
+Rust call has not been established. Selection/queue tails still need work, not
+another favorable rerun or a lower scenery/speed budget.
+
+Current validation passes 217 JavaScript tests and actual forest/city and
+transition checks. Forest/city retain 8/24 tiles and show 4940/3682 changed far
+pixels; comparison background changes are 0/32 pixels. Used JS heaps sampled
+52.8/43.6 MiB (physics), 39.3/42.9 MiB (far), and 10.0/11.2 MiB (source).
+Tracked GPU allocation peaks are 225.6/266.3 MiB; isolated Edge dedicated
+residency samples are 415.5/476.6 MiB plus 97.9 MiB shared. These are not total
+process peaks. Evidence is under ignored `test-results/scenery/async-followup-memory`;
+failed driving captures remain retained. Cold coastal onset, the tan strip and
+strict all-world hitch acceptance remain open. The protected 4173 server/page
+and user saves/settings have not been changed.
 
 `scenery-smoke.mjs` records staged forest/city pixels, demand, all three worker heaps,
 tracked GPU allocations and Windows GPU-process residency. Sample waits use
