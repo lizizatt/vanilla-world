@@ -101,9 +101,19 @@ function extractModel(handle, collision = true) {
   try {
     const metadata = JSON.parse(handle.metadata());
     for (const batch of metadata.batches) if (batch.texture) batch.texture = modelPath(batch.texture);
-    return { ...metadata, vertices: handle.vertices(), indices: handle.indices(),
+    const model = { ...metadata, vertices: handle.vertices(), indices: handle.indices(),
       collisionVertices: collision ? handle.collision_vertices() : new Float32Array(),
       collisionIndices: collision ? handle.collision_indices() : new Uint32Array() };
+    model.collisionBounds=metadata.bounds;
+    for(let i=0;i<model.collisionVertices.length;i++){
+      const axis=i%3,v=model.collisionVertices[i];
+      if(v<model.collisionBounds[0][axis]||v>model.collisionBounds[1][axis]){
+        if(model.collisionBounds===metadata.bounds)model.collisionBounds=metadata.bounds.map(b=>b.slice());
+        model.collisionBounds[0][axis]=Math.min(model.collisionBounds[0][axis],v);
+        model.collisionBounds[1][axis]=Math.max(model.collisionBounds[1][axis],v);
+      }
+    }
+    return model;
   } finally { handle.free(); }
 }
 function modelBytes(model) {
@@ -153,6 +163,79 @@ function placementId(p,map) {
   return p.sceneId;
 }
 
+function placementEnvelope(p,asset,m) {
+  const b=asset?.collisionBounds||asset?.bounds;
+  const x=b?Math.max(Math.abs(b[0][0]),Math.abs(b[1][0])):0;
+  const y=b?Math.max(Math.abs(b[0][1]),Math.abs(b[1][1])):0;
+  const z=b?Math.max(Math.abs(b[0][2]),Math.abs(b[1][2])):0;
+  const ex=Math.abs(m[0])*x+Math.abs(m[4])*y+Math.abs(m[8])*z;
+  const ey=Math.abs(m[1])*x+Math.abs(m[5])*y+Math.abs(m[9])*z;
+  return [Math.min(m[12]-ex,p.bounds?.[0][0]??Infinity),Math.max(m[12]+ex,p.bounds?.[1][0]??-Infinity),
+    Math.min(m[13]-ey,p.bounds?.[0][1]??Infinity),Math.max(m[13]+ey,p.bounds?.[1][1]??-Infinity)];
+}
+
+class CollisionPlacementIndex {
+  constructor(map,cache) {
+    this.map=map;this.cache=cache;this.rows=new Map();this.cells=new Map();this.always=new Set();
+    this.resources=new Map();this.stamp=0;this.metadataRevision=-1;this.geometryRevision=-1;
+  }
+  unplace(row) {
+    this.always.delete(row);
+    for(const key of row.cells){
+      const cell=this.cells.get(key);cell.delete(row);
+      if(!cell.size)this.cells.delete(key);
+    }
+    row.cells=[];
+  }
+  place(row,asset) {
+    if(row.kind==='wmo'){this.always.add(row);return;}
+    const [minX,maxX,minY,maxY]=placementEnvelope(row.p,asset,row.matrix).map(v=>Math.floor(v/128));
+    if(![minX,maxX,minY,maxY].every(Number.isSafeInteger)||(maxX-minX+1)*(maxY-minY+1)>64){
+      this.always.add(row);return;
+    }
+    for(let x=minX;x<=maxX;x++)for(let y=minY;y<=maxY;y++){
+      const key=`${x}:${y}`;let cell=this.cells.get(key);
+      if(!cell){cell=new Set();this.cells.set(key,cell);}
+      cell.add(row);row.cells.push(key);
+    }
+  }
+  remove(row) {
+    this.unplace(row);this.rows.delete(row.id);
+    const group=this.resources.get(row.key);group.rows.delete(row);
+    if(!group.rows.size)this.resources.delete(row.key);
+  }
+  retain(p,id,matrix,kind,order) {
+    let row=this.rows.get(id);
+    if(row&&(row.p!==p||row.key!==p.key||row.matrix!==matrix||row.kind!==kind)){this.remove(row);row=undefined;}
+    if(!row){
+      row={p,id,key:p.key,matrix,kind,cells:[]};this.rows.set(id,row);
+      let group=this.resources.get(p.key);
+      if(!group){group={asset:this.cache.get(p.key)?.value,rows:new Set()};this.resources.set(p.key,group);}
+      group.rows.add(row);this.place(row,group.asset);
+    }
+    row.order=order;row.stamp=this.stamp;
+  }
+  refresh() {
+    for(const [key,group] of this.resources){
+      const asset=this.cache.get(key)?.value;
+      if(asset===group.asset)continue;
+      group.asset=asset;
+      for(const row of group.rows){this.unplace(row);this.place(row,asset);}
+    }
+  }
+  query(position,predicted,reach,radius) {
+    const guard=Math.max(32,radius);
+    const min=position.map((v,a)=>Math.floor(Math.min(v-reach,Math.min(v,predicted[a])-guard)/128));
+    const max=position.map((v,a)=>Math.floor(Math.max(v+reach,Math.max(v,predicted[a])+guard)/128));
+    if(![min[0],min[1],max[0],max[1]].every(Number.isSafeInteger)||(max[0]-min[0]+1)*(max[1]-min[1]+1)>4096)
+      return [...this.rows.values()].sort((a,b)=>a.order-b.order);
+    const found=new Set(this.always);
+    for(let x=min[0];x<=max[0];x++)for(let y=min[1];y<=max[1];y++)
+      for(const row of this.cells.get(`${x}:${y}`)||[])found.add(row);
+    return [...found].sort((a,b)=>a.order-b.order);
+  }
+}
+
 export class SceneStream {
   constructor(source, wasm, limits = {}) {
     this.source = source; this.wasm = wasm; this.limits = { ...SCENE_LIMITS, ...limits };
@@ -163,6 +246,9 @@ export class SceneStream {
     this.requests = new Map(); this.instances = []; this.collisionCandidates = []; this.errors = [];
     this.bytes = 0; this.clock = 0; this.busy = false; this.generation = 0; this.revision = 0;
     this.selectionRevision = -1;
+    this.collisionRevision=0;this.collisionSelectionRevision=-1;
+    this.placementRevision=0;
+    this.collisionReach = this.limits.radius;
     this.timings = {readMs: 0, decodeMs: 0, loads: 0};
     this.expanded = new WeakMap();
     this.bounds = new WeakMap();
@@ -176,7 +262,7 @@ export class SceneStream {
     if (!this.tiles.has(key) && this.tiles.size >= this.limits.nearTiles) throw new Error('Remove an old scene tile before exceeding the near-tile budget');
     this.tiles.set(key, this.parsePlacements(bytes, metadata));
     this.placementLists.delete(this.tiles);
-    this.revision++;
+    this.revision++;this.collisionRevision++;this.placementRevision++;
   }
   setDistantTile(key, bytes) {
     this.setDistantPlacements(key,this.parsePlacements(bytes));
@@ -216,15 +302,63 @@ export class SceneStream {
     }
     return placements;
   }
-  removeTile(key) { if(this.tiles.delete(key)){this.placementLists.delete(this.tiles);this.revision++;} }
+  removeTile(key) { if(this.tiles.delete(key)){this.placementLists.delete(this.tiles);this.revision++;this.collisionRevision++;this.placementRevision++;} }
   setPopulation(pack) {
     this.npcs = validatePopulation(pack);
     this.populationModels = pack.models;
     this.npcMatrices = new WeakMap();
     this.populationStatus = `Static local NPC snapshot: ${pack.provenance.source}; no server behavior`;
-    this.revision++;
+    this.revision++;this.collisionRevision++;this.placementRevision++;
+  }
+  npcMatrix(npc,model) {
+    let matrix=this.npcMatrices.get(npc);
+    if(!matrix){
+      matrix=placementMatrix({position:npc.position,orientation:[0,0,Math.sin(npc.orientation/2),Math.cos(npc.orientation/2)],
+        scale:npc.scale*model.scale});
+      this.npcMatrices.set(npc,matrix);
+    }
+    return matrix;
+  }
+  collisionPlacements(map,position,predicted,radius) {
+    let index=this.collisionIndex;
+    if(!index||index.map!==map)this.collisionIndex=index=new CollisionPlacementIndex(map,this.cache);
+    const tx=Math.floor((17066.666666666668-position[1])/(1600/3));
+    const ty=Math.floor((17066.666666666668-position[0])/(1600/3)),npcKey=this.npcs?`${tx}:${ty}`:'';
+    if(index.metadataRevision!==this.placementRevision||index.npcKey!==npcKey){
+      index.stamp++;let order=0;
+      for(const p of this.placementList(this.tiles,map))index.retain(p,placementId(p,map),p.matrix,p.kind,order++);
+      if(this.npcs)for(let x=tx-2;x<=tx+2;x++)for(let y=ty-2;y<=ty+2;y++)
+        for(const npc of this.npcs.get(`${map}:${x}:${y}`)||[]){
+          const model=this.populationModels[npc.displayId];
+          index.retain(model,`${map}:npc:${npc.id}`,this.npcMatrix(npc,model),'m2',order++);
+        }
+      for(const row of index.rows.values())if(row.stamp!==index.stamp)index.remove(row);
+      index.metadataRevision=this.placementRevision;index.npcKey=npcKey;
+    }
+    if(index.geometryRevision!==this.collisionRevision){
+      index.refresh();index.geometryRevision=this.collisionRevision;
+    }
+    return index.query(position,predicted,this.collisionReach,radius);
+  }
+  instanceBounds(bounds,matrix) {
+    let transforms=this.bounds.get(bounds);
+    if(!transforms){transforms=new WeakMap();this.bounds.set(bounds,transforms);}
+    let result=transforms.get(matrix);
+    if(!result){result=transformedBounds(bounds,matrix);transforms.set(matrix,result);}
+    return result;
   }
   update(map, position, predicted = position, collisionRadius = 32, collisionVerticalRadius = collisionRadius) {
+    const start=performance.now();
+    if(this.asyncVisuals&&this.map!==undefined&&this.map!==map){
+      this.visualJob=undefined;this.visualRequests=undefined;this.visualPosition=undefined;
+      this.instances=[];
+    }
+    const steps=this.selectionSteps(map,position,predicted,collisionRadius,collisionVerticalRadius,
+      this.asyncVisuals?'collision':undefined);
+    while(!steps.next().done){}
+    if(this.asyncVisuals)this.timings.collisionSelectionMax=Math.max(this.timings.collisionSelectionMax||0,performance.now()-start);
+  }
+  *selectionSteps(map, position, predicted = position, collisionRadius = 32, collisionVerticalRadius = collisionRadius, mode) {
     if (![0, 1].includes(map) || !finite(position, 3) || !finite(predicted, 3) ||
       !Number.isFinite(collisionRadius) || collisionRadius < 0 ||
       !Number.isFinite(collisionVerticalRadius) || collisionVerticalRadius < 0) throw new Error('Invalid scene observer');
@@ -235,6 +369,13 @@ export class SceneStream {
     const high = position.map((v, a) => Math.max(v, predicted[a]));
     const supportColumn = predicted[2] < position[2];
     const collisionDistance = bounds => boundsDistance(bounds, low, high);
+    const overlaps=(b,min,max,r)=>b[0][0]<=max[0]+r&&b[1][0]>=min[0]-r&&
+      b[0][1]<=max[1]+r&&b[1][1]>=min[1]-r;
+    const collisionCandidate=(bounds,asset,matrix)=>{
+      const physical=asset?.collisionBounds?this.instanceBounds(asset.collisionBounds,matrix):bounds;
+      return overlaps(physical,position,position,this.collisionReach)||
+        overlaps(bounds,low,high,Math.max(32,collisionRadius));
+    };
     const candidates = new Map(), requests = new Map(), farCandidates=[];
     const want = (key, request, score, distant) => {
       const previous = requests.get(key);
@@ -263,15 +404,13 @@ export class SceneStream {
       const boundsAsset=asset||(this.visualOnly?this.discovered?.get(key):undefined);
       let bounds = p.bounds;
       if (!bounds && boundsAsset?.bounds) {
-        let transforms = this.bounds.get(boundsAsset);
-        if (!transforms) { transforms = new WeakMap(); this.bounds.set(boundsAsset, transforms); }
-        bounds = transforms.get(matrix);
-        if (!bounds) { bounds = transformedBounds(boundsAsset.bounds, matrix); transforms.set(matrix, bounds); }
+        bounds=this.instanceBounds(boundsAsset.bounds,matrix);
       }
       if(!bounds) {
         bounds=this.pointBounds.get(matrix);
         if(!bounds){bounds=[matrix.slice(12,15),matrix.slice(12,15)];this.pointBounds.set(matrix,bounds);}
       }
+      if(mode==='collision'&&kind!=='wmo'&&!collisionCandidate(bounds,asset,matrix))return;
       const score = boundsDistance(bounds, position);
       const radius = distant ? this.limits.distantRadius : this.limits.radius;
       if ((kind !== 'wmo' || asset || p.bounds) && score > radius
@@ -306,39 +445,69 @@ export class SceneStream {
         asset.groups.forEach((group, index) => {
           const groupId = expanded.groupIds[index];
           if (distant && (candidates.has(groupId)||this.nearVisible?.has(groupId))) return;
-          const groupBounds = expanded.groups[index], d = boundsDistance(groupBounds, position);
+          const groupBounds = expanded.groups[index];
+          const geometry=this.cache.get(expanded.groupPlacements[index].key)?.value;
+          if(mode==='collision'&&!collisionCandidate(groupBounds,geometry,matrix))return;
+          const d = boundsDistance(groupBounds, position);
           if (d > radius && (distant || !supportColumn || collisionDistance(groupBounds) > collisionRadius)) return;
           put(groupId,expanded.groupPlacements[index],matrix,groupBounds,true,d,'group',distant,key);
         });
         // Distant buildings retain their structure, not hundreds of interior props.
         if (!distant) for (const {id: childId, d, matrix: childMatrix} of expanded.doodads) {
+          if(mode==='collision'){
+            const b=placementEnvelope(d,this.cache.get(d.key)?.value,childMatrix);
+            const r=this.collisionReach,g=Math.max(32,collisionRadius);
+            if(!(b[0]<=position[0]+r&&b[1]>=position[0]-r&&b[2]<=position[1]+r&&b[3]>=position[1]-r||
+              b[0]<=high[0]+g&&b[1]>=low[0]-g&&b[2]<=high[1]+g&&b[3]>=low[1]-g))continue;
+          }
           add(d, childId, childMatrix, 'm2', distant);
         }
       }
     };
-    for (const p of this.placementList(this.tiles,map))add(p,placementId(p,map),p.matrix);
+    let processed=0;
+    if(mode==='collision')for(const row of this.collisionPlacements(map,position,predicted,collisionRadius))
+      add(row.p,row.id,row.matrix,row.kind);
+    else for (const p of this.placementList(this.tiles,map)){
+      add(p,placementId(p,map),p.matrix);
+      if(mode==='visual'&&++processed%64===0)yield;
+    }
     for (const p of this.placementList(this.distantTiles,map))add(p,placementId(p,map),p.matrix,p.kind,true);
-    if (this.npcs) {
+    if (this.npcs&&mode!=='collision') {
       const tx = Math.floor((17066.666666666668 - position[1]) / (1600 / 3));
       const ty = Math.floor((17066.666666666668 - position[0]) / (1600 / 3));
       for (let x = tx - 2; x <= tx + 2; x++) for (let y = ty - 2; y <= ty + 2; y++) {
         for (const npc of this.npcs.get(`${map}:${x}:${y}`) || []) {
           const model = this.populationModels[npc.displayId];
-          let matrix = this.npcMatrices.get(npc);
-          if (!matrix) {
-            matrix = placementMatrix({
-              position: npc.position, orientation: [0, 0, Math.sin(npc.orientation / 2), Math.cos(npc.orientation / 2)],
-              scale: npc.scale * model.scale,
-            });
-            this.npcMatrices.set(npc, matrix);
-          }
+          const matrix=this.npcMatrix(npc,model);
           add(model, `${map}:npc:${npc.id}`, matrix, 'm2');
+          if(mode==='visual'&&++processed%64===0)yield;
         }
       }
     }
     const all = [...candidates.values(),...farCandidates];
     // Preserve every near solid and its order, even when the visual budget is full.
     this.collisionCandidates = all.filter(i => !i.distant);
+    const requireCollisions=keep=>{
+      for (const i of this.collisionCandidates) {
+        i.collisionScore=collisionDistance(i.bounds);
+        if((mode==='collision'&&i.kind==='wmo'&&!i.boundsKnown) || i.collisionScore < 32 ||
+          boundsWithin(i.bounds, position, i.boundsKnown ? collisionRadius : Math.max(32, collisionRadius),
+            i.boundsKnown ? collisionVerticalRadius : Math.max(32, collisionVerticalRadius))) {
+          keep.add(i.key);
+          want(i.key,{kind:i.kind,path:i.path,skins:i.skins,rootKey:i.rootKey,
+            collisionScore:i.collisionScore,required:true},i.score,false);
+          if (i.rootKey) { keep.add(i.rootKey); requests.get(i.rootKey).required = true; }
+        }
+      }
+    };
+    if(mode==='collision') {
+      const keep=new Set();requireCollisions(keep);
+      for(const [key,r] of requests)if(r.kind==='wmo')keep.add(key);
+      this.collisionRequests=new Map([...requests].filter(([key])=>keep.has(key)));
+      this.mergeRequests();this.selectionRevision=this.revision;
+      this.collisionSelectionRevision=this.collisionRevision;return;
+    }
+    if(mode==='visual')yield;
     for (const i of all) {
       let size=this.boundSizes.get(i.bounds);
       if(size===undefined) {
@@ -347,10 +516,12 @@ export class SceneStream {
         this.boundSizes.set(i.bounds,size);
       }
       i.prominence=size/Math.max(1,i.score);
+      if(mode==='visual'&&++processed%64===0)yield;
     }
     const visualOrder=(a,b)=>Number(b.score<128)-Number(a.score<128)
       || (a.score<128?a.score-b.score:b.prominence-a.prominence) || a.score-b.score || a.id.localeCompare(b.id);
     const near = selectionPrefix(this.collisionCandidates,this.limits.instances,visualOrder);
+    if(mode==='visual')yield;
     const farCount=all.length-this.collisionCandidates.length;
     const reserved = Math.min(farCount,Math.max(1,Math.floor(this.limits.instances/4)));
     const farLimit=Math.max(reserved,this.limits.instances-near.length);
@@ -376,17 +547,7 @@ export class SceneStream {
     this.instances = [...near.slice(0,this.limits.instances-reserved),
       ...far.slice(0,Math.max(reserved,this.limits.instances-near.length))];
     const keep = new Set(this.instances.map(i => i.key));
-    for (const i of this.collisionCandidates) {
-      i.collisionScore=collisionDistance(i.bounds);
-      if(i.collisionScore < 32 ||
-        boundsWithin(i.bounds, position, i.boundsKnown ? collisionRadius : Math.max(32, collisionRadius),
-          i.boundsKnown ? collisionVerticalRadius : Math.max(32, collisionVerticalRadius))) {
-        keep.add(i.key);
-        want(i.key,{kind:i.kind,path:i.path,skins:i.skins,rootKey:i.rootKey,
-          collisionScore:i.collisionScore,required:true},i.score,false);
-        if (i.rootKey) { keep.add(i.rootKey); requests.get(i.rootKey).required = true; }
-      }
-    }
+    if(mode!=='visual')requireCollisions(keep);
     for (const [visualRank,i] of this.instances.entries()) {
       want(i.key,{kind:i.kind,path:i.path,skins:i.skins,rootKey:i.rootKey,
         collisionScore:i.collisionScore,visualRank},i.score,i.distant);
@@ -405,18 +566,63 @@ export class SceneStream {
         want(key, { kind: 'texture', path, visualRank }, i.score, i.distant);
         keep.add(key);
       }
+      if(mode==='visual'&&visualRank%64===63)yield;
     }
     // Roots with no loaded metadata must be requested before their group instances exist.
     for (const [key, request] of requests) if (request.kind === 'wmo') keep.add(key);
     this.requests = new Map([...requests].filter(([key]) => keep.has(key)));
     this.foregroundKey=[...this.requests.values()].find(r=>(r.required||(!r.distant&&r.score<128))
       && !this.cache.has(r.key)&&!this.failures.has(r.key))?.key;
-    for (const [key, entry] of this.cache) if (keep.has(key)) entry.used = this.clock;
-    for (const key of this.failures.keys()) if (!keep.has(key)) this.failures.delete(key);
+    if(mode!=='visual'){
+      for (const [key, entry] of this.cache) if (keep.has(key)) entry.used = this.clock;
+      for (const key of this.failures.keys()) if (!keep.has(key)) this.failures.delete(key);
+    }
     this.selectionRevision = this.revision;
+  }
+  mergeRequests() {
+    this.requests=new Map(this.visualRequests);
+    for(const [key,r] of this.collisionRequests||[]) {
+      const previous=this.requests.get(key);
+      if(r.required||!previous||requestOrder(r,previous)<0)this.requests.set(key,r);
+    }
+    this.foregroundKey=[...this.requests.values()].find(r=>r.required&&!this.cache.has(r.key)&&!this.failures.has(r.key))?.key;
+    for(const [key,entry] of this.cache)if(this.requests.has(key))entry.used=this.clock;
+    for(const key of this.failures.keys())if(!this.requests.has(key))this.failures.delete(key);
+  }
+  prepareVisuals() {
+    if(!this.asyncVisuals||!this.position||this.visualJob||
+      this.visualRevision===this.revision&&this.visualLimit===this.limits.instances&&this.visualPosition&&
+      Math.hypot(...this.position.map((v,a)=>v-this.visualPosition[a]))<16)return;
+    const revision=this.revision,generation=this.generation,position=this.position.slice(),limit=this.limits.instances;
+    const draft=Object.create(this),job={};
+    this.visualInstances??=new WeakMap();draft.placementInstances=this.visualInstances;
+    const steps=draft.selectionSteps(this.map,position,this.predicted,this.collisionRadius,this.collisionVerticalRadius,'visual');
+    this.visualJob=job;
+    const run=async()=>{
+      try {
+        for(;;) {
+          if(this.yieldVisual)await this.yieldVisual();
+          else if(globalThis.scheduler?.postTask)await scheduler.postTask(()=>{},{priority:'background'});
+          else await new Promise(resolve=>setTimeout(resolve,0));
+          if(this.visualJob!==job||this.revision!==revision||this.generation!==generation||this.limits.instances!==limit){
+            this.timings.visualCancelled=(this.timings.visualCancelled||0)+1;return;
+          }
+          const start=performance.now(),result=steps.next(),elapsed=performance.now()-start;
+          this.timings.visualMs=(this.timings.visualMs||0)+elapsed;
+          this.timings.visualSliceMax=Math.max(this.timings.visualSliceMax||0,elapsed);
+          if(result.done)break;
+        }
+        this.instances=draft.instances;this.visualRequests=draft.requests;
+        this.mergeRequests();this.revision++;this.visualRevision=this.revision;this.visualPosition=position;
+        this.visualLimit=limit;
+        this.timings.visualJobs=(this.timings.visualJobs||0)+1;
+      } finally {if(this.visualJob===job)this.visualJob=undefined;}
+    };
+    return run();
   }
   async pump(deferSelection = false) {
     if (this.busy || !this.position) return;
+    if(this.visualJob&&![...this.requests.values()].some(r=>r.required&&!this.cache.has(r.key)&&!this.failures.has(r.key)))return;
     this.busy = true;
     this.capacityBlocked = false;
     const generation = this.generation;
@@ -456,6 +662,7 @@ export class SceneStream {
           }
           this.cache.set(request.key, { ...result, used: this.clock }); this.bytes += result.bytes;
           this.revision++;
+          if(request.kind!=='texture')this.collisionRevision++;
           loaded = true;
           if (request.kind === 'wmo') { loadedRoot = true; break; }
         } catch (error) {
@@ -465,6 +672,7 @@ export class SceneStream {
           const failure = { path: request.path, code: error.code || 'CORRUPT', message: String(error.message || error) };
           this.failures.set(request.key, failure);
           this.revision++;
+          if(request.kind!=='texture')this.collisionRevision++;
           this.errors.push(failure); if (this.errors.length > 32) this.errors.shift();
         }
       }
@@ -495,6 +703,15 @@ export class SceneStream {
   async load(request) {
     const readStart = performance.now();
     const generation=this.generation,background=!request.required&&(request.distant||request.score>=128);
+    const shouldDefer=()=>generation!==this.generation || !this.requests.has(request.key)
+      || [...this.requests.values()].some(r=>r.required&&!this.cache.has(r.key)&&!this.failures.has(r.key));
+    if(request.kind==='texture'&&this.source.readTexture) {
+      try {
+        const value=await this.source.readTexture(request.path,'rgba',shouldDefer);
+        this.timings.loads++;
+        return {value,bytes:value.rgba.byteLength};
+      } finally {this.timings.readMs+=performance.now()-readStart;}
+    }
     let bytes;
     try { bytes = await this.source.read(request.path,{background,shouldDefer:background?()=>
       generation!==this.generation || !this.requests.has(request.key)
@@ -572,19 +789,23 @@ export class SceneStream {
     if (!entry) return;
     entry.dispose?.(); this.bytes -= entry.bytes; this.cache.delete(key);
     this.revision++;
+    if(!key.startsWith('texture:'))this.collisionRevision++;
   }
   retry() {
     this.failures.clear();
     this.errors=[];
-    this.revision++;
+    this.revision++;this.collisionRevision++;
   }
   clear() {
     this.generation++; for (const key of this.cache.keys()) this.evict(key);
     this.tiles.clear(); this.distantTiles.clear(); this.requests.clear(); this.failures.clear();
     this.placementLists.clear();
     this.discovered?.clear();
+    this.visualRequests=undefined;this.collisionRequests=undefined;this.visualPosition=undefined;this.visualJob=undefined;
+    this.visualInstances=undefined;
+    this.collisionIndex=undefined;this.placementRevision++;
     this.instances = []; this.collisionCandidates = []; this.errors = [];
-    this.revision++;
+    this.revision++;this.collisionRevision++;
   }
 }
 

@@ -1,6 +1,6 @@
 import init,{Voyage,world_manifest} from './pkg/flats_racer_web.js';
 import * as wasmTypes from './pkg/flats_racer_web.js';
-import {openDataSource} from './asset-source.js';
+import {openAssetSource} from './asset-channel.js';
 import {SceneStream,SCENE_LIMITS,transformedBounds,globalCollisionVertices,boundsWithin,boundsDistance} from './scene-stream.js';
 import {TerrainStream} from './terrain-stream.js';
 import {loadCraft} from './craft-stream.js';
@@ -25,8 +25,65 @@ function startCraft() {
 }
 let resident=new Set(),failures=new Map(),loads=0,evictions=0,peak=0,horizon;
 let terrainRead;
+let detailPending,detailBusy=false;
+const geometryPending=new Set(),geometryRemoved=new Set();
+let geometryJob,geometryRevision=0,geometryDirty=false;
+function queueGeometry(tiles,removed) {
+  for(const index of removed){geometryPending.delete(index);geometryRemoved.add(index);}
+  for(const tile of tiles)geometryPending.add(tile.index);
+  geometryRevision++;geometryDirty=true;flushGeometry();
+}
+function flushGeometry() {
+  if(geometryJob||!geometryDirty||scenePumpError)return;
+  const job={},revision=geometryRevision,owner=source;
+  geometryJob=job;
+  const steps=(function*(){
+    const tiles=[],seams=[];
+    for(const index of geometryPending){
+      tiles.push({index,placement:placements[index],vertices:world.geometry(index)});yield;
+    }
+    for(const index of resident){seams.push({index,vertices:world.horizon_seams(index)});yield;}
+    return {event:'detail',tiles,removed:[...geometryRemoved],seams};
+  })();
+  void(async()=>{
+    for(;;){
+      if(globalThis.scheduler?.postTask)await scheduler.postTask(()=>{},{priority:'background'});
+      else await new Promise(resolve=>setTimeout(resolve,0));
+      if(geometryJob!==job||source!==owner||geometryRevision!==revision||scenePumpError)return;
+      const start=performance.now(),result=steps.next(),elapsed=performance.now()-start;
+      timings.geometrySliceMs+=elapsed;timings.geometrySliceMax=Math.max(timings.geometrySliceMax,elapsed);
+      if(result.done){
+        sendDetail(result.value);
+        geometryPending.clear();geometryRemoved.clear();geometryDirty=false;
+        return;
+      }
+    }
+  })().catch(error=>{if(geometryJob===job&&source===owner)sceneFault(error);}).finally(()=>{
+    if(geometryJob===job){geometryJob=undefined;flushGeometry();}
+  });
+}
+function sendDetail(data) {
+  if(!source.prepareDetail){postMessage(data,[...data.tiles,...data.seams].map(t=>t.vertices.buffer));return;}
+  detailPending??={tiles:new Map(),removed:new Set()};
+  for(const index of data.removed){detailPending.tiles.delete(index);detailPending.removed.add(index);}
+  for(const tile of data.tiles)detailPending.tiles.set(tile.index,tile);
+  detailPending.seams=data.seams;
+  flushDetail();
+}
+function flushDetail() {
+  if(detailBusy||!detailPending)return;
+  const pending=detailPending,owner=source;
+  detailPending=undefined;detailBusy=true;
+  void owner.prepareDetail({event:'detail',tiles:[...pending.tiles.values()],
+    removed:[...pending.removed],seams:pending.seams}).then(data=>{
+    if(source===owner)postMessage(data,[...data.tiles.flatMap(t=>[t.vertices.buffer,t.liquid.buffer,
+      t.camera.vertices.buffer,t.camera.offsets.buffer,t.camera.triangles.buffer]),...data.seams.map(t=>t.vertices.buffer)]);
+  }).catch(error=>{if(source===owner)sceneFault(error);}).finally(()=>{
+    if(source===owner){detailBusy=false;flushDetail();}
+  });
+}
 const terrainMaterials=new Set();
-let materialFrameReady=false,materialTimer,materialTimerToken=0,materialGeneration=0,hopConsumed=0;
+let materialFrameReady=false,materialTimer,materialTimerToken=0,materialGeneration=0,materialBusy=false,hopConsumed=0;
 let sentAssets=new Set(),sentTextures=new Set(),sceneState,sceneSignature='';
 let sentInstances=new Map();
 let sentSceneRegion;
@@ -44,6 +101,7 @@ let collisionToken=0,collisionParts=new Set();
 let collisionFocus;
 const collisionInstances=new Map();
 const timings={frames:0,totalMs:0,maxMs:0,terrainMs:0,sceneMs:0,selectionMs:0,snapshotMs:0,
+  geometrySliceMs:0,geometrySliceMax:0,
   physicsMs:0,cameraUnknownMs:0,postMs:0,postFrameMs:0,scenePostMs:0,scenePosts:0,sceneInstancePosts:0,collisionBuildMs:0,collisionBuilds:0};
 let far,farFocus,farUpdated=0,farFlight=false;
 function startFarWorker() {
@@ -55,6 +113,7 @@ function startFarWorker() {
   if(sceneState)far.near(sceneState.instances.map(i=>i.id));
 }
 let objectWait=[],cameraUnknown=[],lastHoldTime=0,lastHold='clear',holdRun=0;
+let unresolvedWindow;
 const holds=Object.fromEntries(['terrain','objects','solid','unsupported'].map(key=>[key,{episodes:0,ms:0,maxMs:0}]));
 function measureHold(kind,elapsed) {
   if(kind==='clear'){lastHold=kind;holdRun=0;return;}
@@ -137,7 +196,7 @@ async function stream(p,pin,fill=false) {
       world.add_tile(index,bytes);
       scene.setTile(tileKey(index),bytes,world.tile_placements(index,bytes));
       sceneFocus=undefined;
-      const vertices=world.geometry(index);
+      const vertices=postFrameVisuals?undefined:world.geometry(index);
       resident.add(index);loads++;peak=Math.max(peak,resident.size);
       tiles.push({index,placement:placements[index],vertices});
       terrainMaterials.add(index);
@@ -151,8 +210,11 @@ async function stream(p,pin,fill=false) {
     }
   }
   if(tiles.length || removed.length) {
-    const seams=Array.from(resident,index=>({index,vertices:world.horizon_seams(index)}));
-    postMessage({event:'detail',tiles,removed,seams},[...tiles,...seams].map(t=>t.vertices.buffer));
+    if(postFrameVisuals)queueGeometry(tiles,removed);
+    else {
+      const seams=Array.from(resident,index=>({index,vertices:world.horizon_seams(index)}));
+      sendDetail({event:'detail',tiles,removed,seams});
+    }
     report(failures.size?`${failures.size} unavailable terrain tiles; retry after correcting access/data.`:`Detailed terrain ready: ${resident.size}/${LIMIT} tiles.`);
   }
 }
@@ -189,9 +251,22 @@ function sourcePosition(region,p) {
   return [-(p[2]-r.placement[1]+(r.tile_origin[1]-32)*TILE),
     -(p[0]-r.placement[0]+(r.tile_origin[0]-32)*TILE),p[1]];
 }
+function nearUnresolved(p,region,radius=84,vertical=84) {
+  radius=Math.max(84,radius);vertical=Math.max(84,vertical);
+  const previous=unresolvedWindow;
+  if(!previous||previous.state!==sceneState||previous.revision!==sceneRevision||previous.region!==region||
+    radius>previous.radius||vertical>previous.vertical||
+    Math.hypot(...p.map((v,a)=>v-previous.position[a]))>=16) {
+    // This is only a conservative broad phase; exact hull/camera predicates still run every frame.
+    unresolvedWindow={state:sceneState,revision:sceneRevision,region,position:p.slice(),radius,vertical,
+      candidates:sceneState.unresolvedCollision.filter(i=>(i.kind==='wmo'&&!i.boundsKnown)||
+        boundsWithin(i.bounds,p,radius+16,vertical+16))};
+  }
+  return unresolvedWindow.candidates;
+}
 function updateCameraUnknown(body,region) {
   const p=sourcePosition(region,body);
-  cameraUnknown=sceneState.unresolvedCollision.filter(i=>(i.kind==='wmo'&&!i.boundsKnown)
+  cameraUnknown=nearUnresolved(p,region).filter(i=>(i.kind==='wmo'&&!i.boundsKnown)
     || boundsWithin(i.bounds,p,84));
 }
 function sceneFault(error) {
@@ -200,6 +275,8 @@ function sceneFault(error) {
   if(postFrameVisuals)postMessage({event:'world-error',error:`${error.code?`${error.code}: `:''}${error.message || error}`});
 }
 function startScenePump() {
+  const owner=scene,visual=scene.prepareVisuals?.();
+  if(visual)void visual.catch(error=>{if(scene===owner)sceneFault(error);});
   if(!scenePump) {
     const pump=scene.pump(true).catch(sceneFault);
     scenePump=pump;
@@ -218,14 +295,16 @@ function updateScene(focus,publish=true,restoring) {
   if(!Number.isFinite(radius) || !Number.isFinite(verticalRadius) || radius<4 || verticalRadius<4 ||
     coverage>SCENE_LIMITS.radius)
     throw new Error('Frame sweep exceeds the streamed scene collision coverage');
+  scene.collisionReach=Math.max(120,32+52+sweep)+32;
   const predicted=restoring?[focus[0],-Number.MAX_VALUE,focus[2]]:
     [focus[0]-Math.sin(body[3])*signed,focus[1],focus[2]-Math.cos(body[3])*signed];
   const moved=sceneFocus?Math.hypot(...focus.map((v,a)=>v-sceneFocus[a])):Infinity;
-  // Static 850-yard candidates outlive this bounded visual refresh; readiness and the swept hull run every frame.
-  const changed=moved>=16 || Math.max(32,radius)+moved>sceneReadinessRadius ||
+  // Geometry revisions are immediate; texture and visual publications cannot change collision demand.
+  const changed=scene.asyncVisuals&&scene.collisionSelectionRevision!==scene.collisionRevision ||
+    moved>=16 || Math.max(32,radius)+moved>sceneReadinessRadius ||
     Math.max(32,verticalRadius)+moved>sceneReadinessVertical ||
     coverage+moved>SCENE_LIMITS.radius ||
-    ((moved>0 || scene.selectionRevision!==scene.revision) && performance.now()-sceneUpdated>=250);
+    ((moved>0 || !scene.asyncVisuals&&scene.selectionRevision!==scene.revision) && performance.now()-sceneUpdated>=250);
   if(changed) {
     const start=performance.now();
     const requestedRadius=Math.min(SCENE_LIMITS.radius,Math.max(32,radius)+16);
@@ -244,7 +323,7 @@ function updateScene(focus,publish=true,restoring) {
   }
   sceneRevision=scene.revision;
   const bodySource=sourcePosition(region,body);
-  objectWait=sceneState.unresolvedCollision.filter(i=>{
+  objectWait=(restoring?sceneState.unresolvedCollision:nearUnresolved(bodySource,region,radius,verticalRadius)).filter(i=>{
     if(i.kind==='wmo' && !i.boundsKnown)return true;
     // shortcut: unknown M2 extents use a 32-yard proximity guard until their authored hull is decoded.
     const guard=i.boundsKnown?radius:Math.max(32,radius);
@@ -405,11 +484,22 @@ function cancelMaterialTimer() {
   materialTimer=undefined;
 }
 function prepareTerrainMaterial() {
+  if(materialBusy)return;
   const index=terrainMaterials.values().next().value;
   if(index!==undefined) {
     terrainMaterials.delete(index);
-    try {terrain.setTile(index,world.terrain_material(index));}
-    catch(error) {terrainErrors.set(index,`Terrain material ${manifest.tiles[index].file}: ${error.message || error}`);}
+    try {
+      if(postFrameVisuals&&terrain.prepareTile){
+        const owner=terrain,generation=materialGeneration;materialBusy=true;
+        void terrain.prepareTile(index,world.terrain_material(index)).catch(error=>{
+          if(terrain===owner&&generation===materialGeneration&&resident.has(index))
+            terrainErrors.set(index,`Terrain material ${manifest.tiles[index].file}: ${error.message || error}`);
+        }).finally(()=>{
+          if(terrain===owner&&generation===materialGeneration){materialBusy=false;scheduleTerrainMaterials(true);}
+        });
+      }else terrain.setTile(index,world.terrain_material(index));
+    }
+    catch(error) {materialBusy=false;terrainErrors.set(index,`Terrain material ${manifest.tiles[index].file}: ${error.message || error}`);}
   }
 }
 function pumpTerrainMaterials() {
@@ -484,16 +574,21 @@ async function handle(message) {
     sceneInstanceDeltas=message.sceneInstanceDeltas===true;
     sceneInstanceUpdates=message.sceneInstanceUpdates===true;
     postFrameVisuals=message.postFrameVisuals===true;
-    materialGeneration++;cancelMaterialTimer();materialFrameReady=false;
+    materialGeneration++;cancelMaterialTimer();materialFrameReady=false;materialBusy=false;
     terrain?.clear();
     water?.clear();
     terrainRead=undefined;
+    detailPending=undefined;detailBusy=false;
+    geometryJob=undefined;geometryRevision++;geometryDirty=false;
+    geometryPending.clear();geometryRemoved.clear();
     poseTime=undefined;
     hopConsumed=0;
     terrainMaterials.clear();
     report('Opening local MPQ archives and patch chain');
     far?.close();
-    source=await openDataSource(message.folder);
+    const previousSource=source;source=undefined;
+    previousSource?.close();
+    source=await openAssetSource(message.folder);
     const wdts=[],wdls=[];
     for(const map of ['Kalimdor','Azeroth']) {
       report(`Reading ${map} authoritative topology and distant terrain`);
@@ -508,6 +603,7 @@ async function handle(message) {
       return [r.placement[0]+(t.x-r.tile_origin[0])*TILE,r.placement[1]+(t.y-r.tile_origin[1])*TILE];
     });
     scene=new SceneStream(source,wasmTypes);
+    scene.asyncVisuals=true;
     startFarWorker();
     terrain=new TerrainStream(source,wasmTypes,(message,transfers)=>postMessage(message,transfers));
     water=new WaterStream(source,wasmTypes,manifest,(message,transfers)=>postMessage(message,transfers));
@@ -534,6 +630,7 @@ async function handle(message) {
     const terrainStart=performance.now();await stream([focus[0],focus[2]],!message.focus);
     timings.terrainMs+=performance.now()-terrainStart;
     const sceneStart=performance.now();updateScene(focus,!postFrameVisuals);timings.sceneMs+=performance.now()-sceneStart;
+    source.refresh?.();
     const physicsStart=performance.now();let advanced=false;
     if(!message.focus) {
       const now=performance.now(),elapsed=lastHoldTime?Math.min(now-lastHoldTime,1000):0;lastHoldTime=now;
@@ -570,6 +667,7 @@ async function handle(message) {
     world.initialize_spawn();accumulator=0;poseTime=undefined;
   } else if(message.action==='retry') {
     scenePumpError=undefined;sceneSubmissionPending=true;
+    flushGeometry();
     failures.clear();scene.retry();water?.retry();
     if(far.active)far.retry();else startFarWorker();
     if(craft.error)craft={ready:false,pending:false};

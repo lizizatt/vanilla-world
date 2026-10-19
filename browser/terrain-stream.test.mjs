@@ -188,6 +188,37 @@ function fixture(paths=['a.blp']) {
   return {paths:()=>JSON.stringify(paths),vertices:()=>new Float32Array(13*3),indices:()=>new Uint32Array([0,1,2]),
     masks:()=>new Uint8Array(16384),free(){freed=true;},get freed(){return freed;}};
 }
+test('material extraction yields between buffers and publishes only a complete tile',async()=>{
+  const stream=new TerrainStream({}, {}, ()=>{}),reference=new TerrainStream({}, {}, ()=>{});
+  const material=fixture(),steps=[];let reads=0;
+  for(const name of ['vertices','indices','masks']){
+    const original=material[name];material[name]=()=>{reads++;return original();};
+  }
+  stream.yieldMaterial=async()=>{steps.push(reads);};
+  const work=stream.prepareTile(0,material);
+  assert.equal(reads,0);assert.equal(stream.tiles.size,0);assert.equal(material.freed,false);
+  await work;reference.setTile(0,fixture());
+  assert.deepEqual(steps,[0,1,2,3]);
+  assert.deepEqual(stream.tiles.get(0),reference.tiles.get(0));
+  assert.equal(material.freed,true);assert.equal(stream.preparing.size,0);
+});
+test('removed or cleared material jobs free their handles without resurrecting tiles',async()=>{
+  for(const clear of [false,true]){
+    const stream=new TerrainStream({}, {}, ()=>{}),material=fixture();
+    let resume;stream.yieldMaterial=()=>new Promise(resolve=>{resume=resolve;});
+    const work=stream.prepareTile(0,material);
+    if(clear)stream.clear();else stream.removeTile(0);
+    resume();await work;
+    assert.equal(stream.tiles.size,0);assert.equal(stream.preparing.size,0);assert(material.freed);
+  }
+});
+test('a failed asynchronous material extraction preserves the prior tile and rejects explicitly',async()=>{
+  const stream=new TerrainStream({}, {}, ()=>{}),material=fixture();
+  stream.setTile(0,fixture());const previous=stream.tiles.get(0);
+  stream.yieldMaterial=async()=>{};material.masks=()=>{throw Error('Broken masks');};
+  await assert.rejects(stream.prepareTile(0,material),/Broken masks/);
+  assert.equal(stream.tiles.get(0),previous);assert(material.freed);
+});
 class Texture {
   metadata(){return '{"width":1,"height":1}';}rgba(){return new Uint8Array([11,23,57,255]);}free(){}
 }

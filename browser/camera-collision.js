@@ -44,7 +44,23 @@ function terrainTile(tile) {
     const z1=cell(Math.max(source[i+2],source[i+9],source[i+16]));
     for(let z=z0;z<=z1;z++)for(let x=x0;x<=x1;x++)buckets[z*CELLS+x].push(first);
   }
-  return {placement:tile.placement,vertices:positions,buckets};
+  const offsets=new Uint32Array(buckets.length+1);
+  for(let i=0;i<buckets.length;i++)offsets[i+1]=offsets[i]+buckets[i].length;
+  const triangles=new Uint32Array(offsets.at(-1));
+  for(let i=0;i<buckets.length;i++)triangles.set(buckets[i],offsets[i]);
+  return {placement:tile.placement,vertices:positions,offsets,triangles};
+}
+export function prepareDetail(data) {
+  for(const tile of data.tiles) {
+    tile.camera=terrainTile(tile);
+    let count=0;
+    for(let i=0;i<tile.vertices.length;i+=7)if(tile.vertices[i+6]===2)count+=7;
+    tile.liquid=new Float32Array(count);let offset=0;
+    for(let i=0;i<tile.vertices.length;i+=7)if(tile.vertices[i+6]===2){
+      tile.liquid.set(tile.vertices.subarray(i,i+7),offset);offset+=7;
+    }
+  }
+  return data;
 }
 export class CameraCollision {
   constructor(){this.reset();}
@@ -56,7 +72,14 @@ export class CameraCollision {
   event(data) {
     if(data.event==='detail') {
       for(const index of data.removed)this.tiles.delete(index);
-      for(const tile of data.tiles)this.tiles.set(tile.index,terrainTile(tile));
+      for(const tile of data.tiles) {
+        const prepared=tile.camera||terrainTile(tile),{vertices,offsets,triangles}=prepared;
+        if(!(vertices instanceof Float32Array)||vertices.length%9||!(offsets instanceof Uint32Array)||
+          offsets.length!==CELLS*CELLS+1||offsets[0]!==0||offsets.at(-1)!==triangles.length||
+          !(triangles instanceof Uint32Array)||offsets.some((n,i)=>i>0&&n<offsets[i-1])||
+          triangles.some(i=>i%9||i+8>=vertices.length))throw Error('Invalid camera terrain index');
+        this.tiles.set(tile.index,prepared);
+      }
     } else if(data.event==='collision') {
       if(!(data.vertices instanceof Float64Array) || !(data.nodes instanceof Float64Array)
         || data.vertices.length%9 || data.nodes.length%10 || data.vertices.length>200000*9
@@ -102,8 +125,10 @@ export class CameraCollision {
       const x1=cell(Math.max(local[0]+direction[0]*hit[0],local[0]+direction[0]*hit[1]));
       const z0=cell(Math.min(local[2]+direction[2]*hit[0],local[2]+direction[2]*hit[1]));
       const z1=cell(Math.max(local[2]+direction[2]*hit[0],local[2]+direction[2]*hit[1]));
-      for(let cz=z0;cz<=z1;cz++)for(let cx=x0;cx<=x1;cx++)for(const first of tile.buckets[cz*CELLS+cx]) {
-        limit=Math.min(limit,triangleHit(tile.vertices,first,local,direction));
+      for(let cz=z0;cz<=z1;cz++)for(let cx=x0;cx<=x1;cx++) {
+        const bucket=cz*CELLS+cx;
+        for(let i=tile.offsets[bucket];i<tile.offsets[bucket+1];i++)
+          limit=Math.min(limit,triangleHit(tile.vertices,tile.triangles[i],local,direction));
       }
     }
     for(const bounds of this.pending) {

@@ -39,6 +39,7 @@ export class TerrainStream {
     this.source=source;this.wasm=wasm;this.emit=emit;
     this.tiles=new Map();this.cache=new Map();this.errors=new Map();this.missingMinimaps=new Map();this.far=[];this.farDone=new Set();this.failedFar=[];
     this.loads=0;this.cacheHits=0;this.minimaps=0;this.busy=false;this.generation=0;
+    this.preparing=new Map();
   }
   async init(manifest) {
     this.manifest=manifest;
@@ -46,15 +47,39 @@ export class TerrainStream {
     catch(error){this.errors.set('minimap-catalog',`Minimap catalog: ${error.message||error}`);}
   }
   setTile(index,material) {
+    this.preparing.delete(index);
     try {
-      const paths=JSON.parse(material.paths());
-      if(!paths.length||paths.length>64)throw Error('Terrain tile exceeds texture budget');
-      this.tiles.set(index,{index,vertices:material.vertices(),indices:material.indices(),
-        masks:material.masks(),paths,layers:[],cursor:0,done:false});
+      const parts=this.materialParts(index,material);let result;
+      do{result=parts.next();}while(!result.done);
+      this.tiles.set(index,result.value);
       this.errors.delete(`tile:${index}`);
     } finally {material.free();}
   }
-  removeTile(index){this.tiles.delete(index);this.errors.delete(`tile:${index}`);}
+  *materialParts(index,material) {
+    const paths=JSON.parse(material.paths());
+    if(!paths.length||paths.length>64)throw Error('Terrain tile exceeds texture budget');
+    const tile={index,paths,layers:[],cursor:0,done:false};
+    for(const name of ['vertices','indices','masks']){tile[name]=material[name]();yield;}
+    return tile;
+  }
+  async prepareTile(index,material) {
+    const token={};this.preparing.set(index,token);
+    try {
+      const parts=this.materialParts(index,material);
+      for(;;){
+        if(this.yieldMaterial)await this.yieldMaterial();
+        else if(globalThis.scheduler?.postTask)await scheduler.postTask(()=>{},{priority:'background'});
+        else await new Promise(resolve=>setTimeout(resolve,0));
+        if(this.preparing.get(index)!==token)return;
+        const result=parts.next();
+        if(result.done){this.tiles.set(index,result.value);this.errors.delete(`tile:${index}`);return;}
+      }
+    } finally {
+      if(this.preparing.get(index)===token)this.preparing.delete(index);
+      material.free();
+    }
+  }
+  removeTile(index){this.preparing.delete(index);this.tiles.delete(index);this.errors.delete(`tile:${index}`);}
   addHorizon(region,x,y){this.far.push({region,x,y});}
   prioritize(region,x,y) {
     this.far.sort((a,b)=>(a.region===region?0:10000)+Math.hypot(a.x-x,a.y-y)-
@@ -76,7 +101,11 @@ export class TerrainStream {
         try {
           let mips=this.cache.get(path);
           if(mips){this.cacheHits++;this.cache.delete(path);}
-          else {mips=terrainMips(this.decode(await this.source.read(path)));this.loads++;}
+          else {
+            mips=this.source.readTexture?(await this.source.readTexture(path,'mips')).mips
+              :terrainMips(this.decode(await this.source.read(path)));
+            this.loads++;
+          }
           if(generation!==this.generation)return;
           this.cache.set(path,mips);
           while(this.cache.size>TERRAIN_CACHE_LIMIT)this.cache.delete(this.cache.keys().next().value);
@@ -90,7 +119,11 @@ export class TerrainStream {
               ...layers.flatMap(l=>l.mips.map(m=>m.buffer))]);
             tile.done=true;tile.vertices=tile.indices=tile.masks=tile.layers=undefined;
           }
-        } catch(error){this.errors.set(`tile:${tile.index}`,`Terrain texture ${path}: ${error.message||error}`);}
+        } catch(error){
+          if(generation!==this.generation)return;
+          if(error.code==='DEFERRED')return true;
+          this.errors.set(`tile:${tile.index}`,`Terrain texture ${path}: ${error.message||error}`);
+        }
       }else if(this.catalog&&this.far.length){
         const patch=this.far.shift(),id=`${patch.region}:${patch.x}:${patch.y}`;
         if(this.farDone.has(id))return;
@@ -99,9 +132,10 @@ export class TerrainStream {
         const path=this.catalog.get(key(`${map}\\map${patch.x}_${patch.y}.blp`));
         if(!path){this.missingMinimaps.set(id,`${map} ${patch.x},${patch.y}`);this.failedFar.push(patch);return;}
         try {
-          const texture=this.decode(await this.source.read(path,{background:true}));
+          const texture=this.source.readTexture?await this.source.readTexture(path,'minimap')
+            :this.decode(await this.source.read(path,{background:true}));
           if(generation!==this.generation)return;
-          const rgba=resizeRgba(texture.width,texture.height,texture.rgba,MINIMAP_SIZE);
+          const rgba=this.source.readTexture?texture.rgba:resizeRgba(texture.width,texture.height,texture.rgba,MINIMAP_SIZE);
           this.emit({event:'horizon-material',...patch,rgba},[rgba.buffer]);this.minimaps++;
         }catch(error){
           if(generation!==this.generation)return;
@@ -125,6 +159,7 @@ export class TerrainStream {
     this.far.push(...this.failedFar);this.failedFar=[];
   }
   clear() {
+    this.preparing.clear();
     this.generation++;this.tiles.clear();this.cache.clear();this.errors.clear();this.missingMinimaps.clear();
     this.far=[];this.farDone.clear();this.failedFar=[];this.catalog=undefined;
   }
