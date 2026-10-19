@@ -557,7 +557,7 @@ packet; one active/pending batch and parsing copies are additional to decoded
 caches. Edge GPU counters sampled 407/476 MiB dedicated plus about 98 MiB shared.
 These are samples, not hard whole-process peaks.
 
-### Near-selection follow-up (unreleased; 20 ms gate still open)
+### Near-selection checkpoint `2731640` (unreleased; gate failed)
 
 The second local checkpoint separates immediate collision demand from a single
 yieldable visual-selection draft. Candidate enumeration, prominence calculation
@@ -624,7 +624,7 @@ failed driving captures remain retained. Cold coastal onset, the tan strip and
 strict all-world hitch acceptance remain open. The 4173 server process has not
 been restarted, and no user page or saved state was altered.
 
-#### Step 1: yielded terrain geometry and seams (uncommitted)
+#### Step 1: yielded terrain geometry and seams (`3fe0c3b`, local checkpoint)
 
 After local checkpoint `2731640`, render geometry and horizon seams are extracted
 one tile per background turn, rather than during terrain collision admission.
@@ -655,8 +655,67 @@ remains above the requested worst-case target. Full-run object holds were
 0/0 forward and 1 (254.5 ms)/0 reverse; terrain holds were zero.
 
 Step 1 passes 221 JavaScript tests and isolated forest/city, memory and transition
-checks. It is not committed or released; step 2 (an incremental collision
-candidate index) has not started.
+checks. It was committed locally as `3fe0c3b`, with the moving-tail failure
+explicitly open; it was not pushed or released.
+
+#### Step 2: incremental collision candidates (uncommitted, bounded gate passed)
+
+Focus, water/minimap priority, far-focus, source cancellation and telemetry now
+have harness-only timing. The original 55.2 ms handler did not recur; its cause
+is still unproven. The instrumented `async-focus` comparison passed handler p99
+at 7.2/9.4 ms and had no moving stalls over 50 ms, but reverse collision selection
+still reached 22.6 ms. That triggered the requested collision index.
+
+Near placement descriptors now occupy conservative 128-yard horizontal cells.
+Movement queries the collision-anchor and predicted-demand region instead of
+enumerating every nearby tile's placements. Metadata changes reconcile only
+changed memberships; geometry admission/eviction immediately relocates entries
+for affected model keys. NPCs keep the original five-by-five tile neighborhood.
+WMO roots remain always considered, with existing group/doodad expansion and
+early doodad rejection. Oversized bounds use an always-considered set rather
+than unlimited cell memberships; oversized queries fall back to enumeration.
+Map/source replacement clears the index. Exact readiness, support columns,
+required-asset priority, 150/300 handling and 8/24 residency are unchanged.
+This adds descriptor references, not another geometry/archive copy or worker.
+
+Final `scenery-async-index-final-*` captures compare with `31fd878` in both
+orders over 585.2--585.9 yards, 6.06--6.10 active seconds, ending at least 200 ms
+before solid contact. Fresh contexts, video on, sound/profiling off, source-focus
+preparation and uncontrolled OS cache are unchanged.
+
+| Final equal-path result | Forward baseline / indexed | Reverse baseline / indexed |
+| --- | ---: | ---: |
+| Active handler p99 (ms) | 21.0 / **4.7** | 22.4 / **4.8** |
+| Moving stalls over 50 ms | 0 / **0** | 0 / **0** |
+| Worst indexed selection in segment (ms) | 6.4 | 15.0 |
+| Worst indexed terrain admission in segment (ms) | 11.6 | 9.9 |
+| Worst active indexed handler (ms) | 16.5 | 16.9 |
+
+Both orders pass the p99/no-regression/moving-tail gate. Including source
+preparation, selection maxima are 10.1/15.0 ms. Full-run indexed object and
+terrain holds are zero, reported separately from the matched moving interval.
+An earlier indexed revision also passed p99 at 4.6/6.2 ms, but its reverse
+admission reached 21.4 ms and visual slices reached 43.8 ms; that evidence is
+retained, not invalidated by the final favorable sample.
+
+**This is not a hard all-work 20 ms guarantee.** Final background visual slices
+reached 20.6 ms, pre-drive geometry extraction reached 35.4 ms, and a stationary
+telemetry call took 22.8 ms. The latter was outside active-motion statistics and
+does not establish the original moving tail's cause. Individual Wasm calls
+remain synchronous within yielded turns; further splitting has not been proven
+impossible. No release or universal loading-hitch closure is claimed.
+
+225 JavaScript tests pass, including indexed-versus-brute collision demand,
+large/rotated hulls, immediate resource changes, duplicate tile ownership, NPC
+replacement, WMO groups, map reset and bounded-query fallback. Isolated
+forest/city and mode/map transitions pass with actual 8/24 residency and
+4940/3682 far-scene pixels (background changes 0/32). Used JS heaps sampled
+44.8/33.7 MiB (physics), 47.4/43.0 MiB (far), and 4.3/7.9 MiB (source);
+tracked GPU peaks were 227.4/266.7 MiB. These are samples, not process peaks
+or a measurement of the index alone. Evidence remains under ignored
+`test-results/scenery/async-index-memory` and the named driving captures.
+The follow-up remains uncommitted; no push, 4173 restart/page action, or user
+save/settings changes were made. Coastal onset and the tan strip remain open.
 
 `scenery-smoke.mjs` records staged forest/city pixels, demand, all three worker heaps,
 tracked GPU allocations and Windows GPU-process residency. Sample waits use

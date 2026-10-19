@@ -172,6 +172,105 @@ test('new distant placements do not build exact transforms on the collision path
   assert.equal(stream.collisionCandidates.length,0);
 });
 
+test('indexed collision demand matches brute enumeration across scaled hulls, motion and support columns',()=>{
+  const f=fixture(),indexed=new SceneStream(f.source,f.wasm),brute=new SceneStream(f.source,f.wasm);
+  brute.collisionPlacements=function(map){
+    return this.placementList(this.tiles,map).map(p=>({p,id:p.sceneId,matrix:p.matrix,kind:p.kind}));
+  };
+  const placements=Array.from({length:1200},(_,id)=>({...p(id,`tree${id%6}.m2`),
+    position:[id%60*20-600,Math.floor(id/60)*40-400,id%71-35],rotation:[id%37,180,id%43],scale:1+id%4}));
+  placements.push({...p(2000,'unknown.wmo',5000),kind:'wmo'});
+  for(const s of [indexed,brute]){
+    s.asyncVisuals=true;s.collisionReach=152;s.setTile('1:0:0',structuredClone(placements));
+    for(let i=0;i<3;i++)s.cache.set(`m2:tree${i}.m2:[]`,{value:{
+      bounds:[[-2,-2,0],[2,2,4]],collisionBounds:[[-20-i*250,-30,-50],[30,40+i*80,50]],
+    },bytes:0,used:0});
+  }
+  for(let step=0;step<80;step++){
+    const position=[step*13%900-450,step*71%700-350,20],predicted=[position[0]+180,position[1]-100,step%2?20:-Number.MAX_VALUE];
+    for(const s of [indexed,brute])s.update(1,position,predicted,54,84);
+    assert.deepEqual(indexed.collisionCandidates.map(i=>i.id),brute.collisionCandidates.map(i=>i.id));
+    const required=s=>[...s.requests.values()].filter(r=>r.required).map(r=>r.key);
+    assert.deepEqual(required(indexed),required(brute));
+  }
+  indexed.update(1,[0,0,0],[1e18,0,0]);
+  brute.update(1,[0,0,0],[1e18,0,0]);
+  assert.deepEqual(indexed.collisionCandidates.map(i=>i.id),brute.collisionCandidates.map(i=>i.id),
+    'Unbounded cell ranges fall back to enumeration, not an unsafe grid loop');
+});
+
+test('collision index updates only changed placements and resources, including duplicate tile ownership',()=>{
+  const f=fixture(),stream=new SceneStream(f.source,f.wasm),key='m2:tree.m2:[]';
+  stream.asyncVisuals=true;stream.collisionReach=152;
+  stream.setTile('1:0:0',[p(1,'tree.m2',600),p(2,'other.m2',-600)]);
+  stream.update(1,[0,0,0]);
+  const index=stream.collisionIndex,first=index.rows.get('1:m2:1'),second=index.rows.get('1:m2:2');
+  const cells=second.cells,stamp=index.stamp;
+  stream.update(1,[1,0,0]);
+  assert.equal(index.stamp,stamp,'Movement reuses metadata membership');
+  assert.equal(index.rows.get('1:m2:1'),first);
+  assert.equal(index.query([1,0,0],[1,0,0],152,32).length,0,'Distant M2s are not enumerated');
+  stream.cache.set(key,{value:{bounds:[[-1,-1,0],[1,1,2]],collisionBounds:[[-1000,-1000,-20],[1000,1000,20]]},bytes:0,used:0});
+  stream.collisionRevision++;
+  stream.update(1,[1,0,0]);
+  assert(stream.collisionCandidates.some(i=>i.id==='1:m2:1'),'Newly admitted large hull is considered immediately');
+  assert(index.always.has(first),'Oversized bounds have bounded memberships');
+  assert.equal(second.cells,cells,'Unchanged resources retain their existing cell memberships');
+  stream.evict(key);stream.update(1,[1,0,0]);
+  assert(!index.always.has(first));
+  assert.equal(stream.collisionCandidates.length,0);
+  stream.setTile('1:0:1',[p(1,'tree.m2',600)]);stream.update(1,[1,0,0]);
+  assert.equal(index.rows.size,2,'Shared tile placements are indexed once');
+  assert.equal(index.rows.get('1:m2:1'),first);
+  stream.removeTile('1:0:0');stream.update(1,[1,0,0]);
+  assert.equal(index.rows.size,1,'Remaining tile owns the duplicate');
+  stream.removeTile('1:0:1');stream.update(1,[1,0,0]);
+  assert.equal(index.rows.size,0);assert.equal(index.cells.size,0);assert.equal(index.resources.size,0);
+  stream.setTile('0:0:0',[p(3)]);stream.update(0,[0,0,0]);
+  assert.notEqual(stream.collisionIndex,index);
+  assert.deepEqual(stream.collisionCandidates.map(i=>i.id),['0:m2:3']);
+  stream.clear();assert.equal(stream.collisionIndex,undefined);
+});
+
+test('collision index preserves NPC neighborhoods and replaces changed model keys',()=>{
+  const f=fixture(),stream=new SceneStream(f.source,f.wasm);
+  const pack={version:1,provenance:{source:'test',redistribution:'private-local-only'},
+    models:{7:{path:'creature.m2',scale:1,skins:[]}},
+    spawns:[{id:9,map:1,displayId:7,position:[0,0,0],orientation:0,scale:1}]};
+  stream.asyncVisuals=true;stream.collisionReach=152;
+  stream.setPopulation(pack);stream.update(1,[0,0,0]);
+  assert.deepEqual(stream.collisionCandidates.map(i=>i.id),['1:npc:9']);
+  pack.models[7].skins=['replacement.blp'];
+  stream.setPopulation(pack);stream.update(1,[0,0,0]);
+  assert.equal(stream.collisionCandidates[0].key,'m2:creature.m2:["replacement.blp"]');
+  stream.update(1,[9000,9000,0]);assert.equal(stream.collisionIndex.rows.size,0);
+  stream.update(1,[0,0,0]);assert.equal(stream.collisionIndex.rows.size,1);
+  stream.update(0,[0,0,0]);assert.equal(stream.collisionIndex.rows.size,0);
+});
+
+test('indexed WMO roots keep immediate groups without rebuilding distant doodad bounds',async()=>{
+  const f=fixture();
+  f.wasm.SceneRoot=class {
+    metadata(){return JSON.stringify({groups:[{bounds:[[-2,-2,0],[2,2,5]]}],groupCount:1,
+      doodads:Array.from({length:200},(_,i)=>({path:'chair.m2',position:[600+i,0,0],orientation:[0,0,0,1],scale:1})),
+      sets:[{start:0,count:200}]});}
+    group(){return f.wasm.SceneModel.m2();}
+    free(){}
+  };
+  const stream=new SceneStream(f.source,f.wasm,{jobs:1});
+  stream.asyncVisuals=true;stream.collisionReach=152;
+  stream.setTile('1:0:0',[{...p(1,'inn.wmo'),kind:'wmo'}]);
+  stream.update(1,[0,0,0]);await stream.pump(true);
+  let points=0;const set=stream.pointBounds.set.bind(stream.pointBounds);
+  stream.pointBounds.set=(...args)=>{points++;return set(...args);};
+  stream.update(1,[0,0,0]);
+  assert.equal(points,0,'Doodads bypass the raw-placement index, so retain their early broad rejection');
+  assert(stream.requests.get('group:inn.wmo:0').required);
+  assert(!stream.requests.has('m2:chair.m2:[]'));
+  await stream.pump(true);stream.update(1,[0,0,0]);
+  assert(stream.cache.has('group:inn.wmo:0'));
+});
+
 test('unknown placement bounds are reused without hiding later authored model bounds',async()=>{
   const f=fixture(),stream=new SceneStream(f.source,f.wasm);
   stream.setDistantTile('1:0:0',[p(1,'tree.m2',1400)]);

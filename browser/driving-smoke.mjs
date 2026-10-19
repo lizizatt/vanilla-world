@@ -162,6 +162,11 @@ try{
     replace('const result=await handle(data),start=performance.now();','const begin=performance.timeOrigin+performance.now();const result=await handle(data),start=performance.now();if(result.telemetry)result.transport={begin,end:performance.timeOrigin+start};');
     replace("postMessage({event:'scene',region,", "const scenePayload={instances:sendInstances?sceneState.instances.length:0,updatedInstances:typeof instancePayload==='undefined'?(sendInstances?sceneState.instances.length:0):(instancePayload.instances?.length??0),geometryBytes:assets.reduce((n,a)=>n+a.vertices.byteLength+a.indices.byteLength,0),textureBytes:textures.reduce((n,t)=>n+t.rgba.byteLength,0)};postMessage({event:'scene',region,");
     replace('timings.scenePostMs+=performance.now()-start;', "const posted=performance.now()-start;drivingWork.push({kind:'scene-message',ms:posted,...scenePayload});timings.scenePostMs+=posted;");
+    for(const call of ['prepareDistant(focus,message.distant!==false,!!message.focus)','water?.setFocus(focus)',
+      'terrain.prioritize(region,x,y)','far.focus(region,focus.slice(),enabled)','source.refresh?.()','world.telemetry()']){
+      body=body.replaceAll(call,`(()=>{const began=performance.now();try{return ${call};}finally{
+        const ms=performance.now()-began;if(ms>=.5)drivingWork.push({kind:${JSON.stringify(call)},ms});}})()`);
+    }
     for(const call of ['world.add_tile(index,bytes)','scene.setTile(tileKey(index),bytes,world.tile_placements(index,bytes))','world.geometry(index)',
       'world.horizon_seams(index)']){
       assert(body.includes(call),`Missing worker stage profiling hook: ${call}`);
