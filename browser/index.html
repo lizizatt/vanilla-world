@@ -66,6 +66,16 @@
     </div>
     </div>
   </main>
+  <dialog id="loading-screen" aria-labelledby="loading-title" aria-describedby="loading-tip">
+    <div class="loading-frame">
+      <p class="loading-kicker">Vanilla World</p>
+      <h2 id="loading-title">Entering the world</h2>
+      <p id="loading-stage" role="status" aria-live="polite">Opening local Data...</p>
+      <progress id="loading-progress" role="progressbar" max="1" aria-label="Current loading stage"></progress>
+      <p id="loading-count"></p>
+      <p id="loading-tip">Your files stay on your computer. Distant scenery and water continue streaming after entry.</p>
+    </div>
+  </dialog>
   <script type="module" src="./world-app.js"></script>
 </body>
 </html>

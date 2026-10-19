@@ -17,11 +17,28 @@ let renderer,folder,flight,running=false,busy=false,last=0,frames=0,hudTime=0,hu
 let orbit=[0,0],dragging=false,soundAttempt=0,soundError='',soundTime=0,reportTimer,testPads,frozenPresentation=false,tuningValues=TUNING_FIELDS.map(f=>f[1]);
 const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:false,cockpit:false};
 const settings={...defaults};
+const loading=$('loading-screen');
+loading.addEventListener('cancel',event=>event.preventDefault());
+function loadingProgress({text,completed,total}) {
+  if(!loading.open)return;
+  $('loading-stage').textContent=text;
+  const bar=$('loading-progress'),known=Number.isFinite(total)&&total>0&&Number.isFinite(completed);
+  if(known){
+    bar.max=total;bar.value=completed;
+    bar.setAttribute('aria-valuemin','0');bar.setAttribute('aria-valuemax',total);bar.setAttribute('aria-valuenow',completed);
+  } else {
+    bar.removeAttribute('value');
+    for(const name of ['aria-valuemin','aria-valuemax','aria-valuenow'])bar.removeAttribute(name);
+  }
+  $('loading-count').textContent=known?`${completed} / ${total}`:'';
+  bar.setAttribute('aria-valuetext',text);
+}
 const report=(text,temporary=false)=>{
   clearTimeout(reportTimer);if($('status').textContent!==text)$('status').textContent=text;
   if(temporary)reportTimer=setTimeout(()=>$('status').textContent='',4000);
 };
 function fail(error) {
+  if(loading.open)loading.close();
   if(error.name==='AbortError')return;
   const message=error.message || String(error);
   console.error(error);evidence.errors.push(message);$('error').textContent=message;$('error').hidden=false;
@@ -29,7 +46,7 @@ function fail(error) {
 const client=new WorldClient(data=>{
   try {
     evidence.eventRevision=(evidence.eventRevision||0)+1;
-    if(data.event==='progress'){if(!evidence.ready)report('Loading world...');}
+    if(data.event==='progress'){if(!evidence.ready){report(data.text);loadingProgress(data);}}
     else {
       cameraCollision.event(data);
       if(data.event==='collision')renderer.clipCamera=(pivot,point,origin)=>{
@@ -118,6 +135,7 @@ async function open(selection,remember=false) {
   if(busy)return;
   busy=true;running=false;enabled(false);$('error').hidden=true;$('welcome').hidden=true;report('Loading world...');
   $('select').disabled=true;evidence.ready=false;
+  loading.showModal();loadingProgress({text:'Opening local Data...'});
   let opened=false;
   try {
     renderer.reset();renderer.clipCamera=undefined;cameraCollision.reset();flight=undefined;pauseAudio();Object.assign(settings,defaults);syncSettings();
@@ -129,6 +147,7 @@ async function open(selection,remember=false) {
     if(remember)await rememberDataFolder(selection);
     evidence.info=result.info;evidence.source='local Data archives';
     $('welcome').hidden=true;enabled(true);running=true;
+    loadingProgress({text:'Restoring local settings and saved position'});
     const save=await worldSave(result.info.id);
     const tune=await worldTuning(result.info.id);
     if(tune) {
@@ -138,12 +157,25 @@ async function open(selection,remember=false) {
     }
     const restored=await restore(save);
     if(tune&&!restored)client.state=await client.request('reset');
+    for(;;){
+      const state=await client.request('frame',{dt:0,throttle:0,steer:0,flags:0,distant:settings.distant});
+      client.state=state;
+      const failed=state.scene.waitingCollisionDetails.find(item=>item.status!=='PENDING');
+      if(failed)throw new Error(`Starting location collision unavailable: ${failed.key} (${failed.status})`);
+      if(state.scene.waitingCollision&&state.scene.capacityBlocked)throw new Error('Starting collision cannot fit the scene budget');
+      if(!state.required.every(i=>state.resident.includes(i)))throw new Error(state.failures.join('\n')||'Starting terrain unavailable');
+      if(!state.scene.waitingCollision&&state.required.every(i=>renderer.tiles.has(i)))break;
+      if(!$('error').hidden)throw new Error($('error').textContent);
+      loadingProgress({text:`Preparing nearby scenery: ${state.scene.waitingCollision} collision assets remaining. Water: ${state.water.resident} tiles streamed.`});
+      await new Promise(resolve=>setTimeout(resolve,16));
+    }
+    loading.close();
     evidence.ready=true;report(restored?'Loaded.':'',restored);canvas.focus();
   } catch(error) {
     fail(error);report('');
     if(opened){enabled(true);running=true;evidence.ready=true;}
     else {client.stop();$('welcome').hidden=false;}
-  } finally {busy=false;$('select').disabled=false;}
+  } finally {if(loading.open)loading.close();busy=false;$('select').disabled=false;}
 }
 async function select() {
   if(!renderer)return;

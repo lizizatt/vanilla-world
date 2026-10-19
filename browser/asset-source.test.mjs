@@ -91,6 +91,30 @@ test('patches win, deleted files never fall back, queue survives errors', async 
   const corrupt = await openDataSource([base, entry('patch.MPQ', fixture(path, 'a'.repeat(9000), { corruptOffsets: true }))]);
   await assert.rejects(corrupt.read(path), code('CORRUPT'));
 });
+test('archive progress counts successfully opened indexes, not requested or elapsed work',async()=>{
+  const progress=[],data=fixture('file','test');
+  const source=await openDataSource([entry('terrain.MPQ',data),entry('patch.MPQ',data)],p=>progress.push(p));
+  assert.deepEqual(progress.map(p=>[p.completed,p.total]),[[0,2],[1,2],[2,2]]);
+  assert.equal(progress.at(-1).archive,'patch.MPQ');
+  await source.close();
+});
+test('sector inflaters overlap without multiplying full-asset buffers or changing encrypted output',async()=>{
+  const bytes=Buffer.from('parallel encrypted sector fixture'.repeat(4000));
+  const source=await openDataSource([entry('terrain.MPQ',fixture('file',bytes,{flags:0x80030200}))]);
+  assert.deepEqual(Buffer.from(await source.read('file')),bytes);
+  assert(source.stats.decodePeak>1);
+  assert(source.stats.decodePeak<=ASSET_LIMITS.decodeLanes);
+  assert(source.stats.decodePeakBytes<=ASSET_LIMITS.sectorBytes);
+  assert.equal(source.stats.decodeActive,0);assert.equal(source.stats.decodeBytes,0);
+  await source.close();
+});
+test('a corrupt batch drains previously started inflaters before rejecting or accepting another read',async()=>{
+  const source=await openDataSource([entry('terrain.MPQ',fixture('file','x'.repeat(13000),{corruptOffsets:true}))]);
+  await assert.rejects(source.read('file'),code('CORRUPT'));
+  assert.equal(source.stats.decodeActive,0);assert.equal(source.stats.decodeBytes,0);
+  await assert.rejects(source.read('missing'),code('NOT_FOUND'));
+  await source.close();
+});
 test('sector extraction yields a task to physics without interleaving archive reads', async () => {
   const path='file',bytes=Buffer.from('bounded sector work'.repeat(2000));
   const source=await openDataSource([entry('terrain.MPQ',fixture(path,bytes))]);

@@ -146,7 +146,7 @@ const server = createServer((request, response) => {
   response.setHeader('Content-Type', request.url === '/' ? 'text/html' : 'text/javascript');
   response.end(content);
 });
-await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+await new Promise(resolve => server.listen(Number(process.env.ASSET_PORT||0), '127.0.0.1', resolve));
 let browser;
 try {
   browser = await chromium.launch({ channel: 'msedge', headless: true });

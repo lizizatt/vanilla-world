@@ -54,6 +54,15 @@ test('worker waits for a matching consumption receipt and prioritizes queued req
   w.postMessage({id:1,action:'ack'});await settle();assert.deepEqual(reads,['required']);
   w.postMessage({id:3,action:'ack'});await settle();assert.deepEqual(reads,['required','optional']);
 });
+test('progress events neither consume request receipts nor settle source operations',async()=>{
+  const w=worker(dataSource(async()=>new Uint8Array([1]))),progress=[];
+  const source=await openAssetSource([],()=>w,p=>progress.push(p));
+  const receipts=w.messages.filter(m=>m.action==='ack').length;
+  w.onmessage({data:{event:'progress',completed:1,total:2}});
+  assert.equal(progress.length,1);assert.equal(w.messages.filter(m=>m.action==='ack').length,receipts);
+  assert.deepEqual(await source.read('file'),new Uint8Array([1]));
+  source.close();
+});
 
 test('detail preparation transfers typed camera indices and exact liquid geometry off the renderer',async()=>{
   const w=worker(dataSource(async()=>{throw Error('Detail preparation must not read an archive');}));

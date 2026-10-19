@@ -65,4 +65,16 @@ dialog h2 { color: #ffb34d; margin-top: 0; }
 .meters, .overlay, #welcome, #error, .sound-control, #sound-status:not(:empty), summary, .panel-content, dialog { background: rgba(0,0,0,.2); }
 .panel-content :is(button, .button, select, input[type=number]), dialog :is(button, .button, select, input[type=number]) { background: transparent; }
 [hidden] { display: none !important; }
+#loading-screen { width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: max(24px, env(safe-area-inset-top)); background: radial-gradient(ellipse at 50% 35%, #263137, #090d12 75%); text-align: center; }
+#loading-screen[open] { display: grid; place-items: center; }
+#loading-screen::backdrop { background: #090d12; }
+.loading-frame { width: min(680px, 100%); padding: 48px clamp(16px, 5vw, 64px); border-block: 2px solid #9c7b41; box-shadow: 0 1px #dac18a, 0 -1px #40351f; }
+.loading-kicker { color: #dac18a; letter-spacing: .25em; text-transform: uppercase; font-size: 12px; }
+#loading-title { color: #ead5a4; font: 38px/1.2 Georgia, serif; margin: 24px 0 36px; }
+#loading-stage { min-height: 3em; color: #f2e9d8; }
+#loading-progress { display: block; width: 100%; height: 22px; padding: 3px; border: 1px solid #ac8a4c; border-radius: 3px; background: #101216; accent-color: #c8a454; }
+#loading-progress::-webkit-progress-bar { background: #101216; }
+#loading-progress::-webkit-progress-value { background: linear-gradient(#f0d48a, #9b702e); }
+#loading-count { min-height: 1.5em; color: #dac18a; font-variant-numeric: tabular-nums; }
+#loading-tip { margin: 36px 0 0; font-size: 12px; color: #bfc7ca; }
 @media (max-width: 700px) { .meters { gap: 8px; padding: 8px; } .meters strong { font-size: 20px; } .meters span { font-size: 9px; } #tuning-fields { grid-template-columns: 1fr; } }
