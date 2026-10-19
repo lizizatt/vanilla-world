@@ -88,6 +88,16 @@ archive's combined indexes, 128 MiB total indexes, 1 MiB maximum File.slice read
 window, cleared after extraction. Output and temporary buffers are bounded by
 those limits; callers must also cap how many returned assets they retain.
 
+Within that single extraction, up to **two** independent sector inflaters
+overlap. Their combined declared output is capped at the existing 1 MiB sector
+budget (large sectors reduce concurrency to one). Packed reads and encryption
+remain ordered through the single read window; decoded sectors write to their
+original output offsets. Every started inflater is drained before an error,
+deferral or next full asset. Required work still preempts optional extraction
+between bounded batches. Single-unit files retain their existing path.
+`decodePeak` / `decodePeakBytes` expose observed concurrency; `inflateMs` sums
+overlapping operation durations and is **not** elapsed wall time or CPU time.
+
 Supports MPQ v0 and v1 with ordinary block offsets, zlib-compressed and stored
 sectors, encryption, delete markers, and single-unit storage. CRC-table gaps are
 skipped as in native `Archive`; optional sector CRCs are not checked separately

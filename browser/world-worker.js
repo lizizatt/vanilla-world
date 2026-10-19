@@ -248,7 +248,11 @@ async function buildHorizon(wdls) {
       terrain.addHorizon(region,patches[i],patches[i+1]);
       postMessage({event:'horizon',region,source:Array.from(patches.slice(i,i+2)),
         placement:Array.from(patches.slice(i+2,i+4)),near:patches[i+4],vertices},[vertices.buffer]);
-      if(i%20===15) {report('Preparing distant terrain',{stage:'terrain',completed:horizon.patches,total});await new Promise(resolve=>setTimeout(resolve,0));}
+      if(i%20===15) {
+        report('Preparing distant terrain',{stage:'terrain',completed:horizon.patches,total});
+        if(globalThis.scheduler?.postTask)await scheduler.postTask(()=>{},{priority:'background'});
+        else await new Promise(resolve=>setTimeout(resolve,0));
+      }
     }
   }
   horizon.cpuParsedBound=world.horizon_cpu_bound();horizon.buildMs=performance.now()-start;
@@ -627,10 +631,13 @@ async function handle(message) {
     const population=await fetch('./local/npc-spawns.json');
     if(population.ok)scene.setPopulation(await population.json());
     else if(population.status!==404)throw new Error(`Private NPC companion failed: HTTP ${population.status}`);
-    await buildHorizon(wdls);
-    await stream([manifest.spawn[0],manifest.spawn[2]],true);
-    world.initialize_spawn();
-    await updateScene(Array.from(world.telemetry().slice(0,3)));
+    // Horizon initialization is synchronous before its first yield; required near work can then overlap publication.
+    const horizonReady=buildHorizon(wdls);
+    await Promise.all([horizonReady,(async()=>{
+      await stream([manifest.spawn[0],manifest.spawn[2]],true);
+      world.initialize_spawn();
+      await preparePoseScene(Array.from(world.telemetry()).slice(0,4));
+    })()]);
     updateCameraUnknown(world.telemetry(),focusRegion(world.telemetry()));
     return {info:{id:source.fingerprint,manifest,archiveCount:source.archives.length,tuning:Array.from(world.tuning())},state:snapshot()};
   }

@@ -14,6 +14,7 @@ export const ASSET_LIMITS = Object.freeze({
   totalIndexBytes: 128 * 1024 * 1024,
   readBytes: 1024 * 1024,
   sectorBytes: 1024 * 1024,
+  decodeLanes: 2,
   headerSearchBytes: 1024 * 1024,
 });
 const fail = (code, message) => { throw new AssetError(code, message); };
@@ -196,6 +197,10 @@ class Archive {
     });
     const reader = input.pipeThrough(new DecompressionStream('deflate')).getReader();
     const output = new Uint8Array(want);
+    const started=performance.now();
+    this.stats.decodeActive++;this.stats.decodeBytes+=want;
+    this.stats.decodePeak=Math.max(this.stats.decodePeak,this.stats.decodeActive);
+    this.stats.decodePeakBytes=Math.max(this.stats.decodePeakBytes,this.stats.decodeBytes);
     let used = 0;
     try {
       while (true) {
@@ -211,7 +216,11 @@ class Archive {
     } catch (error) {
       if (error instanceof AssetError) throw error;
       throw new AssetError('CORRUPT', `${path}: invalid zlib stream`, error);
-    } finally { reader.releaseLock(); }
+    } finally {
+      this.stats.decodeActive--;this.stats.decodeBytes-=want;
+      this.stats.inflateMs+=performance.now()-started;
+      reader.releaseLock();
+    }
     if (used !== want) fail('CORRUPT', `${path}: short decompressed sector (${used}, expected ${want})`);
     return output;
   }
@@ -243,7 +252,8 @@ class Archive {
       if (u32(offsets, 0) < tableBytes) fail('CORRUPT', `${path}: sectors overlap offset table`);
     } else if (packed !== size) fail('CORRUPT', `${path}: stored size mismatch`);
     let yielded = performance.now();
-    for (let i = 0; i < count; i++) {
+    const lanes=Math.max(1,Math.min(ASSET_LIMITS.decodeLanes,Math.floor(ASSET_LIMITS.sectorBytes/this.sectorSize)));
+    for (let i = 0; i < count; i+=lanes) {
       if(defer?.())fail('DEFERRED',`${path}: optional extraction yielded to queued assets`);
       // Resolved sector promises otherwise starve the worker's queued physics messages.
       if (performance.now() - yielded >= (defer?1:4)) {
@@ -252,14 +262,24 @@ class Archive {
         this.stats.extractionYields++;
         yielded = performance.now();
       }
-      const want = Math.min(this.sectorSize, size - i * this.sectorSize);
-      const start = offsets ? u32(offsets, i * 4) : i * this.sectorSize;
-      const end = offsets ? u32(offsets, (i + 1) * 4) : start + want;
-      if (end <= start || end > packed || end - start > want) fail('CORRUPT', `${path}: invalid sector ${i} offsets`);
-      let raw = await this.bytes(this.base + offset + start, end - start, true);
-      if (flags & ENCRYPTED) decrypt(raw, (key + i) >>> 0);
-      if (compressed) raw = await this.decode(raw, want, flags, path);
-      output.set(raw, i * this.sectorSize);
+      const pending=[];let failure;
+      try {
+        for(let sector=i;sector<Math.min(count,i+lanes);sector++){
+          const want=Math.min(this.sectorSize,size-sector*this.sectorSize);
+          const start=offsets?u32(offsets,sector*4):sector*this.sectorSize;
+          const end=offsets?u32(offsets,(sector+1)*4):start+want;
+          if(end<=start||end>packed||end-start>want)fail('CORRUPT',`${path}: invalid sector ${sector} offsets`);
+          let raw=await this.bytes(this.base+offset+start,end-start,true);
+          if(flags&ENCRYPTED)raw=decrypt(raw,(key+sector)>>>0);
+          if(compressed&&raw.length!==want){
+            pending.push(this.decode(raw,want,flags,path).then(decoded=>output.set(decoded,sector*this.sectorSize))
+              .catch(error=>{failure??=error;}));
+          } else output.set(raw,sector*this.sectorSize);
+        }
+      } catch(error){failure??=error;}
+      // Drain every started inflater before failure, cancellation or another full-asset extraction.
+      await Promise.all(pending);
+      if(failure)throw failure;
     }
     return output;
   }
@@ -278,7 +298,8 @@ export async function openDataSource(input,onProgress=()=>{}) {
     catalog = catalog.map(entry => ({ ...entry, path: entry.path.replaceAll('\\', '/').slice(root[0].length + 1) }));
   const selected = mountOrder(catalog);
   if (!selected.length) fail('INVALID_FOLDER', 'No known WoW 1.12 MPQs in this folder; select Data, not the install parent');
-  const stats = { indexBytes: 0, readBytes: 0, readCalls: 0, maxReadBytes: 0, windowBytes: 0, extractionYields: 0 };
+  const stats = { indexBytes: 0, readBytes: 0, readCalls: 0, maxReadBytes: 0, windowBytes: 0, extractionYields: 0,
+    decodeActive:0,decodeBytes:0,decodePeak:0,decodePeakBytes:0,inflateMs:0 };
   const archives = [];
   onProgress({completed:0,total:selected.length});
   for (const entry of selected) {

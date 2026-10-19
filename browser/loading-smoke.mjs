@@ -17,7 +17,19 @@ try {
   for(const url of [base,'**/world-worker.js'])await context.route(url,async route=>{
     const response=await route.fetch(),headers=response.headers();
     headers['content-security-policy']+="; worker-src 'self' blob:";
-    await route.fulfill({response,headers});
+    let body=await response.text();
+    if(url==='**/world-worker.js')body+=`
+      for(const name of ['add_tile','tile_placements','geometry']){
+        const original=Voyage.prototype[name];
+        Voyage.prototype[name]=function(...args){
+          const start=performance.now()+performance.timeOrigin;
+          try{return original.apply(this,args);}
+          finally{postMessage({event:'load-trace',kind:'terrain-parse',action:name,index:args[0],
+            start,end:performance.now()+performance.timeOrigin});}
+        };
+      }
+    `;
+    await route.fulfill({response,headers,body});
   });
   const assetUrl=new URL('./asset-worker.js',base);
   let assetBody=await (await fetch(assetUrl)).text();

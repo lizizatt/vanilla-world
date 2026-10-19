@@ -77,6 +77,57 @@ about 585 yards / 6.06 active seconds. One cold/warm startup pair measured
 The screen alone is not a loading-speed improvement; it waits for actual
 collision and rendered support instead of exposing an unfinished world.
 
+### Bounded loading overlap
+
+Startup now overlaps required near terrain/collision work with horizon
+publication. On browsers supporting background `scheduler.postTask`, horizon
+batches yield without the repeated zero-delay timer clamp. Fallback browsers
+keep the prior timer yield. All horizon patches, eight near tiles and 24 far
+tiles retain their existing budgets and readiness rules.
+
+The single archive owner also overlaps **two sector inflaters** within one
+full-asset extraction, retaining the single MPQ index and read window.
+Combined sector output stays within 1 MiB; required requests still preempt
+optional work between batches, and failed/cancelled batches drain before the
+next asset. This is not two independent full-asset/texture decoding workers.
+Shell cache v32 includes these changes.
+
+The isolated Edge cold/warm audit found:
+
+| Path | Measured serialization and decision |
+| --- | --- |
+| Archives/topology | One index mount and ordered topology reads retained. Baseline open 426/300 ms and topology 150/166 ms; final sample 122/109 ms and 101/93 ms. Cache/host variation also affects these figures. |
+| Horizon/near terrain | Baseline horizon publication occupied about 2.3 seconds before the first ADT request. The optimized timeline requests the ADT during publication; publication took 165/94 ms in that sample. |
+| MPQ sectors | Real overlap peaked at two inflaters / 8192 declared output bytes; archive index remained 13,089,776 bytes and read window 1 MiB. |
+| Textures | Decode/mip construction remains serialized in the asset worker. Largest observed texture stage was 11.5/12.3 ms; another Wasm/index owner is not added. |
+| Models/WMO and terrain parsing | Admissions remain serialized on their owning near/far workers to preserve collision and residency ownership. Startup/early-streaming ADT admissions still reached 31.5/31.7 ms in a follow-up trace. |
+| Water/far work | Existing independent consumers retain one staged read each, background priority and bounded transfers. At twelve seconds after first motion, cold water loads increased from 47 to 100 and far residency from 20 to 24. |
+| IndexedDB | One shared connection and asynchronous per-record transactions retained. Largest sampled completion wait was 11.3/14.0 ms, not synchronous main-thread work. |
+
+Across two optimized cold/warm pairs, first motion was **1.04-1.36 seconds
+cold / 0.96-1.13 seconds warm**, versus baseline **3.88/4.14 seconds**.
+The last pair included additional terrain-parse tracing. These are bounded
+shared-host samples, not OS-cold disk benchmarks. The twelve-second samples
+held 25.3/27.5 MB of near scene data and 9.6/10.0 MB of far scene data, with
+48.5/59.4 MB of sampled main JS heap; these are not total process peaks.
+Near/far Wasm high-water samples were 87.6/12.9 MB (cold); source Wasm stayed
+1.9 MB. More already-loaded scenery uses more of the unchanged resident budgets.
+
+Final two-lane 150/300 equal-path gate against fully pinned `24db173`:
+**p99 5.1/4.8 ms**, zero moving >50 ms tails and no loading holds over about
+585 yards / 6.06 active seconds. Baseline p99 was **4.6/4.3 ms**:
+the approximately **0.5 ms regression was explicitly accepted** under the
+20 ms p99 target, rather than represented as a strict no-regression pass.
+Four inflaters were rejected after a larger relative p99 regression.
+Maximum active handlers were 15.9/23.1 ms; selection including preparation
+21.6/12.7 ms and active terrain admission 7.4/13.5 ms. This does not promise
+every task under 20 ms or eliminate all serial loading/pop-in.
+
+236 JavaScript tests, 77-file native/Node/Edge byte parity, loading/error checks
+and v31-to-v32 offline upgrade passed. `ASSET_PORT=4183` selects the isolated
+port for `asset-smoke.mjs`. Private timelines, the rejected four-lane comparison,
+and the explicitly accepted two-lane gate remain under `test-results`.
+
 You start on actual raceway terrain in `Kalimdor_39_43.adt`, in Thousand Needles.
 The spawn height comes from the ADT, not a guessed sea-level floor.
 
