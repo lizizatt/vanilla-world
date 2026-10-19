@@ -26,6 +26,42 @@ function startCraft() {
 let resident=new Set(),failures=new Map(),loads=0,evictions=0,peak=0,horizon;
 let terrainRead;
 let detailPending,detailBusy=false;
+const geometryPending=new Set(),geometryRemoved=new Set();
+let geometryJob,geometryRevision=0,geometryDirty=false;
+function queueGeometry(tiles,removed) {
+  for(const index of removed){geometryPending.delete(index);geometryRemoved.add(index);}
+  for(const tile of tiles)geometryPending.add(tile.index);
+  geometryRevision++;geometryDirty=true;flushGeometry();
+}
+function flushGeometry() {
+  if(geometryJob||!geometryDirty||scenePumpError)return;
+  const job={},revision=geometryRevision,owner=source;
+  geometryJob=job;
+  const steps=(function*(){
+    const tiles=[],seams=[];
+    for(const index of geometryPending){
+      tiles.push({index,placement:placements[index],vertices:world.geometry(index)});yield;
+    }
+    for(const index of resident){seams.push({index,vertices:world.horizon_seams(index)});yield;}
+    return {event:'detail',tiles,removed:[...geometryRemoved],seams};
+  })();
+  void(async()=>{
+    for(;;){
+      if(globalThis.scheduler?.postTask)await scheduler.postTask(()=>{},{priority:'background'});
+      else await new Promise(resolve=>setTimeout(resolve,0));
+      if(geometryJob!==job||source!==owner||geometryRevision!==revision||scenePumpError)return;
+      const start=performance.now(),result=steps.next(),elapsed=performance.now()-start;
+      timings.geometrySliceMs+=elapsed;timings.geometrySliceMax=Math.max(timings.geometrySliceMax,elapsed);
+      if(result.done){
+        sendDetail(result.value);
+        geometryPending.clear();geometryRemoved.clear();geometryDirty=false;
+        return;
+      }
+    }
+  })().catch(error=>{if(geometryJob===job&&source===owner)sceneFault(error);}).finally(()=>{
+    if(geometryJob===job){geometryJob=undefined;flushGeometry();}
+  });
+}
 function sendDetail(data) {
   if(!source.prepareDetail){postMessage(data,[...data.tiles,...data.seams].map(t=>t.vertices.buffer));return;}
   detailPending??={tiles:new Map(),removed:new Set()};
@@ -65,6 +101,7 @@ let collisionToken=0,collisionParts=new Set();
 let collisionFocus;
 const collisionInstances=new Map();
 const timings={frames:0,totalMs:0,maxMs:0,terrainMs:0,sceneMs:0,selectionMs:0,snapshotMs:0,
+  geometrySliceMs:0,geometrySliceMax:0,
   physicsMs:0,cameraUnknownMs:0,postMs:0,postFrameMs:0,scenePostMs:0,scenePosts:0,sceneInstancePosts:0,collisionBuildMs:0,collisionBuilds:0};
 let far,farFocus,farUpdated=0,farFlight=false;
 function startFarWorker() {
@@ -159,7 +196,7 @@ async function stream(p,pin,fill=false) {
       world.add_tile(index,bytes);
       scene.setTile(tileKey(index),bytes,world.tile_placements(index,bytes));
       sceneFocus=undefined;
-      const vertices=world.geometry(index);
+      const vertices=postFrameVisuals?undefined:world.geometry(index);
       resident.add(index);loads++;peak=Math.max(peak,resident.size);
       tiles.push({index,placement:placements[index],vertices});
       terrainMaterials.add(index);
@@ -173,8 +210,11 @@ async function stream(p,pin,fill=false) {
     }
   }
   if(tiles.length || removed.length) {
-    const seams=Array.from(resident,index=>({index,vertices:world.horizon_seams(index)}));
-    sendDetail({event:'detail',tiles,removed,seams});
+    if(postFrameVisuals)queueGeometry(tiles,removed);
+    else {
+      const seams=Array.from(resident,index=>({index,vertices:world.horizon_seams(index)}));
+      sendDetail({event:'detail',tiles,removed,seams});
+    }
     report(failures.size?`${failures.size} unavailable terrain tiles; retry after correcting access/data.`:`Detailed terrain ready: ${resident.size}/${LIMIT} tiles.`);
   }
 }
@@ -539,6 +579,8 @@ async function handle(message) {
     water?.clear();
     terrainRead=undefined;
     detailPending=undefined;detailBusy=false;
+    geometryJob=undefined;geometryRevision++;geometryDirty=false;
+    geometryPending.clear();geometryRemoved.clear();
     poseTime=undefined;
     hopConsumed=0;
     terrainMaterials.clear();
@@ -625,6 +667,7 @@ async function handle(message) {
     world.initialize_spawn();accumulator=0;poseTime=undefined;
   } else if(message.action==='retry') {
     scenePumpError=undefined;sceneSubmissionPending=true;
+    flushGeometry();
     failures.clear();scene.retry();water?.retry();
     if(far.active)far.retry();else startFarWorker();
     if(craft.error)craft={ready:false,pending:false};

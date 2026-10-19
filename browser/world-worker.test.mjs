@@ -70,7 +70,7 @@ test('detail preprocessing never blocks physics and coalesces at most one pendin
 });
 function fixture(xs=[0,1,20,21]) {
   const reads=[],added=[],materials=[],pending=new Map(),required=[0];
-  const context=boot();
+  const events=[],context=boot(events);
   context.dependencies={
     world:{required_tiles:()=>required,add_tile:i=>added.push(i),remove_tile(){},
       geometry:()=>new Float32Array(),horizon_seams:()=>new Float32Array(),terrain_material:i=>{materials.push(i);return {};},
@@ -90,9 +90,70 @@ function fixture(xs=[0,1,20,21]) {
     globalThis.streamTerrain=stream;
     globalThis.visuals=()=>startOptionalWork({});
     globalThis.state=()=>({resident:[...resident],failures:[...failures.values()]});`,context);
-  return {reads,added,materials,required,pending,stream:context.streamTerrain,visuals:context.visuals,
+  return {context,events,reads,added,materials,required,pending,stream:context.streamTerrain,visuals:context.visuals,
     state:()=>JSON.parse(JSON.stringify(context.state()))};
 }
+
+test('terrain collision admission completes before separately yielded render geometry and seams',async()=>{
+  const f=fixture([0,1]),work=[];
+  f.context.dependencies.world.geometry=i=>{work.push(`geometry:${i}`);return new Float32Array();};
+  f.context.dependencies.world.horizon_seams=i=>{work.push(`seam:${i}`);return new Float32Array();};
+  runInContext('postFrameVisuals=true;',f.context);
+  await f.stream([0,0],true);f.pending.get(1).resolve(new Uint8Array([1]));await settle();
+  await f.stream([0,0],true);
+  assert.deepEqual(f.added,[1]);assert.deepEqual(f.state().resident,[0,1]);
+  assert.deepEqual(work,[],'Visual extraction cannot extend synchronous terrain admission');
+  for(let i=0;i<3;i++){
+    await f.context.fireTimer();assert.equal(work.length,i+1);
+    assert.equal(f.events.filter(e=>e.event==='detail').length,0,'Partial seam sets cannot publish');
+  }
+  await f.context.fireTimer();
+  assert.deepEqual(work,['geometry:1','seam:0','seam:1']);
+  const detail=f.events.find(e=>e.event==='detail');
+  assert.deepEqual(Array.from(detail.tiles,t=>t.index),[1]);
+  assert.deepEqual(Array.from(detail.seams,t=>t.index),[0,1]);
+});
+
+test('residency changes discard incomplete geometry and publish only a coherent replacement',async()=>{
+  const f=fixture([0,1]);let version=1;
+  f.context.dependencies.world.geometry=()=>new Float32Array([version]);
+  runInContext('postFrameVisuals=true;',f.context);
+  await f.stream([0,0],true);f.pending.get(1).resolve(new Uint8Array([1]));await settle();
+  await f.stream([0,0],true);await f.context.fireTimer();
+  version=2;
+  runInContext('resident.delete(1);queueGeometry([],[1]);resident.add(1);queueGeometry([{index:1}],[]);',f.context);
+  while(f.context.timers.size)await f.context.fireTimer();
+  const details=f.events.filter(e=>e.event==='detail');assert.equal(details.length,1);
+  assert.deepEqual(Array.from(details[0].tiles[0].vertices),[2]);
+  assert.deepEqual(Array.from(details[0].removed),[1]);
+  assert.deepEqual(Array.from(details[0].seams,t=>t.index),[0,1]);
+});
+
+test('deferred geometry errors are explicit and do not enter an automatic retry loop',async()=>{
+  const f=fixture([0,1]);
+  f.context.dependencies.world.geometry=()=>{throw Error('Broken render geometry');};
+  runInContext('postFrameVisuals=true;',f.context);
+  await f.stream([0,0],true);f.pending.get(1).resolve(new Uint8Array([1]));await settle();
+  await f.stream([0,0],true);await f.context.fireTimer();
+  assert.match(f.events.find(e=>e.event==='world-error').error,/Broken render geometry/);
+  assert.equal(f.context.timers.size,0);
+  f.context.dependencies.world.geometry=()=>new Float32Array();
+  runInContext('scenePumpError=undefined;flushGeometry();',f.context);
+  while(f.context.timers.size)await f.context.fireTimer();
+  assert.equal(f.events.filter(e=>e.event==='detail').length,1);
+});
+
+test('source replacement discards an outstanding render geometry job',async()=>{
+  const f=fixture([0,1]);
+  f.context.dependencies.terrain.clear=()=>{};f.context.dependencies.source.close=()=>{};
+  f.context.openAssetSource=async()=>{throw Error('Source replacement stopped');};
+  runInContext('postFrameVisuals=true;',f.context);
+  await f.stream([0,0],true);f.pending.get(1).resolve(new Uint8Array([1]));await settle();
+  await f.stream([0,0],true);
+  await assert.rejects(runInContext("handle({action:'open',postFrameVisuals:true})",f.context),/Source replacement stopped/);
+  while(f.context.timers.size)await f.context.fireTimer();
+  assert.equal(f.events.filter(e=>e.event==='detail').length,0);
+});
 
 test('slow optional ADT read does not block frames, duplicate reads, or admit terrain asynchronously',async()=>{
   const f=fixture();

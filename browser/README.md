@@ -621,8 +621,42 @@ Tracked GPU allocation peaks are 225.6/266.3 MiB; isolated Edge dedicated
 residency samples are 415.5/476.6 MiB plus 97.9 MiB shared. These are not total
 process peaks. Evidence is under ignored `test-results/scenery/async-followup-memory`;
 failed driving captures remain retained. Cold coastal onset, the tan strip and
-strict all-world hitch acceptance remain open. The protected 4173 server/page
-and user saves/settings have not been changed.
+strict all-world hitch acceptance remain open. The 4173 server process has not
+been restarted, and no user page or saved state was altered.
+
+#### Step 1: yielded terrain geometry and seams (uncommitted)
+
+After local checkpoint `2731640`, render geometry and horizon seams are extracted
+one tile per background turn, rather than during terrain collision admission.
+One active extraction job retains at most the eight resident tiles; pending
+indices/removals coalesce. Residency changes discard an incomplete seam set and
+restart against the current revision. Source replacement cancels old jobs.
+Only a complete consistent batch enters the existing source-worker detail
+preprocessing queue. Errors remain explicit and do not retry automatically.
+`add_tile`, placement metadata and collision readiness still complete before physics.
+
+Both-order `scenery-async-geometry-*` captures against `31fd878` cover
+585.2--585.5 yards and 6.08--6.10 active seconds with the same 150/300 settings:
+
+| Step 1 equal-path result | Forward baseline / step 1 | Reverse baseline / step 1 |
+| --- | ---: | ---: |
+| Active handler p99 (ms) | 20.6 / 10.0 | 19.8 / 9.5 |
+| Moving stalls over 50 ms | 1 / **1** | 1 / 0 |
+| Worst step-1 selection (ms) | 13.0 | 21.7 |
+| Worst step-1 terrain admission (ms) | 15.2 | 10.3 |
+
+The **combined gate still fails**: the forward moving stall is 55.7 ms.
+Its 55.2 ms handler has no corresponding increase in timed selection, geometry,
+admission or physics stages, so it must not be attributed to those stages
+without further instrumentation. Full-capture visual selection slices peaked
+at 19.9/18.3 ms; cumulative render-geometry slice maxima through the matched
+endpoints were 18.9/19.8 ms. The reverse 21.7 ms synchronous selection also
+remains above the requested worst-case target. Full-run object holds were
+0/0 forward and 1 (254.5 ms)/0 reverse; terrain holds were zero.
+
+Step 1 passes 221 JavaScript tests and isolated forest/city, memory and transition
+checks. It is not committed or released; step 2 (an incremental collision
+candidate index) has not started.
 
 `scenery-smoke.mjs` records staged forest/city pixels, demand, all three worker heaps,
 tracked GPU allocations and Windows GPU-process residency. Sample waits use
