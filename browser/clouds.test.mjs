@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {CLOUD_ALTITUDE,CLOUD_ALTITUDE_FACTOR,HYJAL_SUMMIT,MAELSTROM,cloudShader,cloudUniform,maelstromCentre} from './clouds.js';
+import {CLOUD_ALTITUDE,CLOUD_ALTITUDE_FACTOR,HYJAL_SUMMIT,MAELSTROM,FUNNEL,cloudShader,cloudUniform,funnelShader,maelstromCentre} from './clouds.js';
 
 const manifest={ocean:[5333,-17600,13525,17066],world_bounds:[[0,0,51,56],[24,20,45,62]],
   regions:[{placement:[-21866,-17600]},{placement:[725,-16000]}]};
@@ -27,4 +27,9 @@ test('game cloud and fog colours ride in the spare uniform slots',()=>{
   const u=cloudUniform(view,0,1,manifest,0,{cloud:[.1,.2,.3],fog:[.4,.5,.6]});
   assert.equal(u[27],1);assert.ok(Math.abs(u[28]-.4)<1e-6);
   assert.equal(cloudUniform(view,0,1,manifest,0)[27],0);
+});
+
+test('funnel rises far above the sheet, tapers wider upward and shares the cloud depth bindings',()=>{
+  assert.ok(FUNNEL.top>5*520);assert.ok(FUNNEL.topRadius>FUNNEL.baseRadius);
+  assert.match(funnelShader,/sceneDepth:texture_depth_2d/);assert.match(funnelShader,/atan2\(-d\.y,d\.x\)/);
 });

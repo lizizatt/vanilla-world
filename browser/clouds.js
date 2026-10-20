@@ -27,11 +27,19 @@ export function cloudUniform(view,time,daylight,manifest,near,game,out=new Float
   return out;
 }
 
-const M=MAELSTROM;
-export const cloudShader=`
+// Funnel: a tapered, rotating column rising far above the sheet at the maelstrom centre (yards). Tunable.
+export const FUNNEL={top:7500,baseRadius:500,topRadius:3200,flare:1.5,spin:.5,twist:5,fadeStart:90000,fadeEnd:170000};
+const COMMON=`
 struct C {eye:vec4f,right:vec4f,up:vec4f,look:vec4f,cloud:vec4f,near:vec4f,tint:vec4f,fog:vec4f};
 @group(0) @binding(0) var<uniform> c:C;
 @group(0) @binding(1) var sceneDepth:texture_depth_2d;
+fn hash(p:vec2f)->f32 {return fract(sin(dot(p,vec2f(127.1,311.7)))*43758.5453);}
+fn vnoise(p:vec2f)->f32 {
+  let i=floor(p);let f=fract(p);let s=f*f*(3.0-2.0*f);
+  return mix(mix(hash(i),hash(i+vec2f(1,0)),s.x),mix(hash(i+vec2f(0,1)),hash(i+vec2f(1,1)),s.x),s.y);
+}`;
+const M=MAELSTROM;
+export const cloudShader=COMMON+`
 struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f};
 @vertex fn vs(@builtin(vertex_index) i:u32)->V {
   var q=array<vec2f,6>(vec2f(-1,-1),vec2f(1,-1),vec2f(1,1),vec2f(-1,-1),vec2f(1,1),vec2f(-1,1));
@@ -40,11 +48,6 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f};
   var v:V;v.clip=vec4f(dot(relative,c.right.xyz)/(0.55*c.right.w),dot(relative,c.up.xyz)/0.55,
     (z*.999-c.near.x)*c.eye.w/(c.eye.w-c.near.x),z);
   v.p=position;return v;
-}
-fn hash(p:vec2f)->f32 {return fract(sin(dot(p,vec2f(127.1,311.7)))*43758.5453);}
-fn vnoise(p:vec2f)->f32 {
-  let i=floor(p);let f=fract(p);let s=f*f*(3.0-2.0*f);
-  return mix(mix(hash(i),hash(i+vec2f(1,0)),s.x),mix(hash(i+vec2f(0,1)),hash(i+vec2f(1,1)),s.x),s.y);
 }
 const THICK=${CLOUD_THICKNESS.toFixed(1)};
 fn density(pos:vec3f,t:f32)->vec2f {
@@ -104,4 +107,71 @@ fn density(pos:vec3f,t:f32)->vec2f {
   let fog=select(mix(vec3f(.08,.15,.20),vec3f(.008,.016,.045),night),c.fog.rgb,game);
   let color=light/max(1.0-trans,.001)*grade;
   return vec4f(mix(color,fog,clamp(dist/150000.0,0.0,.93)),alpha);
+}`;
+
+const F=FUNNEL;
+export const funnelShader=COMMON+`
+struct V {@builtin(position) clip:vec4f,@location(0) ndc:vec2f};
+@vertex fn vs(@builtin(vertex_index) i:u32)->V {
+  var q=array<vec2f,3>(vec2f(-1,-1),vec2f(3,-1),vec2f(-1,3));
+  var v:V;v.clip=vec4f(q[i],0.5,1);v.ndc=q[i];return v;
+}
+const BASE=${(CLOUD_ALTITUDE-CLOUD_THICKNESS*.5).toFixed(1)};
+const TOP=${(CLOUD_ALTITUDE+F.top).toFixed(1)};
+fn radius(h:f32)->f32 {return mix(${F.baseRadius.toFixed(1)},${F.topRadius.toFixed(1)},pow(h,${F.flare.toFixed(2)}));}
+fn density(pos:vec3f,t:f32)->vec2f {
+  let h=clamp((pos.y-BASE)/(TOP-BASE),0.0,1.0);
+  let d=pos.xz-c.cloud.xy;let r=length(d);
+  let rel=r/radius(h);
+  // North is -z, so the swirl turns counter-clockwise on the map like the maelstrom arms.
+  let a=atan2(-d.y,d.x)+${F.twist.toFixed(2)}*h-t*${F.spin.toFixed(2)};
+  let n=.6*vnoise(vec2f(cos(a),sin(a))*2.6+vec2f(h*9.0,rel*3.0))+.4*vnoise(vec2f(cos(a*2.0),sin(a*2.0))*4.0+vec2f(h*23.0-t*.3,rel*6.0));
+  let shell=smoothstep(1.05,.55,rel)*(.5+.9*n);
+  let body=shell*smoothstep(0.0,.06,h)*smoothstep(1.0,.82,h);
+  return vec2f(body,h);
+}
+@fragment fn fs(v:V)->@location(0) vec4f {
+  let t=c.up.w;let night=1.0-c.look.w;
+  let dir=normalize(c.look.xyz+c.right.xyz*v.ndc.x*.55*c.right.w+c.up.xyz*v.ndc.y*.55);
+  let o=c.eye.xz-c.cloud.xy;let dxz=dir.xz;
+  let R=${F.topRadius.toFixed(1)}*1.05;
+  let a=dot(dxz,dxz);let b=dot(o,dxz);let k=dot(o,o)-R*R;
+  var t0=0.0;var t1=1e9;
+  if(a>1e-8){
+    let disc=b*b-a*k;if(disc<0.0){discard;}
+    let sq=sqrt(disc);t0=max(0.0,(-b-sq)/a);t1=(-b+sq)/a;
+  } else if(k>0.0){discard;}
+  if(abs(dir.y)>1e-4){
+    let ta=(BASE-c.eye.y)/dir.y;let tb=(TOP-c.eye.y)/dir.y;
+    t0=max(t0,min(ta,tb));t1=min(t1,max(ta,tb));
+  } else if(c.eye.y<BASE||c.eye.y>TOP){discard;}
+  if(t1<=t0){discard;}
+  var edge=1.0;
+  let d=textureLoad(sceneDepth,vec2i(v.clip.xy),0);
+  if(d<1.0){
+    let sceneDist=c.near.x*c.eye.w/(c.eye.w-d*(c.eye.w-c.near.x))/max(dot(dir,c.look.xyz),.05);
+    edge=smoothstep(0.0,300.0,sceneDist-t0);
+    t1=min(t1,sceneDist);
+  }
+  if(t1<=t0||edge<=0.0){discard;}
+  let step=(t1-t0)/12.0;
+  var trans=1.0;var light=vec3f(0);
+  let jitter=.3*hash(v.clip.xy);
+  for(var i=0;i<12;i++){
+    let pos=c.eye.xyz+dir*(t0+step*(f32(i)+jitter));
+    let s=density(pos,t);
+    if(s.x<=.001){continue;}
+    let absorb=1.0-exp(-s.x*step*.004);
+    let lit=mix(.32,1.0,pow(s.y,.7))*(.6+.4*trans);
+    let tone=mix(vec3f(.5,.52,.6),vec3f(.98,.96,.94),lit)*lit+vec3f(.2,.08,.06)*(1.0-s.y)*lit;
+    light+=trans*absorb*tone;trans*=1.0-absorb;
+  }
+  let dist=length(c.eye.xyz-vec3f(c.cloud.x,(BASE+TOP)*.5,c.cloud.y));
+  let alpha=(1.0-trans)*(1.0-smoothstep(${F.fadeStart.toFixed(1)},${F.fadeEnd.toFixed(1)},dist))*.95*edge;
+  if(alpha<.01){discard;}
+  let game=c.tint.w>.5;
+  let grade=select(mix(vec3f(1.0),vec3f(.2,.27,.5),night),mix(vec3f(1.0),c.tint.rgb,.6),game);
+  let fog=select(mix(vec3f(.08,.15,.20),vec3f(.008,.016,.045),night),c.fog.rgb,game);
+  let color=light/max(1.0-trans,.001)*grade;
+  return vec4f(mix(color,fog,clamp(dist/200000.0,0.0,.9)),alpha);
 }`;
