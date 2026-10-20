@@ -12,6 +12,7 @@ export class WorldClient {
   }
   stopLoadingArt(){this.worker?.postMessage({action:'stop-loading-art'});}
   sky(){this.worker?.postMessage({action:'sky'});}
+  worldmap(names){this.worker?.postMessage({action:'worldmap',names});}
   music(fields){this.worker?.postMessage({action:'music',...fields});}
   request(action,fields={}) {
     if(!this.worker) return Promise.reject(new Error('Select the local Data folder first.'));

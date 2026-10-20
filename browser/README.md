@@ -243,6 +243,22 @@ filtered pack) recorded zero moving freezes over 25 ms (worst main-thread work
 no isolated cause, no speculative fix was made; the earlier tails coincided
 with `VIDEO=1` capture on a shared host. Re-open if a trace shows one.
 
+## World map (M)
+
+`M` toggles a fullscreen `<dialog>` map (Esc, `M` or Close dismisses it; input is paused while open, focus returns to
+the canvas). Art is read at runtime from the user's Data and kept in memory only: `DBFilesClient\WorldMapArea.dbc`
+(area 0 rows give each continent's WoW bounds: field 1 map, 2 area, 3 name, 4 left, 5 right, 6 top, 7 bottom) and
+`Interface\WorldMap\<Continent>\<Continent>1..12.blp`, stitched 4x3 from 256 px tiles by the existing BLP decoder. If
+any file is missing the map falls back to a schematic drawn from the manifest horizon bounds, so it is never blank.
+
+Coordinates: the map is drawn in the client's render space, because both continents share one provisional space with
+the Maelstrom in the gap between them. A region's WoW origin sits at `K = placement + (32 - tile_origin) * 1600/3`; render
+`x = Kx - wowY`, `z = Kz - wowX` (east is +x, north is -z), so a continent image occupies
+`[Kx-left, Kz-top, Kx-right, Kz-bottom]`. `toMap`/`fromMap` convert render yards to 0..1 frame fractions. The two
+icons are the default spawn (the Steamwheedle raceway, via the existing `reset` path) and the Maelstrom centre
+(`maelstromCentre`, via `restore` at +400 yd over the sea). Click, Enter or Space teleports and closes the map. The
+blue arrow is the live position and heading. Continent images overlap where the provisional layout does; this is expected.
+
 ## Runtime zone music
 
 Zone music is read from the user's Data at runtime and never persisted. The

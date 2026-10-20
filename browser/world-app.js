@@ -9,6 +9,7 @@ import {TUNING_FIELDS,validateTuningRecord} from './world-tuning.js';
 import {CameraCollision} from './camera-collision.js';
 import {LoadingArt} from './loading-art.js';
 import {MusicPlayer} from './world-music.js';
+import {MapPanel} from './map-panel.js';
 
 const $=id=>document.getElementById(id),canvas=$('world'),keys=new Set();
 const input=new WorldInput(),audio=new WorldAudio();
@@ -49,6 +50,15 @@ function fail(error) {
   const message=error.message || String(error);
   console.error(error);evidence.errors.push(message);$('error').textContent=message;$('error').hidden=false;
 }
+const mapPanel=new MapPanel({dialog:$('map-panel'),canvas:$('map-canvas'),stage:$('map-stage'),status:$('map-status'),close:$('map-close')},{
+  requestArt:names=>client.worldmap(names),pose:()=>client.state?.telemetry,
+  teleport:icon=>operation(async()=>{
+    flight=undefined;client.state=await client.request(icon.reset?'reset':'restore',icon.reset?undefined:{pose:icon.pose});
+    renderer.camera=undefined;running=true;$('error').hidden=true;report(`Teleported to ${icon.label}.`,true);
+  }),
+});
+mapPanel.dialog.addEventListener('close',()=>{keys.clear();dragging=false;mouseButtons=0;canvas.focus();});
+mapPanel.dialog.addEventListener('keydown',event=>{if(event.code==='KeyM'&&!event.repeat){event.preventDefault();mapPanel.toggle();}});
 const music=new MusicPlayer({request:fields=>client.music(fields),context:()=>audio.context});
 const client=new WorldClient(data=>{
   try {
@@ -57,6 +67,7 @@ const client=new WorldClient(data=>{
     else if(data.event==='music')music.event(data);
     else if(data.event==='sky')renderer.setSky(data);
     else if(data.event==='sky-dome')renderer.setSkyDome(data);
+    else if(data.event==='worldmap'||data.event==='worldmap-tiles')mapPanel.event(data);
     else if(data.event==='loading-art')loadingArt.event(data);
     else if(data.event==='loading-art-warning'){
       console.warn(data.message);
@@ -158,7 +169,7 @@ async function open(selection,remember=false) {
     const loadingMap=renderer.manifest?.regions[renderer.sceneRegion]?.map;
     renderer.reset();renderer.clipCamera=undefined;cameraCollision.reset();flight=undefined;pauseAudio();music.stop();Object.assign(settings,defaults);syncSettings();
     const result=await client.open(selection,loadingMap);
-    renderer.configure(result.info.manifest);client.sky();
+    renderer.configure(result.info.manifest);client.sky();mapPanel.configure(result.info.manifest);
     cameraCollision.configure(result.info.manifest);
     tuningValues=Array.isArray(result.info.tuning)?result.info.tuning.slice():TUNING_FIELDS.map(f=>f[1]);
     opened=true;
@@ -300,6 +311,7 @@ $('tuning-close').addEventListener('click',()=>$('tuning-panel').close());
 $('tuning-panel').addEventListener('close',()=>{keys.clear();canvas.focus();});
 canvas.addEventListener('keydown',event=>{
   if(!event.repeat && event.code==='KeyN' && !event.ctrlKey && !event.altKey && !event.metaKey)setNight(!settings.night);
+  if(!event.repeat && event.code==='KeyM' && !event.ctrlKey && !event.altKey && !event.metaKey && running){event.preventDefault();keys.clear();dragging=false;mouseButtons=0;mapPanel.toggle();}
   if(DRIVE_KEYS.has(event.code)) {
     event.preventDefault();keys.add(event.code);if(!event.repeat)input.keyboard();
     if(!event.repeat && event.code==='F9')$('reset').click();
@@ -332,7 +344,7 @@ function frame(now) {
     return;
   }
   try {
-    const focused=document.hasFocus(),editing=$('tuning-panel').open;
+    const focused=document.hasFocus(),editing=$('tuning-panel').open||mapPanel.open;
     const accepts=document.activeElement===canvas && focused && !editing;
     const controls={...input.sample(keys,testPads || Array.from(navigator.getGamepads?.() || []),accepts,settings.controls,!focused||!editing)};
     if(controls.reset)$('reset').click();
