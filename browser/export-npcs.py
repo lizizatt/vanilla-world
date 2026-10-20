@@ -12,7 +12,7 @@ def rows(path):
     with path.open(encoding="utf-8-sig") as source:
         for line in source:
             if line.startswith("INSERT INTO "):
-                match = re.match(r"INSERT INTO `(creature|creature_template)` \((.+)\) VALUES\s*$", line)
+                match = re.match(r"INSERT INTO `(creature|creature_template|game_event|game_event_creature)` \((.+)\) VALUES\s*$", line)
                 table = match[1] if match else None
                 columns = re.findall(r"`([^`]+)`", match[2]) if match else None
             elif table and line.lstrip().startswith("("):
@@ -28,15 +28,28 @@ def rows(path):
 
 
 def export(path):
-    templates, spawns = {}, []
+    templates, spawns, events, memberships = {}, [], {}, {}
     for table, row in rows(path):
         if table == "creature_template":
             entry, patch = int(row["entry"]), int(row["patch"])
             if patch <= 10 and (entry not in templates or patch > int(templates[entry]["patch"])):
                 templates[entry] = row
-        elif int(row["map"]) in (0, 1) and int(row["patch_min"]) <= 10 <= int(row["patch_max"]):
+        elif table == "game_event":
+            entry = int(row["entry"])
+            minimum, maximum = int(row["patch_min"]), int(row["patch_max"])
+            if not 0 <= minimum <= maximum <= 10:
+                raise ValueError(f"Invalid event patch range for event {entry}")
+            events[entry] = not int(row["disabled"]) and minimum <= 10 <= maximum
+        elif table == "game_event_creature":
+            memberships.setdefault(int(row["guid"]), set()).add(int(row["event"]))
+        elif table == "creature" and int(row["map"]) in (0, 1) and int(row["patch_min"]) <= 10 <= int(row["patch_max"]):
             spawns.append(row)
+    for linked in memberships.values():
+        for event in linked:
+            if not event or abs(event) not in events:
+                raise ValueError(f"Unknown creature event reference {event}")
     output, missing = [], 0
+    filtered = {"inactiveEvents": 0, "disabledOrInvisible": 0}
     for row in spawns:
         # A server may randomize these alternatives; the offline snapshot chooses the first authored one.
         entry = next((int(row[key]) for key in ("id", "id2", "id3", "id4") if int(row[key])), 0)
@@ -47,6 +60,14 @@ def export(path):
         display = next((i for i in range(1, 5) if int(template[f"display_id{i}"])), None)
         if display is None:
             missing += 1
+            continue
+        if int(row["spawn_flags"]) & (0x02 | 0x40):  # DISABLED | NOT_VISIBLE
+            filtered["disabledOrInvisible"] += 1
+            continue
+        linked = memberships.get(int(row["guid"]), set())
+        # Negative membership makes a spawn eligible while that event is inactive.
+        if linked and all(event > 0 and not events[event] for event in linked):
+            filtered["inactiveEvents"] += 1
             continue
         output.append({
             "id": int(row["guid"]), "entry": entry, "map": int(row["map"]),
@@ -67,7 +88,9 @@ def export(path):
         "provenance": {
             "source": path.name, "sha256": digest, "redistribution": "private-local-only",
             "kind": "offline-vmangos-snapshot", "patch": 10,
-            "limitations": "Static authored placements; first template/display alternative; no event/pool scheduling, movement, equipment or live state",
+            "visibility": "Exclude disabled/invisible spawns and positive-only memberships whose events are all disabled or patch-ineligible; preserve negative memberships and ordinary pools",
+            "filteredSpawns": filtered,
+            "limitations": "Static authored placements; first template/display alternative; no calendar/hardcoded event or pool scheduling, aura/script visibility, movement, equipment or live state",
             "unresolvedTemplates": missing,
         },
         "spawns": output,

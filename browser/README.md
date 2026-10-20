@@ -1102,9 +1102,29 @@ Client Data contains appearances, **not spawn coordinates**. This installation
 can serve a private companion at `runtime\browser\npc-spawns.json` through the
 single `/local/npc-spawns.json` loopback URL. That ignored artifact was generated
 from the user's offline 2021 world SQL snapshot and includes provenance.
-It contains 53,453 static overworld spawns and 5,537 resolved display definitions.
+The original pack contains 53,453 static overworld spawns and 5,537 resolved display definitions.
 Do not commit, upload or redistribute it. See [SCENE.md](SCENE.md) for the optional
 private export commands and schema.
+
+The conservative patch-10 exporter filter produces **51,561** spawns from the
+same snapshot: 1,500 explicitly disabled-event members, 389 additional
+patch-ineligible-event members, one disabled spawn and two explicitly invisible
+spawns are excluded. Negative event memberships and ordinary pools are retained;
+pool flags zero do not mean default-off. This is not live event/pool scheduling
+or aura/script visibility. Existing private packs are unchanged until re-exported.
+
+Within 500 yards of the authored Anachronos gate location, the count falls from
+186 to **137**; `Kalimdor_29_47` falls from 32 to **11**. The 49 removed AQ units
+belong to events 61/65, both authored for patches 7--7, not patch 10. Eligible
+post-event 86 and normal fauna remain. The SQL-derived source population was
+checked against every GUID in the original pack; no live database was accessed.
+
+The `npc-visibility` isolated both-order gate loads a separate 51,561-spawn,
+5,434-display candidate without replacing the served private pack. At the common
+585-yard segment (over six active seconds), handler p99 is **3.3/4.6 ms**
+(baseline 10.6/3.5), moving >50 ms tails **0/0**, worst active selection
+**6.7/8.9 ms**, and active terrain admission **6.6/1.4 ms**, with no readiness
+holds. This meets the 20 ms target; it is not a claimed performance speedup.
 
 Without that companion the app explicitly reports no NPC population. NPCs are
 visual-only, static bind-pose appearances, not live server entities. They never
