@@ -55,6 +55,7 @@ const client=new WorldClient(data=>{
     evidence.eventRevision=(evidence.eventRevision||0)+1;
     if(data.event==='progress'){if(!evidence.ready){report(data.text);loadingProgress(data);}}
     else if(data.event==='music')music.event(data);
+    else if(data.event==='sky')renderer.setSky(data);
     else if(data.event==='loading-art')loadingArt.event(data);
     else if(data.event==='loading-art-warning'){
       console.warn(data.message);
@@ -156,7 +157,7 @@ async function open(selection,remember=false) {
     const loadingMap=renderer.manifest?.regions[renderer.sceneRegion]?.map;
     renderer.reset();renderer.clipCamera=undefined;cameraCollision.reset();flight=undefined;pauseAudio();music.stop();Object.assign(settings,defaults);syncSettings();
     const result=await client.open(selection,loadingMap);
-    renderer.configure(result.info.manifest);
+    renderer.configure(result.info.manifest);client.sky();
     cameraCollision.configure(result.info.manifest);
     tuningValues=Array.isArray(result.info.tuning)?result.info.tuning.slice():TUNING_FIELDS.map(f=>f[1]);
     opened=true;

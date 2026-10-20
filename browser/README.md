@@ -1246,6 +1246,10 @@ collision-index exclusion and pose readiness during pending optional reads.
 
 The **Night (N)** setting (default day, kept in `localStorage` and the save's settings) picks the day or night zone-music variants (previously night was chosen from the machine clock) and grades scene/terrain colours, fog, the clear colour and the water shader's sky reflection through one existing uniform slot (`forward.w`), eased over about a second. It is analytic only: no new passes or art.
 
+### Game sky (runtime, in memory)
+
+`sky.js` reads `Light.dbc`, `LightParams.dbc`, `LightSkybox.dbc` and `LightIntBand.dbc` from your Data folder at runtime (a background read that yields to loading; nothing is cached, persisted or shipped). Layouts are validated against vanilla 1.12 and rejected otherwise. Per map, the lights covering the camera are blended by falloff (the map's global light takes the remainder) and each colour band is interpolated over the 2880 half-minute day. Bands used: 1 ambient→grade tint, 2–6 sky gradient (top, middle, two bands, horizon), 7 fog, 9 sun, 10/11 cloud. `LightIntBand` band 0 ("global diffuse") holds implausible values in this client, so it is unused. Day/night now selects noon (1440) or midnight (0) and the time always advances forward (through dusk or dawn) over about two seconds. The sky is one fullscreen gradient draw in the existing pass; fog, the clear colour, terrain/scene tint and the water reflection use the sampled colours. Without the DBCs, or on maps other than Azeroth/Kalimdor, the previous procedural sky remains. **Not yet done:** rendering the `Environments\Stars\Stars.m2` dome (stars and moons).
+
 ## Checks and evidence
 
 ```powershell

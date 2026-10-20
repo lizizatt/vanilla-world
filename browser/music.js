@@ -1,7 +1,7 @@
 const text=new TextDecoder('utf-8',{fatal:true});
 const MUSIC_PATH=/^sound\\music\\[^:*?"<>|]+\.(mp3|wav)$/i;
 
-function table(bytes,fields,stride,name) {
+export function table(bytes,fields,stride,name) {
   if(!(bytes instanceof Uint8Array)||bytes.length<20||bytes.length>16*1024*1024||
     String.fromCharCode(...bytes.subarray(0,4))!=='WDBC')throw Error(`Invalid ${name} DBC`);
   const view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength),count=view.getUint32(4,true),
@@ -17,7 +17,7 @@ function table(bytes,fields,stride,name) {
       return text.decode(bytes.subarray(base+offset,end));
     }};
 }
-const index=t=>{
+export const index=t=>{
   const rows=new Map();
   for(let row=0;row<t.count;row++)rows.set(t.u32(row,0),row);
   return rows;

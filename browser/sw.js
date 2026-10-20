@@ -1,9 +1,9 @@
-const CACHE = 'racer-shell-v45';
+const CACHE = 'racer-shell-v46';
 const FILES = ['./', './index.html', './world-app.js', './world-client.js', './world-worker.js', './world-renderer.js',
   './world-store.js', './world-camera.js', './world-view.js', './camera-collision.js', './world-input.js', './world-audio.js', './world-tuning.js',
   './asset-source.js', './asset-folder.js', './scene-stream.js', './terrain-stream.js', './water-stream.js', './craft-stream.js', './flight.js',
   './far-worker.js', './far-stream.js', './far-channel.js', './asset-worker.js', './asset-channel.js', './loading-art.js',
-  './water-shader.js', './music.js', './clouds.js', './world-music.js', './style.css', './pkg/flats_racer_web.js', './pkg/flats_racer_web_bg.wasm'];
+  './water-shader.js', './music.js', './sky.js', './clouds.js', './world-music.js', './style.css', './pkg/flats_racer_web.js', './pkg/flats_racer_web_bg.wasm'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(FILES)).then(() => self.skipWaiting()));
 });

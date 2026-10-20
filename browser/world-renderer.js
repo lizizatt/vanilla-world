@@ -5,6 +5,7 @@ import {cameraView,craftMatrix,cockpitAnchor} from './world-camera.js';
 import {COAST_GPU_LIMIT} from './water-stream.js';
 import {WATER_NORMAL_SIZE,waterNormalMips,waterShading,dayShading} from './water-shader.js';
 import {cloudShader,cloudUniform} from './clouds.js';
+import {SkyCatalog,mapPosition,skyShader,skyUniform,advanceTime,DAY} from './sky.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
 export {sceneVisible} from './world-view.js';
 export {craftMatrix} from './world-camera.js';
@@ -77,7 +78,7 @@ export class AdmissionFade {
   }
 }
 const terrainShader=`
-struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,body:vec4f,settings:vec4f,tile:vec4f};
+struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,body:vec4f,settings:vec4f,tile:vec4f,pad:array<vec4f,3>,sky:array<vec4f,4>};
 @group(0) @binding(0) var<uniform> u:U;
 @group(0) @binding(1) var minimap:texture_2d<f32>;
 @group(0) @binding(2) var mapSampler:sampler;
@@ -114,7 +115,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   return vec4f(mix(color,fogTint(),fog),1);
 }`;
 const splatShader=`
-struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,body:vec4f,settings:vec4f,tile:vec4f};
+struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,body:vec4f,settings:vec4f,tile:vec4f,pad:array<vec4f,3>,sky:array<vec4f,4>};
 @group(0) @binding(0) var<uniform> u:U;
 @group(0) @binding(1) var layers:texture_2d_array<f32>;
 @group(0) @binding(2) var masks:texture_2d_array<f32>;
@@ -158,7 +159,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) uv:vec
   return vec4f(mix(color,fogTint(),fog),1);
 }`;
 const sceneShader=`
-struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,settings:vec4f,model:mat4x4f,material:vec4f};
+struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,settings:vec4f,model:mat4x4f,material:vec4f,sky:array<vec4f,4>};
 @group(0) @binding(0) var<uniform> u:U;
 @group(0) @binding(1) var image:texture_2d<f32>;
 @group(0) @binding(2) var imageSampler:sampler;
@@ -228,10 +229,10 @@ export class WorldRenderer {
     const waveEntries=[
       {binding:3,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float'}},
       {binding:4,visibility:GPUShaderStage.FRAGMENT,sampler:{type:'filtering'}}];
-    this.terrainLayout=this.device.createBindGroupLayout({entries:[uniformEntry(112),
+    this.terrainLayout=this.device.createBindGroupLayout({entries:[uniformEntry(224),
       {binding:1,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float'}},
       {binding:2,visibility:GPUShaderStage.FRAGMENT,sampler:{type:'filtering'}},...waveEntries]});
-    this.splatLayout=this.device.createBindGroupLayout({entries:[uniformEntry(112),
+    this.splatLayout=this.device.createBindGroupLayout({entries:[uniformEntry(224),
       {binding:1,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float',viewDimension:'2d-array'}},
       {binding:2,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float',viewDimension:'2d-array'}},
       {binding:3,visibility:GPUShaderStage.FRAGMENT,sampler:{type:'filtering'}},
@@ -245,7 +246,7 @@ export class WorldRenderer {
       depthStencil:{format:'depth24plus',depthWriteEnabled:true,depthCompare:'less'},
     });
     this.sceneLayout=this.device.createBindGroupLayout({entries:[
-      uniformEntry(160),
+      uniformEntry(224),
       {binding:1,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float'}},
       {binding:2,visibility:GPUShaderStage.FRAGMENT,sampler:{type:'filtering'}},
       ...waveEntries,
@@ -266,6 +267,12 @@ export class WorldRenderer {
     this.cloudPipeline=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module:cloudModule,entryPoint:'vs'},
       fragment:{module:cloudModule,entryPoint:'fs',targets:[{format:this.format,blend:{color:{srcFactor:'src-alpha',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},
       primitive:{topology:'triangle-list',cullMode:'none'}});
+    this.skyBuffer=this.device.createBuffer({size:128,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
+    const skyModule=await shader(skyShader);
+    this.skyPipeline=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module:skyModule,entryPoint:'vs'},
+      fragment:{module:skyModule,entryPoint:'fs',targets:[{format:this.format}]},primitive:{topology:'triangle-list'},
+      depthStencil:{format:'depth24plus',depthWriteEnabled:false,depthCompare:'always'}});
+    this.skyGroup=this.device.createBindGroup({layout:this.skyPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:this.skyBuffer}}]});
     this.mapSampler=this.device.createSampler({minFilter:'linear',magFilter:'linear'});
     this.layerSampler=this.device.createSampler({minFilter:'linear',magFilter:'linear',mipmapFilter:'linear',
       addressModeU:'repeat',addressModeV:'repeat',maxAnisotropy:4});
@@ -303,7 +310,7 @@ export class WorldRenderer {
     return {buffer:this.buffer(vertices,GPUBufferUsage.VERTEX),count:vertices.length/7,placement,
       bounds:vertices.length?[low,high]:undefined,
       group:this.device.createBindGroup({layout:this.pipeline.getBindGroupLayout(0),entries:[
-        {binding:0,resource:{buffer:this.frameUniforms,size:112}},{binding:1,resource:map.createView()},{binding:2,resource:this.mapSampler},
+        {binding:0,resource:{buffer:this.frameUniforms,size:224}},{binding:1,resource:map.createView()},{binding:2,resource:this.mapSampler},
         {binding:3,resource:this.waterNormals.createView()},{binding:4,resource:this.waveSampler}]})};
   }
   releaseMaterial(item){if(item)for(const resource of [item.vertices,item.indices,item.layers,item.masks])resource?.destroy();}
@@ -537,7 +544,7 @@ export class WorldRenderer {
       gpu.count=data.indices.length;gpu.bytes=data.vertices.byteLength+data.indices.byteLength+data.masks.byteLength+
         data.layers.reduce((n,l)=>n+l.mips.reduce((sum,m)=>sum+m.byteLength,0),0);
       gpu.group=this.device.createBindGroup({layout:this.splatPipeline.getBindGroupLayout(0),entries:[
-        {binding:0,resource:{buffer:this.frameUniforms,size:112}},{binding:1,resource:gpu.layers.createView({dimension:'2d-array'})},
+        {binding:0,resource:{buffer:this.frameUniforms,size:224}},{binding:1,resource:gpu.layers.createView({dimension:'2d-array'})},
         {binding:2,resource:gpu.masks.createView({dimension:'2d-array'})},{binding:3,resource:this.layerSampler},
         {binding:4,resource:this.minimapAtlases[tile.entry.region].createView()}]} );
       this.releaseMaterial(tile.material);tile.material=gpu;
@@ -600,6 +607,17 @@ export class WorldRenderer {
     // Uniform bytes and atlas pixels remain live; only membership/material changes replace commands.
     pass.executeBundles([this.terrainBundle.bundle]);
   }
+  /** Game light data arrives as raw DBC bytes, stays in memory, and falls back to the procedural sky on any problem. */
+  setSky(data) {
+    try {if(data.error)console.warn('Game sky unavailable',data.error);this.skyCatalog=data.error?undefined:new SkyCatalog(data);}
+    catch(error) {console.warn('Game sky unavailable',error);this.skyCatalog=undefined;}
+  }
+  sampleSky() {
+    const region=this.manifest?.regions[this.sceneRegion],map={Azeroth:0,Kalimdor:1}[region?.map];
+    if(!this.skyCatalog||map===undefined)return undefined;
+    const [x,z]=mapPosition(region,this.view.eye[0],this.view.eye[2]);
+    return this.skyCatalog.sample(map,x,z,this.timeOfDay);
+  }
   drawClouds(pass,time,daylight,near) {
     this.device.queue.writeBuffer(this.cloudBuffer,0,cloudUniform(this.view,time,daylight,this.manifest,near));
     pass.setPipeline(this.cloudPipeline);pass.setBindGroup(0,this.cloudGroup);pass.draw(6);
@@ -645,7 +663,11 @@ export class WorldRenderer {
     this.view={eye:[this.camera[0]+origin[0],this.camera[1],this.camera[2]+origin[1]],right,up,look,aspect};
     const target=settings.night?0:1,previous=this.daylight??target;
     const daylight=this.daylight=Math.abs(target-previous)<.002?target:previous+(target-previous)*Math.min(1,dt*1.5);
-    const sky=DAY_SKY.map((v,i)=>NIGHT_SKY[i]+(v-NIGHT_SKY[i])*daylight);
+    const sky0=DAY_SKY.map((v,i)=>NIGHT_SKY[i]+(v-NIGHT_SKY[i])*daylight);
+    this.timeOfDay=advanceTime(this.timeOfDay??(settings.night?0:DAY),settings.night,dt);
+    const game=this.sampleSky(),sky=game?game.fog:sky0;
+    this.gameSky=game;
+    const skyFloats=game?[...game.fog,1,...game.sun,0,...game.horizon,0,...game.mid,0]:new Array(16).fill(0);
     const view=[...this.camera,200000,...right,origin[0]%4096,...up,origin[1]%4096,...look,daylight];
     const distant=settings.horizon?this.horizon.filter(h=>!this.tiles.has(h.near)):[];
     const coastal=[...this.coast].flatMap(([index,item])=>
@@ -665,7 +687,7 @@ export class WorldRenderer {
     const writeUniform=item=>{
       if(uniformCount>=16384)throw Error('World draw uniform budget exceeded');
       const base=uniformCount++*64;
-      item.offset=base*4;u.set(view,base);return base;
+      item.offset=base*4;u.set(view,base);u.set(skyFloats,base+40);return base;
     };
     for(const item of terrain){
       const base=writeUniform(item),body=item===this.body;
@@ -697,7 +719,7 @@ export class WorldRenderer {
               const sampler=this.device.createSampler({minFilter:'linear',magFilter:'linear',
                 addressModeU:batch.wrapX?'repeat':'clamp-to-edge',addressModeV:batch.wrapY?'repeat':'clamp-to-edge'});
               item={id:instance.id,key:instance.key,asset,texture,group:this.device.createBindGroup({layout:this.sceneLayout,entries:[
-                {binding:0,resource:{buffer:this.frameUniforms,size:160}},{binding:1,resource:texture.createView()},{binding:2,resource:sampler},
+                {binding:0,resource:{buffer:this.frameUniforms,size:224}},{binding:1,resource:texture.createView()},{binding:2,resource:sampler},
                 {binding:3,resource:this.waterNormals.createView()},{binding:4,resource:this.waveSampler}]} )};
               items.set(key,item);
             }
@@ -725,7 +747,10 @@ export class WorldRenderer {
       colorAttachments:[{view:this.context.getCurrentTexture().createView(),clearValue:{r:sky[0],g:sky[1],b:sky[2],a:1},loadOp:'clear',storeOp:'store'}],
       depthStencilAttachment:{view:this.depth.createView(),depthClearValue:1,depthLoadOp:'clear',depthStoreOp:'store'},
     });
-    if(!this.cameraBlocked){this.drawTerrain(pass,terrain);this.drawScene(pass,draws);}
+    if(!this.cameraBlocked){
+      if(game){this.device.queue.writeBuffer(this.skyBuffer,0,skyUniform(this.view,game));pass.setPipeline(this.skyPipeline);pass.setBindGroup(0,this.skyGroup);pass.draw(3);}
+      this.drawTerrain(pass,terrain);this.drawScene(pass,draws);
+    }
     pass.end();
     if(!this.cameraBlocked&&settings.clouds!==false) {
       // Clouds read the finished scene depth to clip their ray march, so they never need a depth-test bias.
