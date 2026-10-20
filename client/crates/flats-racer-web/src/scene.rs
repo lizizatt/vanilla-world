@@ -1,9 +1,10 @@
 //! Deviation: bounded, static browser scene meshes, not the native animated world renderer.
 use crate::voyage::Voyage;
 use benilla_formats::{
-    CollisionMesh, ModelBlend, RenderSubmesh, TileMesh, WmoRoot, accumulate_wmo_group_collision,
-    adt_to_tile_mesh, blp_to_rgba, parse_m2_collision_hull, parse_m2_render_submeshes,
-    parse_wmo_root, wmo_group_submeshes_strict,
+    CollisionMesh, LiquidKind, ModelBlend, RenderSubmesh, TileMesh, WmoRoot,
+    accumulate_wmo_group_collision, adt_to_tile_mesh, blp_to_rgba, parse_m2_collision_hull,
+    parse_m2_render_submeshes, parse_wmo_root, wmo_group_liquid_mesh,
+    wmo_group_submeshes_strict,
 };
 use serde::Serialize;
 use serde_json::json;
@@ -150,6 +151,8 @@ struct Batch {
     wrap_y: bool,
     emissive: bool,
     no_depth_write: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    water: bool,
 }
 
 #[wasm_bindgen]
@@ -161,8 +164,8 @@ pub struct SceneModel {
 }
 
 impl SceneModel {
-    fn build(subs: Vec<RenderSubmesh>, collision: CollisionMesh) -> Result<Self, String> {
-        let count: usize = subs.iter().map(|s| s.indices.len()).sum();
+    fn build(subs: Vec<(RenderSubmesh, bool)>, collision: CollisionMesh) -> Result<Self, String> {
+        let count: usize = subs.iter().map(|(s, _)| s.indices.len()).sum();
         if count > MAX_TRIANGLES * 3 || collision.indices.len() > MAX_TRIANGLES * 3 {
             return Err("Scene model exceeds 200000 triangles".into());
         }
@@ -172,7 +175,7 @@ impl SceneModel {
         let mut batches = Vec::new();
         let mut min = [f32::INFINITY; 3];
         let mut max = [f32::NEG_INFINITY; 3];
-        for sub in subs {
+        for (sub, water) in subs {
             validate_mesh(&sub.positions, &sub.indices)?;
             if sub.normals.len() != sub.positions.len()
                 || sub.uvs.len() != sub.positions.len()
@@ -223,6 +226,7 @@ impl SceneModel {
                 wrap_y: sub.wrap_y,
                 emissive: sub.emissive,
                 no_depth_write: sub.no_depth_write,
+                water,
             });
             indices.extend(sub.indices.iter().map(|i| i + base));
         }
@@ -271,7 +275,10 @@ impl SceneModel {
             omitted_character_batches = before - subs.len();
         }
         let collision = parse_m2_collision_hull(bytes).map_err(|e| e.to_string())?;
-        let mut model = Self::build(subs, collision)?;
+        let mut model = Self::build(
+            subs.into_iter().map(|sub| (sub, false)).collect(),
+            collision,
+        )?;
         if omitted_character_batches > 0 || stand {
             let mut metadata: serde_json::Value =
                 serde_json::from_str(&model.metadata).map_err(|e| e.to_string())?;
@@ -368,7 +375,65 @@ impl SceneRoot {
     }
     fn decode_group(&self, bytes: &[u8]) -> Result<SceneModel, String> {
         bounded(bytes)?;
-        let subs = wmo_group_submeshes_strict(bytes, &self.root).map_err(|e| e.to_string())?;
+        let mut subs: Vec<(RenderSubmesh, bool)> = wmo_group_submeshes_strict(bytes, &self.root)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|sub| (sub, false))
+            .collect();
+        if let Some(liquid) = wmo_group_liquid_mesh(bytes) {
+            if matches!(liquid.kind, LiquidKind::Still | LiquidKind::Ocean) {
+                if liquid.depths.len() != liquid.positions.len()
+                    || liquid.uvs.len() != liquid.positions.len()
+                    || liquid
+                        .depths
+                        .iter()
+                        .any(|&depth| !depth.is_finite() || !(0.0..=1.0).contains(&depth))
+                {
+                    return Err("Invalid WMO liquid depth ramp".into());
+                }
+                subs.push((
+                    RenderSubmesh {
+                        positions: liquid.positions,
+                        normals: vec![[0.0, 0.0, 1.0]; liquid.uvs.len()],
+                        uvs: liquid.depths.iter().map(|&depth| [depth, 0.0]).collect(),
+                        indices: liquid.indices,
+                        texture: None,
+                        skin_slot: None,
+                        geoset_id: 0,
+                        char_slot: None,
+                        blend: ModelBlend::Opaque,
+                        wrap_x: false,
+                        wrap_y: false,
+                        two_sided: true,
+                        joints: Vec::new(),
+                        weights: Vec::new(),
+                        vertex_colors: vec![[1.0; 4]; liquid.uvs.len()],
+                        interior: false,
+                        emissive: false,
+                        icon_slot: false,
+                        sidn: None,
+                        window: false,
+                        additive: false,
+                        no_depth_write: false,
+                        no_depth_test: false,
+                        fog_policy: Default::default(),
+                        billboard: None,
+                        welded_billboard: false,
+                        alpha_anim: None,
+                        uv_anim: None,
+                        uv_seq: None,
+                        uv_rot_seq: None,
+                        uv_scale_seq: None,
+                        rgb_anim: None,
+                        rgb_seq: None,
+                        wmo_batch: None,
+                        section: None,
+                        env_map: false,
+                    },
+                    true,
+                ));
+            }
+        }
         let mut collision = CollisionMesh::default();
         accumulate_wmo_group_collision(bytes, &mut collision.positions, &mut collision.indices);
         SceneModel::build(subs, collision)
@@ -972,6 +1037,94 @@ mod tests {
         assert_eq!(triangles, 24_274);
         assert!(collision > 100);
         assert!(root.decode_group(b"not a WMO group").is_err());
+    }
+
+    #[test]
+    fn stormwind_wmo_exports_authored_water_without_collision() {
+        let data = benilla_formats::wow_data_or_skip!();
+        let mut chain = benilla_formats::Chain::open(&data).unwrap();
+        let root = SceneRoot::from_bytes(
+            &chain
+                .read_file("World\\wmo\\Azeroth\\Buildings\\Stormwind\\Stormwind.wmo")
+                .unwrap(),
+        )
+        .unwrap();
+        let wet_bytes = chain
+            .read_file("World\\wmo\\Azeroth\\Buildings\\Stormwind\\Stormwind_099.wmo")
+            .unwrap();
+        let dry_bytes = chain
+            .read_file("World\\wmo\\Azeroth\\Buildings\\Stormwind\\Stormwind_000.wmo")
+            .unwrap();
+        let authored = wmo_group_liquid_mesh(&wet_bytes).unwrap();
+        assert_eq!(authored.kind, LiquidKind::Still);
+        assert_eq!(authored.wet.iter().filter(|&&wet| wet).count(), 52);
+        assert_eq!(
+            authored.wet.len() - authored.wet.iter().filter(|&&wet| wet).count(),
+            36
+        );
+        assert_eq!(authored.positions.len(), 108);
+        let (depth_min, depth_max) = authored
+            .depths
+            .iter()
+            .copied()
+            .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), depth| {
+                (lo.min(depth), hi.max(depth))
+            });
+        assert_eq!((depth_min, depth_max), (0.0, 0.3372549));
+        assert_eq!(
+            authored.depths.iter().filter(|&&depth| depth == 0.0).count(),
+            36
+        );
+        assert_eq!(
+            authored
+                .depths
+                .iter()
+                .filter(|&&depth| depth == 0.3372549)
+                .count(),
+            71
+        );
+        assert_eq!(
+            authored
+                .depths
+                .iter()
+                .filter(|&&depth| depth == 0.19215687)
+                .count(),
+            1
+        );
+        let model = root.decode_group(&wet_bytes).unwrap();
+        let metadata: serde_json::Value = serde_json::from_str(&model.metadata).unwrap();
+        let water = metadata["batches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|batch| batch["water"] == true)
+            .unwrap();
+        assert_eq!(water["texture"], serde_json::Value::Null);
+        assert_eq!(water["blend"], "opaque");
+        assert_eq!(water["indexCount"], 52 * 6);
+        assert_eq!(
+            model.indices.len(),
+            wmo_group_submeshes_strict(&wet_bytes, &root.root)
+                .unwrap()
+                .iter()
+                .map(|s| s.indices.len())
+                .sum::<usize>()
+                + 52 * 6
+        );
+        let mut expected_collision = CollisionMesh::default();
+        accumulate_wmo_group_collision(
+            &wet_bytes,
+            &mut expected_collision.positions,
+            &mut expected_collision.indices,
+        );
+        assert_eq!(model.collision.positions, expected_collision.positions);
+        assert_eq!(model.collision.indices, expected_collision.indices);
+        assert!(root
+            .decode_group(&dry_bytes)
+            .unwrap()
+            .metadata
+            .find("\"water\"")
+            .is_none());
     }
 
     #[test]

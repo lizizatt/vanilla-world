@@ -396,7 +396,10 @@ impl Voyage {
                         liquid.indices.iter().any(|&i| {
                             liquid.positions.get(i as usize).is_none_or(|p| {
                                 p.iter().any(|v| !v.is_finite() || v.abs() > 100_000.0)
-                            })
+                            }) || (matches!(liquid.kind, LiquidKind::Still | LiquidKind::Ocean)
+                                && liquid.depths.get(i as usize).is_none_or(|depth| {
+                                    !depth.is_finite() || !(0.0..=1.0).contains(depth)
+                                }))
                         })
                     })
                     || c.positions
@@ -1527,7 +1530,7 @@ impl Voyage {
         self.hold = 1;
     }
 
-    /// Local tile positions and face normals, followed by material (0 ground, 2 water).
+    /// Local positions, normal or water [ramp, 1, 1], then material (0 ground, 2 water).
     pub fn geometry(&self, index: usize) -> Result<Vec<f32>, JsValue> {
         let started = if self.profile_admission {
             admission_now()
@@ -1544,38 +1547,68 @@ impl Voyage {
             -(f64::from(entry.x) - 32.0) * TILE,
         ];
         let mut out = Vec::new();
-        let mut emit = |positions: &[[f32; 3]], indices: &[u32], material: f32| {
+        let mut emit =
+            |positions: &[[f32; 3]],
+             depths: Option<&[f32]>,
+             indices: &[u32],
+             material: f32|
+             -> Result<(), String> {
             for t in indices.as_chunks::<3>().0 {
-                let p = t.map(|i| {
-                    let v = positions[i as usize];
+                let vertices = t.map(|i| positions.get(i as usize).copied());
+                let p = [
+                    vertices[0].ok_or("Invalid authored geometry index")?,
+                    vertices[1].ok_or("Invalid authored geometry index")?,
+                    vertices[2].ok_or("Invalid authored geometry index")?,
+                ]
+                .map(|v| {
                     [
                         (nw[1] - f64::from(v[1])) as f32,
                         v[2],
                         (nw[0] - f64::from(v[0])) as f32,
                     ]
                 });
-                let a = [p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2]];
-                let b = [p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2]];
-                let mut n = [
-                    a[1] * b[2] - a[2] * b[1],
-                    a[2] * b[0] - a[0] * b[2],
-                    a[0] * b[1] - a[1] * b[0],
-                ];
-                let length = n.iter().map(|v| v * v).sum::<f32>().sqrt().max(0.0001);
-                let sign = if n[1] < 0.0 { -1.0 } else { 1.0 };
-                n.iter_mut().for_each(|v| *v *= sign / length);
-                for v in p {
+                let n = if material == 2.0 {
+                    None
+                } else {
+                    let a = [p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2]];
+                    let b = [p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2]];
+                    let mut n = [
+                        a[1] * b[2] - a[2] * b[1],
+                        a[2] * b[0] - a[0] * b[2],
+                        a[0] * b[1] - a[1] * b[0],
+                    ];
+                    let length = n.iter().map(|v| v * v).sum::<f32>().sqrt().max(0.0001);
+                    let sign = if n[1] < 0.0 { -1.0 } else { 1.0 };
+                    n.iter_mut().for_each(|v| *v *= sign / length);
+                    Some(n)
+                };
+                for (vertex, v) in p.into_iter().enumerate() {
                     out.extend(v);
-                    out.extend(n);
+                    let vertex_n = if let Some(n) = n {
+                        n
+                    } else {
+                        let depths = depths.ok_or("Missing authored liquid depth ramp")?;
+                        let depth = depths
+                            .get(t[vertex] as usize)
+                            .ok_or("Missing authored liquid depth ramp")?;
+                        if !depth.is_finite() || !(0.0..=1.0).contains(depth) {
+                            return Err("Invalid authored liquid depth ramp".into());
+                        }
+                        [*depth, 1.0, 1.0]
+                    };
+                    out.extend(vertex_n);
                     out.push(material);
                 }
             }
+            Ok(())
         };
         for chunk in &tile.chunks {
-            emit(&chunk.positions, &chunk.indices, 0.0);
+            emit(&chunk.positions, None, &chunk.indices, 0.0)
+                .map_err(|e| JsValue::from_str(&e))?;
             for liquid in &chunk.liquids {
                 if matches!(liquid.kind, LiquidKind::Still | LiquidKind::Ocean) {
-                    emit(&liquid.positions, &liquid.indices, 2.0);
+                    emit(&liquid.positions, Some(&liquid.depths), &liquid.indices, 2.0)
+                        .map_err(|e| JsValue::from_str(&e))?;
                 }
             }
         }
@@ -2545,6 +2578,44 @@ pub(crate) mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn detailed_water_preserves_authored_ramps_without_changing_ground_geometry() {
+        let mut world = Voyage::from_manifest(fixture(0.0)).unwrap();
+        let entry = &world.manifest.tiles[0];
+        let mut tile = crate::world::tests::flat_tile(entry.x, entry.y);
+        world.resident.insert(0, tile.clone());
+        let ground = world.geometry(0).unwrap();
+        let positions = tile.chunks[0].positions[..4].to_vec();
+        tile.chunks[0].liquids.push(benilla_formats::LiquidMesh {
+            grid: [2, 2],
+            wet: vec![true],
+            shared: vec![false],
+            positions,
+            uvs: vec![[0.0, 0.0]; 4],
+            depths: vec![0.0, 0.25, 0.75, 1.0],
+            indices: vec![0, 1, 2, 2, 1, 3],
+            sound_nibble: 0,
+            material_id: None,
+            kind: LiquidKind::Still,
+        });
+        world.validate_tile(0, &tile).unwrap();
+        world.resident.insert(0, tile.clone());
+        let geometry = world.geometry(0).unwrap();
+        assert_eq!(
+            geometry.chunks_exact(7).filter(|v| v[6] == 0.0).flatten().copied().collect::<Vec<_>>(),
+            ground
+        );
+        let water = geometry.chunks_exact(7).filter(|v| v[6] == 2.0).collect::<Vec<_>>();
+        for (vertex, ramp) in water.iter().zip([0.0, 0.25, 0.75, 0.75, 0.25, 1.0]) {
+            assert_eq!(&vertex[3..6], &[ramp, 1.0, 1.0]);
+        }
+        assert_eq!(water.len(), 6);
+        for invalid in [f32::NAN, -0.01, 1.01] {
+            tile.chunks[0].liquids[0].depths[0] = invalid;
+            assert!(world.validate_tile(0, &tile).is_err());
+        }
+    }
 
     #[test]
     fn browser_defaults_match_requested_handling_and_reset_preserves_overrides() {

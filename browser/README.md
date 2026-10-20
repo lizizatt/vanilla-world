@@ -612,9 +612,44 @@ The cache version must change when the liquid meshing format changes.
 A full uncached scan returns
 2,111,901,065 decompressed ADT bytes for this installation. Aggregate archive
 range-read counters also include minimaps, scenery, terrain and deferred reads;
-they are not water-only compressed-byte counts. The existing approximate water
-shader and coarse land silhouettes remain, and unscanned far water can still
+they are not water-only compressed-byte counts. Coarse land silhouettes remain,
+and unscanned far water can still
 show exposed seabed until its authored data arrives.
+
+### Shared shoreline water shader
+
+Terrain MCLQ and WMO MLIQ Still/Ocean surfaces share the same shallow-to-deep
+colour ramp, Fresnel/sky reflection, filtered moving normals and a narrow,
+animated foam band. The ramp is **authored opacity/colour information, not
+physical depth in yards**. The surface stays opaque to imply depth without
+adding seabed geometry, refraction or a scene-colour/depth render target.
+Foam gently advances/recedes in the shader; there are no displaced waves,
+shoreline simulation or new collision/physics surfaces.
+
+One original procedural 128-square normal texture, including all eight mip
+levels, costs **87,380 GPU bytes**. Explicit texture gradients and a
+160--1,500-yard detail fade replace the old directional sine stripes. Wave
+coordinates retain their phase across floating-origin changes. The existing
+64 MiB far-water, scene triangle and scene byte budgets remain enforced.
+Authored shoreline colour/foam fades to deep water over 350--700 yards;
+far water retains its compact geometry and existing cache format. Preserving
+every distant ramp exceeded the water cap after about 150 tiles, so that
+approach was rejected rather than sacrificing complete distant coverage.
+
+Stormwind canals previously lacked browser geometry: their water is in WMO
+groups, not terrain MCLQ. Those groups now append visual-only opaque batches
+through the existing scene loader and budget. `Stormwind_099.wmo` has 52 wet
+cells, 36 holes and 108 liquid vertices; its collision export is unchanged.
+`Stormwind_000.wmo` has no water and gains no batch. Inland terrain water,
+including Crystal Lake (`Azeroth_32_49`), uses the same shader. Lava/slime,
+authored dry holes outside the approved exterior exception, and unavailable
+or not-yet-loaded water are not filled speculatively.
+
+With a separately started isolated server on port 4183 and `WOW_DATA` set,
+`node browser\water-smoke.mjs` checks actual Edge shader execution, captures
+lake/coast/canal/high-ocean views and asserts that canal batches reach the
+shared shader. It records only ready-world screenshots and numeric evidence
+under ignored `browser\test-results`; it never records the loading artwork.
 
 **Approved exterior-boundary exception.** A reproduced 25-yard slit in
 `Kalimdor_44_37`, MCNK `(15,2)`, also occurs on `31fd878`. Each MCLQ row is

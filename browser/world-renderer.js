@@ -3,6 +3,7 @@ export {sceneReady} from './scene-stream.js';
 import {MINIMAP_SIZE,TERRAIN_TEXTURE_SIZE} from './terrain-stream.js';
 import {cameraView,craftMatrix,cockpitAnchor} from './world-camera.js';
 import {COAST_GPU_LIMIT} from './water-stream.js';
+import {WATER_NORMAL_SIZE,waterNormalMips,waterShading} from './water-shader.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
 export {sceneVisible} from './world-view.js';
 export {craftMatrix} from './world-camera.js';
@@ -79,6 +80,7 @@ struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,body:vec4f,settings:vec4f
 @group(0) @binding(0) var<uniform> u:U;
 @group(0) @binding(1) var minimap:texture_2d<f32>;
 @group(0) @binding(2) var mapSampler:sampler;
+${waterShading}
 struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3f,@location(2) @interpolate(flat) material:f32,@location(3) uv:vec2f};
 @vertex fn vs(@location(0) p:vec3f,@location(1) n:vec3f,@location(2) material:f32)->V {
   var position=p+u.tile.xyz;var normal=n;
@@ -95,8 +97,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   v.p=position;v.n=normal;v.material=material;v.uv=p.xz/(1600.0/3.0);return v;
 }
 @fragment fn fs(v:V)->@location(0) vec4f {
-  let phase=v.p.x*.16+v.p.z*.12+u.settings.y;
-  let ripple=.5+.5*sin(phase)*(1.0-smoothstep(.5,3.0,fwidth(phase)));
+  let dx=dpdx(v.p.xz);let dy=dpdy(v.p.xz);let rampWidth=fwidth(v.n.x);
   let light=.35+.65*max(dot(normalize(v.n),normalize(vec3f(-.3,1.0,.4))),0.0);
   var color=vec3f(.63,.59,.40)*light;
   let cell=vec2f(u.tile.w%64.0,floor(u.tile.w/64.0));
@@ -104,7 +105,9 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   let mapColor=textureSample(minimap,mapSampler,mapUv);
   if((v.material==0.0 || v.material==3.0) && u.tile.w>=0.0){color=mix(color,mapColor.rgb,mapColor.a);}
   if(v.material==1.0){color=vec3f(.1,.89,.82)*light;}
-  if(v.material==2.0 || v.material==4.0){color=mix(vec3f(.025,.18,.29),vec3f(.06,.36,.48),ripple);}
+  if(v.material==2.0 || v.material==4.0){
+    color=waterColor(v.p,select(1.0,v.n.x,v.n.z>.5),rampWidth,dx,dy);
+  }
   let fog=clamp(length(v.p-u.eye.xyz)/150000.0,0.0,.93);
   return vec4f(mix(color,vec3f(.08,.15,.20),fog),1);
 }`;
@@ -156,6 +159,7 @@ struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,settings:vec4f,model:mat4
 @group(0) @binding(0) var<uniform> u:U;
 @group(0) @binding(1) var image:texture_2d<f32>;
 @group(0) @binding(2) var imageSampler:sampler;
+${waterShading}
 struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3f,@location(2) uv:vec2f,@location(3) color:vec4f};
 @vertex fn vs(@location(0) p:vec3f,@location(1) n:vec3f,@location(2) uv:vec2f,@location(3) color:vec4f)->V {
   let position=(u.model*vec4f(p,1)).xyz;let relative=position-u.eye.xyz;let z=dot(relative,u.forward.xyz);
@@ -164,6 +168,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   v.p=position;v.n=(u.model*vec4f(n,0)).xyz;v.uv=uv;v.color=color;return v;
 }
 @fragment fn fs(v:V)->@location(0) vec4f {
+  let dx=dpdx(v.p.xz);let dy=dpdy(v.p.xz);let rampWidth=fwidth(v.uv.x);
   let texel=textureSample(image,imageSampler,v.uv)*v.color;
   if(texel.a<u.material.x){discard;}
   let distance=length(v.p-u.eye.xyz);
@@ -171,7 +176,9 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   if(fract(dot(floor(v.clip.xy),vec2f(.754877666,.569840296)))>=coverage){discard;}
   let light=mix(.4+.6*max(dot(normalize(v.n),normalize(vec3f(-.3,1.0,.4))),0.0),1.0,u.material.y);
   let fog=max(clamp(distance/150000.0,0.0,.93),u.material.z*.8*smoothstep(3500.0,6000.0,distance));
-  return vec4f(mix(texel.rgb*light,vec3f(.08,.15,.20),fog),texel.a);
+  var color=texel.rgb*light;
+  if(u.settings.z>.5){color=waterColor(v.p,v.uv.x,rampWidth,dx,dy);}
+  return vec4f(mix(color,vec3f(.08,.15,.20),fog),texel.a);
 }`;
 
 export class WorldRenderer {
@@ -215,9 +222,12 @@ export class WorldRenderer {
     const terrain=await shader(terrainShader),splat=await shader(splatShader);this.sceneModule=await shader(sceneShader);
     const uniformEntry=size=>({binding:0,visibility:GPUShaderStage.VERTEX|GPUShaderStage.FRAGMENT,
       buffer:{type:'uniform',hasDynamicOffset:true,minBindingSize:size}});
+    const waveEntries=[
+      {binding:3,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float'}},
+      {binding:4,visibility:GPUShaderStage.FRAGMENT,sampler:{type:'filtering'}}];
     this.terrainLayout=this.device.createBindGroupLayout({entries:[uniformEntry(112),
       {binding:1,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float'}},
-      {binding:2,visibility:GPUShaderStage.FRAGMENT,sampler:{type:'filtering'}}]});
+      {binding:2,visibility:GPUShaderStage.FRAGMENT,sampler:{type:'filtering'}},...waveEntries]});
     this.splatLayout=this.device.createBindGroupLayout({entries:[uniformEntry(112),
       {binding:1,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float',viewDimension:'2d-array'}},
       {binding:2,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float',viewDimension:'2d-array'}},
@@ -235,6 +245,7 @@ export class WorldRenderer {
       uniformEntry(160),
       {binding:1,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float'}},
       {binding:2,visibility:GPUShaderStage.FRAGMENT,sampler:{type:'filtering'}},
+      ...waveEntries,
     ]});
     this.scenePipelineLayout=this.device.createPipelineLayout({bindGroupLayouts:[this.sceneLayout]});
     this.splatPipeline=await this.device.createRenderPipelineAsync({
@@ -252,6 +263,16 @@ export class WorldRenderer {
       addressModeU:'repeat',addressModeV:'repeat',maxAnisotropy:4});
     this.emptyMap=this.texture(1,1,new Uint8Array(4));
     this.white=this.texture(1,1,new Uint8Array([255,255,255,255]));
+    const normals=waterNormalMips();
+    this.waterNormalBytes=normals.reduce((n,m)=>n+m.byteLength,0);
+    this.waterNormals=this.device.createTexture({size:[WATER_NORMAL_SIZE,WATER_NORMAL_SIZE],format:'rgba8unorm',
+      mipLevelCount:normals.length,usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});
+    for(let level=0;level<normals.length;level++){
+      const size=WATER_NORMAL_SIZE>>level;
+      this.device.queue.writeTexture({texture:this.waterNormals,mipLevel:level},normals[level],{bytesPerRow:size*4},[size,size]);
+    }
+    this.waveSampler=this.device.createSampler({minFilter:'linear',magFilter:'linear',mipmapFilter:'linear',
+      addressModeU:'repeat',addressModeV:'repeat',maxAnisotropy:4});
     const points=[[0,.25,-2.7],[-1.2,0,1.3],[1.2,0,1.3],[0,.65,.8],[0,-.35,.6]],vertices=[];
     for(const face of [[0,1,3],[0,3,2],[1,2,3],[0,4,1],[0,2,4],[1,4,2]]) {
       const [a,b,c]=face.map(i=>points[i]),n=unit(cross(sub(b,a),sub(c,a)));
@@ -274,7 +295,8 @@ export class WorldRenderer {
     return {buffer:this.buffer(vertices,GPUBufferUsage.VERTEX),count:vertices.length/7,placement,
       bounds:vertices.length?[low,high]:undefined,
       group:this.device.createBindGroup({layout:this.pipeline.getBindGroupLayout(0),entries:[
-        {binding:0,resource:{buffer:this.frameUniforms,size:112}},{binding:1,resource:map.createView()},{binding:2,resource:this.mapSampler}]})};
+        {binding:0,resource:{buffer:this.frameUniforms,size:112}},{binding:1,resource:map.createView()},{binding:2,resource:this.mapSampler},
+        {binding:3,resource:this.waterNormals.createView()},{binding:4,resource:this.waveSampler}]})};
   }
   releaseMaterial(item){if(item)for(const resource of [item.vertices,item.indices,item.layers,item.masks])resource?.destroy();}
   release(item){item?.buffer.destroy();this.releaseMaterial(item?.material);}
@@ -534,8 +556,11 @@ export class WorldRenderer {
     this.pipelines.set(key,pipeline);return pipeline;
   }
   prepareBatches(batches) {
-    return batches.map(batch=>({...batch,texture:batch.texture?modelPath(batch.texture):null,
-      transparent:['alpha','add','mod','mod2x'].includes(batch.blend),pipeline:this.scenePipeline(batch)}));
+    return batches.map(batch=>{
+      if(batch.water!==undefined&&typeof batch.water!=='boolean')throw Error('Invalid scene water flag');
+      return {...batch,texture:batch.texture?modelPath(batch.texture):null,
+        transparent:['alpha','add','mod','mod2x'].includes(batch.blend),pipeline:this.scenePipeline(batch)};
+    });
   }
   sceneMatrix(instance,region,origin) {
     const cached=instance.rendered;
@@ -603,7 +628,7 @@ export class WorldRenderer {
     this.cameraLook=look;
     const aspect=width/height;
     this.view={eye:[this.camera[0]+origin[0],this.camera[1],this.camera[2]+origin[1]],right,up,look,aspect};
-    const view=[...this.camera,200000,...right,0,...up,0,...look,0];
+    const view=[...this.camera,200000,...right,origin[0]%4096,...up,origin[1]%4096,...look,0];
     const distant=settings.horizon?this.horizon.filter(h=>!this.tiles.has(h.near)):[];
     const coastal=[...this.coast].flatMap(([index,item])=>
       this.tiles.has(index)?item.backing?[item.backing]:[]:settings.horizon?[item]:[]);
@@ -654,13 +679,14 @@ export class WorldRenderer {
               const sampler=this.device.createSampler({minFilter:'linear',magFilter:'linear',
                 addressModeU:batch.wrapX?'repeat':'clamp-to-edge',addressModeV:batch.wrapY?'repeat':'clamp-to-edge'});
               item={id:instance.id,key:instance.key,asset,texture,group:this.device.createBindGroup({layout:this.sceneLayout,entries:[
-                {binding:0,resource:{buffer:this.frameUniforms,size:160}},{binding:1,resource:texture.createView()},{binding:2,resource:sampler}]} )};
+                {binding:0,resource:{buffer:this.frameUniforms,size:160}},{binding:1,resource:texture.createView()},{binding:2,resource:sampler},
+                {binding:3,resource:this.waterNormals.createView()},{binding:4,resource:this.waveSampler}]} )};
               items.set(key,item);
             }
             cached[b]=item;
           }
           const base=writeUniform(item);
-          u[base+16]=aspect;u[base+17]=time;u[base+18]=0;u[base+19]=near;u.set(m,base+20);
+          u[base+16]=aspect;u[base+17]=time;u[base+18]=batch.water?1:0;u[base+19]=near;u.set(m,base+20);
           u[base+36]=batch.alphaCutoff||0;u[base+37]=batch.emissive?1:0;u[base+38]=instance.distant?1:0;
           u[base+39]=distance<128?1:coverage;
           draws.push({asset,batch,item,distant:instance.distant,craft:instance.craft,pipeline:batch.pipeline,distance});
@@ -694,6 +720,7 @@ export class WorldRenderer {
       craftReady:!!this.craft,cockpitAvailable:!!this.craft?.anchor,cameraMode:this.cameraMode,
       cameraBlocked:this.cameraBlocked,worldDraws:terrain.length+draws.length,
       coastalWaterTiles:coastal.length,coastalWaterGpuBytes:this.coastBytes,
+      waterShaderGpuBytes:this.waterNormalBytes||0,wmoWaterDraws:draws.filter(d=>d.batch.water).length,
       craftStatus:this.craft?'ready':this.craftError?'failed':'loading',
       craftTriangles:this.craft?this.craft.asset.count/3:0,craftError:this.craftError,
       npcInstances:this.instances.filter(i=>i.id.includes(':npc:')).length,
