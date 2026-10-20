@@ -529,6 +529,15 @@ impl TerrainMaterial {
 
 #[wasm_bindgen]
 impl Voyage {
+    pub fn prepared_tile_placements(&self, bytes: &[u8]) -> Result<String, JsValue> {
+        bounded(bytes).map_err(js)?;
+        let (_, tile) = self
+            .prepared_tile
+            .as_ref()
+            .ok_or_else(|| js("Terrain tile is not prepared"))?;
+        tile_placements(tile, bytes).map_err(js)
+    }
+
     pub fn tile_placements(&self, index: usize, bytes: &[u8]) -> Result<String, JsValue> {
         bounded(bytes).map_err(js)?;
         let tile = self

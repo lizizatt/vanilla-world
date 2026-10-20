@@ -35,6 +35,31 @@ test('bounded visual selection exactly matches full sorting without sorting the 
   assert(comparisons<items.length*2,'Rejected far candidates need only a comparison against the retained tail');
 });
 
+test('prepared placement index is equivalent and stays private until atomic tile publication',()=>{
+  const f=fixture(),staged=new SceneStream(f.source,f.wasm),sync=new SceneStream(f.source,f.wasm);
+  const first=Array.from({length:320},(_,id)=>p(id,'tree.mdx',id*12));
+  const next=Array.from({length:640},(_,id)=>p(id+160,'tree.mdx',id*13));
+  for(const s of [staged,sync])s.setTile('1:0:0',first);
+  const old=staged.collisionPlacements(1,[0,0,0],[0,0,0],32).map(r=>r.id);
+  const steps=staged.prepareTile('1:1:0',next);
+  let result,yields=0;
+  do{
+    result=steps.next();yields++;
+    assert.equal(staged.tiles.size,1);
+    assert.deepEqual(staged.collisionPlacements(1,[0,0,0],[0,0,0],32).map(r=>r.id),old);
+  }while(!result.done);
+  assert(yields>20);
+  staged.commitTile('1:1:0',result.value);sync.setTile('1:1:0',next);
+  for(let x=0;x<9000;x+=200)
+    assert.deepEqual(staged.collisionPlacements(1,[x,0,0],[x+30,0,0],32).map(r=>r.id),
+      sync.collisionPlacements(1,[x,0,0],[x+30,0,0],32).map(r=>r.id));
+  const stale=staged.prepareTile('1:2:0',[]);
+  do{result=stale.next();}while(!result.done);
+  staged.removeTile('1:0:0');
+  assert.throws(()=>staged.commitTile('1:2:0',result.value),/stale/);
+  assert.equal(staged.tiles.size,1);
+});
+
 test('visual selection yields, commits the same ranking, and never owns immediate collision demand',async()=>{
   const f=fixture(),sync=new SceneStream(f.source,f.wasm),stream=new SceneStream(f.source,f.wasm);
   stream.asyncVisuals=true;stream.collisionReach=152;
@@ -232,20 +257,45 @@ test('collision index updates only changed placements and resources, including d
   stream.clear();assert.equal(stream.collisionIndex,undefined);
 });
 
-test('collision index preserves NPC neighborhoods and replaces changed model keys',()=>{
+test('collision index never retains NPCs across population and neighborhood changes',()=>{
   const f=fixture(),stream=new SceneStream(f.source,f.wasm);
   const pack={version:1,provenance:{source:'test',redistribution:'private-local-only'},
     models:{7:{path:'creature.m2',scale:1,skins:[]}},
     spawns:[{id:9,map:1,displayId:7,position:[0,0,0],orientation:0,scale:1}]};
   stream.asyncVisuals=true;stream.collisionReach=152;
   stream.setPopulation(pack);stream.update(1,[0,0,0]);
-  assert.deepEqual(stream.collisionCandidates.map(i=>i.id),['1:npc:9']);
+  assert.deepEqual(stream.collisionCandidates,[]);
   pack.models[7].skins=['replacement.blp'];
   stream.setPopulation(pack);stream.update(1,[0,0,0]);
-  assert.equal(stream.collisionCandidates[0].key,'m2:creature.m2:["replacement.blp"]');
+  assert.deepEqual(stream.collisionCandidates,[]);
   stream.update(1,[9000,9000,0]);assert.equal(stream.collisionIndex.rows.size,0);
-  stream.update(1,[0,0,0]);assert.equal(stream.collisionIndex.rows.size,1);
+  stream.update(1,[0,0,0]);assert.equal(stream.collisionIndex.rows.size,0);
   stream.update(0,[0,0,0]);assert.equal(stream.collisionIndex.rows.size,0);
+});
+
+test('NPC visuals never create hulls, readiness waits or required requests, even with a shared static model',async()=>{
+  for(const asyncVisuals of [false,true]){
+    const f=fixture(),stream=new SceneStream(f.source,f.wasm);
+    stream.asyncVisuals=asyncVisuals;
+    stream.setPopulation({version:1,provenance:{source:'test',redistribution:'private-local-only'},
+      models:{7:{path:'creature.m2',scale:1,skins:[]}},
+      spawns:[{id:9,map:1,displayId:7,position:[0,0,0],orientation:0,scale:1}]});
+    const update=async()=>{
+      stream.update(1,[0,0,100],[0,0,-100],152,200);
+      if(asyncVisuals)await stream.prepareVisuals();
+    };
+    await update();
+    assert.deepEqual(stream.collisionCandidates,[]);
+    assert.deepEqual(stream.snapshot().unresolvedCollision,[],'An unloaded NPC cannot block a support sweep');
+    assert([...stream.requests.values()].every(r=>!r.required));
+    await stream.pump();
+    assert.equal(stream.snapshot().instances[0].id,'1:npc:9','The NPC still renders');
+    assert.deepEqual(stream.snapshot().collisionInstances,[],'Loaded authored creature hulls are not submitted');
+    stream.setTile('1:0:0',[p(1,'creature.m2')]);await update();await stream.pump();
+    assert.deepEqual(stream.snapshot().collisionInstances.map(i=>i.id),['1:m2:1'],
+      'An authored solid using the same model keeps collision');
+    assert(stream.snapshot().instances.some(i=>i.id==='1:npc:9'));
+  }
 });
 
 test('indexed WMO roots keep immediate groups without rebuilding distant doodad bounds',async()=>{

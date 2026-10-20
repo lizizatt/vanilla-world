@@ -7,6 +7,7 @@ import {loadCraft} from './craft-stream.js';
 import {WaterStream} from './water-stream.js';
 import {FarChannel} from './far-channel.js';
 import {FAR_LIMITS} from './far-stream.js';
+import {validateView,viewChanged} from './world-view.js';
 
 const TILE=1600/3,LIMIT=SCENE_LIMITS.nearTiles;
 let wasm;
@@ -25,6 +26,47 @@ function startCraft() {
 }
 let resident=new Set(),failures=new Map(),loads=0,evictions=0,peak=0,horizon;
 let terrainRead;
+async function yieldTerrain() {
+  if(globalThis.scheduler?.postTask)await scheduler.postTask(()=>{},{priority:'background'});
+  else await new Promise(resolve=>setTimeout(resolve,0));
+}
+function discardTerrainRead() {
+  if(terrainRead)world.cancel_tile();
+  terrainRead=undefined;
+}
+function prepareTerrain(read, decode=true) {
+  const owner=source,target=world,stream=scene;
+  const current=()=>terrainRead===read&&source===owner&&world===target;
+  read.ready=false;
+  return (async()=>{
+    try {
+      if(decode)read.bytes=await owner.read(assetPath(manifest.tiles[read.index]));
+      const steps=(function*(){
+        if(decode){
+          target.begin_tile(read.index,read.bytes);yield;
+          while(!target.step_tile())yield;
+          read.metadata=target.prepared_tile_placements(read.bytes);yield;
+        }
+        return yield* stream.prepareTile(tileKey(read.index),read.bytes,read.metadata);
+      })();
+      for(;;){
+        await yieldTerrain();
+        if(!current())return;
+        const start=performance.now();
+        let result;
+        for(let i=0;i<16;i++){
+          result=steps.next();
+          if(result.done||performance.now()-start>=4)break;
+        }
+        const elapsed=performance.now()-start;
+        timings.terrainSliceMs+=elapsed;timings.terrainSliceMax=Math.max(timings.terrainSliceMax,elapsed);
+        if(result.done){read.scene=result.value;return;}
+      }
+    }catch(error){
+      if(current()){target.cancel_tile();read.error=error;}
+    }finally{read.ready=true;}
+  })();
+}
 let detailPending,detailBusy=false;
 const tileVersions=new Map(),detailReady=new Set();
 let nextTileVersion=0;
@@ -110,10 +152,11 @@ let collisionFocus;
 const collisionInstances=new Map();
 const timings={frames:0,totalMs:0,maxMs:0,terrainMs:0,sceneMs:0,selectionMs:0,snapshotMs:0,
   geometrySliceMs:0,geometrySliceMax:0,
+  terrainSliceMs:0,terrainSliceMax:0,
   physicsMs:0,cameraUnknownMs:0,postMs:0,postFrameMs:0,scenePostMs:0,scenePosts:0,sceneInstancePosts:0,collisionBuildMs:0,collisionBuilds:0};
-let far,farFocus,farUpdated=0,farFlight=false;
+let far,farFocus,farView,farUpdated=0,farFlight=false;
 function startFarWorker() {
-  far?.close();farFocus=undefined;
+  far?.close();farFocus=undefined;farView=undefined;
   far=new FarChannel(()=>new Worker('./far-worker.js',{type:'module'}),source,manifest,
     (message,transfers)=>postMessage(message,transfers),
     ()=>!!objectWait.length ||
@@ -139,7 +182,7 @@ function tileKey(index) {
   const t=manifest.tiles[index];
   return `${t.region===0?1:0}:${t.x}:${t.y}`;
 }
-function prepareDistant(focus,enabled,flying=false) {
+function prepareDistant(focus,enabled,flying=false,view) {
   farFlight=flying;
   water?.setFocus(focus);
   const region=focusRegion(focus),p=[focus[0],focus[2]];
@@ -149,8 +192,9 @@ function prepareDistant(focus,enabled,flying=false) {
   const limit=SCENE_LIMITS.instances-(enabled&&far.active?FAR_LIMITS.instances:0);
   if(scene.limits.instances!==limit){scene.limits.instances=limit;sceneFocus=undefined;}
   if(!farFocus || region!==far.region || enabled!==far.enabled ||
-    performance.now()-farUpdated>=100 && Math.hypot(...focus.map((v,a)=>v-farFocus[a]))>=16) {
-    far.focus(region,focus.slice(),enabled);farFocus=focus.slice();farUpdated=performance.now();
+    performance.now()-farUpdated>=100 &&
+      (Math.hypot(...focus.map((v,a)=>v-farFocus[a]))>=16 || viewChanged(farView,view))) {
+    far.focus(region,focus.slice(),enabled,view);farFocus=focus.slice();farView=view;farUpdated=performance.now();
   }
 }
 function recordTerrainFailure(index,error) {
@@ -164,45 +208,48 @@ async function stream(p,pin,fill=false) {
   const tiles=[],removed=[];
   if(terrainRead?.ready && !wanted.includes(terrainRead.index)) {
     if('error' in terrainRead)recordTerrainFailure(terrainRead.index,terrainRead.error);
-    terrainRead=undefined;
+    discardTerrainRead();
   }
   for(const index of resident) if(!wanted.includes(index)) {
     world.remove_tile(index);scene.removeTile(tileKey(index));terrain.removeTile(index);terrainErrors.delete(index);
     if(terrainMaterials.delete(index) && !terrainMaterials.size)cancelMaterialTimer();
     resident.delete(index);tileVersions.delete(index);detailReady.delete(index);removed.push(index);evictions++;
   }
-  let prefetches=0;
-  for(const index of wanted) {
+  if(fill&&terrainRead&&!wanted.includes(terrainRead.index)){
+    await terrainRead.pending;
+    if('error' in terrainRead)recordTerrainFailure(terrainRead.index,terrainRead.error);
+    discardTerrainRead();
+  }
+  const order=fill&&terrainRead?[...new Set([terrainRead.index,...wanted])]:wanted;
+  for(const index of order) {
     if(resident.has(index)||failures.has(index))continue;
-    const staged=terrainRead?.index===index && terrainRead.ready;
-    if(!fill && !required.includes(index) && !staged && prefetches++>=1)continue;
     const entry=manifest.tiles[index];
-    if(!fill && !required.includes(index)) {
-      if(!terrainRead) {
-        const read={index,ready:false};
-        terrainRead=read;
-        // Stage one raw ADT only; admission stays in this queue before collision readiness is checked.
-        read.pending=(async()=>{
-          try {read.bytes=await source.read(assetPath(entry));}
-          catch(error) {read.error=error;}
-          finally {read.ready=true;}
-        })();
+    if(terrainRead&&terrainRead.index!==index){
+      if(required.includes(index)&&terrainRead.bytes){
+        if('error' in terrainRead)recordTerrainFailure(terrainRead.index,terrainRead.error);
+        discardTerrainRead();
       }
-      if(terrainRead.index!==index || !terrainRead.ready)continue;
+      else continue;
+    }
+    if(!terrainRead){
+      const read={index,ready:false};terrainRead=read;
+      read.pending=prepareTerrain(read);
+    }
+    const read=terrainRead;
+    if(fill)await read.pending;
+    if(!read.ready)continue;
+    if(!('error' in read)&&read.scene.revision!==scene.placementRevision){
+      read.pending=prepareTerrain(read,false);
+      if(fill)await read.pending;
+      else continue;
     }
     report(`Loading ${entry.file}; required terrain stays blocked until ready.`);
     const started=performance.now();
     try {
-      let bytes;
-      if(terrainRead?.index===index) {
-        const read=terrainRead;
-        await read.pending;
-        terrainRead=undefined;
-        if('error' in read)throw read.error;
-        bytes=read.bytes;
-      } else bytes=await source.read(assetPath(entry));
-      world.add_tile(index,bytes);
-      scene.setTile(tileKey(index),bytes,world.tile_placements(index,bytes));
+      if('error' in read)throw read.error;
+      world.commit_tile(index);
+      scene.commitTile(tileKey(index),read.scene);
+      terrainRead=undefined;
       sceneFocus=undefined;
       const vertices=postFrameVisuals?undefined:world.geometry(index);
       resident.add(index);loads++;peak=Math.max(peak,resident.size);
@@ -210,6 +257,7 @@ async function stream(p,pin,fill=false) {
       tiles.push({index,version,placement:placements[index],vertices});
       terrainMaterials.add(index);
     } catch(error) {
+      discardTerrainRead();
       world.remove_tile(index);scene.removeTile(tileKey(index));
       recordTerrainFailure(index,error);
     } finally {
@@ -217,6 +265,7 @@ async function stream(p,pin,fill=false) {
         measureHold('terrain',performance.now()-started);lastHoldTime=performance.now();
       }
     }
+    if(!fill)break;
   }
   if(tiles.length || removed.length) {
     if(postFrameVisuals)queueGeometry(tiles,removed);
@@ -414,7 +463,6 @@ function updateScene(focus,publish=true,restoring) {
 async function preparePoseScene(pose) {
   const body=Array(15).fill(0);body.splice(0,4,...pose);
   const focus=body.slice(0,3);
-  if(scenePump)await scenePump;
   sceneFocus=undefined;collisionFocus=undefined;
   updateScene(focus,false,body);
   while(objectWait.length) {
@@ -594,7 +642,7 @@ async function handle(message) {
     materialGeneration++;cancelMaterialTimer();materialFrameReady=false;materialBusy=false;
     terrain?.clear();
     water?.clear();
-    terrainRead=undefined;
+    discardTerrainRead();
     detailPending=undefined;detailBusy=false;
     tileVersions.clear();detailReady.clear();nextTileVersion=0;
     geometryJob=undefined;geometryRevision++;geometryDirty=false;
@@ -634,7 +682,7 @@ async function handle(message) {
     // Horizon initialization is synchronous before its first yield; required near work can then overlap publication.
     const horizonReady=buildHorizon(wdls);
     await Promise.all([horizonReady,(async()=>{
-      await stream([manifest.spawn[0],manifest.spawn[2]],true);
+      await stream([manifest.spawn[0],manifest.spawn[2]],true,true);
       world.initialize_spawn();
       await preparePoseScene(Array.from(world.telemetry()).slice(0,4));
     })()]);
@@ -645,10 +693,11 @@ async function handle(message) {
   if(message.action==='frame') {
     if(message.hop!==undefined&&(!Number.isSafeInteger(message.hop)||message.hop<0))throw new Error('Invalid hop sequence');
     if(message.sampleTime!==undefined && !Number.isFinite(message.sampleTime))throw new Error('Invalid input sample time');
+    if(message.view!==undefined)validateView(message.view);
     const started=performance.now();
     const p=world.telemetry(),focus=message.focus || Array.from(p.slice(0,3));
     if(!Array.isArray(focus)||focus.length!==3||!focus.every(v=>Number.isFinite(v)&&Math.abs(v)<1e12))throw new Error('Invalid world focus');
-    prepareDistant(focus,message.distant!==false,!!message.focus);
+    prepareDistant(focus,message.distant!==false,!!message.focus,message.view);
     const frameLoads=loads;
     const terrainStart=performance.now();await stream([focus[0],focus[2]],!message.focus);
     timings.terrainMs+=performance.now()-terrainStart;

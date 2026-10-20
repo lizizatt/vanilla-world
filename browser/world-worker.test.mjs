@@ -5,6 +5,7 @@ import {createContext,runInContext} from 'node:vm';
 import {transformedBounds,globalCollisionVertices,SCENE_LIMITS,placementMatrix,boundsWithin,boundsDistance} from './scene-stream.js';
 import {FAR_LIMITS} from './far-stream.js';
 import {prepareDetail} from './camera-collision.js';
+import {validateView,viewChanged} from './world-view.js';
 
 // Exercise the actual worker queue with synthetic archive/Wasm boundaries, without starting WebGPU.
 const worker=(await readFile(new URL('./world-worker.js',import.meta.url),'utf8'))
@@ -15,7 +16,7 @@ function boot(events=[],clock=performance) {
   const context=createContext({init:async()=>({memory:{buffer:new ArrayBuffer(0)}}),performance:clock,postMessage:message=>events.push(message),
     setTimeout:(callback,delay)=>{const id=++nextTimer;timers.set(id,{callback,delay});return id;},
     clearTimeout:id=>timers.delete(id),
-    transformedBounds,globalCollisionVertices,SCENE_LIMITS,FAR_LIMITS,boundsWithin,boundsDistance});
+    transformedBounds,globalCollisionVertices,SCENE_LIMITS,FAR_LIMITS,boundsWithin,boundsDistance,validateView,viewChanged});
   runInContext(worker,context);
   runInContext('far={active:true,close(){},retry(){},near(){},snapshot:()=>({resident:0,failures:[]})};',context);
   context.timers=timers;
@@ -25,6 +26,20 @@ function boot(events=[],clock=performance) {
   };
   return context;
 }
+
+test('optional visual reads never gate an already collision-ready pose',async()=>{
+  const context=boot();
+  runInContext(`
+    scenePump=new Promise(()=>{});
+    updateScene=()=>{objectWait=[];};
+    globalThis.prepare=preparePoseScene;
+  `,context);
+  let complete=false;
+  const ready=context.prepare([0,0,0,0]).then(()=>{complete=true;});
+  await settle();
+  assert(complete,'A pending NPC/visual read cannot delay pose readiness');
+  await ready;
+});
 
 test('cached unresolved broad phase preserves exact moving hull and camera predicates',()=>{
   const context=boot();
@@ -69,12 +84,13 @@ test('detail preprocessing never blocks physics and coalesces at most one pendin
   assert.equal(events.length,2,'A replaced source cannot publish its delayed geometry');
 });
 function fixture(xs=[0,1,20,21]) {
-  const reads=[],added=[],materials=[],pending=new Map(),required=[0];
+  const reads=[],added=[],materials=[],pending=new Map(),required=[0],prepared=[];
   const events=[],context=boot(events);
   context.dependencies={
-    world:{required_tiles:()=>required,add_tile:i=>added.push(i),remove_tile(){},
+    world:{required_tiles:()=>required,begin_tile:i=>prepared.push(i),step_tile:()=>true,
+      commit_tile:i=>added.push(i),cancel_tile(){},remove_tile(){},
       geometry:()=>new Float32Array(),horizon_seams:()=>new Float32Array(),terrain_material:i=>{materials.push(i);return {};},
-      tile_placements:()=> '[]'},
+      prepared_tile_placements:()=> '[]'},
     source:{read:path=>{
       const index=Number(path.match(/tile(\d+)\.adt$/)[1]);
       reads.push(index);
@@ -82,15 +98,17 @@ function fixture(xs=[0,1,20,21]) {
     }},
     manifest:{regions:[{map:'test'}],tiles:xs.map((x,i)=>({region:0,x,y:0,file:`tile${i}.adt`}))},
     placements:xs.map(x=>[x*1600/3,0]),
-    scene:{setTile(){},removeTile(){}},terrain:{setTile(){},removeTile(){},async pump(){}},
+    scene:{placementRevision:0,*prepareTile(){yield;return {revision:this.placementRevision};},
+      commitTile(){this.placementRevision++;},removeTile(){}},terrain:{setTile(){},removeTile(){},async pump(){}},
   };
   runInContext(`({world,source,manifest,placements,scene,terrain}=dependencies);
     resident=new Set([0]);
+    yieldTerrain=async()=>{};
     craft.ready=true;
     globalThis.streamTerrain=stream;
     globalThis.visuals=()=>startOptionalWork({});
     globalThis.state=()=>({resident:[...resident],failures:[...failures.values()]});`,context);
-  return {context,events,reads,added,materials,required,pending,stream:context.streamTerrain,visuals:context.visuals,
+  return {context,events,reads,added,prepared,materials,required,pending,stream:context.streamTerrain,visuals:context.visuals,
     state:()=>JSON.parse(JSON.stringify(context.state()))};
 }
 
@@ -216,20 +234,65 @@ test('an old detail reply cannot authorize materials for a readmitted tile index
   f.visuals();assert.deepEqual(f.materials,[1]);
 });
 
-test('prefetched ADT becoming required waits for the same read and keeps current support pinned',async()=>{
+test('prefetched ADT becoming required keeps support pinned without blocking the frame',async()=>{
   const f=fixture();
   await f.stream([0,0],true);
   f.required.push(1);
   let done=false;
   const frame=f.stream([0,0],true).then(()=>{done=true;});
   await settle();
-  assert.equal(done,false);
+  assert.equal(done,true);
   assert.deepEqual(f.reads,[1]);
   assert.deepEqual(f.state().resident,[0]);
   f.pending.get(1).resolve(new Uint8Array([1]));
-  await frame;
+  await frame;await settle();
+  assert.deepEqual(f.state().resident,[0],'Required support remains unavailable until atomic publication');
+  await f.stream([0,0],true);
   assert.deepEqual(f.state().resident,[0,1]);
   assert.deepEqual(f.added,[1]);
+});
+
+test('terrain preparation yields outside frames and publishes no partial collision metadata',async()=>{
+  const f=fixture([0,1]),turns=[];
+  f.context.yieldStep=()=>new Promise(resolve=>turns.push(resolve));
+  runInContext('yieldTerrain=yieldStep;',f.context);
+  let steps=0,publications=0;
+  f.context.dependencies.world.step_tile=()=>++steps===40;
+  f.context.dependencies.scene.commitTile=()=>publications++;
+  await f.stream([0,0],true);
+  f.pending.get(1).resolve(new Uint8Array([1]));await settle();
+  assert.deepEqual(f.prepared,[]);
+  while(steps<40){
+    turns.shift()();await settle();
+    await f.stream([0,0],true);
+    if(steps<40){
+      assert.deepEqual(f.state().resident,[0]);assert.equal(publications,0);
+      assert(steps<=40);
+    }
+  }
+  assert.deepEqual(f.added,[1]);assert.equal(publications,1);
+});
+
+test('changed placement metadata is re-prepared before terrain becomes resident',async()=>{
+  const f=fixture([0,1]);
+  await f.stream([0,0],true);
+  f.pending.get(1).resolve(new Uint8Array([1]));await settle();
+  f.context.dependencies.scene.placementRevision++;
+  await f.stream([0,0],true);
+  assert.deepEqual(f.added,[]);
+  await settle();await f.stream([0,0],true);
+  assert.deepEqual(f.added,[1]);assert.deepEqual(f.prepared,[1],'No duplicate Rust decoding');
+});
+
+test('source replacement cancels a yielded tile before any stale Wasm calls or publication',async()=>{
+  const f=fixture([0,1]),turns=[];
+  f.context.yieldStep=()=>new Promise(resolve=>turns.push(resolve));
+  runInContext('yieldTerrain=yieldStep;',f.context);
+  await f.stream([0,0],true);
+  f.pending.get(1).resolve(new Uint8Array([1]));await settle();
+  runInContext('discardTerrainRead();source={};world={};',f.context);
+  turns.shift()();await settle();
+  assert.deepEqual(f.prepared,[]);assert.deepEqual(f.added,[]);
 });
 
 test('stale optional ADT completion cannot resurrect terrain after flight changes demand',async()=>{
@@ -280,6 +343,18 @@ test('failed stale prefetch is reported and cleared even after its tile leaves d
   assert.match(f.state().failures[0],/tile1.adt: NOT_FOUND stale missing tile/);
   await f.stream([20*1600/3,0],false);
   assert.equal(f.reads.filter(i=>i===1).length,1);
+});
+
+test('required demand preempts failed optional preparation without losing its error',async()=>{
+  const f=fixture([0,1,2]);
+  f.context.dependencies.world.begin_tile=()=>{throw Error('Invalid staged terrain');};
+  await f.stream([0,0],true);
+  f.pending.get(1).resolve(new Uint8Array([1]));await settle();
+  f.required.push(2);
+  await f.stream([0,0],true);
+  assert.deepEqual(f.reads,[1,2]);
+  assert.match(f.state().failures[0],/Invalid staged terrain/);
+  assert.deepEqual(f.added,[]);
 });
 
 function collisionFixture(clock=performance,instanceDeltas=true) {

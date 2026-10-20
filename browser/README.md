@@ -51,6 +51,92 @@ Build output stays in this worktree's `target-web`; it does not touch the native
 racer cache. The server binds loopback only and serves an explicit file allowlist,
 not your Data directory.
 
+## Yielded terrain admission
+
+The browser prepares one ADT at a time outside the frame handler. The shared Rust
+parser/mesher advances one MCNK at a time; worker turns stop after 4 ms or sixteen
+steps. Placement validation and collision-index construction also yield in
+bounded batches. Terrain and its prepared scene index become resident together
+in the next frame, never exposing partial collision support. Changed metadata
+invalidates the staged index; changing the source cancels staged work.
+
+Required terrain remains genuinely unavailable until publication, without making
+the frame await decoding or inventing loading holds. Startup and pose restoration
+still await actual readiness. A required tile can preempt optional preparation
+after its non-interruptible archive read. Eight detailed tiles, the existing
+physics, caches and worker counts are unchanged. The synchronous native API
+reuses the same chunk builder and retains its existing behavior.
+
+The 4 ms scheduling budget is not a hard deadline for an individual Wasm call,
+JSON parse, allocation or host pause. Render-geometry extraction remains separately
+yielded; this change does not add workers, liquid range reads or fidelity changes.
+Shell cache v34 includes the staged admission APIs.
+
+Isolated Edge `admission-sliced` gate against `cdeaff6` (including its preserved
+original Wasm), forward/reverse execution order, unchanged 150/300 handling:
+
+| Metric | Staged candidate | Baseline |
+| --- | --- | --- |
+| Active handler p99 | 12.4 / 12.5 ms | 15.6 / 9.8 ms |
+| Moving freezes over 50 ms | 0 / 0 | 0 / 1 |
+| Active selection maximum | 9.6 / 11.8 ms | 47.3 / 7.3 ms |
+| Active terrain-stream maximum | 12.2 / 25.2 ms | 16.6 / 21.6 ms |
+| Preparation-inclusive selection maximum | 13.3 / 18.5 ms | 47.3 / 24.8 ms |
+
+Both orders covered about 585 yards and 6.07-6.08 active seconds. They pass the
+20 ms p99/zero moving-tail gate, not a strict relative-regression or hard
+per-operation limit. Background preparation slices still peaked at 34.9/22.6 ms
+including startup; the specific single call or host pause responsible is not
+isolated. Separately yielded render geometry peaked at 32.1/42.6 ms.
+There were no terrain holds, but real object-readiness holds remained:
+254/323 ms over the full trials, versus 253/639 ms baseline.
+Fresh contexts do not control filesystem caches or other shared-host activity.
+
+## View-aware distant selection
+
+Far selection now prefers visible known bounds, retaining bounded discovery for
+unknown models. A selected instance must fit together with its known mesh, WMO
+root and texture dependencies in the existing 32 MiB/96-model/96-texture budget.
+Ordinary optional omissions are reported as `budgetOmitted`, rather than treating
+a full distant cache as missing world data. Invalid or individually oversized
+resources still report errors.
+
+The nearest 24 placement tiles are unchanged, but metadata ahead of the camera
+is requested before tiles behind it. Camera turns refresh selection even while
+stationary. Near collision demand is not view-culled. Terrain and water draws
+use conservative cached bounds with movement/rotation guards; neither residency
+nor collision data is culled. A clipped vertical chase view retains a valid
+camera basis instead of failing the new camera-metadata validation.
+
+This is fidelity step 1 only: no extra tiles, impostors, terrain morph, admission
+fade or color-ring change. Shell cache v35 includes the shared view module.
+
+The `fidelity-rebased-camera` equal-path Edge gate against admission-only
+`7c5aa2d` passed in both orders (about 585 yards / 6.10 active seconds):
+
+| Metric | Fidelity candidate | Admission-only baseline |
+| --- | --- | --- |
+| Active handler p99 | 11.6 / 15.2 ms | 16.9 / 11.1 ms |
+| Moving freezes over 50 ms | 0 / 0 | 0 / 0 |
+| Active selection maximum | 10.3 / 22.3 ms | 18.6 / 16.0 ms |
+| Active terrain-stream maximum | 18.6 / 15.1 ms | 19.6 / 24.2 ms |
+
+The reverse selection still exceeds 20 ms, despite passing the p99 gate.
+Including startup, background preparation reached 45.7/18.4 ms and separately
+yielded geometry 104.3/38.8 ms. Real full-trial object holds were 612/0 ms versus
+253/140 ms; no terrain holds occurred. This does not close startup/all-work
+hitches. The earlier restored run failed camera validation; the subsequent run
+includes its deterministic clipped-camera regression fix, not an unchanged retry.
+
+Five fixed-pose captures have no browser errors. Compared with the original
+analysis snapshots, city distant draws increased from 99 to 307 and the sixteen
+distant-capacity errors disappeared. The candidate culled 1,258 terrain/water
+draws in that city view and 1,924 at the coast. Sampled dedicated GPU usage was
+371-428 MiB, with unchanged residency/cache caps. These are not synchronized
+streaming benchmarks: fewer water tiles were loaded in the new captures, so the
+lower total draws/GPU usage must not all be attributed to culling. Coarse distant
+terrain coloring and the existing ocean ripple aliasing remain visible.
+
 ## Explore
 
 Selecting Data now opens a full-screen, art-free loading view with accessible
@@ -814,7 +900,8 @@ Near placement descriptors now occupy conservative 128-yard horizontal cells.
 Movement queries the collision-anchor and predicted-demand region instead of
 enumerating every nearby tile's placements. Metadata changes reconcile only
 changed memberships; geometry admission/eviction immediately relocates entries
-for affected model keys. NPCs keep the original five-by-five tile neighborhood.
+for affected model keys. NPCs keep the original five-by-five visual neighborhood
+but are excluded from the collision index.
 WMO roots remain always considered, with existing group/doodad expansion and
 early doodad rejection. Oversized bounds use an always-considered set rather
 than unlimited cell memberships; oversized queries fall back to enumeration.
@@ -929,10 +1016,22 @@ Do not commit, upload or redistribute it. See [SCENE.md](SCENE.md) for the optio
 private export commands and schema.
 
 Without that companion the app explicitly reports no NPC population. NPCs are
-static bind-pose appearances, not live server entities. Equipment, complete
+visual-only, static bind-pose appearances, not live server entities. They never
+enter collision candidates, hull sweeps, camera obstruction or readiness waits,
+even when their model has an authored hull. Static world props sharing that model
+remain solid. Equipment, complete
 humanoid customization, animation, event/pool scheduling, quests and combat are
 not implemented. Baked humanoid bodies omit unresolved hair/cape batches rather
 than drawing fake opaque cards.
+
+The `npc-collision-final` isolated both-order gate against `ab7c899` covers
+585--587 yards and at least six active seconds at unchanged 150/300 tuning.
+Handler p99 is **4.7/4.4 ms** (baseline 11.3/6.5), with no moving >50 ms tails
+or terrain/object holds in the candidate runs. Selection including preparation
+still reaches 8.1/27.9 ms, active terrain admission 10.5/10.4 ms, and geometry
+slices 28.2/22.0 ms: this is a p99 pass, not a hard all-work 20 ms guarantee.
+114 focused tests cover visual NPC residency, shared-model static solids,
+collision-index exclusion and pose readiness during pending optional reads.
 
 ## Checks and evidence
 
