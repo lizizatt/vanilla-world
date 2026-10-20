@@ -71,3 +71,25 @@ export class Race {
   }
   farFromCourse(pos) { return this.track.gates.every(g=>dist(pos,g.pos)>this.breakoff)&&dist(pos,this.track.start.pos)>this.breakoff; }
 }
+
+export function formatTime(seconds) {
+  const ms=Math.round(Math.max(0,seconds)*1000),m=Math.floor(ms/60000),s=(ms%60000)/1000;
+  return `${m}:${s.toFixed(2).padStart(5,'0')}`;
+}
+
+// Signed angle from the craft's heading to a target: positive is to the right. Craft forward = (-sin yaw, -cos yaw).
+export function bearing(pos,yaw,target) {
+  const dx=target[0]-pos[0],dz=target[2]-pos[2];
+  return Math.atan2(dx*Math.cos(yaw)-dz*Math.sin(yaw),-dx*Math.sin(yaw)-dz*Math.cos(yaw));
+}
+
+export const SCORE_LIMIT=10;
+// Per-track local scoreboard: {version:1,runs:[{time,splits,date}]} sorted fastest first. Bad records read as empty.
+export function validScores(record) {
+  const ok=record?.version===1&&Array.isArray(record.runs)&&record.runs.every(r=>Number.isFinite(r.time)&&r.time>0&&Array.isArray(r.splits)&&r.splits.every(Number.isFinite));
+  return ok?record:{version:1,runs:[]};
+}
+export function addScore(record,run) {
+  const runs=[...validScores(record).runs,run].sort((a,b)=>a.time-b.time).slice(0,SCORE_LIMIT);
+  return {record:{version:1,runs},rank:runs.indexOf(run)};
+}
