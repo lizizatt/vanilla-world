@@ -27,3 +27,13 @@ test('loadTracks skips missing or invalid files',async()=>{
   const tracks=await loadTracks(fetcher,['./ok.json','./bad.json','./none.json']);
   assert.deepEqual(tracks.map(t=>t.id),['a']);
 });
+
+test('gateMesh spans the gate width along its heading and the next gate has a taller beam',async()=>{
+  const {gateMesh}=await import('./race-flags.js');
+  const top=m=>{let h=-1e9;for(let i=1;i<m.length;i+=7)h=Math.max(h,m[i]);return h;};
+  const g={pos:[0,0,0],yaw:Math.PI/2,width:60};
+  const m=gateMesh(g,0,false);let zs=[];
+  for(let i=2;i<m.length;i+=7)zs.push(m[i]);
+  assert.ok(Math.max(...zs)>=29&&Math.min(...zs)<=-29);
+  assert.ok(top(gateMesh(g,0,true))>top(m));
+});
