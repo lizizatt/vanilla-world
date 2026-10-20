@@ -16,7 +16,7 @@ const cameraCollision=new CameraCollision();
 const evidence={ready:false,frames:0,errors:[],mode:'drive'};
 window.worldEvidence=evidence;
 let renderer,folder,flight,running=false,busy=false,last=0,frames=0,hudTime=0,hudFrames=0,permissionNeeded=false;
-let orbit=[0,0],dragging=false,soundAttempt=0,soundError='',soundTime=0,reportTimer,testPads,frozenPresentation=false,tuningValues=TUNING_FIELDS.map(f=>f[1]);
+let orbit=[0,0],dragging=false,mouseButtons=0,soundAttempt=0,soundError='',soundTime=0,reportTimer,testPads,frozenPresentation=false,tuningValues=TUNING_FIELDS.map(f=>f[1]);
 const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:false,cockpit:false,night:false,clouds:true};
 const settings={...defaults};
 try{settings.night=localStorage.getItem('racer.night')==='1';}catch{}
@@ -302,15 +302,15 @@ canvas.addEventListener('keydown',event=>{
 });
 canvas.addEventListener('pointerdown',event=>{
   canvas.focus();resumeAudio(true);
-  if(event.button===2){dragging=true;canvas.setPointerCapture(event.pointerId);}
+  mouseButtons=event.buttons;if(event.button===0||event.button===2){dragging=true;canvas.setPointerCapture(event.pointerId);}
 });
-canvas.addEventListener('pointermove',event=>{if(dragging){orbit[0]+=event.movementX;orbit[1]+=event.movementY;}});
-canvas.addEventListener('pointerup',()=>{dragging=false;});
-canvas.addEventListener('lostpointercapture',()=>{dragging=false;});
+canvas.addEventListener('pointermove',event=>{if(dragging){mouseButtons=event.buttons;orbit[0]+=event.movementX;orbit[1]+=event.movementY;}});
+canvas.addEventListener('pointerup',event=>{mouseButtons=event.buttons;dragging=!!(mouseButtons&3);});
+canvas.addEventListener('lostpointercapture',()=>{dragging=false;mouseButtons=0;});
 canvas.addEventListener('contextmenu',event=>event.preventDefault());
 canvas.addEventListener('wheel',event=>{if(running && !$('tuning-panel').open){event.preventDefault();zoom(-Math.sign(event.deltaY));}},{passive:false});
 window.addEventListener('keyup',event=>keys.delete(event.code));
-canvas.addEventListener('blur',()=>{keys.clear();orbit=[0,0];dragging=false;});
+canvas.addEventListener('blur',()=>{keys.clear();orbit=[0,0];dragging=false;mouseButtons=0;});
 window.addEventListener('blur',()=>{keys.clear();pauseAudio();});
 window.addEventListener('focus',()=>resumeAudio());
 document.addEventListener('visibilitychange',()=>{keys.clear();last=0;if(document.hidden)pauseAudio();else resumeAudio();});
@@ -326,13 +326,14 @@ function frame(now) {
   try {
     const focused=document.hasFocus(),editing=$('tuning-panel').open;
     const accepts=document.activeElement===canvas && focused && !editing;
-    const controls=input.sample(keys,testPads || Array.from(navigator.getGamepads?.() || []),accepts,settings.controls,!focused||!editing);
+    const controls={...input.sample(keys,testPads || Array.from(navigator.getGamepads?.() || []),accepts,settings.controls,!focused||!editing)};
     if(controls.reset)$('reset').click();
     if(controls.flight)$(flight?'drive':'fly').click();
     if(controls.help)$('preferences').open=!$('preferences').open;
     if(controls.cockpit)cockpit();
     if(controls.zoom)zoom(controls.zoom);
-    const cameraOrbit=orbit;orbit=[0,0];
+    const cameraOrbit=orbit;orbit=[0,0];const keyDrive=!!(controls.throttle||controls.steer),right=!flight&&!!(mouseButtons&2);
+    if(right){controls.steer=Math.max(-1,Math.min(1,(renderer.chase?.[0]||0)*4));if(mouseButtons&1)controls.throttle=1;}
     if(flight) {
       flight=moveFlight(flight,keys,dt);flight[3]-=cameraOrbit[0]*.004;
       flight[4]=Math.max(-1.55,Math.min(1.55,flight[4]-cameraOrbit[1]*.004));
@@ -340,7 +341,7 @@ function frame(now) {
     if(!frozenPresentation)client.frame(dt,controls.throttle,controls.steer,controls.flags,flight?.slice(0,3),settings.distant,renderer.view);
     cameraCollision.frame(client.state,renderer.sceneRegion ?? client.state.telemetry[10]);
     const stats=renderer.draw(frozenPresentation || flight?client.state.telemetry:client.presentation(),flight,dt,frozenPresentation?0:now/1000,
-      {...settings,cameraLook:controls.look,cameraOrbit},keys.has('KeyV')&&!keys.has('AltLeft')&&!keys.has('AltRight'));
+      {...settings,cameraLook:controls.look,cameraOrbit,cameraSteer:right,cameraRecentre:keyDrive&&!dragging},keys.has('KeyV')&&!keys.has('AltLeft')&&!keys.has('AltRight'));
     const cameraWarning=stats.cameraBlocked==='pending'?'Cockpit view waiting for nearby camera geometry.'
       :stats.cameraBlocked?'Cockpit view blocked by nearby geometry.':'';
     $('camera-blocked').hidden=!cameraWarning;

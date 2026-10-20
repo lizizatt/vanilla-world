@@ -77,8 +77,9 @@ test('camera orbit clamps pitch, wraps yaw and returns behind the craft; flight 
   cameraView(rig,state,undefined,.016,[0,0],{});
   for(let i=0;i<100;i++)cameraView(rig,state,undefined,.1,[0,0],{cameraLook:[1,1]});
   assert(Math.abs(rig.chase[0])<=Math.PI);assert(rig.chase[1]<Math.PI/2);
-  const pitch=rig.chase[1];cameraView(rig,state,undefined,.1,[0,0],{});
-  assert(rig.chase[1]<pitch);
+  const pitch=rig.chase[1],yaw=rig.chase[0];cameraView(rig,state,undefined,.1,[0,0],{});
+  assert.equal(rig.chase[1],pitch,'idle camera holds where the mouse left it');assert.equal(rig.chase[0],yaw);
+  cameraView(rig,state,undefined,.1,[0,0],{cameraRecentre:true});assert(rig.chase[1]<pitch);
   cameraView(rig,state,[100,200,300,0,0],.1,[100,300],{});
   assert.deepEqual(rig.camera,[0,200,0]);
 });
@@ -382,4 +383,11 @@ test('camera terrain buckets clip ground, skip water and guard expected unloaded
   collision.frame({scene:{unresolvedCollision:[{bounds:[[-2,-6,0],[2,-5,20]],boundsKnown:true}]}},0);
   assert(collision.clip([0,5,0],[10,5,0],[0,0])[0]<5);assert(!collision.ready);
   collision.event({event:'detail',removed:[0],tiles:[]});assert.equal(collision.tiles.size,0);
+});
+test('mouse steer keeps the camera world heading while the craft turns toward it',()=>{
+  const rig={};cameraView(rig,[0,2,0,0],undefined,.016,[0,0],{});
+  cameraView(rig,[0,2,0,0],undefined,.016,[0,0],{cameraOrbit:[-100,0],cameraSteer:true});
+  const offset=rig.chase[0];assert(offset>.3);
+  cameraView(rig,[0,2,0,.2],undefined,.016,[0,0],{cameraSteer:true});
+  assert(Math.abs(rig.chase[0]-(offset-.2))<1e-9);
 });

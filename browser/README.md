@@ -347,7 +347,7 @@ The spawn height comes from the ADT, not a guessed sea-level floor.
 |---|---|
 | Drive | W thrust, S reverse, A/D steer, X brake, Space/J hop, Shift boost, Ctrl/C drift, F cockpit, V look behind, F9 reset |
 | Standard controller | Left stick steer, RT thrust minus LT reverse, RB boost, LB drift, A hop, right stick look/click cockpit, D-pad chase zoom, Y reset, Start drive/fly |
-| Chase camera | Right-drag or arrow-key orbit, wheel zoom; vehicle-relative position with local distance/vertical damping |
+| Chase camera | **Left-drag** orbits the camera independently of heading and it stays where left (no snap-back; it recentres only while you drive with keys/pad). **Right-drag** steers: the camera keeps its heading and the craft turns toward it. **Both buttons** steer and thrust forward. Arrow keys orbit, wheel zooms |
 | Free flight | W/S forward/back, A/D strafe, Q/E altitude, arrows look, Shift fast |
 | World overview | Frames both complete coarse continents |
 | Return to vehicle | Returns to the parked hovercraft; does not teleport it to the flight camera |
