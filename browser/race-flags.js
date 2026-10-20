@@ -26,11 +26,14 @@ export function flagMesh(y) {
 
 // Gate drawn around local x/z 0, base at world height y: two pylons, a crossbar spanning the width and a
 // tall beam. The next gate is amber with a much taller beam so it can be seen from far away.
-export function gateMesh(gate,y,next=false) {
+// finish=true swaps the crossbar for a checkered banner.
+export function gateMesh(gate,y,next=false,finish=false) {
   const v=[],half=gate.width/2,post=next?8:6,bar=next?8:7,beam=next?8:6;
   box(v,[-half-1,y-3,-1],[2,17,2],post);
   box(v,[half-1,y-3,-1],[2,17,2],post);
-  box(v,[-half,y+12,-.5],[gate.width,2,1],bar);
+  if(finish){const n=Math.max(2,Math.round(gate.width/4)),cw=gate.width/n;
+    for(let row=0;row<3;row++)for(let col=0;col<n;col++)box(v,[-half+col*cw,y+9+row*2.5,-.3],[cw,2.5,.6],(row+col)%2?7:6);}
+  else box(v,[-half,y+12,-.5],[gate.width,2,1],bar);
   const w=next?3:1.6,h=next?380:110;
   box(v,[-half-w/2,y+14,-w/2],[w,h,w],beam);
   box(v,[half-w/2,y+14,-w/2],[w,h,w],beam);

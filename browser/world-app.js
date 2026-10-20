@@ -174,7 +174,7 @@ async function open(selection,remember=false) {
     renderer.reset();renderer.clipCamera=undefined;cameraCollision.reset();flight=undefined;pauseAudio();music.stop();Object.assign(settings,defaults);syncSettings();
     const result=await client.open(selection,loadingMap);
     renderer.configure(result.info.manifest);client.sky();mapPanel.configure(result.info.manifest);
-    void loadTracks().then(async found=>{tracks=await withOverrides(found);gateKey=undefined;renderer.setFlags(tracks.map(flagPosition));});
+    void loadTracks().then(async found=>{tracks=await withOverrides(found);gateKey=undefined;});
     cameraCollision.configure(result.info.manifest);
     tuningValues=Array.isArray(result.info.tuning)?result.info.tuning.slice():TUNING_FIELDS.map(f=>f[1]);
     opened=true;
@@ -371,7 +371,7 @@ const editor=createTrackEditor({
     tracks=mergeTrack(tracks,track);
   },
   test:track=>startRace(track),
-  closed:()=>{flight=editorFlight;editorFlight=undefined;gateKey=undefined;keys.clear();renderer.setFlags(tracks.map(flagPosition));canvas.focus();},
+  closed:()=>{flight=editorFlight;editorFlight=undefined;gateKey=undefined;keys.clear();canvas.focus();},
 });
 function toggleEditor() {
   if(race||!running||!client.state)return;
@@ -379,15 +379,19 @@ function toggleEditor() {
   keys.clear();dragging=false;mouseButtons=0;editorFlight=flight;
   editor.open(client.state.telemetry.slice(0,3));
 }
-let editorStart;
+let flagKey;
 function syncGates(force) {
   const live=editor.isOpen?mergeTrack(tracks,editor.draft.preview()):tracks;
-  const key=live.map(t=>t.id).join()+'|'+(race?race.track.id+race.gateIndex:'')+(editor.isOpen?'|'+editor.draft.revision+':'+editor.selected:'');
+  const key=live.map(t=>t.id).join()+'|'+(race?race.track.id+':'+race.next:'')+(editor.isOpen?'|'+editor.draft.revision+':'+editor.selected:'');
   if(!force&&key===gateKey)return;
   gateKey=key;
   const pick=editor.isOpen?editor.draft.trackId:undefined;
-  renderer.setGates(live.flatMap(t=>t.gates.map((gate,i)=>({gate,next:pick?t.id===pick&&i===editor.selected:race?.track.id===t.id&&race.gateIndex===i}))));
-  if(editor.isOpen){const s=JSON.stringify(editor.draft.start);if(s!==editorStart){editorStart=s;renderer.setFlags(live.map(flagPosition));}}
+  const racing=!editor.isOpen&&race;
+  const items=editor.isOpen?live.flatMap(t=>t.gates.map((gate,i)=>({gate,next:t.id===pick&&i===editor.selected}))):
+    racing?[{gate:race.track.gates[race.gateIndex],next:true,finish:race.next===race.totalGates-1}]:[];
+  renderer.setGates(items);
+  const spots=live.filter(t=>!racing||t.id!==race.track.id).map(flagPosition),fk=JSON.stringify(spots);
+  if(fk!==flagKey){flagKey=fk;renderer.setFlags(spots);}
 }
 function startRace(track) {
   if(race||busy||!running||!client.info)return;
