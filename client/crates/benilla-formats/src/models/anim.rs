@@ -68,6 +68,188 @@ pub fn parse_m2_skeleton(bytes: &[u8]) -> Result<Skeleton> {
     Ok(Skeleton { bones })
 }
 
+/// A skinned M2 whose chosen clips can be posed at any time: the same Stand math as
+/// [`bake_m2_stand_pose`] over interpolated keys. Billboard/parent-override bones and global
+/// bone tracks are rejected, so a rig never poses something the browser can't reproduce.
+pub struct M2Rig {
+    bones: Vec<SkeletonBone>,
+    needed: Vec<bool>,
+    clips: Vec<ModelAnimation>,
+}
+
+impl M2Rig {
+    pub fn new(
+        bytes: &[u8],
+        bind: &[crate::RenderSubmesh],
+        anim_ids: &[u16],
+    ) -> Result<Self> {
+        use anyhow::ensure;
+        let skeleton = parse_m2_skeleton(bytes)?;
+        ensure!(
+            !skeleton.bones.is_empty() && skeleton.bones.len() <= 256,
+            "Invalid rig size"
+        );
+        let mut needed = vec![false; skeleton.bones.len()];
+        for joint in bind
+            .iter()
+            .flat_map(|s| s.joints.iter().zip(&s.weights))
+            .flat_map(|(j, w)| j.iter().zip(w).filter(|(_, w)| **w > 0.0).map(|(&j, _)| j))
+        {
+            *needed
+                .get_mut(joint as usize)
+                .ok_or_else(|| anyhow::anyhow!("Invalid rig skin joint"))? = true;
+        }
+        for i in (0..needed.len()).rev() {
+            if needed[i] && skeleton.bones[i].parent >= 0 {
+                let parent = skeleton.bones[i].parent as usize;
+                ensure!(parent < i, "Invalid rig bone hierarchy");
+                needed[parent] = true;
+            }
+        }
+        ensure!(
+            skeleton
+                .bones
+                .iter()
+                .zip(&needed)
+                .all(|(b, used)| !used || (b.billboard.is_none() && b.parent_arm.is_none()))
+                && parse_m2_global_sequence_bones(bytes).is_empty(),
+            "Rig has billboard/parent overrides or global bone tracks"
+        );
+        let clips: Vec<_> = parse_m2_animations(bytes)
+            .into_iter()
+            .filter(|a| anim_ids.contains(&a.anim_id) && a.duration > 0.0)
+            .collect();
+        Ok(Self {
+            bones: skeleton.bones,
+            needed,
+            clips,
+        })
+    }
+
+    /// Seconds, `None` when the model has no such authored clip.
+    pub fn duration(&self, anim_id: u16) -> Option<f32> {
+        self.clips
+            .iter()
+            .find(|a| a.anim_id == anim_id)
+            .map(|a| a.duration)
+    }
+
+    /// Rewrite position and normal (floats 0..6 of each 12-float vertex) of `out`, the bind
+    /// vertices of `bind` in the same order, at `seconds` into `anim_id` (looped).
+    pub fn pose_into(
+        &self,
+        bind: &[crate::RenderSubmesh],
+        anim_id: u16,
+        seconds: f32,
+        out: &mut [f32],
+    ) -> Result<()> {
+        use anyhow::{bail, ensure};
+        use glam::{Affine3A, Quat, Vec3};
+
+        let clip = self
+            .clips
+            .iter()
+            .find(|a| a.anim_id == anim_id)
+            .ok_or_else(|| anyhow::anyhow!("Rig lacks clip {anim_id}"))?;
+        ensure!(seconds.is_finite(), "Invalid pose time");
+        let t = seconds.rem_euclid(clip.duration);
+        let mut skin = vec![Affine3A::IDENTITY; self.bones.len()];
+        for (i, bone) in self.bones.iter().enumerate() {
+            if !self.needed[i] {
+                continue;
+            }
+            let parent = if bone.parent < 0 {
+                Affine3A::IDENTITY
+            } else {
+                skin[bone.parent as usize]
+            };
+            let keys = clip.bones.iter().find(|k| k.bone as usize == i);
+            let pivot = Vec3::from_array(bone.pivot);
+            let translation = keys
+                .and_then(|k| sample_keys(&k.translation, t, |a, b, f| Vec3::from(a).lerp(Vec3::from(b), f).to_array()))
+                .map_or(Vec3::ZERO, Vec3::from_array);
+            let rotation = keys
+                .and_then(|k| {
+                    sample_keys(&k.rotation, t, |a, b, f| {
+                        let (a, b) = (Quat::from_array(a), Quat::from_array(b));
+                        // Shortest arc between neighbouring keys.
+                        let b = if a.dot(b) < 0.0 { -b } else { b };
+                        a.slerp(b, f).to_array()
+                    })
+                })
+                .map_or(Quat::IDENTITY, Quat::from_array);
+            let scale = keys
+                .and_then(|k| sample_keys(&k.scale, t, |a, b, f| Vec3::from(a).lerp(Vec3::from(b), f).to_array()))
+                .map_or(Vec3::ONE, Vec3::from_array);
+            ensure!(
+                translation.is_finite()
+                    && rotation.is_finite()
+                    && rotation.length_squared() > 1e-8
+                    && scale.is_finite(),
+                "Invalid pose transform"
+            );
+            skin[i] = parent
+                * Affine3A::from_scale_rotation_translation(
+                    scale,
+                    rotation.normalize(),
+                    pivot + translation,
+                )
+                * Affine3A::from_translation(-pivot);
+            ensure!(skin[i].is_finite(), "Non-finite pose matrix");
+        }
+        let mut vertex = 0;
+        for sub in bind {
+            for i in 0..sub.positions.len() {
+                let (mut p, mut n) = (Vec3::ZERO, Vec3::ZERO);
+                let mut weighted = 0.0;
+                for (&joint, &w) in sub.joints[i].iter().zip(&sub.weights[i]) {
+                    if w == 0.0 {
+                        continue;
+                    }
+                    weighted += w;
+                    let Some(m) = skin.get(joint as usize) else {
+                        bail!("Invalid pose skin joint");
+                    };
+                    p += m.transform_point3(Vec3::from_array(sub.positions[i])) * w;
+                    n += m.transform_vector3(Vec3::from_array(sub.normals[i])) * w;
+                }
+                let o = vertex * 12;
+                ensure!(o + 6 <= out.len(), "Pose buffer too small");
+                vertex += 1;
+                // An unweighted or degenerate vertex stays at its bind position.
+                if !(p.is_finite() && n.is_finite() && n.length_squared() > 1e-8) {
+                    ensure!(
+                        weighted == 0.0 || (p.is_finite() && n.is_finite()),
+                        "Invalid posed vertex"
+                    );
+                    out[o..o + 3].copy_from_slice(&sub.positions[i]);
+                    out[o + 3..o + 6].copy_from_slice(&sub.normals[i]);
+                    continue;
+                }
+                out[o..o + 3].copy_from_slice(&p.to_array());
+                out[o + 3..o + 6].copy_from_slice(&n.normalize().to_array());
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Linear sample of ascending `(seconds, value)` keys, clamped at both ends.
+fn sample_keys<T: Copy>(keys: &[(f32, T)], t: f32, mix: impl Fn(T, T, f32) -> T) -> Option<T> {
+    let first = keys.first()?;
+    let last = keys.last()?;
+    if t <= first.0 {
+        return Some(first.1);
+    }
+    if t >= last.0 {
+        return Some(last.1);
+    }
+    let i = keys.partition_point(|k| k.0 <= t);
+    let (a, b) = (keys[i - 1], keys[i]);
+    let span = b.0 - a.0;
+    Some(mix(a.1, b.1, if span > 0.0 { (t - a.0) / span } else { 0.0 }))
+}
+
 /// Bake the first authored Stand frame once, preserving each vertex's full skin weights.
 /// This bounded path rejects required billboard/parent overrides and global bone tracks.
 /// Attachment 0, when authored, is returned in the same posed space as the geometry.

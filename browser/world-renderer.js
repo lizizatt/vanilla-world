@@ -11,6 +11,7 @@ import {oceanMesh} from './ocean-mesh.js';
 import {ParticlePool,exhaustPoints,emitPlumes,emitBurst,emitDebris,emitHeatSmoke,emitGroundDust,QUALITY,INSTANCE_FLOATS,CAPACITY,particleShader,particleUniform} from './particles.js';
 import {flagMesh,gateMesh} from './race-flags.js';
 import {SkyCatalog,mapPosition,skyShader,skyDomeShader,skyUniform,advanceTime,nightAlpha,nightAngle,DAY} from './sky.js';
+import {ACTOR,actorPhase,poseKey} from './actors.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
 export {sceneVisible} from './world-view.js';
 export {craftMatrix} from './world-camera.js';
@@ -215,10 +216,32 @@ export class WorldRenderer {
     this.admissionFade=new AdmissionFade();
     this.assets=new Map();this.textures=new Map();this.items=new Map();this.instances=[];this.pipelines=new Map();
     this.materialPending=new Map();this.minimapAtlases=[];
-    this.pendingEvents=[];
+    this.pendingEvents=[];this.poses=new Map();
     this.terrainBundleBuilds=0;this.sceneBundleBuilds=0;
     this.uniformData=new Float32Array(16384*64);
     this.frameUniforms=device.createBuffer({size:this.uniformData.byteLength,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
+  }
+  // Animated NPC poses replace the vertex buffer only when it matches the bind mesh; the wrapper stays stable per base asset.
+  posedAsset(instance,base) {
+    if(!base||instance.distant||!this.poses?.size||!instance.id.includes(':npc:'))return base;
+    const entry=this.poses.get(poseKey(instance.key,actorPhase(instance.id)));
+    if(!entry||entry.size!==base.vertices.size)return base;
+    if(!entry.asset||entry.asset.base!==base)entry.asset={...base,vertices:entry.buffer,base};
+    return entry.asset;
+  }
+  pose(data) {
+    for(const id of data.removed){this.poses.get(id)?.buffer.destroy();this.poses.delete(id);}
+    for(const p of data.poses){
+      const id=poseKey(p.key,p.phase);let entry=this.poses.get(id);
+      if(!entry||entry.size!==p.vertices.byteLength){
+        const bytes=[...this.poses.values()].reduce((n,e)=>n+(e===entry?0:e.size),0)+p.vertices.byteLength;
+        if(bytes>ACTOR.maxBytes)continue;
+        entry?.buffer.destroy();
+        entry={size:p.vertices.byteLength,buffer:this.device.createBuffer({size:p.vertices.byteLength,usage:GPUBufferUsage.VERTEX|GPUBufferUsage.COPY_DST})};
+        this.poses.set(id,entry);
+      }
+      this.device.queue.writeBuffer(entry.buffer,0,p.vertices.buffer,p.vertices.byteOffset,p.vertices.byteLength);
+    }
   }
   buffer(data,usage) {
     const buffer=this.device.createBuffer({size:Math.max(4,data.byteLength),usage,mappedAtCreation:true});
@@ -413,6 +436,7 @@ export class WorldRenderer {
     for(const asset of this.assets.values()){asset.vertices.destroy();asset.indices.destroy();}this.assets.clear();
     for(const texture of this.textures.values())texture.destroy();this.textures.clear();
     this.items.clear();
+    for(const e of this.poses.values())e.buffer.destroy();this.poses.clear();
     this.instances=[];this.nearInstances=[];this.farInstances=[];this.farRegion=undefined;
     this.camera=undefined;this.origin=[0,0];
     this.view=undefined;this.terrainView=undefined;
@@ -438,6 +462,7 @@ export class WorldRenderer {
       if(this.pendingEvents.length>=16384)throw Error('World startup event budget exceeded');
       this.pendingEvents.push(data);return;
     }
+    if(data.event==='pose'){this.pose(data);return;}
     if(data.event==='craft'){
       const craft=this.buildCraft(data,10318,'10318');
       this.releaseCraft();
@@ -832,7 +857,7 @@ export class WorldRenderer {
     if(settings.scenery && this.sceneRegion!==undefined) {
       const r=this.manifest.regions[this.sceneRegion];
       for(const instance of selection.selected) {
-        const asset=this.assets.get(instance.key);if(!asset)continue;
+        const asset=this.posedAsset(instance,this.assets.get(instance.key));if(!asset)continue;
         append(asset,instance,this.sceneMatrix(instance,r,origin),this.textures,this.items);
       }
     }

@@ -10,6 +10,7 @@ import {FarChannel} from './far-channel.js';
 import {FAR_LIMITS} from './far-stream.js';
 import {validateView,viewChanged} from './world-view.js';
 import {MusicService} from './music.js';
+import {ActorService,ACTOR} from './actors.js';
 import {SkyService} from './sky.js';
 import {WorldMapService} from './worldmap.js';
 import {maelstromCentre,WHIRLPOOL_DIP} from './clouds.js';
@@ -18,7 +19,8 @@ const TILE=1600/3,LIMIT=SCENE_LIMITS.nearTiles;
 let wasm;
 const ready=init().then(exports=>(wasm=exports));
 let world,source,manifest,placements,scene,terrain,water,accumulator=0,queue=Promise.resolve();
-let poseTime,music,sky,worldMap,areaTime=-1e9,areaId=0;
+let poseTime,music,sky,worldMap,areaTime=-1e9,areaId=0,actors,actorFocus;
+globalThis.setInterval?.(()=>{if(actors&&actorFocus&&sceneState)actors.update(sceneState.instances,actorFocus);},ACTOR.tickMs);
 const terrainErrors=new Map();
 let terrainFocus='';
 let terrainGridSource,terrainGrid;
@@ -404,6 +406,7 @@ function updateScene(focus,publish=true,restoring) {
     const requestedRadius=Math.min(SCENE_LIMITS.radius,Math.max(32,radius)+16);
     const requestedVertical=Math.min(SCENE_LIMITS.radius,Math.max(32,verticalRadius)+16);
     scene.update(region===0?1:0,sourcePosition(region,focus),sourcePosition(region,predicted),requestedRadius,requestedVertical);
+    actorFocus=sourcePosition(region,focus);
     sceneReadinessRadius=requestedRadius;
     sceneReadinessVertical=requestedVertical;
     timings.selectionMs+=performance.now()-start;
@@ -677,7 +680,7 @@ function snapshot() {
     terrain:{...terrainState,errors:[...terrainState.errors,...terrainErrors.values(),...(water?.errors.values()||[]),
       ...(water?.cacheError?[water.cacheError]:[])],
       prefetch:terrainRead?{index:terrainRead.index,pending:!terrainRead.ready,bytes:terrainRead.bytes?.byteLength||0}:null},
-    distant:far.snapshot()};
+    distant:far.snapshot(),actors:actors?.snapshot()};
 }
 async function handle(message) {
   await ready;
@@ -719,6 +722,8 @@ async function handle(message) {
       return [r.placement[0]+(t.x-r.tile_origin[0])*TILE,r.placement[1]+(t.y-r.tile_origin[1])*TILE];
     });
     scene=new SceneStream(source,wasmTypes);
+    actors?.close();actorFocus=undefined;
+    actors=new ActorService(source,wasmTypes,(message,transfers)=>postMessage(message,transfers));
     scene.asyncVisuals=true;
     startFarWorker();
     terrain=new TerrainStream(source,wasmTypes,(message,transfers)=>postMessage(message,transfers));
