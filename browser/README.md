@@ -230,6 +230,15 @@ No speculative physics fix or telemetry commit was made; the artwork was
 checkpointed under the explicit fallback authorization. Shell cache v37 includes
 the new loader module.
 
+## Scheduling-tail profile (no code change)
+
+The occasional 50-100 ms forward tail seen once in the water gate (78 ms in its
+baseline too) did not reproduce: a profiled 30 s drive (`PROFILE=1 TRACE=1`,
+filtered pack) recorded zero moving freezes over 25 ms (worst main-thread work
+2.3 ms, handler/RTT ~2.6 ms), and the four music-gate runs had no tails. With
+no isolated cause, no speculative fix was made; the earlier tails coincided
+with `VIDEO=1` capture on a shared host. Re-open if a trace shows one.
+
 ## Runtime zone music
 
 Zone music is read from the user's Data at runtime and never persisted. The
