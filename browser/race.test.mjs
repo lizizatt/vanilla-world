@@ -30,6 +30,17 @@ test('state machine runs idle -> lineup -> countdown -> running -> finished',()=
   assert.deepEqual(drive(r,[-140,-160],8),[null,'finish']);
   assert.equal(r.state,'finished');assert.equal(r.time,r.splits[1]);assert.equal(r.splits.length,2);
 });
+test('pause freezes the countdown and the running clock',()=>{
+  const r=new Race(track);r.start(0);r.lined(0);
+  r.pause(1);r.resume(11);assert.equal(r.countdown(11),2);
+  r.update([0,0,50],13);assert.equal(r.state,'running');
+  r.pause(15);r.resume(115);assert.equal(r.elapsed(116),3);
+  r.resume(200);assert.equal(r.elapsed(116),3);
+});
+test('abandoned race records no time',()=>{
+  const r=new Race(track);run(r);r.cancel('abandoned');
+  assert.equal(r.state,'cancelled');assert.equal(r.reason,'abandoned');assert.equal(r.time,null);
+});
 test('gates must be crossed in order',()=>{
   const r=new Race(track);run(r);
   r.update([100,0,50],5);r.update([100,0,-100],6);r.update([0,0,-100],7);

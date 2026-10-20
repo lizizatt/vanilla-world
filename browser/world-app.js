@@ -268,10 +268,10 @@ $('retry').addEventListener('click',()=>operation(async()=>{
   client.state=await client.request('retry');running=true;report('Retrying loading...',true);$('error').hidden=true;
 }));
 $('fly').addEventListener('click',()=>{
-  const p=client.state?.telemetry;if(!p)return;
+  const p=client.state?.telemetry;if(!p||race)return;
   flight=[p[0],p[1]+20,p[2]+20,p[3],-.25];canvas.focus();
 });
-$('overview').addEventListener('click',()=>{if(client.info){flight=overview(client.info.manifest);canvas.focus();}});
+$('overview').addEventListener('click',()=>{if(client.info&&!race){flight=overview(client.info.manifest);canvas.focus();}});
 $('drive').addEventListener('click',()=>{flight=undefined;renderer.camera=undefined;canvas.focus();});
 $('horizon').addEventListener('change',()=>{settings.horizon=$('horizon').checked;});
 $('scenery').addEventListener('change',()=>{settings.scenery=$('scenery').checked;});
@@ -316,6 +316,7 @@ $('tuning-panel').addEventListener('close',()=>{keys.clear();canvas.focus();});
 canvas.addEventListener('keydown',event=>{
   if(!event.repeat && event.code==='KeyN' && !event.ctrlKey && !event.altKey && !event.metaKey)setNight(!settings.night);
   if(!event.repeat && event.code==='KeyM' && !event.ctrlKey && !event.altKey && !event.metaKey && running){event.preventDefault();keys.clear();dragging=false;mouseButtons=0;mapPanel.toggle();}
+  if(!event.repeat && event.code==='Escape' && running && !raceMenu.open){event.preventDefault();openRaceMenu();return;}
   if(DRIVE_KEYS.has(event.code)) {
     event.preventDefault();keys.add(event.code);if(!event.repeat)input.keyboard();
     if(!event.repeat && event.code==='F9')$('reset').click();
@@ -338,6 +339,16 @@ canvas.addEventListener('blur',()=>{keys.clear();orbit=[0,0];dragging=false;mous
 window.addEventListener('blur',()=>{keys.clear();pauseAudio();});
 window.addEventListener('focus',()=>resumeAudio());
 document.addEventListener('visibilitychange',()=>{keys.clear();last=0;if(document.hidden)pauseAudio();else resumeAudio();});
+const raceMenu=$('race-menu');
+function openRaceMenu() {
+  keys.clear();dragging=false;mouseButtons=0;
+  $('race-restart').hidden=$('race-abandon').hidden=!race;
+  race?.pause(performance.now()/1000);raceMenu.showModal();
+}
+raceMenu.addEventListener('close',()=>{race?.resume(performance.now()/1000);canvas.focus();});
+$('race-restart').addEventListener('click',()=>{const track=race?.track;raceMenu.close();race=undefined;if(track)startRace(track);});
+$('race-abandon').addEventListener('click',()=>{race?.cancel('abandoned');raceMenu.close();});
+$('race-settings').addEventListener('click',()=>{raceMenu.close();$('preferences').open=true;$('preferences').scrollIntoView?.({block:'nearest'});});
 function startRace(track) {
   if(race||busy||!running||!client.info)return;
   operation(async()=>{
@@ -400,11 +411,11 @@ function frame(now) {
     return;
   }
   try {
-    const focused=document.hasFocus(),editing=$('tuning-panel').open||mapPanel.open;
+    const focused=document.hasFocus(),editing=$('tuning-panel').open||mapPanel.open||raceMenu.open;
     const accepts=document.activeElement===canvas && focused && !editing;
     const controls={...input.sample(keys,testPads || Array.from(navigator.getGamepads?.() || []),accepts,settings.controls,!focused||!editing)};
     if(controls.reset)$('reset').click();
-    if(controls.flight)$(flight?'drive':'fly').click();
+    if(controls.flight&&!race)$(flight?'drive':'fly').click();
     if(controls.help)$('preferences').open=!$('preferences').open;
     if(controls.cockpit)cockpit();
     if(controls.zoom)zoom(controls.zoom);
@@ -414,7 +425,7 @@ function frame(now) {
       flight=moveFlight(flight,keys,dt);flight[3]-=cameraOrbit[0]*.004;
       flight[4]=Math.max(-1.55,Math.min(1.55,flight[4]-cameraOrbit[1]*.004));
     }
-    if(race)raceFrame(controls,now/1000);
+    if(race){flight=undefined;if(!raceMenu.open)raceFrame(controls,now/1000);}
     if(!frozenPresentation)client.frame(dt,controls.throttle,controls.steer,controls.flags,flight?.slice(0,3),settings.distant,renderer.view);
     cameraCollision.frame(client.state,renderer.sceneRegion ?? client.state.telemetry[10]);
     const stats=renderer.draw(frozenPresentation || flight?client.state.telemetry:client.presentation(),flight,dt,frozenPresentation?0:now/1000,
@@ -440,7 +451,7 @@ function frame(now) {
       document.querySelector('.meters').dataset.held=String(held);
       $('boost').textContent=`${Math.round(p[6]*100)}%`;$('boost-meter').value=p[6];
       $('speed-meter').value=Math.min(1,p[5]/tuningValues[1]);
-      $('drive').hidden=!flight;$('fly').hidden=!!flight;
+      $('drive').hidden=!flight;$('fly').hidden=!!flight||!!race;
       $('cockpit').setAttribute('aria-pressed',String(settings.cockpit&&!flight));
       $('motion').textContent=flight?'':scene?.waitingCollision||p[8]===1?'Loading nearby ground'
         :p[8]===2?'Unsupported surface':p[8]===3?'Obstacle or steep ground':'';
