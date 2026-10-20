@@ -91,3 +91,12 @@ test('scoreboard keeps the fastest runs, reports rank and rejects damaged record
   assert.deepEqual(validScores({version:1,runs:[{time:'x',splits:[]}]}).runs,[]);
   assert.deepEqual(validScores(undefined).runs,[]);
 });
+
+test('shipped tracks validate and gates are reachable in order from the start pose',async()=>{
+  const {readFile,readdir}=await import('node:fs/promises');
+  for(const f of (await readdir(new URL('./tracks/',import.meta.url))).filter(n=>n.endsWith('.json'))){
+    const t=validateTrack(JSON.parse(await readFile(new URL(`./tracks/${f}`,import.meta.url),'utf8')));
+    assert.ok(breakoffDistance(t)>BREAKOFF_MARGIN,f);
+    for(const g of t.gates)assert.ok(Math.hypot(g.pos[0]-t.start.pos[0],g.pos[2]-t.start.pos[2])<breakoffDistance(t),f);
+  }
+});
