@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {Race,crossesGate,breakoffDistance,validateTrack,BREAKOFF_MARGIN} from './race.js';
+import {Race,crossesGate,breakoffDistance,validateTrack,BREAKOFF_MARGIN,formatTime,bearing,addScore,validScores,SCORE_LIMIT} from './race.js';
 
 // Gates face -z (yaw 0), spaced 100 yd apart northward.
 const gate=z=>({pos:[0,0,z],yaw:0,width:40});
@@ -58,4 +58,25 @@ test('invalid tracks are rejected',()=>{
   assert.throws(()=>validateTrack({...track,gates:[{pos:[0,0,0],yaw:0,width:0}]}));
   assert.throws(()=>validateTrack({...track,id:'Bad Id'}));
   assert.throws(()=>validateTrack({...track,mode:'p2p',laps:2}));
+});
+test('formatTime pads seconds and carries minutes',()=>{
+  assert.equal(formatTime(5.4),'0:05.40');assert.equal(formatTime(75.456),'1:15.46');assert.equal(formatTime(-1),'0:00.00');
+});
+test('bearing is signed: right positive, ahead zero, behind pi',()=>{
+  assert.ok(Math.abs(bearing([0,0,0],0,[0,0,-10]))<1e-9);
+  assert.ok(Math.abs(bearing([0,0,0],0,[10,0,0])-Math.PI/2)<1e-9);
+  assert.ok(Math.abs(bearing([0,0,0],0,[-10,0,0])+Math.PI/2)<1e-9);
+  assert.ok(Math.abs(Math.abs(bearing([0,0,0],0,[0,0,10]))-Math.PI)<1e-9);
+  assert.ok(Math.abs(bearing([0,0,0],Math.PI/2,[-10,0,0]))<1e-9);
+});
+test('scoreboard keeps the fastest runs, reports rank and rejects damaged records',()=>{
+  let record,run;
+  for(const time of [30,20,40]){({record}=addScore(record,{time,splits:[time],date:'d'}));}
+  assert.deepEqual(record.runs.map(r=>r.time),[20,30,40]);
+  const result=addScore(record,run={time:25,splits:[25],date:'d'});
+  assert.equal(result.rank,1);
+  for(let i=0;i<20;i++)record=addScore(record,{time:100+i,splits:[],date:'d'}).record;
+  assert.equal(record.runs.length,SCORE_LIMIT);
+  assert.deepEqual(validScores({version:1,runs:[{time:'x',splits:[]}]}).runs,[]);
+  assert.deepEqual(validScores(undefined).runs,[]);
 });

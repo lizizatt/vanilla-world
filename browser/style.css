@@ -99,3 +99,12 @@ dialog h2 { color: #ffb34d; margin-top: 0; }
 #race-prompt { position: fixed; left: 50%; bottom: 22%; transform: translateX(-50%); padding: 8px 16px; background: rgba(0,0,0,.55); border: 1px solid rgba(255,200,60,.8); border-radius: 6px; color: #ffd36a; font-weight: 600; pointer-events: none; }
 #race-countdown { position: fixed; inset: 18% 0 auto 0; text-align: center; font-size: 112px; font-weight: 800; color: #fff; text-shadow: 0 0 12px #000, 0 0 3px #000; pointer-events: none; }
 #race-prompt[hidden], #race-countdown[hidden] { display: none; }
+#race-hud { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); min-width: 180px; padding: 6px 14px; text-align: center; background: rgba(0,0,0,.5); border-radius: 6px; color: #fff; pointer-events: none; }
+#race-time { font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; }
+#race-delta { font-size: 18px; font-weight: 700; color: #ff6b6b; min-height: 22px; }
+#race-delta[data-ahead=true] { color: #6bff9a; }
+#race-arrow { display: inline-block; font-size: 30px; color: #ffd36a; margin-top: 2px; }
+#race-board { position: fixed; right: 16px; top: 120px; min-width: 210px; padding: 10px 14px; background: rgba(0,0,0,.6); border: 1px solid rgba(255,200,60,.8); border-radius: 6px; color: #fff; font-variant-numeric: tabular-nums; pointer-events: none; }
+#race-board strong { display: block; margin-bottom: 4px; color: #ffd36a; }
+#race-board .this { color: #6bff9a; font-weight: 700; }
+#race-hud[hidden], #race-board[hidden], #race-arrow[hidden] { display: none; }

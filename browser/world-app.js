@@ -1,7 +1,7 @@
 import {WorldClient} from './world-client.js';
 import {WorldRenderer} from './world-renderer.js';
 import {rememberDataFolder,restoreDataFolder,forgetDataFolder,authorizeDataFolder} from './asset-folder.js';
-import {worldSave,worldTuning,validateWorldSave,LAYOUT_VERSION} from './world-store.js';
+import {worldSave,worldTuning,validateWorldSave,LAYOUT_VERSION,raceScores} from './world-store.js';
 import {overview,moveFlight} from './flight.js';
 import {WorldInput,DRIVE_KEYS} from './world-input.js';
 import {WorldAudio} from './world-audio.js';
@@ -10,7 +10,7 @@ import {CameraCollision} from './camera-collision.js';
 import {LoadingArt} from './loading-art.js';
 import {MusicPlayer} from './world-music.js';
 import {MapPanel} from './map-panel.js';
-import {Race} from './race.js';
+import {Race,formatTime,bearing,addScore,validScores} from './race.js';
 import {loadTracks,nearestFlag,flagPosition} from './race-flags.js';
 
 const $=id=>document.getElementById(id),canvas=$('world'),keys=new Set();
@@ -18,7 +18,7 @@ const input=new WorldInput(),audio=new WorldAudio();
 const cameraCollision=new CameraCollision();
 const evidence={ready:false,frames:0,errors:[],mode:'drive'};
 window.worldEvidence=evidence;
-let tracks=[],race,promptTrack,goUntil=0;
+let tracks=[],race,raceBest,promptTrack,goUntil=0,boardTimer=0;
 let renderer,folder,flight,running=false,busy=false,last=0,frames=0,hudTime=0,hudFrames=0,permissionNeeded=false;
 let orbit=[0,0],dragging=false,mouseButtons=0,soundAttempt=0,soundError='',soundTime=0,reportTimer,testPads,frozenPresentation=false,tuningValues=TUNING_FIELDS.map(f=>f[1]);
 const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:false,cockpit:false,night:false,clouds:true};
@@ -345,7 +345,8 @@ function startRace(track) {
     const [x,y,z]=track.start.pos;
     client.state=await client.request('restore',{pose:[x,y+2,z,track.start.yaw]});
     renderer.camera=undefined;running=true;$('error').hidden=true;
-    race=new Race(track);const t=performance.now()/1000;race.start(t);race.lined(t);promptTrack=undefined;
+    const board=validScores(await raceScores(track.id).catch(()=>undefined));raceBest=board.runs[0];
+    $('race-board').hidden=true;race=new Race(track);const t=performance.now()/1000;race.start(t);race.lined(t);promptTrack=undefined;
   });
 }
 function raceFrame(controls,t) {
@@ -356,8 +357,38 @@ function raceFrame(controls,t) {
   const box=$('race-countdown');
   if(box.textContent!==text){box.textContent=text;box.hidden=!text;}
   if(race.state==='finished'||race.state==='cancelled'){
-    report(race.state==='finished'?`Race finished in ${race.time.toFixed(2)} s.`:`Race ${race.reason}.`,true);race=undefined;
+    const finished=race.state==='finished',run=finished&&{time:race.time,splits:race.splits.slice(),date:new Date().toISOString()};
+    const track=race.track;race=undefined;$('race-hud').hidden=true;
+    if(finished)recordRun(track,run);else report(`Race ${track.name||track.id} cancelled.`,true);
+  } else raceHud(t);
+}
+const setText=(id,value)=>{const e=$(id);if(e.textContent!==value)e.textContent=value;};
+function raceHud(t) {
+  $('race-hud').hidden=false;
+  setText('race-time',formatTime(race.elapsed(t)));
+  setText('race-best',raceBest?`Best ${formatTime(raceBest.time)}`:'No best yet');
+  const done=race.splits.length,reference=raceBest?.splits[done-1];
+  if(done&&reference!==undefined){const d=race.splits[done-1]-reference;setText('race-delta',`${d<0?'-':'+'}${Math.abs(d).toFixed(2)}`);$('race-delta').dataset.ahead=String(d<0);}
+  else setText('race-delta','');
+  setText('race-gate',`Gate ${Math.min(done+1,race.totalGates)}/${race.totalGates}`);
+  const gate=race.nextGate,arrow=$('race-arrow');
+  arrow.hidden=!gate;
+  if(gate){const p=client.state.telemetry;arrow.style.transform=`rotate(${bearing(p,p[3],gate.pos)}rad)`;}
+}
+async function recordRun(track,run) {
+  let record,rank;
+  try {
+    ({record,rank}=addScore(await raceScores(track.id).catch(()=>undefined),run));
+    await raceScores(track.id,record);
+  } catch(error) {
+    report(`Time ${formatTime(run.time)} could not be saved: ${error.message}`,true);
+    if(!record)({record,rank}=addScore(undefined,run));
   }
+  const rows=record.runs.map((r,i)=>{const row=document.createElement('div');
+    row.textContent=`${i+1}. ${formatTime(r.time)}${i===rank?'  <- this run':''}`;if(i===rank)row.className='this';return row;});
+  const title=document.createElement('strong');title.textContent=`${track.name||track.id}: ${formatTime(run.time)}${rank===0?' (new best!)':''}`;
+  $('race-board').replaceChildren(title,...rows);$('race-board').hidden=false;
+  clearTimeout(boardTimer);boardTimer=setTimeout(()=>{$('race-board').hidden=true;},15000);
 }
 function frame(now) {
   requestAnimationFrame(frame);
