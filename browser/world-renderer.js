@@ -4,6 +4,7 @@ import {MINIMAP_SIZE,TERRAIN_TEXTURE_SIZE} from './terrain-stream.js';
 import {cameraView,craftMatrix,cockpitAnchor} from './world-camera.js';
 import {COAST_GPU_LIMIT} from './water-stream.js';
 import {WATER_NORMAL_SIZE,waterNormalMips,waterShading,dayShading} from './water-shader.js';
+import {cloudShader,cloudUniform} from './clouds.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
 export {sceneVisible} from './world-view.js';
 export {craftMatrix} from './world-camera.js';
@@ -260,6 +261,12 @@ export class WorldRenderer {
       primitive:{topology:'triangle-list',cullMode:'none'},
       depthStencil:{format:'depth24plus',depthWriteEnabled:true,depthCompare:'less'},
     });
+    this.cloudBuffer=this.device.createBuffer({size:96,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
+    const cloudModule=await shader(cloudShader);
+    this.cloudPipeline=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module:cloudModule,entryPoint:'vs'},
+      fragment:{module:cloudModule,entryPoint:'fs',targets:[{format:this.format,blend:{color:{srcFactor:'src-alpha',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},
+      primitive:{topology:'triangle-list',cullMode:'none'},depthStencil:{format:'depth24plus',depthWriteEnabled:false,depthCompare:'less'}});
+    this.cloudGroup=this.device.createBindGroup({layout:this.cloudPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:this.cloudBuffer}}]});
     this.mapSampler=this.device.createSampler({minFilter:'linear',magFilter:'linear'});
     this.layerSampler=this.device.createSampler({minFilter:'linear',magFilter:'linear',mipmapFilter:'linear',
       addressModeU:'repeat',addressModeV:'repeat',maxAnisotropy:4});
@@ -594,6 +601,10 @@ export class WorldRenderer {
     // Uniform bytes and atlas pixels remain live; only membership/material changes replace commands.
     pass.executeBundles([this.terrainBundle.bundle]);
   }
+  drawClouds(pass,time,daylight,near) {
+    this.device.queue.writeBuffer(this.cloudBuffer,0,cloudUniform(this.view,time,daylight,this.manifest,near));
+    pass.setPipeline(this.cloudPipeline);pass.setBindGroup(0,this.cloudGroup);pass.draw(6);
+  }
   drawScene(pass,draws) {
     const firstTransparent=draws.findIndex(draw=>draw.batch.transparent);
     const count=firstTransparent<0?draws.length:firstTransparent,cached=this.sceneBundle;
@@ -712,7 +723,7 @@ export class WorldRenderer {
       colorAttachments:[{view:this.context.getCurrentTexture().createView(),clearValue:{r:sky[0],g:sky[1],b:sky[2],a:1},loadOp:'clear',storeOp:'store'}],
       depthStencilAttachment:{view:this.depth.createView(),depthClearValue:1,depthLoadOp:'clear',depthStoreOp:'store'},
     });
-    if(!this.cameraBlocked){this.drawTerrain(pass,terrain);this.drawScene(pass,draws);}
+    if(!this.cameraBlocked){this.drawTerrain(pass,terrain);this.drawScene(pass,draws);if(settings.clouds!==false)this.drawClouds(pass,time,daylight,near);}
     pass.end();this.device.queue.submit([encoder.finish()]);
     return {horizonTiles:distant.length,detailedTiles:this.tiles.size,sceneInstances:this.instances.length,
       culledTerrainDraws:allTerrain.length-terrain.length,

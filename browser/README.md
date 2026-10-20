@@ -1684,3 +1684,7 @@ Native Bevy render phases, moving-transport timetables, animation and a server
 simulation are not ported. Coarse/detailed seams remain visible. Exact native
 cockpit seating requires a selected rider's head height and animated attachment
 frame; a mount attachment is not a substitute for that missing rider data.
+
+## Clouds
+
+A procedural cloud sheet drawn as one extra camera-following quad in the existing pass (no new passes, textures or art). Vanilla 1.12 has no Maelstrom, so the vortex centre is **synthetic**: the midpoint of the manifest ocean gap (tunable in `browser/clouds.js`). Wind is analytic: a swirl whose rotation fades with radius plus a spiral-arm term, with 3-octave value noise and coverage falling off from the centre. Altitude is 0.8 x 1971 yd (1577 yd); 1971 was measured from terrain tile bounds near Hyjal, not the exact summit. Taller terrain is depth-tested against the sheet. Day/night graded by the same daylight uniform. The Clouds setting (default on) is in Controls & settings.
