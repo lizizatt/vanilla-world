@@ -1,0 +1,10 @@
+{
+  "id": "steamwheedle",
+  "name": "Steamwheedle Raceway (draft)",
+  "mode": "p2p",
+  "laps": 1,
+  "start": {"pos": [-810.67, -55.75, 5589.33], "yaw": 3.14159},
+  "gates": [
+    {"pos": [-810.67, -55.75, 5630], "yaw": 3.14159, "width": 60}
+  ]
+}

@@ -96,3 +96,6 @@ dialog h2 { color: #ffb34d; margin-top: 0; }
 #loading-count { min-height: 1.5em; color: #dac18a; font-variant-numeric: tabular-nums; }
 #loading-tip { margin: 36px 0 0; font-size: 12px; color: #bfc7ca; }
 @media (max-width: 700px) { .meters { gap: 8px; padding: 8px; } .meters strong { font-size: 20px; } .meters span { font-size: 9px; } #tuning-fields { grid-template-columns: 1fr; } }
+#race-prompt { position: fixed; left: 50%; bottom: 22%; transform: translateX(-50%); padding: 8px 16px; background: rgba(0,0,0,.55); border: 1px solid rgba(255,200,60,.8); border-radius: 6px; color: #ffd36a; font-weight: 600; pointer-events: none; }
+#race-countdown { position: fixed; inset: 18% 0 auto 0; text-align: center; font-size: 112px; font-weight: 800; color: #fff; text-shadow: 0 0 12px #000, 0 0 3px #000; pointer-events: none; }
+#race-prompt[hidden], #race-countdown[hidden] { display: none; }

@@ -6,6 +6,7 @@ import {COAST_GPU_LIMIT} from './water-stream.js';
 import {WATER_NORMAL_SIZE,waterNormalMips,waterShading,dayShading} from './water-shader.js';
 import {cloudShader,cloudUniform,maelstromCentre} from './clouds.js';
 import {oceanMesh} from './ocean-mesh.js';
+import {flagMesh} from './race-flags.js';
 import {SkyCatalog,mapPosition,skyShader,skyDomeShader,skyUniform,advanceTime,nightAlpha,nightAngle,DAY} from './sky.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
 export {sceneVisible} from './world-view.js';
@@ -109,6 +110,10 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   if((v.material==0.0 || v.material==3.0) && u.tile.w>=0.0){color=mix(color,mapColor.rgb,mapColor.a);}
   if(v.material==1.0){color=vec3f(.1,.89,.82)*light;}
   color=grade(color);
+  if(v.material>=5.0 && v.material<9.0){
+    let kind=v.material-5.0;
+    color=select(select(select(vec3f(1.0,.72,.1),vec3f(.95),kind==2.0),vec3f(.85,.08,.06),kind==1.0),vec3f(.22,.22,.24),kind==0.0)*select(max(light,.8),1.0,kind==3.0);
+  }
   if(v.material==2.0 || v.material==4.0){
     color=waterColor(v.p,select(1.0,v.n.x,v.n.z>.5),rampWidth,dx,dy);
   }
@@ -202,7 +207,7 @@ export class WorldRenderer {
   constructor(canvas,device) {
     this.canvas=canvas;this.device=device;this.format=navigator.gpu.getPreferredCanvasFormat();
     this.context=canvas.getContext('webgpu');this.context.configure({device,format:this.format,alphaMode:'opaque'});
-    this.tiles=new Map();this.seams=new Map();this.horizon=[];this.water=[];this.coast=new Map();this.indices=new Map();
+    this.tiles=new Map();this.seams=new Map();this.horizon=[];this.water=[];this.flags=[];this.coast=new Map();this.indices=new Map();
     this.coastBytes=0;
     this.admissionFade=new AdmissionFade();
     this.assets=new Map();this.textures=new Map();this.items=new Map();this.instances=[];this.pipelines=new Map();
@@ -321,6 +326,11 @@ export class WorldRenderer {
         {binding:0,resource:{buffer:this.frameUniforms,size:224}},{binding:1,resource:map.createView()},{binding:2,resource:this.mapSampler},
         {binding:3,resource:this.waterNormals.createView()},{binding:4,resource:this.waveSampler}]})};
   }
+  setFlags(positions) {
+    for(const item of this.flags)this.release(item);
+    this.flags=positions.map(p=>this.drawable(flagMesh(p[1]),[p[0],p[2]]));
+    this.terrainView=undefined;
+  }
   releaseMaterial(item){if(item)for(const resource of [item.vertices,item.indices,item.layers,item.masks])resource?.destroy();}
   release(item){item?.buffer.destroy();this.releaseMaterial(item?.material);}
   releaseCraft(){
@@ -334,8 +344,8 @@ export class WorldRenderer {
     this.sceneBundle=undefined;this.sceneBundleBuilds=0;
     this.releaseCraft();
     this.craftError=undefined;
-    for(const item of [...this.tiles.values(),...this.seams.values(),...this.horizon,...this.water,...this.coast.values()])this.release(item);
-    this.tiles.clear();this.seams.clear();this.horizon=[];this.water=[];this.coast.clear();this.coastBytes=0;
+    for(const item of [...this.tiles.values(),...this.seams.values(),...this.horizon,...this.water,...this.flags,...this.coast.values()])this.release(item);
+    this.tiles.clear();this.seams.clear();this.horizon=[];this.water=[];this.flags=[];this.coast.clear();this.coastBytes=0;
     for(const index of this.indices.values())index.destroy();this.indices.clear();
     for(const asset of this.assets.values()){asset.vertices.destroy();asset.indices.destroy();}this.assets.clear();
     for(const texture of this.textures.values())texture.destroy();this.textures.clear();
@@ -697,7 +707,7 @@ export class WorldRenderer {
     const distant=settings.horizon?this.horizon.filter(h=>!this.tiles.has(h.near)):[];
     const coastal=[...this.coast].flatMap(([index,item])=>
       this.tiles.has(index)?item.backing?[item.backing]:[]:settings.horizon?[item]:[]);
-    const allTerrain=this.cameraBlocked?[]:[...distant,...this.tiles.values(),...(settings.horizon?this.seams.values():[]),...this.water,...coastal];
+    const allTerrain=this.cameraBlocked?[]:[...distant,...this.tiles.values(),...(settings.horizon?this.seams.values():[]),...this.water,...coastal,...this.flags];
     if(!flight&&!this.craft&&!this.cameraBlocked)allTerrain.push(this.body);
     const cachedView=this.terrainView;
     if(!cachedView || viewChanged(cachedView.view,this.view) ||
