@@ -35,8 +35,12 @@ node .\browser\server.mjs
 Open **http://127.0.0.1:4173** and select the **Data** directory in your own Classic
 1.12 installation. The browser reads the local MPQ patch chain directly. No
 exported terrain pack, login, upload or whole-archive copy into Wasm is needed.
-The native directory picker remembers a handle; a later session may require
-**Reconnect Data** to grant read permission again. **Choose folder as files**
+The native directory picker stores only the folder handle in IndexedDB (never
+contents or art). On reload it auto-loads if read permission is still granted;
+otherwise a **Continue with <folder>** button (a user gesture is required) and
+**Choose a different folder** appear. A handle that fails validation or opening is
+cleared; **Forget folder** in the footer clears it too. The permission prompt itself
+is not Playwright-automatable, so that branch is manually verified. **Choose folder as files**
 under **Controls & settings** is the fallback and must be reselected after reload.
 
 If the build reports a missing target or binding generator, install those exact

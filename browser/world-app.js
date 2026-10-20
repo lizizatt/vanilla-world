@@ -190,15 +190,21 @@ async function open(selection,remember=false) {
   } catch(error) {
     fail(error);report('');
     if(opened){enabled(true);running=true;evidence.ready=true;}
-    else {client.stop();$('welcome').hidden=false;}
+    else {client.stop();$('welcome').hidden=false;
+      if(selection===folder&&selection?.kind==='directory'){folder=undefined;await forgetDataFolder().catch(()=>{});}}
   } finally {if(loading.open)loading.close();busy=false;$('select').disabled=false;}
 }
+// A remembered handle whose permission needs a click offers one continue button plus a way to pick another folder.
+function showReconnect(on) {
+  $('select').textContent=on?`Continue with ${folder.name}`:'Choose Data';$('different').hidden=!on;
+}
+$('different').addEventListener('click',async()=>{permissionNeeded=false;showReconnect(false);folder=undefined;await select();});
 async function select() {
   if(!renderer)return;
   try {
     if(permissionNeeded && folder) {
       if(!await authorizeDataFolder(folder,{request:true}))throw new Error('Read permission was not granted. Choose another Data folder or try again.');
-      permissionNeeded=false;$('select').textContent='Choose Data';await open(folder,true);return;
+      permissionNeeded=false;showReconnect(false);await open(folder,true);return;
     }
     if(!window.showDirectoryPicker){$('files').click();return;}
     const handle=await showDirectoryPicker({id:'vanilla-world-data',mode:'read'});
@@ -215,7 +221,7 @@ $('files').addEventListener('change',()=>{
   }
 });
 $('forget').addEventListener('click',async()=>{
-  try {await forgetDataFolder();folder=undefined;permissionNeeded=false;$('select').textContent='Choose Data';
+  try {await forgetDataFolder();folder=undefined;permissionNeeded=false;showReconnect(false);
     $('permission').textContent='Folder forgotten. World and saves retained.';}
   catch(error){fail(error);}
 });
@@ -406,11 +412,11 @@ async function start() {
       await navigator.serviceWorker.register('./sw.js');
       $('offline').textContent='Offline ready.';
     }
-    folder=await restoreDataFolder();
+    folder=await restoreDataFolder().catch(()=>undefined);
     if(folder) {
       if(await authorizeDataFolder(folder))await open(folder);
-      else {permissionNeeded=true;$('select').textContent='Reconnect Data';
-        $('permission').textContent='Reconnect to allow reading your remembered folder.';}
+      else {permissionNeeded=true;showReconnect(true);
+        $('permission').textContent='Click to allow reading your remembered folder.';}
     }
     if(new URLSearchParams(location.search).has('test'))window.worldTest={
       focus:pose=>{flight=pose.slice();},
