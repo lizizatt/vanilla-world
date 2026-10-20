@@ -114,3 +114,17 @@ dialog h2 { color: #ffb34d; margin-top: 0; }
 #race-menu button { display: block; width: 100%; margin: 6px 0; padding: 8px; background: #3a2810; color: #ffd36a; border: 1px solid #c8a24a; border-radius: 4px; font: inherit; cursor: pointer; }
 #race-menu button:hover, #race-menu button:focus-visible { background: #5a3d18; }
 #race-menu button[hidden] { display: none; }
+
+#track-editor { position: fixed; inset: 0; z-index: 30; pointer-events: auto; }
+#te-canvas { position: absolute; inset: 0; width: 100%; height: 100%; outline: none; cursor: crosshair; }
+#te-bar { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; padding: 6px 8px; background: rgba(26,18,9,.9); border: 2px solid #c8a24a; border-radius: 6px; }
+#te-bar button, #te-panel button { background: #3a2a12; color: #ffd36a; border: 1px solid #c8a24a; border-radius: 4px; padding: 5px 9px; cursor: pointer; }
+#te-bar button[aria-pressed="true"], #te-panel button[aria-pressed="true"] { background: #c8a24a; color: #1a1209; }
+.te-gap { width: 14px; }
+#te-panel { position: absolute; top: 64px; right: 10px; bottom: 10px; width: 250px; overflow: auto; padding: 10px; background: rgba(26,18,9,.9); border: 2px solid #c8a24a; border-radius: 6px; color: #ffd36a; font-size: .85rem; }
+#te-panel label { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+#te-panel input, #te-panel select { width: 130px; background: #120c05; color: #ffd36a; border: 1px solid #7a622b; padding: 3px; }
+#te-panel ol { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+#te-panel ol button { width: 100%; text-align: left; }
+#te-panel fieldset { border: 1px solid #7a622b; margin: 6px 0; }
+#te-status[data-bad="true"] { color: #ff7a7a; }
