@@ -2,7 +2,7 @@
 use crate::horizon::Horizon;
 use benilla_formats::{
     adt_to_tile_mesh, adt_to_tile_mesh_observed, triangle_z_at, LiquidKind, TerrainBuildPhase,
-    TileMesh,
+    TileMesh, TileMeshBuilder,
 };
 use flats_racer_physics::{Input, State, Tuning, FIXED_DT, PROBE_OFFSETS};
 use serde::{Deserialize, Serialize};
@@ -319,6 +319,8 @@ pub struct Voyage {
     physics_stats: [u32; 8],
     profile_admission: bool,
     admission_times: std::cell::Cell<[f64; 9]>,
+    tile_builder: Option<(usize, TileMeshBuilder)>,
+    pub(crate) prepared_tile: Option<(usize, TileMesh)>,
 }
 
 impl Voyage {
@@ -361,9 +363,57 @@ impl Voyage {
             physics_stats: [0; 8],
             profile_admission: false,
             admission_times: std::cell::Cell::new([0.0; 9]),
+            tile_builder: None,
+            prepared_tile: None,
         };
         world.rebase();
         Ok(world)
+    }
+
+    fn check_tile_input(&self, index: usize, size: usize) -> Result<(), String> {
+        let entry = self.manifest.tiles.get(index).ok_or("Unknown tile")?;
+        if (entry.bytes != 0 && size != entry.bytes)
+            || size == 0
+            || size > 16 * 1024 * 1024
+            || (!self.resident.contains_key(&index) && self.resident.len() >= MAX_RESIDENT)
+        {
+            return Err("Tile size/resident limit rejected".into());
+        }
+        Ok(())
+    }
+
+    fn validate_tile(&self, index: usize, tile: &TileMesh) -> Result<(), String> {
+        let entry = &self.manifest.tiles[index];
+        let northwest = [
+            -(f64::from(entry.y) - 32.0) * TILE,
+            -(f64::from(entry.x) - 32.0) * TILE,
+        ];
+        let invalid = tile.chunks.len() != 256
+            || tile.chunks.iter().any(|c| {
+                c.positions.len() != 145
+                    || c.indices.iter().any(|&i| i >= 145)
+                    || c.liquids.iter().any(|liquid| {
+                        liquid.indices.iter().any(|&i| {
+                            liquid.positions.get(i as usize).is_none_or(|p| {
+                                p.iter().any(|v| !v.is_finite() || v.abs() > 100_000.0)
+                            })
+                        })
+                    })
+                    || c.positions
+                        .iter()
+                        .flatten()
+                        .any(|v| !v.is_finite() || v.abs() > 100_000.0)
+                    || c.positions.iter().any(|p| {
+                        (0..2).any(|i| {
+                            f64::from(p[i]) > northwest[i] + 0.01
+                                || f64::from(p[i]) < northwest[i] - TILE - 0.01
+                        })
+                    })
+            });
+        if invalid {
+            return Err("Tile geometry does not match its source coordinates".into());
+        }
+        Ok(())
     }
 
     fn global(&self) -> [f64; 2] {
@@ -1269,18 +1319,8 @@ impl Voyage {
 
     pub fn add_tile(&mut self, index: usize, bytes: &[u8]) -> Result<(), JsValue> {
         let fail = |s: &str| JsValue::from_str(s);
-        let entry = self
-            .manifest
-            .tiles
-            .get(index)
-            .ok_or_else(|| fail("Unknown tile"))?;
-        if (entry.bytes != 0 && bytes.len() != entry.bytes)
-            || bytes.is_empty()
-            || bytes.len() > 16 * 1024 * 1024
-            || (!self.resident.contains_key(&index) && self.resident.len() >= MAX_RESIDENT)
-        {
-            return Err(fail("Tile size/resident limit rejected"));
-        }
+        self.check_tile_input(index, bytes.len())
+            .map_err(|e| fail(&e))?;
         let now = || {
             if self.profile_admission {
                 admission_now()
@@ -1311,38 +1351,11 @@ impl Voyage {
         self.admission_times.set(times);
         let tile = built.map_err(|e| fail(&e.to_string()))?;
         let validation = now();
-        let northwest = [
-            -(f64::from(entry.y) - 32.0) * TILE,
-            -(f64::from(entry.x) - 32.0) * TILE,
-        ];
-        let invalid = tile.chunks.len() != 256
-            || tile.chunks.iter().any(|c| {
-                c.positions.len() != 145
-                    || c.indices.iter().any(|&i| i >= 145)
-                    || c.liquids.iter().any(|liquid| {
-                        liquid.indices.iter().any(|&i| {
-                            liquid.positions.get(i as usize).is_none_or(|p| {
-                                p.iter().any(|v| !v.is_finite() || v.abs() > 100_000.0)
-                            })
-                        })
-                    })
-                    || c.positions
-                        .iter()
-                        .flatten()
-                        .any(|v| !v.is_finite() || v.abs() > 100_000.0)
-                    || c.positions.iter().any(|p| {
-                        (0..2).any(|i| {
-                            f64::from(p[i]) > northwest[i] + 0.01
-                                || f64::from(p[i]) < northwest[i] - TILE - 0.01
-                        })
-                    })
-            });
+        let valid = self.validate_tile(index, &tile);
         times[5] = now() - validation;
         times[8] = now() - started;
         self.admission_times.set(times);
-        if invalid {
-            return Err(fail("Tile geometry does not match its source coordinates"));
-        }
+        valid.map_err(|e| fail(&e))?;
         let commit = now();
         self.resident.insert(index, tile);
         times[6] = if self.profile_admission {
@@ -1357,6 +1370,59 @@ impl Voyage {
         };
         self.admission_times.set(times);
         Ok(())
+    }
+
+    pub fn begin_tile(&mut self, index: usize, bytes: Vec<u8>) -> Result<(), JsValue> {
+        self.check_tile_input(index, bytes.len())
+            .map_err(|e| JsValue::from_str(&e))?;
+        if self.tile_builder.is_some() || self.prepared_tile.is_some() {
+            return Err(JsValue::from_str(
+                "A terrain tile is already being prepared",
+            ));
+        }
+        let builder = TileMeshBuilder::new(bytes).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        self.tile_builder = Some((index, builder));
+        Ok(())
+    }
+
+    pub fn step_tile(&mut self) -> Result<bool, JsValue> {
+        let (index, builder) = self
+            .tile_builder
+            .as_mut()
+            .ok_or_else(|| JsValue::from_str("No terrain tile is being prepared"))?;
+        let index = *index;
+        if let Some(tile) = builder
+            .step()
+            .map_err(|e| JsValue::from_str(&e.to_string()))?
+        {
+            self.validate_tile(index, &tile)
+                .map_err(|e| JsValue::from_str(&e))?;
+            self.tile_builder = None;
+            self.prepared_tile = Some((index, tile));
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    pub fn commit_tile(&mut self, index: usize) -> Result<(), JsValue> {
+        if self
+            .prepared_tile
+            .as_ref()
+            .is_none_or(|(prepared, _)| *prepared != index)
+            || (!self.resident.contains_key(&index) && self.resident.len() >= MAX_RESIDENT)
+        {
+            return Err(JsValue::from_str(
+                "Prepared terrain tile/resident limit rejected",
+            ));
+        }
+        let (_, tile) = self.prepared_tile.take().expect("checked prepared tile");
+        self.resident.insert(index, tile);
+        Ok(())
+    }
+
+    pub fn cancel_tile(&mut self) {
+        self.tile_builder = None;
+        self.prepared_tile = None;
     }
 
     pub fn remove_tile(&mut self, index: usize) {
@@ -1682,10 +1748,45 @@ pub(crate) mod tests {
             entry.bytes = bytes.len();
             entry.file = format!("{map}_{x}_{y}.adt");
             let mut plain = Voyage::from_manifest(manifest.clone()).unwrap();
+            let mut staged = Voyage::from_manifest(manifest.clone()).unwrap();
             let mut profiled = Voyage::from_manifest(manifest).unwrap();
             profiled.set_admission_profiling(true);
             plain.add_tile(index, &bytes).unwrap();
             profiled.add_tile(index, &bytes).unwrap();
+            staged.begin_tile(index, bytes.clone()).unwrap();
+            let mut steps = 0;
+            loop {
+                let done = staged.step_tile().unwrap();
+                steps += 1;
+                assert!(
+                    staged.resident.is_empty(),
+                    "Partial terrain must never support physics"
+                );
+                if done {
+                    break;
+                }
+            }
+            assert_eq!(steps, 257);
+            assert_eq!(
+                staged.prepared_tile_placements(&bytes).unwrap(),
+                plain.tile_placements(index, &bytes).unwrap()
+            );
+            staged.commit_tile(index).unwrap();
+            for (a, b) in plain.resident[&index]
+                .chunks
+                .iter()
+                .zip(&staged.resident[&index].chunks)
+            {
+                assert_eq!(format!("{a:?}"), format!("{b:?}"));
+            }
+            staged.begin_tile(index, bytes.clone()).unwrap();
+            staged.step_tile().unwrap();
+            staged.cancel_tile();
+            assert!(staged.tile_builder.is_none() && staged.prepared_tile.is_none());
+            assert_eq!(
+                staged.geometry(index).unwrap(),
+                plain.geometry(index).unwrap()
+            );
             assert_eq!(
                 plain.geometry(index).unwrap(),
                 profiled.geometry(index).unwrap()

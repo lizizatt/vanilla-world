@@ -284,8 +284,9 @@ mod terrain;
 pub use terrain::{
     adt_to_tile_mesh, adt_to_tile_mesh_observed, area_id_at, find_tile_near, ground_effect_at,
     impassable_at, load_tile_mesh, load_tiles_around, mcsh_shadowed_at, terrain_height_at,
-    triangle_z_at, ChunkMesh, Doodad, MapTiles, TerrainBuildPhase, TileMesh, WmoInstance,
-    ALPHA_MAP_SIZE, CHUNK_SIZE, SHADOW_MAP_SIZE, STORMWIND_XY, TERRAIN_LAYER_TILES, TILE_SIZE,
+    triangle_z_at, ChunkMesh, Doodad, MapTiles, TerrainBuildPhase, TileMesh, TileMeshBuilder,
+    WmoInstance, ALPHA_MAP_SIZE, CHUNK_SIZE, SHADOW_MAP_SIZE, STORMWIND_XY, TERRAIN_LAYER_TILES,
+    TILE_SIZE,
 };
 mod wdl;
 /// World (x, y) to ADT tile `(col, row)`; minimap `map<X>_<Y>.blp` names use the same order.
@@ -296,7 +297,9 @@ pub use wdl::{WdlFile, WdlTileMesh};
 
 // The racer's distant water: liquid-only ADT reads, reusing `liquid`'s MCLQ mesher.
 mod adt_liquid_summary;
-pub use adt_liquid_summary::{adt_bytes_to_liquid_only, adt_bytes_to_racer_features, load_adt_liquid_only};
+pub use adt_liquid_summary::{
+    adt_bytes_to_liquid_only, adt_bytes_to_racer_features, load_adt_liquid_only,
+};
 
 // The minimap tile hash catalog and the world-map DBCs.
 mod minimap_translate;

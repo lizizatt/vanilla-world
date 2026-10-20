@@ -9,7 +9,7 @@ use std::io::Cursor;
 
 use crate::Chain;
 use anyhow::{Context, Result};
-use benilla_adt::{parse_adt, CombinedAlphaMap, ParsedAdt};
+use benilla_adt::{parse_adt, CombinedAlphaMap, McnkChunk, ParsedAdt, RootAdt};
 use benilla_wdt::{version::WowVersion, WdtFile, WdtReader};
 
 /// Edge length (texels) of a chunk's combined alpha map (always 64×64 in vanilla).
@@ -318,167 +318,185 @@ pub fn adt_to_tile_mesh_observed(
 
     let mut chunks = Vec::new();
     for mcnk in &root.mcnk_chunks {
-        let Some(mcvt) = &mcnk.heights else {
-            continue; // no MCVT height data for this chunk
-        };
-        if mcvt.heights.len() < 145 {
-            continue;
+        if let Some(chunk) = chunk_mesh(mcnk, &root.textures, &mut completed) {
+            chunks.push(chunk);
         }
-        // The header's `position` is already WoW `[X north, Y west, Z up]`.
-        let [wx, wy, wz] = mcnk.header.position;
+    }
+    finish_tile(&root, chunks, &mut completed)
+}
 
-        // MCNR is one normal per MCVT vertex, disk bytes already WoW `[X, Y, Z]`; `to_normalized`
-        // returns `[b0, b2, b1]`, which the destructure below undoes.
-        let mcnr = mcnk.normals.as_ref().filter(|n| n.normals.len() >= 145);
+fn chunk_mesh(
+    mcnk: &McnkChunk,
+    textures: &[String],
+    completed: &mut impl FnMut(TerrainBuildPhase),
+) -> Option<ChunkMesh> {
+    let Some(mcvt) = &mcnk.heights else {
+        return None;
+    };
+    if mcvt.heights.len() < 145 {
+        return None;
+    }
+    // The header's `position` is already WoW `[X north, Y west, Z up]`.
+    let [wx, wy, wz] = mcnk.header.position;
 
-        // Each row's 9 outer verts, then its 8 inner ones half a cell in, horizontally only; the
-        // last row has no inner verts.
-        let mut positions = Vec::with_capacity(145);
-        let mut normals = Vec::with_capacity(if mcnr.is_some() { 145 } else { 0 });
-        let mut uvs = Vec::with_capacity(145);
-        for row in 0..9u32 {
-            for col in 0..9u32 {
-                let idx = (row * 17 + col) as usize;
+    // MCNR is one normal per MCVT vertex, disk bytes already WoW `[X, Y, Z]`; `to_normalized`
+    // returns `[b0, b2, b1]`, which the destructure below undoes.
+    let mcnr = mcnk.normals.as_ref().filter(|n| n.normals.len() >= 145);
+
+    // Each row's 9 outer verts, then its 8 inner ones half a cell in, horizontally only; the
+    // last row has no inner verts.
+    let mut positions = Vec::with_capacity(145);
+    let mut normals = Vec::with_capacity(if mcnr.is_some() { 145 } else { 0 });
+    let mut uvs = Vec::with_capacity(145);
+    for row in 0..9u32 {
+        for col in 0..9u32 {
+            let idx = (row * 17 + col) as usize;
+            let h = mcvt.heights[idx];
+            positions.push([
+                // X/Y snap so shared edge verts coincide; Z stays the MCVT height.
+                snap_to_lattice(wx - row as f32 * UNIT_SIZE), // WoW X (north): rows step south
+                snap_to_lattice(wy - col as f32 * UNIT_SIZE), // WoW Y (west): columns step east
+                wz + h,                                       // WoW Z (up): height over base
+            ]);
+            if let Some(mcnr) = mcnr {
+                let [x, z, y] = mcnr.normals[idx].to_normalized();
+                normals.push([x, y, z]);
+            }
+            uvs.push([col as f32 / 8.0, row as f32 / 8.0]);
+        }
+        if row < 8 {
+            for col in 0..8u32 {
+                let idx = (row * 17 + 9 + col) as usize;
                 let h = mcvt.heights[idx];
+                // Not snapped: no other chunk shares an inner vert.
                 positions.push([
-                    // X/Y snap so shared edge verts coincide; Z stays the MCVT height.
-                    snap_to_lattice(wx - row as f32 * UNIT_SIZE), // WoW X (north): rows step south
-                    snap_to_lattice(wy - col as f32 * UNIT_SIZE), // WoW Y (west): columns step east
-                    wz + h,                                       // WoW Z (up): height over base
+                    wx - (row as f32 * UNIT_SIZE + UNIT_SIZE / 2.0),
+                    wy - (col as f32 * UNIT_SIZE + UNIT_SIZE / 2.0),
+                    wz + h,
                 ]);
                 if let Some(mcnr) = mcnr {
                     let [x, z, y] = mcnr.normals[idx].to_normalized();
                     normals.push([x, y, z]);
                 }
-                uvs.push([col as f32 / 8.0, row as f32 / 8.0]);
-            }
-            if row < 8 {
-                for col in 0..8u32 {
-                    let idx = (row * 17 + 9 + col) as usize;
-                    let h = mcvt.heights[idx];
-                    // Not snapped: no other chunk shares an inner vert.
-                    positions.push([
-                        wx - (row as f32 * UNIT_SIZE + UNIT_SIZE / 2.0),
-                        wy - (col as f32 * UNIT_SIZE + UNIT_SIZE / 2.0),
-                        wz + h,
-                    ]);
-                    if let Some(mcnr) = mcnr {
-                        let [x, z, y] = mcnr.normals[idx].to_normalized();
-                        normals.push([x, y, z]);
-                    }
-                    uvs.push([(col as f32 + 0.5) / 8.0, (row as f32 + 0.5) / 8.0]);
-                }
+                uvs.push([(col as f32 + 0.5) / 8.0, (row as f32 + 0.5) / 8.0]);
             }
         }
-
-        // Four fan triangles per cell, CCW from above (front face up in Bevy under the det +1
-        // transform); a set hole bit drops its 2×2 block, and 1.12 has no high-res holes.
-        let holes = mcnk.header.holes_low_res;
-        let mut indices = Vec::with_capacity(8 * 8 * 12);
-        for row in 0..8u32 {
-            for col in 0..8u32 {
-                if holes & (1u16 << ((row >> 1) * 4 + (col >> 1))) != 0 {
-                    continue;
-                }
-                let tl = row * 17 + col;
-                let tr = tl + 1;
-                let bl = tl + 17;
-                let br = bl + 1;
-                let ctr = row * 17 + 9 + col;
-                indices.extend_from_slice(&[
-                    ctr, tl, bl, // west fan
-                    ctr, bl, br, // south fan
-                    ctr, br, tr, // east fan
-                    ctr, tr, tl, // north fan
-                ]);
-            }
-        }
-
-        completed(TerrainBuildPhase::Geometry);
-        // Name and effect id together, so the two vecs stay aligned when a layer is dropped.
-        let layers: Vec<(String, u32)> = mcnk
-            .layers
-            .as_ref()
-            .map(|mcly| {
-                mcly.layers
-                    .iter()
-                    .filter_map(|layer| {
-                        root.textures
-                            .get(layer.texture_id as usize)
-                            .cloned()
-                            .map(|t| (t, layer.effect_id))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let layer_textures: Vec<String> = layers.iter().map(|(t, _)| t.clone()).collect();
-        let layer_effect_ids: Vec<u32> = layers.iter().map(|(_, e)| *e).collect();
-        let base_texture = layer_textures.first().cloned();
-
-        // Layers 1..3 into one RGBA map; 1.12 alpha is 4-bit, last row and column duplicated.
-        let alpha_map = (layer_textures.len() > 1).then(|| {
-            CombinedAlphaMap::new(
-                mcnk, /* has_big_alpha */ false, /* fix_alpha */ true,
-            )
-            .into_vec()
-        });
-
-        let shadow = mcnk.shadow.as_ref().map(|sh| {
-            let n = SHADOW_MAP_SIZE as usize;
-            let mut out = vec![0u8; n * n];
-            for y in 0..n {
-                for x in 0..n {
-                    if sh.is_shadowed(x, y) {
-                        out[y * n + x] = 255;
-                    }
-                }
-            }
-            out
-        });
-
-        // predominantTexture (`0x40..0x4F`) is the header's `pred_tex` then `no_effect_doodad`,
-        // and noEffectDoodad (`0x50..0x57`) its `unknown_8bytes`: 2 and 1 bits per cell, LSB first.
-        let h = &mcnk.header;
-        let mut pt16 = [0u8; 16];
-        pt16[..8].copy_from_slice(&h.pred_tex);
-        pt16[8..].copy_from_slice(&h.no_effect_doodad);
-        let ned8 = h.unknown_8bytes;
-        let mut pred_tex = [0u8; 64];
-        let mut no_effect_doodad = [false; 64];
-        for k in 0..64 {
-            pred_tex[k] = (pt16[k / 4] >> (2 * (k % 4))) & 0x3;
-            no_effect_doodad[k] = (ned8[k / 8] >> (k % 8)) & 0x1 == 1;
-        }
-
-        completed(TerrainBuildPhase::Materials);
-        let liquids: Vec<_> = mcnk
-            .liquids
-            .iter()
-            .filter_map(|mclq| crate::liquid::build_liquid_mesh(mclq, h.position))
-            .collect();
-
-        chunks.push(ChunkMesh {
-            positions,
-            normals,
-            uvs,
-            indices,
-            holes,
-            base_texture,
-            layer_textures,
-            layer_effect_ids,
-            alpha_map,
-            shadow,
-            pred_tex,
-            no_effect_doodad,
-            index_x: h.index_x,
-            index_y: h.index_y,
-            area_id: h.area_id,
-            impassable: h.impassable(),
-            liquids,
-        });
-        completed(TerrainBuildPhase::Liquids);
     }
 
+    // Four fan triangles per cell, CCW from above (front face up in Bevy under the det +1
+    // transform); a set hole bit drops its 2×2 block, and 1.12 has no high-res holes.
+    let holes = mcnk.header.holes_low_res;
+    let mut indices = Vec::with_capacity(8 * 8 * 12);
+    for row in 0..8u32 {
+        for col in 0..8u32 {
+            if holes & (1u16 << ((row >> 1) * 4 + (col >> 1))) != 0 {
+                continue;
+            }
+            let tl = row * 17 + col;
+            let tr = tl + 1;
+            let bl = tl + 17;
+            let br = bl + 1;
+            let ctr = row * 17 + 9 + col;
+            indices.extend_from_slice(&[
+                ctr, tl, bl, // west fan
+                ctr, bl, br, // south fan
+                ctr, br, tr, // east fan
+                ctr, tr, tl, // north fan
+            ]);
+        }
+    }
+
+    completed(TerrainBuildPhase::Geometry);
+    // Name and effect id together, so the two vecs stay aligned when a layer is dropped.
+    let layers: Vec<(String, u32)> = mcnk
+        .layers
+        .as_ref()
+        .map(|mcly| {
+            mcly.layers
+                .iter()
+                .filter_map(|layer| {
+                    textures
+                        .get(layer.texture_id as usize)
+                        .cloned()
+                        .map(|t| (t, layer.effect_id))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let layer_textures: Vec<String> = layers.iter().map(|(t, _)| t.clone()).collect();
+    let layer_effect_ids: Vec<u32> = layers.iter().map(|(_, e)| *e).collect();
+    let base_texture = layer_textures.first().cloned();
+
+    // Layers 1..3 into one RGBA map; 1.12 alpha is 4-bit, last row and column duplicated.
+    let alpha_map = (layer_textures.len() > 1).then(|| {
+        CombinedAlphaMap::new(
+            mcnk, /* has_big_alpha */ false, /* fix_alpha */ true,
+        )
+        .into_vec()
+    });
+
+    let shadow = mcnk.shadow.as_ref().map(|sh| {
+        let n = SHADOW_MAP_SIZE as usize;
+        let mut out = vec![0u8; n * n];
+        for y in 0..n {
+            for x in 0..n {
+                if sh.is_shadowed(x, y) {
+                    out[y * n + x] = 255;
+                }
+            }
+        }
+        out
+    });
+
+    // predominantTexture (`0x40..0x4F`) is the header's `pred_tex` then `no_effect_doodad`,
+    // and noEffectDoodad (`0x50..0x57`) its `unknown_8bytes`: 2 and 1 bits per cell, LSB first.
+    let h = &mcnk.header;
+    let mut pt16 = [0u8; 16];
+    pt16[..8].copy_from_slice(&h.pred_tex);
+    pt16[8..].copy_from_slice(&h.no_effect_doodad);
+    let ned8 = h.unknown_8bytes;
+    let mut pred_tex = [0u8; 64];
+    let mut no_effect_doodad = [false; 64];
+    for k in 0..64 {
+        pred_tex[k] = (pt16[k / 4] >> (2 * (k % 4))) & 0x3;
+        no_effect_doodad[k] = (ned8[k / 8] >> (k % 8)) & 0x1 == 1;
+    }
+
+    completed(TerrainBuildPhase::Materials);
+    let liquids: Vec<_> = mcnk
+        .liquids
+        .iter()
+        .filter_map(|mclq| crate::liquid::build_liquid_mesh(mclq, h.position))
+        .collect();
+
+    let chunk = ChunkMesh {
+        positions,
+        normals,
+        uvs,
+        indices,
+        holes,
+        base_texture,
+        layer_textures,
+        layer_effect_ids,
+        alpha_map,
+        shadow,
+        pred_tex,
+        no_effect_doodad,
+        index_x: h.index_x,
+        index_y: h.index_y,
+        area_id: h.area_id,
+        impassable: h.impassable(),
+        liquids,
+    };
+    completed(TerrainBuildPhase::Liquids);
+    Some(chunk)
+}
+
+fn finish_tile(
+    root: &RootAdt,
+    chunks: Vec<ChunkMesh>,
+    completed: &mut impl FnMut(TerrainBuildPhase),
+) -> Result<TileMesh> {
     if chunks.is_empty() {
         anyhow::bail!("ADT produced no terrain chunks (no MCVT height data?)");
     }
@@ -531,6 +549,48 @@ pub fn adt_to_tile_mesh_observed(
         doodads,
         wmos,
     })
+}
+
+/// A bounded staging buffer; no partially decoded tile is published to a world.
+pub struct TileMeshBuilder {
+    bytes: Vec<u8>,
+    offset: usize,
+    root: Option<RootAdt>,
+    chunks: Vec<ChunkMesh>,
+}
+
+impl TileMeshBuilder {
+    pub fn new(bytes: Vec<u8>) -> Result<Self> {
+        let root = benilla_adt::parse_adt_metadata(&bytes)?;
+        Ok(Self {
+            bytes,
+            offset: 0,
+            root: Some(root),
+            chunks: Vec::new(),
+        })
+    }
+
+    /// Decode and mesh at most one terrain chunk. Completion transfers the finished tile.
+    pub fn step(&mut self) -> Result<Option<TileMesh>> {
+        let root = self
+            .root
+            .as_ref()
+            .context("Tile builder already completed")?;
+        while let Some((magic, data)) = benilla_bytes::chunks(&self.bytes[self.offset..]).next() {
+            self.offset += data.len() + 8;
+            if &magic != b"KNCM" {
+                continue;
+            }
+            let mcnk = benilla_adt::read_mcnk(data)?;
+            if let Some(chunk) = chunk_mesh(&mcnk, &root.textures, &mut |_| {}) {
+                anyhow::ensure!(self.chunks.len() < 256, "ADT exceeds 256 terrain chunks");
+                self.chunks.push(chunk);
+            }
+            return Ok(None);
+        }
+        let root = self.root.take().context("Tile builder already completed")?;
+        finish_tile(&root, std::mem::take(&mut self.chunks), &mut |_| {}).map(Some)
+    }
 }
 
 /// Read a map's WDT from the chain and parse it (vanilla/Classic layout).

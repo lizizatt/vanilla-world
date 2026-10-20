@@ -264,6 +264,30 @@ export class SceneStream {
     this.placementLists.delete(this.tiles);
     this.revision++;this.collisionRevision++;this.placementRevision++;
   }
+  *prepareTile(key, bytes, metadata) {
+    const revision=this.placementRevision,map=Number(key.split(':')[0]);
+    const placements=yield* this.placementSteps(bytes,metadata);
+    const tiles=new Map(this.tiles);tiles.set(key,placements);
+    const index=new CollisionPlacementIndex(map,this.cache),seen=new Set(),entries=[];
+    let count=0;
+    for(const [tile,list] of tiles)if(tile.startsWith(`${map}:`))for(const p of list){
+      const id=placementId(p,map);
+      if(!seen.has(id)){
+        seen.add(id);index.retain(p,id,p.matrix,p.kind,entries.length);entries.push(p);
+      }
+      if(++count%32===0)yield;
+    }
+    return {revision,map,placements,index,entries};
+  }
+  commitTile(key, prepared) {
+    if(prepared.revision!==this.placementRevision)throw new Error('Prepared collision metadata is stale');
+    if(!this.tiles.has(key)&&this.tiles.size>=this.limits.nearTiles)throw new Error('Remove an old scene tile before exceeding the near-tile budget');
+    this.tiles.set(key,prepared.placements);
+    this.placementLists.set(this.tiles,{map:prepared.map,entries:prepared.entries});
+    this.revision++;this.collisionRevision++;this.placementRevision++;
+    this.collisionIndex=prepared.index;
+    this.collisionIndex.metadataRevision=this.placementRevision;
+  }
   setDistantTile(key, bytes) {
     this.setDistantPlacements(key,this.parsePlacements(bytes));
   }
@@ -290,7 +314,14 @@ export class SceneStream {
     return list.entries;
   }
   parsePlacements(bytes, metadata) {
+    const steps=this.placementSteps(bytes,metadata);
+    let result;
+    do {result=steps.next();}while(!result.done);
+    return result.value;
+  }
+  *placementSteps(bytes, metadata) {
     const placements = JSON.parse(metadata ?? this.wasm.scene_placements(bytes));
+    let count=0;
     for (const p of placements) {
       p.path = modelPath(p.path);
       if (!['m2', 'wmo'].includes(p.kind) || !Number.isSafeInteger(p.id) || p.id < 0) throw new Error('Invalid scene identity');
@@ -299,6 +330,7 @@ export class SceneStream {
       p.matrix = placementMatrix(p);
       p.key = modelKey(p.kind, p);
       p.identityId=undefined;
+      if(++count%32===0)yield;
     }
     return placements;
   }

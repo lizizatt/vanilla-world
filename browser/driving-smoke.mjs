@@ -167,12 +167,16 @@ try{
       body=body.replaceAll(call,`(()=>{const began=performance.now();try{return ${call};}finally{
         const ms=performance.now()-began;if(ms>=.5)drivingWork.push({kind:${JSON.stringify(call)},ms});}})()`);
     }
-    for(const call of ['world.add_tile(index,bytes)','scene.setTile(tileKey(index),bytes,world.tile_placements(index,bytes))','world.geometry(index)',
+    const stagedTerrain=body.includes('world.commit_tile(index)');
+    for(const call of [...(stagedTerrain?['world.commit_tile(index)','scene.commitTile(tileKey(index),read.scene)']:
+      ['world.add_tile(index,bytes)','scene.setTile(tileKey(index),bytes,world.tile_placements(index,bytes))']),'world.geometry(index)',
       'world.horizon_seams(index)']){
       assert(body.includes(call),`Missing worker stage profiling hook: ${call}`);
       body=body.replaceAll(call,`(()=>{const started=performance.now();try{return ${call};}finally{drivingWork.push({kind:${JSON.stringify(call)},ms:performance.now()-started,
         ${call==='world.add_tile(index,bytes)'||call==='world.geometry(index)'?'rustStages:Array.from(world.admission_timings()),':''}index});}})()`);
     }
+    if(stagedTerrain)replace('timings.terrainSliceMs+=elapsed;',
+      "drivingWork.push({kind:'terrain-preparation-slice',ms:elapsed,index:read.index});timings.terrainSliceMs+=elapsed;");
     for(const method of ['setTile','prepareTile']){
       const materialCall=`terrain.${method}(index,world.terrain_material(index))`;
       if(method==='setTile')assert(body.includes(materialCall),'Missing terrain material profiling hook');

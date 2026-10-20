@@ -25,6 +25,47 @@ function startCraft() {
 }
 let resident=new Set(),failures=new Map(),loads=0,evictions=0,peak=0,horizon;
 let terrainRead;
+async function yieldTerrain() {
+  if(globalThis.scheduler?.postTask)await scheduler.postTask(()=>{},{priority:'background'});
+  else await new Promise(resolve=>setTimeout(resolve,0));
+}
+function discardTerrainRead() {
+  if(terrainRead)world.cancel_tile();
+  terrainRead=undefined;
+}
+function prepareTerrain(read, decode=true) {
+  const owner=source,target=world,stream=scene;
+  const current=()=>terrainRead===read&&source===owner&&world===target;
+  read.ready=false;
+  return (async()=>{
+    try {
+      if(decode)read.bytes=await owner.read(assetPath(manifest.tiles[read.index]));
+      const steps=(function*(){
+        if(decode){
+          target.begin_tile(read.index,read.bytes);yield;
+          while(!target.step_tile())yield;
+          read.metadata=target.prepared_tile_placements(read.bytes);yield;
+        }
+        return yield* stream.prepareTile(tileKey(read.index),read.bytes,read.metadata);
+      })();
+      for(;;){
+        await yieldTerrain();
+        if(!current())return;
+        const start=performance.now();
+        let result;
+        for(let i=0;i<16;i++){
+          result=steps.next();
+          if(result.done||performance.now()-start>=4)break;
+        }
+        const elapsed=performance.now()-start;
+        timings.terrainSliceMs+=elapsed;timings.terrainSliceMax=Math.max(timings.terrainSliceMax,elapsed);
+        if(result.done){read.scene=result.value;return;}
+      }
+    }catch(error){
+      if(current()){target.cancel_tile();read.error=error;}
+    }finally{read.ready=true;}
+  })();
+}
 let detailPending,detailBusy=false;
 const tileVersions=new Map(),detailReady=new Set();
 let nextTileVersion=0;
@@ -110,6 +151,7 @@ let collisionFocus;
 const collisionInstances=new Map();
 const timings={frames:0,totalMs:0,maxMs:0,terrainMs:0,sceneMs:0,selectionMs:0,snapshotMs:0,
   geometrySliceMs:0,geometrySliceMax:0,
+  terrainSliceMs:0,terrainSliceMax:0,
   physicsMs:0,cameraUnknownMs:0,postMs:0,postFrameMs:0,scenePostMs:0,scenePosts:0,sceneInstancePosts:0,collisionBuildMs:0,collisionBuilds:0};
 let far,farFocus,farUpdated=0,farFlight=false;
 function startFarWorker() {
@@ -164,45 +206,48 @@ async function stream(p,pin,fill=false) {
   const tiles=[],removed=[];
   if(terrainRead?.ready && !wanted.includes(terrainRead.index)) {
     if('error' in terrainRead)recordTerrainFailure(terrainRead.index,terrainRead.error);
-    terrainRead=undefined;
+    discardTerrainRead();
   }
   for(const index of resident) if(!wanted.includes(index)) {
     world.remove_tile(index);scene.removeTile(tileKey(index));terrain.removeTile(index);terrainErrors.delete(index);
     if(terrainMaterials.delete(index) && !terrainMaterials.size)cancelMaterialTimer();
     resident.delete(index);tileVersions.delete(index);detailReady.delete(index);removed.push(index);evictions++;
   }
-  let prefetches=0;
-  for(const index of wanted) {
+  if(fill&&terrainRead&&!wanted.includes(terrainRead.index)){
+    await terrainRead.pending;
+    if('error' in terrainRead)recordTerrainFailure(terrainRead.index,terrainRead.error);
+    discardTerrainRead();
+  }
+  const order=fill&&terrainRead?[...new Set([terrainRead.index,...wanted])]:wanted;
+  for(const index of order) {
     if(resident.has(index)||failures.has(index))continue;
-    const staged=terrainRead?.index===index && terrainRead.ready;
-    if(!fill && !required.includes(index) && !staged && prefetches++>=1)continue;
     const entry=manifest.tiles[index];
-    if(!fill && !required.includes(index)) {
-      if(!terrainRead) {
-        const read={index,ready:false};
-        terrainRead=read;
-        // Stage one raw ADT only; admission stays in this queue before collision readiness is checked.
-        read.pending=(async()=>{
-          try {read.bytes=await source.read(assetPath(entry));}
-          catch(error) {read.error=error;}
-          finally {read.ready=true;}
-        })();
+    if(terrainRead&&terrainRead.index!==index){
+      if(required.includes(index)&&terrainRead.bytes){
+        if('error' in terrainRead)recordTerrainFailure(terrainRead.index,terrainRead.error);
+        discardTerrainRead();
       }
-      if(terrainRead.index!==index || !terrainRead.ready)continue;
+      else continue;
+    }
+    if(!terrainRead){
+      const read={index,ready:false};terrainRead=read;
+      read.pending=prepareTerrain(read);
+    }
+    const read=terrainRead;
+    if(fill)await read.pending;
+    if(!read.ready)continue;
+    if(!('error' in read)&&read.scene.revision!==scene.placementRevision){
+      read.pending=prepareTerrain(read,false);
+      if(fill)await read.pending;
+      else continue;
     }
     report(`Loading ${entry.file}; required terrain stays blocked until ready.`);
     const started=performance.now();
     try {
-      let bytes;
-      if(terrainRead?.index===index) {
-        const read=terrainRead;
-        await read.pending;
-        terrainRead=undefined;
-        if('error' in read)throw read.error;
-        bytes=read.bytes;
-      } else bytes=await source.read(assetPath(entry));
-      world.add_tile(index,bytes);
-      scene.setTile(tileKey(index),bytes,world.tile_placements(index,bytes));
+      if('error' in read)throw read.error;
+      world.commit_tile(index);
+      scene.commitTile(tileKey(index),read.scene);
+      terrainRead=undefined;
       sceneFocus=undefined;
       const vertices=postFrameVisuals?undefined:world.geometry(index);
       resident.add(index);loads++;peak=Math.max(peak,resident.size);
@@ -210,6 +255,7 @@ async function stream(p,pin,fill=false) {
       tiles.push({index,version,placement:placements[index],vertices});
       terrainMaterials.add(index);
     } catch(error) {
+      discardTerrainRead();
       world.remove_tile(index);scene.removeTile(tileKey(index));
       recordTerrainFailure(index,error);
     } finally {
@@ -217,6 +263,7 @@ async function stream(p,pin,fill=false) {
         measureHold('terrain',performance.now()-started);lastHoldTime=performance.now();
       }
     }
+    if(!fill)break;
   }
   if(tiles.length || removed.length) {
     if(postFrameVisuals)queueGeometry(tiles,removed);
@@ -593,7 +640,7 @@ async function handle(message) {
     materialGeneration++;cancelMaterialTimer();materialFrameReady=false;materialBusy=false;
     terrain?.clear();
     water?.clear();
-    terrainRead=undefined;
+    discardTerrainRead();
     detailPending=undefined;detailBusy=false;
     tileVersions.clear();detailReady.clear();nextTileVersion=0;
     geometryJob=undefined;geometryRevision++;geometryDirty=false;
@@ -633,7 +680,7 @@ async function handle(message) {
     // Horizon initialization is synchronous before its first yield; required near work can then overlap publication.
     const horizonReady=buildHorizon(wdls);
     await Promise.all([horizonReady,(async()=>{
-      await stream([manifest.spawn[0],manifest.spawn[2]],true);
+      await stream([manifest.spawn[0],manifest.spawn[2]],true,true);
       world.initialize_spawn();
       await preparePoseScene(Array.from(world.telemetry()).slice(0,4));
     })()]);

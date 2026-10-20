@@ -241,8 +241,15 @@ fn cstring_at(blob: &[u8], offset: usize) -> String {
 
 /// Parse a vanilla monolithic ADT; the cursor's position is ignored.
 pub fn parse_adt(cursor: &mut Cursor<&[u8]>) -> Result<ParsedAdt> {
-    let b: &[u8] = cursor.get_ref();
+    read_adt(cursor.get_ref(), true).map(|root| ParsedAdt::Root(Box::new(root)))
+}
 
+/// Parse the top-level tables without decoding any MCNK payload.
+pub fn parse_adt_metadata(bytes: &[u8]) -> Result<RootAdt> {
+    read_adt(bytes, false)
+}
+
+fn read_adt(b: &[u8], terrain: bool) -> Result<RootAdt> {
     let mut textures = Vec::new();
     let mut mmdx = Vec::new();
     let mut mmid: Vec<u32> = Vec::new();
@@ -261,7 +268,7 @@ pub fn parse_adt(cursor: &mut Cursor<&[u8]>) -> Result<ParsedAdt> {
             b"DIWM" => mwid = read_u32_list(data, "MWID")?,  // MWID (offsets)
             b"FDDM" => doodad_placements = read_mddf(data)?, // MDDF
             b"FDOM" => wmo_placements = read_modf(data)?,    // MODF
-            b"KNCM" => mcnk_chunks.push(read_mcnk(data)?),   // MCNK
+            b"KNCM" if terrain => mcnk_chunks.push(read_mcnk(data)?), // MCNK
             _ => {}
         }
     }
@@ -276,14 +283,14 @@ pub fn parse_adt(cursor: &mut Cursor<&[u8]>) -> Result<ParsedAdt> {
         .map(|&o| cstring_at(&mwmo, o as usize))
         .collect();
 
-    Ok(ParsedAdt::Root(Box::new(RootAdt {
+    Ok(RootAdt {
         textures,
         models,
         wmos,
         doodad_placements,
         wmo_placements,
         mcnk_chunks,
-    })))
+    })
 }
 
 /// Split a NUL-separated, NUL-terminated string blob, dropping empties.
@@ -352,7 +359,8 @@ fn read_modf(data: &[u8]) -> Result<Vec<WmoPlacement>> {
 }
 
 /// Parse one MCNK: the 128-byte header, then the sub-chunks at the header's offsets.
-fn read_mcnk(data: &[u8]) -> Result<McnkChunk> {
+/// Decode one MCNK payload, excluding its eight-byte IFF header.
+pub fn read_mcnk(data: &[u8]) -> Result<McnkChunk> {
     if data.len() < 128 {
         return Err(Error::Truncated("MCNK header"));
     }

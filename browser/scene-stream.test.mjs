@@ -35,6 +35,31 @@ test('bounded visual selection exactly matches full sorting without sorting the 
   assert(comparisons<items.length*2,'Rejected far candidates need only a comparison against the retained tail');
 });
 
+test('prepared placement index is equivalent and stays private until atomic tile publication',()=>{
+  const f=fixture(),staged=new SceneStream(f.source,f.wasm),sync=new SceneStream(f.source,f.wasm);
+  const first=Array.from({length:320},(_,id)=>p(id,'tree.mdx',id*12));
+  const next=Array.from({length:640},(_,id)=>p(id+160,'tree.mdx',id*13));
+  for(const s of [staged,sync])s.setTile('1:0:0',first);
+  const old=staged.collisionPlacements(1,[0,0,0],[0,0,0],32).map(r=>r.id);
+  const steps=staged.prepareTile('1:1:0',next);
+  let result,yields=0;
+  do{
+    result=steps.next();yields++;
+    assert.equal(staged.tiles.size,1);
+    assert.deepEqual(staged.collisionPlacements(1,[0,0,0],[0,0,0],32).map(r=>r.id),old);
+  }while(!result.done);
+  assert(yields>20);
+  staged.commitTile('1:1:0',result.value);sync.setTile('1:1:0',next);
+  for(let x=0;x<9000;x+=200)
+    assert.deepEqual(staged.collisionPlacements(1,[x,0,0],[x+30,0,0],32).map(r=>r.id),
+      sync.collisionPlacements(1,[x,0,0],[x+30,0,0],32).map(r=>r.id));
+  const stale=staged.prepareTile('1:2:0',[]);
+  do{result=stale.next();}while(!result.done);
+  staged.removeTile('1:0:0');
+  assert.throws(()=>staged.commitTile('1:2:0',result.value),/stale/);
+  assert.equal(staged.tiles.size,1);
+});
+
 test('visual selection yields, commits the same ranking, and never owns immediate collision demand',async()=>{
   const f=fixture(),sync=new SceneStream(f.source,f.wasm),stream=new SceneStream(f.source,f.wasm);
   stream.asyncVisuals=true;stream.collisionReach=152;

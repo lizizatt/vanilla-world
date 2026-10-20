@@ -51,6 +51,47 @@ Build output stays in this worktree's `target-web`; it does not touch the native
 racer cache. The server binds loopback only and serves an explicit file allowlist,
 not your Data directory.
 
+## Yielded terrain admission
+
+The browser prepares one ADT at a time outside the frame handler. The shared Rust
+parser/mesher advances one MCNK at a time; worker turns stop after 4 ms or sixteen
+steps. Placement validation and collision-index construction also yield in
+bounded batches. Terrain and its prepared scene index become resident together
+in the next frame, never exposing partial collision support. Changed metadata
+invalidates the staged index; changing the source cancels staged work.
+
+Required terrain remains genuinely unavailable until publication, without making
+the frame await decoding or inventing loading holds. Startup and pose restoration
+still await actual readiness. A required tile can preempt optional preparation
+after its non-interruptible archive read. Eight detailed tiles, the existing
+physics, caches and worker counts are unchanged. The synchronous native API
+reuses the same chunk builder and retains its existing behavior.
+
+The 4 ms scheduling budget is not a hard deadline for an individual Wasm call,
+JSON parse, allocation or host pause. Render-geometry extraction remains separately
+yielded; this change does not add workers, liquid range reads or fidelity changes.
+Shell cache v34 includes the staged admission APIs.
+
+Isolated Edge `admission-sliced` gate against `cdeaff6` (including its preserved
+original Wasm), forward/reverse execution order, unchanged 150/300 handling:
+
+| Metric | Staged candidate | Baseline |
+| --- | --- | --- |
+| Active handler p99 | 12.4 / 12.5 ms | 15.6 / 9.8 ms |
+| Moving freezes over 50 ms | 0 / 0 | 0 / 1 |
+| Active selection maximum | 9.6 / 11.8 ms | 47.3 / 7.3 ms |
+| Active terrain-stream maximum | 12.2 / 25.2 ms | 16.6 / 21.6 ms |
+| Preparation-inclusive selection maximum | 13.3 / 18.5 ms | 47.3 / 24.8 ms |
+
+Both orders covered about 585 yards and 6.07-6.08 active seconds. They pass the
+20 ms p99/zero moving-tail gate, not a strict relative-regression or hard
+per-operation limit. Background preparation slices still peaked at 34.9/22.6 ms
+including startup; the specific single call or host pause responsible is not
+isolated. Separately yielded render geometry peaked at 32.1/42.6 ms.
+There were no terrain holds, but real object-readiness holds remained:
+254/323 ms over the full trials, versus 253/639 ms baseline.
+Fresh contexts do not control filesystem caches or other shared-host activity.
+
 ## Explore
 
 Selecting Data now opens a full-screen, art-free loading view with accessible
