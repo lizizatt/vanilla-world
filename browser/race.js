@@ -1,0 +1,73 @@
+// Pure race state machine. Positions are render-space yards [x,y,z]; yaw is radians, forward = (-sin yaw, -cos yaw) like the craft.
+// idle -> lineup -> countdown -> running -> finished | cancelled. No DOM, no clocks: callers pass `now` seconds.
+export const BREAKOFF_MARGIN=500;
+export const COUNTDOWN_SECONDS=3;
+
+const dist=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2]);
+const finite=v=>Array.isArray(v)&&v.length===3&&v.every(Number.isFinite);
+
+export function validateTrack(t) {
+  if(!t||typeof t.id!=='string'||!/^[a-z0-9-]+$/.test(t.id))throw new Error('track id must be a lowercase slug');
+  if(!finite(t.start?.pos)||!Number.isFinite(t.start?.yaw))throw new Error('track start needs pos and yaw');
+  if(!Array.isArray(t.gates)||t.gates.length<1)throw new Error('track needs at least one gate');
+  for(const g of t.gates)if(!finite(g.pos)||!Number.isFinite(g.yaw)||!(g.width>0))throw new Error('gate needs pos, yaw and width>0');
+  const mode=t.mode??'p2p',laps=t.laps??1;
+  if(mode!=='p2p'&&mode!=='lap')throw new Error('mode must be p2p or lap');
+  if(!Number.isInteger(laps)||laps<1||(mode==='p2p'&&laps!==1))throw new Error('laps must be a positive integer (1 for p2p)');
+  return {...t,mode,laps};
+}
+
+// Max distance between any two course points (start included) plus margin, unless the track sets `breakoff`.
+export function breakoffDistance(t) {
+  if(Number.isFinite(t.breakoff)&&t.breakoff>0)return t.breakoff;
+  const pts=[t.start.pos,...t.gates.map(g=>g.pos)];
+  let max=0;
+  for(let i=0;i<pts.length;i++)for(let j=i+1;j<pts.length;j++)max=Math.max(max,dist(pts[i],pts[j]));
+  return max+BREAKOFF_MARGIN;
+}
+
+// True when the segment a->b crosses the gate's vertical plane inside its width (and within `height` yd vertically).
+export function crossesGate(gate,a,b,height=200) {
+  const fx=-Math.sin(gate.yaw),fz=-Math.cos(gate.yaw),rx=Math.cos(gate.yaw),rz=-Math.sin(gate.yaw);
+  const side=p=>(p[0]-gate.pos[0])*fx+(p[2]-gate.pos[2])*fz;
+  const sa=side(a),sb=side(b);
+  if(!(sa<0&&sb>=0))return false;
+  const u=sa/(sa-sb),x=a[0]+(b[0]-a[0])*u,y=a[1]+(b[1]-a[1])*u,z=a[2]+(b[2]-a[2])*u;
+  const lateral=(x-gate.pos[0])*rx+(z-gate.pos[2])*rz;
+  return Math.abs(lateral)<=gate.width/2&&Math.abs(y-gate.pos[1])<=height;
+}
+
+export class Race {
+  constructor(track) {
+    this.track=validateTrack(track);
+    this.breakoff=breakoffDistance(this.track);
+    this.state='idle';this.reason=null;
+    this.next=0;this.lap=1;this.splits=[];this.time=null;this.last=null;
+  }
+  get totalGates() { return this.track.gates.length*this.track.laps; }
+  get gateIndex() { return this.next%this.track.gates.length; }
+  get nextGate() { return this.state==='running'?this.track.gates[this.gateIndex]:null; }
+  start(now) {
+    this.state='lineup';this.reason=null;this.next=0;this.lap=1;this.splits=[];this.time=null;this.last=null;this.t0=null;this.cd=now;
+  }
+  // Called once the craft is placed at the start; begins the 3-2-1 countdown.
+  lined(now) { if(this.state==='lineup'){this.state='countdown';this.cd=now;} }
+  countdown(now) { return this.state==='countdown'?Math.max(0,COUNTDOWN_SECONDS-(now-this.cd)):0; }
+  elapsed(now) { return this.state==='running'?now-this.t0:this.time??0; }
+  cancel(reason='cancelled') { if(this.state!=='idle'&&this.state!=='finished'){this.state='cancelled';this.reason=reason;} }
+  // Advance with the craft's latest position. Returns 'go', 'gate', 'finish' or null.
+  update(pos,now) {
+    let event=null;
+    if(this.state==='countdown'&&now-this.cd>=COUNTDOWN_SECONDS){this.state='running';this.t0=now;this.last=pos;return 'go';}
+    if(this.state!=='running'){this.last=pos;return null;}
+    if(this.last&&crossesGate(this.track.gates[this.gateIndex],this.last,pos)){
+      this.splits.push(now-this.t0);this.next++;event='gate';
+      if(this.next>=this.totalGates){this.state='finished';this.time=now-this.t0;event='finish';}
+      else if(this.gateIndex===0)this.lap++;
+    }
+    this.last=pos;
+    if(this.state==='running'&&this.farFromCourse(pos))this.cancel('breakoff');
+    return event;
+  }
+  farFromCourse(pos) { return this.track.gates.every(g=>dist(pos,g.pos)>this.breakoff)&&dist(pos,this.track.start.pos)>this.breakoff; }
+}
