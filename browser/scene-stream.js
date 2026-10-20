@@ -151,9 +151,9 @@ export function selectionPrefix(items, limit, compare) {
   }
   return heap.sort(compare);
 }
+const isCritical = r => r.required || (!r.distant && r.kind !== 'texture' && (r.collisionScore ?? r.score) < 32);
 function requestOrder(a, b) {
-  const aCritical = a.required || (!a.distant && a.kind !== 'texture' && (a.collisionScore ?? a.score) < 32);
-  const bCritical = b.required || (!b.distant && b.kind !== 'texture' && (b.collisionScore ?? b.score) < 32);
+  const aCritical = isCritical(a), bCritical = isCritical(b);
   if (aCritical !== bCritical) return aCritical ? -1 : 1;
   if (aCritical) return REQUEST_PRIORITY[a.kind] - REQUEST_PRIORITY[b.kind] || a.score - b.score || a.key.localeCompare(b.key);
   const band = r => !r.distant && (r.kind==='wmo'||r.score < 128) ? 0 : r.distant ? 1 : 2;
@@ -685,9 +685,10 @@ export class SceneStream {
     this.capacityBlocked = false;
     const generation = this.generation;
     let loaded = false, loadedRoot = false;
+    const skipped = new Set();
     try {
       for (let job = 0; job < this.limits.jobs; job++) {
-        const pending = [...this.requests.values()].filter(r => !this.cache.has(r.key) && !this.failures.has(r.key))
+        const pending = [...this.requests.values()].filter(r => !this.cache.has(r.key) && !this.failures.has(r.key) && !skipped.has(r.key))
           .sort(requestOrder);
         let request = this.visualOnly
           ? pending.find(r=>!!r.discovery===(this.timings.loads%4===0))||pending[0] : pending[0];
@@ -732,7 +733,7 @@ export class SceneStream {
         } catch (error) {
           result?.dispose?.();
           if (generation !== this.generation) continue;
-          if (error.code === 'DEFERRED') break;
+          if (error.code === 'DEFERRED') { if (!isCritical(request)) break; skipped.add(request.key); job--; continue; }
           const failure = { path: request.path, code: error.code || 'CORRUPT', message: String(error.message || error) };
           this.failures.set(request.key, failure);
           this.revision++;
@@ -767,7 +768,7 @@ export class SceneStream {
   }
   async load(request) {
     const readStart = performance.now();
-    const generation=this.generation,background=!request.required&&(request.distant||request.score>=128);
+    const generation=this.generation,background=!isCritical(request)&&(request.distant||request.score>=128);
     const shouldDefer=()=>generation!==this.generation || !this.requests.has(request.key)
       || [...this.requests.values()].some(r=>r.required&&!this.cache.has(r.key)&&!this.failures.has(r.key));
     if(request.kind==='texture'&&this.source.readTexture) {

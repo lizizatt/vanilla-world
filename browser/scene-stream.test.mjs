@@ -922,3 +922,15 @@ test('optional scene extraction deferral is retryable rather than a corrupt reso
   assert.deepEqual(stream.snapshot().errors,[]);assert.equal(stream.snapshot().pending,1);
   defer=false;await stream.pump();assert.equal(stream.snapshot().instances.length,1);
 });
+
+test('a nearby unrequired critical request cannot starve a required one by deferring itself',async()=>{
+  const f=fixture(),read=async(path,{shouldDefer}={})=>{
+    if(shouldDefer?.())throw Object.assign(Error('deferred'),{code:'DEFERRED'});return f.source.read(path);};
+  const stream=new SceneStream({read},f.wasm,{jobs:2});
+  stream.position=[0,0,0];stream.update=()=>{};stream.foregroundKey='m2:b.m2:[]';
+  const add=(key,kind,extra)=>stream.requests.set(key,{key,path:key,kind,skins:[],distant:false,...extra});
+  add('wmo:a.wmo:[]','wmo',{score:200,collisionScore:5});
+  add('m2:b.m2:[]','m2',{score:100,required:true});
+  await stream.pump();
+  assert.ok(stream.cache.has('m2:b.m2:[]'),'the required model must load');
+});
