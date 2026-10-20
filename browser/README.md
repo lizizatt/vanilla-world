@@ -203,6 +203,8 @@ Isolated Edge checks verified the DBC was first, actual decoded screen pixels
 reached the visible canvas, all three bar parts appeared before entry, Escape
 could not expose an unready world, and dismissal/error cleanup removed the
 surfaces. The artwork check deliberately does not save loading-screen captures.
+Do not record startup video while this artwork is visible; later driving gates
+disable video in both variants and retain timing metadata instead.
 The local default screen arrived around 0.49-0.78 seconds after folder selection.
 
 Matched first-motion measurements against `c17975b`, in seconds:
@@ -464,11 +466,35 @@ not these new speed caps.
 
 ### Elevated obstacle clearance
 
+Airborne forward thrust and boost use the shared Rust air-control multiplier;
+boost spends the same reserve and respects braking, reverse and speed caps.
+Neither supplies vertical lift. In the browser, loaded authored holes now mean
+absent support during flight rather than freezing the entire falling vehicle.
+Flight above known impassable terrain is allowed only beyond support reach.
+Grounded hole/impassable guards, unloaded tiles, world boundaries, hull sweeps
+and save validation remain strict. Native uses the same propulsion code and
+already passes optional support probes to it; no native controller change is needed.
+`node browser\airborne-smoke.mjs` (with `WOW_DATA` and an isolated 4183 server)
+checks actual Edge keyboard thrust/boost from rest during a 100-yard-high fall.
+Rust fixtures separately cover full/partial authored holes, impassable terrain,
+unloaded tiles, world boundaries, collision rollback and strict save restoration.
+
+The `airborne-thrust` both-order gate against `b4ed49b` uses the same filtered
+population, 150/300 handling and video-disabled capture in both variants.
+Across the common 585-yard segment (over six active seconds), handler p99 is
+**2.1/2.7 ms** (baseline 2.7/3.0), moving >50 ms tails **0/0**, worst active
+selection **5.1/2.9 ms** (including preparation 5.1/5.4), and active terrain
+admission **0.9/0.8 ms**, with no readiness holds. Actual Edge keyboard checks
+reached 24.25 yd/s under ordinary airborne thrust versus 47.84 with boost while
+falling 4.03/4.14 yards; boost reserve fell to 0.777 instead of remaining full.
+The shared Rust and browser suites pass 79 tests; the native Bevy executable
+was not launched.
+
 The support-edge guard previously stopped any per-probe rise of 0.6 yards,
 even when the obstacle was well below an elevated vehicle. It now permits
 such a rise only below the entire swept hull's **0.5-yard half-height**.
-Real mesh/bounds collisions, protruding terrain, missing geometry, unsupported
-holes, floor correction and the independent presentation timeline are unchanged.
+Real mesh/bounds collisions, protruding terrain, missing geometry, grounded
+hole guards, floor correction and the independent presentation timeline are unchanged.
 
 Actual Edge reproduction used the supplied rounded Gadgetzan coordinates
 (-1055 E, 6446 S) and the requested handling. Live Y/heading were unavailable:
@@ -1472,8 +1498,8 @@ performance comparison.
 
 The existing 120 Hz authoritative tick now divides long horizontal travel into
 distance-bounded support steps (maximum 64 per tick), rather than interpreting a
-smooth rise greater than 0.6 yards per tick as a wall. Solid sweeps, unsupported
-holes, missing tiles and whole-tick rollback remain enforced. Upward support
+smooth rise greater than 0.6 yards per tick as a wall. Solid sweeps, grounded
+hole guards, missing tiles and whole-tick rollback remain enforced. Upward support
 feed-forward is capped to the admitted rise per substep; negative descent
 feed-forward is unchanged. This is a targeted physics correction, not a claim
 that every tuned trajectory is identical to the old implementation.

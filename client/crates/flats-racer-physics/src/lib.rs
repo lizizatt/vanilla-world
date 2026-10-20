@@ -158,7 +158,7 @@ pub struct State {
     pub bank: f32,
     pub grounded: bool,
     pub jump_cooldown: f32,
-    /// Fraction in [0, 1], consumed only by supported forward boost.
+    /// Fraction in [0, 1], consumed by forward boost with nonzero control authority.
     pub boost_reserve: f32,
     jump_held: bool,
     support_lockout: f32,
@@ -393,7 +393,7 @@ impl State {
         let boosting = input.boost
             && throttle > 0.0
             && !input.brake
-            && self.grounded
+            && authority > 0.0
             && self.boost_reserve > 0.0;
         // Prorate the final fraction of boost rather than granting a whole free last tick.
         let boost_fraction = if boosting {
@@ -745,8 +745,9 @@ mod tests {
                 .unwrap();
             assert!(!state.grounded);
             assert!(speed(&state) > 0.0);
-            assert_eq!(state.boost_reserve, 1.0);
+            assert!(state.boost_reserve < 1.0);
         }
+        assert!((state.boost_reserve - 0.8).abs() < 0.00001);
         assert!(state.velocity[1].abs() < 0.0001);
         for _ in 0..600 {
             tick(&mut state, Input::default());
@@ -902,7 +903,7 @@ mod tests {
     }
 
     #[test]
-    fn airborne_throttle_continues_after_hop_without_vertical_lift_or_boost() {
+    fn airborne_boost_continues_after_hop_without_vertical_lift() {
         let mut state = racer();
         tick(
             &mut state,
@@ -940,7 +941,7 @@ mod tests {
                 .unwrap();
         }
         assert!(speed(&state) > before + 1.0);
-        assert_eq!(state.boost_reserve, reserve);
+        assert!((state.boost_reserve - (reserve - 0.4)).abs() < 0.00001);
         assert!(state.velocity[1] < -20.0);
     }
 
@@ -966,7 +967,7 @@ mod tests {
                             Input {
                                 throttle: if tick < hz * 2 { 1.0 } else { 0.0 },
                                 brake: tick >= hz * 2,
-                                boost: true,
+                                boost: false,
                                 ..Input::default()
                             },
                             [None; 4],
@@ -985,6 +986,56 @@ mod tests {
                 }
                 assert!((speed(&state) - 30.0 * air_control).abs() < 0.001);
                 assert_eq!(state.boost_reserve, 1.0);
+            }
+        }
+    }
+
+    #[test]
+    fn airborne_boost_from_rest_preserves_gravity_and_reserve_rules() {
+        for hz in [30, 60, 144] {
+            for air_control in [0.0, 0.9] {
+                let tuning = Tuning {
+                    air_control,
+                    drag: 0.0,
+                    ..Tuning::default()
+                };
+                let mut boosted = State::new([0.0, 100.0, 0.0], 0.0).unwrap();
+                let mut normal = boosted;
+                let mut falling = boosted;
+                let dt = 1.0 / hz as f32;
+                for _ in 0..hz {
+                    for (state, input) in [
+                        (&mut boosted, Input { throttle: 1.0, boost: true, ..Input::default() }),
+                        (&mut normal, Input { throttle: 1.0, ..Input::default() }),
+                        (&mut falling, Input::default()),
+                    ] {
+                        state.step_with_tuning(input, [None; 4], dt, &tuning).unwrap();
+                    }
+                    assert_eq!(boosted.velocity[1], falling.velocity[1]);
+                    assert_eq!(normal.velocity[1], falling.velocity[1]);
+                    assert!(!boosted.grounded);
+                }
+                assert!((speed(&normal) - tuning.acceleration * air_control).abs() < 0.001);
+                assert!((speed(&boosted) - (tuning.acceleration + tuning.boost_acceleration) * air_control).abs() < 0.001);
+                let expected = if air_control > 0.0 { 0.6 } else { 1.0 };
+                assert!((boosted.boost_reserve - expected).abs() < 0.00001);
+                assert_eq!(normal.boost_reserve, 1.0);
+            }
+        }
+    }
+
+    #[test]
+    fn airborne_braking_reverse_and_idle_do_not_spend_boost() {
+        for (throttle, brake) in [(1.0, true), (-1.0, false), (0.0, false)] {
+            let mut boosted = State::new([0.0, 100.0, 0.0], 0.0).unwrap();
+            boosted.boost_reserve = 0.4;
+            let mut normal = boosted;
+            for _ in 0..60 {
+                let input = Input { throttle, brake, boost: true, ..Input::default() };
+                boosted.step(input, [None; 4], FIXED_DT).unwrap();
+                normal.step(Input { boost: false, ..input }, [None; 4], FIXED_DT).unwrap();
+                assert_eq!(boosted.velocity, normal.velocity);
+                assert_eq!(boosted.boost_reserve, 0.4);
             }
         }
     }
