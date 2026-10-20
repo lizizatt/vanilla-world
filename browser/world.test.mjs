@@ -296,7 +296,7 @@ test('direct uniform packing matches shader layouts and cached bindings follow t
       createCommandEncoder:()=>({beginRenderPass:()=>({end(){}}),finish:()=>({})})},
     uploadMaterials(){},drawTerrain(_pass,items){this.drawnTerrain=items;},drawScene(_pass,draws){this.drawnScene=draws;},drawClouds(){},
     uniformData:new Float32Array(16384*64),frameUniforms:{},body:{placement:[0,0]},
-    horizon:[horizon],tiles:new Map([[1,detail]]),seams:new Map(),water:[],flags:[],coast:new Map([[1,coastNear],[5,coastFar]]),coastBytes:0,
+    horizon:[horizon],tiles:new Map([[1,detail]]),seams:new Map(),water:[],flags:[],gates:[],coast:new Map([[1,coastNear],[5,coastFar]]),coastBytes:0,
     instances:[instance],assets:new Map([['model',asset]]),textures:new Map([['model.blp',texture()]]),
     items:new Map(),white:texture(),waterNormals:texture(),manifest:{regions:[region]},sceneRegion:0,
     materialPending:new Map(),minimapAtlases:[]});

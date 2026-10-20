@@ -173,7 +173,7 @@ async function open(selection,remember=false) {
     renderer.reset();renderer.clipCamera=undefined;cameraCollision.reset();flight=undefined;pauseAudio();music.stop();Object.assign(settings,defaults);syncSettings();
     const result=await client.open(selection,loadingMap);
     renderer.configure(result.info.manifest);client.sky();mapPanel.configure(result.info.manifest);
-    void loadTracks().then(found=>{tracks=found;renderer.setFlags(found.map(flagPosition));});
+    void loadTracks().then(found=>{tracks=found;gateKey=undefined;renderer.setFlags(found.map(flagPosition));});
     cameraCollision.configure(result.info.manifest);
     tuningValues=Array.isArray(result.info.tuning)?result.info.tuning.slice():TUNING_FIELDS.map(f=>f[1]);
     opened=true;
@@ -349,6 +349,13 @@ raceMenu.addEventListener('close',()=>{race?.resume(performance.now()/1000);canv
 $('race-restart').addEventListener('click',()=>{const track=race?.track;raceMenu.close();race=undefined;if(track)startRace(track);});
 $('race-abandon').addEventListener('click',()=>{race?.cancel('abandoned');raceMenu.close();});
 $('race-settings').addEventListener('click',()=>{raceMenu.close();$('preferences').open=true;$('preferences').scrollIntoView?.({block:'nearest'});});
+let gateKey;
+function syncGates(force) {
+  const key=tracks.map(t=>t.id).join()+'|'+(race?race.track.id+race.gateIndex:'');
+  if(!force&&key===gateKey)return;
+  gateKey=key;
+  renderer.setGates(tracks.flatMap(t=>t.gates.map((gate,i)=>({gate,next:race?.track.id===t.id&&race.gateIndex===i}))));
+}
 function startRace(track) {
   if(race||busy||!running||!client.info)return;
   operation(async()=>{
@@ -426,6 +433,7 @@ function frame(now) {
       flight[4]=Math.max(-1.55,Math.min(1.55,flight[4]-cameraOrbit[1]*.004));
     }
     if(race){flight=undefined;if(!raceMenu.open)raceFrame(controls,now/1000);}
+    syncGates();
     if(!frozenPresentation)client.frame(dt,controls.throttle,controls.steer,controls.flags,flight?.slice(0,3),settings.distant,renderer.view);
     cameraCollision.frame(client.state,renderer.sceneRegion ?? client.state.telemetry[10]);
     const stats=renderer.draw(frozenPresentation || flight?client.state.telemetry:client.presentation(),flight,dt,frozenPresentation?0:now/1000,

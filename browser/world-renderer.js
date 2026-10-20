@@ -6,7 +6,7 @@ import {COAST_GPU_LIMIT} from './water-stream.js';
 import {WATER_NORMAL_SIZE,waterNormalMips,waterShading,dayShading} from './water-shader.js';
 import {cloudShader,cloudUniform,maelstromCentre} from './clouds.js';
 import {oceanMesh} from './ocean-mesh.js';
-import {flagMesh} from './race-flags.js';
+import {flagMesh,gateMesh} from './race-flags.js';
 import {SkyCatalog,mapPosition,skyShader,skyDomeShader,skyUniform,advanceTime,nightAlpha,nightAngle,DAY} from './sky.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
 export {sceneVisible} from './world-view.js';
@@ -207,7 +207,7 @@ export class WorldRenderer {
   constructor(canvas,device) {
     this.canvas=canvas;this.device=device;this.format=navigator.gpu.getPreferredCanvasFormat();
     this.context=canvas.getContext('webgpu');this.context.configure({device,format:this.format,alphaMode:'opaque'});
-    this.tiles=new Map();this.seams=new Map();this.horizon=[];this.water=[];this.flags=[];this.coast=new Map();this.indices=new Map();
+    this.tiles=new Map();this.seams=new Map();this.horizon=[];this.water=[];this.flags=[];this.gates=[];this.coast=new Map();this.indices=new Map();
     this.coastBytes=0;
     this.admissionFade=new AdmissionFade();
     this.assets=new Map();this.textures=new Map();this.items=new Map();this.instances=[];this.pipelines=new Map();
@@ -331,6 +331,11 @@ export class WorldRenderer {
     this.flags=positions.map(p=>this.drawable(flagMesh(p[1]),[p[0],p[2]]));
     this.terrainView=undefined;
   }
+  setGates(items) {
+    for(const item of this.gates)this.release(item);
+    this.gates=items.map(({gate,next})=>this.drawable(gateMesh(gate,gate.pos[1],next),[gate.pos[0],gate.pos[2]]));
+    this.terrainView=undefined;
+  }
   releaseMaterial(item){if(item)for(const resource of [item.vertices,item.indices,item.layers,item.masks])resource?.destroy();}
   release(item){item?.buffer.destroy();this.releaseMaterial(item?.material);}
   releaseCraft(){
@@ -344,8 +349,8 @@ export class WorldRenderer {
     this.sceneBundle=undefined;this.sceneBundleBuilds=0;
     this.releaseCraft();
     this.craftError=undefined;
-    for(const item of [...this.tiles.values(),...this.seams.values(),...this.horizon,...this.water,...this.flags,...this.coast.values()])this.release(item);
-    this.tiles.clear();this.seams.clear();this.horizon=[];this.water=[];this.flags=[];this.coast.clear();this.coastBytes=0;
+    for(const item of [...this.tiles.values(),...this.seams.values(),...this.horizon,...this.water,...this.flags,...this.gates,...this.coast.values()])this.release(item);
+    this.tiles.clear();this.seams.clear();this.horizon=[];this.water=[];this.flags=[];this.gates=[];this.coast.clear();this.coastBytes=0;
     for(const index of this.indices.values())index.destroy();this.indices.clear();
     for(const asset of this.assets.values()){asset.vertices.destroy();asset.indices.destroy();}this.assets.clear();
     for(const texture of this.textures.values())texture.destroy();this.textures.clear();
@@ -707,7 +712,7 @@ export class WorldRenderer {
     const distant=settings.horizon?this.horizon.filter(h=>!this.tiles.has(h.near)):[];
     const coastal=[...this.coast].flatMap(([index,item])=>
       this.tiles.has(index)?item.backing?[item.backing]:[]:settings.horizon?[item]:[]);
-    const allTerrain=this.cameraBlocked?[]:[...distant,...this.tiles.values(),...(settings.horizon?this.seams.values():[]),...this.water,...coastal,...this.flags];
+    const allTerrain=this.cameraBlocked?[]:[...distant,...this.tiles.values(),...(settings.horizon?this.seams.values():[]),...this.water,...coastal,...this.flags,...this.gates];
     if(!flight&&!this.craft&&!this.cameraBlocked)allTerrain.push(this.body);
     const cachedView=this.terrainView;
     if(!cachedView || viewChanged(cachedView.view,this.view) ||

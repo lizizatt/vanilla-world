@@ -24,6 +24,24 @@ export function flagMesh(y) {
   return new Float32Array(v);
 }
 
+// Gate drawn around local x/z 0, base at world height y: two pylons, a crossbar spanning the width and a
+// tall beam. The next gate is amber with a much taller beam so it can be seen from far away.
+export function gateMesh(gate,y,next=false) {
+  const v=[],half=gate.width/2,post=next?8:6,bar=next?8:7,beam=next?8:6;
+  box(v,[-half-1,y-3,-1],[2,17,2],post);
+  box(v,[half-1,y-3,-1],[2,17,2],post);
+  box(v,[-half,y+12,-.5],[gate.width,2,1],bar);
+  const w=next?3:1.6,h=next?380:110;
+  box(v,[-half-w/2,y+14,-w/2],[w,h,w],beam);
+  box(v,[half-w/2,y+14,-w/2],[w,h,w],beam);
+  const c=Math.cos(gate.yaw),s=Math.sin(gate.yaw);
+  for(let i=0;i<v.length;i+=7){
+    const x=v[i],z=v[i+2],nx=v[i+3],nz=v[i+5];
+    v[i]=x*c+z*s;v[i+2]=-x*s+z*c;v[i+3]=nx*c+nz*s;v[i+5]=-nx*s+nz*c;
+  }
+  return new Float32Array(v);
+}
+
 // Stand the flag beside the start line so it never sits on the lined-up craft.
 export function flagPosition({start:{pos,yaw}},offset=12) { return [pos[0]+Math.cos(yaw)*offset,pos[1],pos[2]-Math.sin(yaw)*offset]; }
 
