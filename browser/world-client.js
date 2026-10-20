@@ -11,6 +11,7 @@ export class WorldClient {
     this.requests.clear();this.inFlight=false;this.discardFrame();
   }
   stopLoadingArt(){this.worker?.postMessage({action:'stop-loading-art'});}
+  music(fields){this.worker?.postMessage({action:'music',...fields});}
   request(action,fields={}) {
     if(!this.worker) return Promise.reject(new Error('Select the local Data folder first.'));
     if(action==='reset' || action==='restore')this.discardFrame();

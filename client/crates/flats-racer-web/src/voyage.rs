@@ -1505,6 +1505,19 @@ impl Voyage {
         ]
     }
 
+    /// The `AreaTable` id under the car, or 0 when no resident terrain covers it (open ocean).
+    pub fn area(&self) -> u32 {
+        let p = self.global();
+        let Some(index) = self.locate(p) else {
+            return 0;
+        };
+        let Some(tile) = self.resident.get(&index) else {
+            return 0;
+        };
+        let wow = self.manifest.regions[self.manifest.tiles[index].region].source(p);
+        tile.chunks.iter().find_map(|c| c.area_at(wow)).unwrap_or(0)
+    }
+
     pub fn surface(&self, x: f64, z: f64) -> Vec<f64> {
         let s = self.sample([x, z]);
         vec![

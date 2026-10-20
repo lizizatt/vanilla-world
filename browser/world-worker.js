@@ -8,12 +8,13 @@ import {WaterStream} from './water-stream.js';
 import {FarChannel} from './far-channel.js';
 import {FAR_LIMITS} from './far-stream.js';
 import {validateView,viewChanged} from './world-view.js';
+import {MusicService} from './music.js';
 
 const TILE=1600/3,LIMIT=SCENE_LIMITS.nearTiles;
 let wasm;
 const ready=init().then(exports=>(wasm=exports));
 let world,source,manifest,placements,scene,terrain,water,accumulator=0,queue=Promise.resolve();
-let poseTime;
+let poseTime,music,areaTime=-1e9,areaId=0;
 const terrainErrors=new Map();
 let terrainFocus='';
 let terrainGridSource,terrainGrid;
@@ -645,7 +646,9 @@ function finishFrame(message) {
 function snapshot() {
   horizon.wasmPeakBytes=Math.max(horizon.wasmPeakBytes,wasm.memory.buffer.byteLength);
   const terrainState=terrain.snapshot();
-  return {telemetry:Array.from(world.telemetry()),poseTime,hopConsumed,resident:Array.from(resident),required:Array.from(world.required_tiles()),
+  const clock=performance.now();
+  if(clock-areaTime>500){areaTime=clock;areaId=world.area();}
+  return {telemetry:Array.from(world.telemetry()),area:areaId,poseTime,hopConsumed,resident:Array.from(resident),required:Array.from(world.required_tiles()),
     failures:Array.from(failures.values()),loads,evictions,peak,limit:LIMIT,horizon,source:source.stats,
     scene:sceneState?{instances:sceneState.instances.length,assets:sceneState.cachedAssets,bytes:sceneState.cachedBytes,
       pending:sceneState.pending,errors:sceneState.errors,population:sceneState.populationStatus,
@@ -801,6 +804,13 @@ async function handle(message) {
 }
 onmessage=({data})=>{
   if(data.action==='stop-loading-art'){source?.stopLoadingArt();return;}
+  if(data.action==='music'){
+    if(!source)return;
+    const owner=source;
+    if(music?.source!==owner)music=new MusicService(owner,data=>postMessage(data));
+    void music.request(data,()=>source!==owner);
+    return;
+  }
   if(data.action==='far-ack'){far?.ack(data.token,data.producer);return;}
   if(data.action==='far-reject'){far?.reject(data.token,data.producer);return;}
   queue=queue.then(async()=>{

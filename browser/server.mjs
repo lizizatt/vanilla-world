@@ -2,7 +2,7 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.json':'application/json' };
-const allowed = /^\/(?:index\.html|world-(?:app|client|worker|store|renderer|camera|input|audio|tuning|view)\.js|far-(?:worker|stream|channel)\.js|asset-(?:source|folder|channel|worker)\.js|(?:scene|terrain|water|craft)-stream\.js|loading-art\.js|water-shader\.js|camera-collision\.js|flight\.js|style\.css|sw\.js|local\/npc-spawns\.json|pkg\/flats_racer_web(?:_bg\.wasm|\.js))$/;
+const allowed = /^\/(?:index\.html|world-(?:app|client|worker|store|renderer|camera|input|audio|music|tuning|view)\.js|far-(?:worker|stream|channel)\.js|asset-(?:source|folder|channel|worker)\.js|(?:scene|terrain|water|craft)-stream\.js|loading-art\.js|water-shader\.js|music\.js|camera-collision\.js|flight\.js|style\.css|sw\.js|local\/npc-spawns\.json|pkg\/flats_racer_web(?:_bg\.wasm|\.js))$/;
 const server = http.createServer(async (request, response) => {
   let path;
   try { path = new URL(request.url, 'http://localhost').pathname; }
@@ -19,7 +19,7 @@ const server = http.createServer(async (request, response) => {
       'Content-Type': types[file.slice(file.lastIndexOf('.'))],
       'Cache-Control': 'no-cache',
       'X-Content-Type-Options': 'nosniff',
-      'Content-Security-Policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+      'Content-Security-Policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; media-src blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
     }).end(bytes);
   } catch (error) {
     if(file==='/local/npc-spawns.json' && error.code==='ENOENT'){response.writeHead(404).end('No private local population pack');return;}

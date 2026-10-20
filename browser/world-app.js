@@ -8,6 +8,7 @@ import {WorldAudio} from './world-audio.js';
 import {TUNING_FIELDS,validateTuningRecord} from './world-tuning.js';
 import {CameraCollision} from './camera-collision.js';
 import {LoadingArt} from './loading-art.js';
+import {MusicPlayer} from './world-music.js';
 
 const $=id=>document.getElementById(id),canvas=$('world'),keys=new Set();
 const input=new WorldInput(),audio=new WorldAudio();
@@ -47,10 +48,12 @@ function fail(error) {
   const message=error.message || String(error);
   console.error(error);evidence.errors.push(message);$('error').textContent=message;$('error').hidden=false;
 }
+const music=new MusicPlayer({request:fields=>client.music(fields),context:()=>audio.context});
 const client=new WorldClient(data=>{
   try {
     evidence.eventRevision=(evidence.eventRevision||0)+1;
     if(data.event==='progress'){if(!evidence.ready){report(data.text);loadingProgress(data);}}
+    else if(data.event==='music')music.event(data);
     else if(data.event==='loading-art')loadingArt.event(data);
     else if(data.event==='loading-art-warning'){
       console.warn(data.message);
@@ -149,7 +152,7 @@ async function open(selection,remember=false) {
   let opened=false;
   try {
     const loadingMap=renderer.manifest?.regions[renderer.sceneRegion]?.map;
-    renderer.reset();renderer.clipCamera=undefined;cameraCollision.reset();flight=undefined;pauseAudio();Object.assign(settings,defaults);syncSettings();
+    renderer.reset();renderer.clipCamera=undefined;cameraCollision.reset();flight=undefined;pauseAudio();music.stop();Object.assign(settings,defaults);syncSettings();
     const result=await client.open(selection,loadingMap);
     renderer.configure(result.info.manifest);
     cameraCollision.configure(result.info.manifest);
@@ -253,6 +256,7 @@ $('camera-distance').addEventListener('input',()=>{
   settings.cameraDistance=Number($('camera-distance').value);
   if(settings.cockpit){settings.cockpit=false;renderer.camera=undefined;}
 });
+$('music-volume').addEventListener('input',()=>music.setVolume(Number($('music-volume').value)/100));
 $('sound').addEventListener('change',()=>{settings.sound=$('sound').checked;if(settings.sound)resumeAudio(true);else pauseAudio();canvas.focus();});
 $('resume-sound').addEventListener('click',()=>{canvas.focus();resumeAudio(true);});
 $('cockpit').addEventListener('click',cockpit);
@@ -307,7 +311,7 @@ function frame(now) {
   const dt=last?Math.min((now-last)/1000,.1):0;last=now;
   if(!running || !client.state || busy || document.hidden) {
     client.discardFrame();
-    if(client.state)audio.update(client.state,{throttle:0,flags:1},0,false);
+    if(client.state){audio.update(client.state,{throttle:0,flags:1},0,false);music.update(client.state.area,false);}
     return;
   }
   try {
@@ -332,7 +336,8 @@ function frame(now) {
       :stats.cameraBlocked?'Cockpit view blocked by nearby geometry.':'';
     $('camera-blocked').hidden=!cameraWarning;
     if($('camera-blocked').textContent!==cameraWarning)$('camera-blocked').textContent=cameraWarning;
-    audio.update(client.state,controls,dt,document.hasFocus()&&!$('tuning-panel').open&&!flight&&!frozenPresentation);
+    const audible=document.hasFocus()&&!$('tuning-panel').open&&!flight&&!frozenPresentation;
+    audio.update(client.state,controls,dt,audible);music.update(client.state.area,audible);evidence.music=music.snapshot();
     frames++;Object.assign(evidence,{frames,state:client.state,mode:flight?'fly':'drive',camera:flight?.slice(),render:stats,adapter:renderer.adapter});
     evidence.input={...controls,device:input.device};evidence.view=renderer.camera?.slice();
     evidence.cockpit={requested:settings.cockpit,active:renderer.cameraMode==='cockpit',available:stats.cockpitAvailable};

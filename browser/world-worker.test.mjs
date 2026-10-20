@@ -403,7 +403,7 @@ function collisionFixture(clock=performance,instanceDeltas=true) {
       built.push([...ids].flatMap(id=>parts.get(id)));
     },
       collision_vertices:()=>new Float64Array(),collision_nodes:()=>new Float64Array(),
-      required_tiles:()=>[],collision_stats:()=>[0,0,0],
+      required_tiles:()=>[],area:()=>0,collision_stats:()=>[0,0,0],
       restore:pose=>body.splice(0,4,...pose),initialize_spawn:()=>body.splice(0,4,...f.spawn)},
     manifest:{spawn:f.spawn,ocean:[10000,0,20000,0],regions:[{placement:[0,0],tile_origin:[32,32]}]},scene,
   };
