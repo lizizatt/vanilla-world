@@ -36,4 +36,5 @@ test('gateMesh spans the gate width along its heading and the next gate has a ta
   for(let i=2;i<m.length;i+=7)zs.push(m[i]);
   assert.ok(Math.max(...zs)>=29&&Math.min(...zs)<=-29);
   assert.ok(top(gateMesh(g,0,true))>top(m));
+  assert.ok(gateMesh(g,0,true,true).length>gateMesh(g,0,true).length,'finish banner is checkered');
 });

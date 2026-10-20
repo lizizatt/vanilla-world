@@ -333,7 +333,7 @@ export class WorldRenderer {
   }
   setGates(items) {
     for(const item of this.gates)this.release(item);
-    this.gates=items.map(({gate,next})=>this.drawable(gateMesh(gate,gate.pos[1],next),[gate.pos[0],gate.pos[2]]));
+    this.gates=items.map(({gate,next,finish})=>this.drawable(gateMesh(gate,gate.pos[1],next,finish),[gate.pos[0],gate.pos[2]]));
     this.terrainView=undefined;
   }
   releaseMaterial(item){if(item)for(const resource of [item.vertices,item.indices,item.layers,item.masks])resource?.destroy();}
