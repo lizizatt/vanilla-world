@@ -22,9 +22,9 @@ window.worldEvidence=evidence;
 let tracks=[],race,raceBest,promptTrack,goUntil=0,boardTimer=0;
 let renderer,folder,flight,running=false,busy=false,last=0,frames=0,hudTime=0,hudFrames=0,permissionNeeded=false;
 let orbit=[0,0],dragging=false,mouseButtons=0,soundAttempt=0,soundError='',soundTime=0,reportTimer,testPads,frozenPresentation=false,tuningValues=TUNING_FIELDS.map(f=>f[1]);
-const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:false,cockpit:false,night:false,clouds:true};
+const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:false,cockpit:false,night:false,clouds:true,music:true};
 const settings={...defaults};
-try{settings.night=localStorage.getItem('racer.night')==='1';}catch{}
+try{settings.night=localStorage.getItem('racer.night')==='1';settings.music=localStorage.getItem('racer.music')!=='0';}catch{}
 const loading=$('loading-screen');
 const loadingArt=new LoadingArt($('loading-art'),$('loading-bar-art'),loading);
 loading.addEventListener('cancel',event=>event.preventDefault());
@@ -100,7 +100,7 @@ function enabled(value) {
 }
 function syncSettings() {
   for(const key of ['horizon','scenery','distant','sound','night','clouds'])$(key).checked=settings[key];
-  music.setNight(settings.night);
+  music.setNight(settings.night);music.setEnabled(settings.music);$('music-on').checked=settings.music;
   $('control-profile').value=settings.controls;$('camera-distance').value=settings.cameraDistance;
   $('keyboard-guide').textContent=settings.controls==='legacy'
     ?'W/S thrust/reverse · A/D steer · X/Space brake · J hop · Shift boost · Ctrl/C drift · F9 reset.'
@@ -288,6 +288,7 @@ $('camera-distance').addEventListener('input',()=>{
   settings.cameraDistance=Number($('camera-distance').value);
   if(settings.cockpit){settings.cockpit=false;renderer.camera=undefined;}
 });
+$('music-on').addEventListener('change',()=>{settings.music=$('music-on').checked;music.setEnabled(settings.music);try{localStorage.setItem('racer.music',settings.music?'1':'0');}catch{}});
 $('music-volume').addEventListener('input',()=>music.setVolume(Number($('music-volume').value)/100));
 $('sound').addEventListener('change',()=>{settings.sound=$('sound').checked;if(settings.sound)resumeAudio(true);else pauseAudio();canvas.focus();});
 $('resume-sound').addEventListener('click',()=>{canvas.focus();resumeAudio(true);});
@@ -401,13 +402,15 @@ function startRace(track) {
     client.state=await client.request('restore',{pose:[x,y+2,z,track.start.yaw]});
     renderer.camera=undefined;running=true;$('error').hidden=true;
     const board=validScores(await raceScores(track.id).catch(()=>undefined));raceBest=board.runs[0];
-    $('race-board').hidden=true;race=new Race(track);const t=performance.now()/1000;race.start(t);race.lined(t);promptTrack=undefined;
+    $('race-board').hidden=true;race=new Race(track);lastCount=0;music.setBattle(true,false);music.loadCue('click');music.loadCue('quest');const t=performance.now()/1000;race.start(t);race.lined(t);promptTrack=undefined;
   });
 }
+let lastCount=0;
 function raceFrame(controls,t) {
   if(race.state==='lineup'||race.state==='countdown'){controls.throttle=0;controls.steer=0;}
   const count=Math.ceil(race.countdown(t)),event=race.update(client.state.telemetry,t);
-  if(event==='go')goUntil=t+.8;
+  if(event==='go'){goUntil=t+.8;music.setBattle(true,true);music.playCue('quest');}
+  else if(race.state==='countdown'&&count!==lastCount){lastCount=count;music.playCue('click');}
   const text=race.state==='countdown'?String(count):t<goUntil?'GO!':'';
   const box=$('race-countdown');
   if(box.textContent!==text){box.textContent=text;box.hidden=!text;}
@@ -482,7 +485,7 @@ function frame(now) {
     $('camera-blocked').hidden=!cameraWarning;
     if($('camera-blocked').textContent!==cameraWarning)$('camera-blocked').textContent=cameraWarning;
     const audible=document.hasFocus()&&!$('tuning-panel').open&&!flight&&!frozenPresentation;
-    audio.update(client.state,controls,dt,audible);music.update(client.state.area,audible);evidence.music=music.snapshot();
+    audio.update(client.state,controls,dt,audible);if(!race)music.setBattle(false);music.update(client.state.area,audible);evidence.music=music.snapshot();
     frames++;Object.assign(evidence,{frames,state:client.state,mode:flight?'fly':'drive',camera:flight?.slice(),render:stats,adapter:renderer.adapter});
     evidence.input={...controls,device:input.device};evidence.view=renderer.camera?.slice();
     evidence.cockpit={requested:settings.cockpit,active:renderer.cameraMode==='cockpit',available:stats.cockpitAvailable};
