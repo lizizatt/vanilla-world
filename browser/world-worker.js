@@ -11,6 +11,7 @@ import {validateView,viewChanged} from './world-view.js';
 import {MusicService} from './music.js';
 import {SkyService} from './sky.js';
 import {WorldMapService} from './worldmap.js';
+import {maelstromCentre,WHIRLPOOL_DIP} from './clouds.js';
 
 const TILE=1600/3,LIMIT=SCENE_LIMITS.nearTiles;
 let wasm;
@@ -711,6 +712,7 @@ async function handle(message) {
     const json=world_manifest(wdts[0],wdls[0],wdts[1],wdls[1]);
     manifest=JSON.parse(json);
     world=new Voyage(json);
+    if(manifest.world_bounds){const [x,z]=maelstromCentre(manifest);world.set_whirlpool(x,z,WHIRLPOOL_DIP.radius,WHIRLPOOL_DIP.depth);}
     placements=manifest.tiles.map(t=>{
       const r=manifest.regions[t.region];
       return [r.placement[0]+(t.x-r.tile_origin[0])*TILE,r.placement[1]+(t.y-r.tile_origin[1])*TILE];
