@@ -29,6 +29,9 @@ export function waterNormalMips() {
   return mips;
 }
 
+// Maelstrom whirlpool (visual only): tunables in yards. The centre arrives local to the camera origin in u.sky[1..2].w, enabled by u.sky[3].w.
+export const WHIRLPOOL={radius:2600,core:260,tilt:.8,spin:.35,twist:2.4,arms:4,pitch:1.1};
+const W=WHIRLPOOL;
 export const dayShading=`
 fn nightK()->f32 {return 1.0-u.forward.w;}
 fn gameSky()->bool {return u.sky[0].w>.5;}
@@ -41,13 +44,19 @@ export const waterShading=`
 @group(0) @binding(3) var waterNormals:texture_2d<f32>;
 @group(0) @binding(4) var waveSampler:sampler;
 fn waterColor(p:vec3f,ramp:f32,rampWidth:f32,dx:vec2f,dy:vec2f)->vec3f {
-  let world=p.xz+vec2f(u.right.w,u.up.w);
+  var world=p.xz+vec2f(u.right.w,u.up.w);
+  let wd=p.xz-vec2f(u.sky[1].w,u.sky[2].w);let wr=length(wd);let wt=u.settings.y;
+  let wk=u.sky[3].w*(1.0-smoothstep(0.0,${W.radius.toFixed(1)},wr))*(1.0-smoothstep(30000.0,90000.0,length(u.eye.xyz-p)));
+  if(wk>0.0){
+    let ang=-(wk*${W.twist.toFixed(2)}+wt*${W.spin.toFixed(2)}*wk*wk);let ca=cos(ang);let sa=sin(ang);
+    world=world-wd+vec2f(wd.x*ca-wd.y*sa,wd.x*sa+wd.y*ca);
+  }
   let a=textureSampleGrad(waterNormals,waveSampler,world/64.0+u.settings.y*vec2f(.012,.008),dx/64.0,dy/64.0);
   let b=textureSampleGrad(waterNormals,waveSampler,world.yx/32.0+u.settings.y*vec2f(-.009,.014),dx.yx/32.0,dy.yx/32.0);
   let view=normalize(u.eye.xyz-p);
   let distance=length(u.eye.xyz-p);
   let detail=1.0-smoothstep(160.0,1500.0,distance);
-  let slope=(a.rg+b.gr-vec2f(1.0))*.9*detail;
+  var slope=(a.rg+b.gr-vec2f(1.0))*.9*detail-wd/max(wr,1.0)*${W.tilt.toFixed(2)}*wk;
   let normal=normalize(vec3f(slope.x,1.0,slope.y));
   let reflection=reflect(-view,normal);
   let sky=select(mix(vec3f(.16,.29,.38),vec3f(.40,.61,.72),smoothstep(0.0,1.0,reflection.y))*mix(vec3f(1.0),vec3f(.06,.09,.2),nightK()),
@@ -57,12 +66,15 @@ fn waterColor(p:vec3f,ramp:f32,rampWidth:f32,dx:vec2f,dy:vec2f)->vec3f {
   let body=mix(vec3f(.09,.43,.39),vec3f(.025,.18,.29),1.0-exp(-depth*4.5));
   var color=mix(body,sky,fresnel);
   color*=mix(1.0,.35,nightK());
+  color=mix(color,vec3f(.01,.05,.07)*mix(1.0,.3,nightK()),(1.0-smoothstep(${(W.core*.4).toFixed(1)},${(W.core*1.6).toFixed(1)},wr))*step(.0001,wk));
   let halfDirection=view+normalize(vec3f(-.3,1.0,.4));
   let halfVector=halfDirection/max(length(halfDirection),.0001);
   color+=vec3f(.45,.52,.53)*pow(max(dot(normal,halfVector),0.0),40.0)*.4*detail*(1.0-.85*nightK());
   let lap=.012*sin(u.settings.y*1.4+a.r*2.0);
   let foam=smoothstep(0.0,.015,depth)*(1.0-smoothstep(.035+lap,.09+lap,depth))
     *min(1.0,rampWidth*400.0)*detail;
-  return mix(color,vec3f(.65,.79,.76),foam*.5);
+  // North is -z, so atan2(-z,x) grows counter-clockwise on the map like the maelstrom arms.
+  let spiral=smoothstep(.55,.95,.5+.5*cos(${W.arms.toFixed(1)}*(atan2(-wd.y,wd.x)+${W.pitch.toFixed(2)}*log(max(wr,1.0)/200.0)-wt*${W.spin.toFixed(2)})))*(.6+.6*a.b)*smoothstep(${W.core.toFixed(1)},${(W.core*3).toFixed(1)},wr);
+  return mix(mix(color,vec3f(.65,.79,.76),foam*.5),vec3f(.8,.9,.9)*mix(1.0,.35,nightK()),clamp(spiral*wk*.8,0.0,.8));
 }
 `;

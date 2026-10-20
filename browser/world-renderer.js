@@ -4,7 +4,7 @@ import {MINIMAP_SIZE,TERRAIN_TEXTURE_SIZE} from './terrain-stream.js';
 import {cameraView,craftMatrix,cockpitAnchor} from './world-camera.js';
 import {COAST_GPU_LIMIT} from './water-stream.js';
 import {WATER_NORMAL_SIZE,waterNormalMips,waterShading,dayShading} from './water-shader.js';
-import {cloudShader,funnelShader,cloudUniform} from './clouds.js';
+import {cloudShader,funnelShader,cloudUniform,maelstromCentre} from './clouds.js';
 import {SkyCatalog,mapPosition,skyShader,skyDomeShader,skyUniform,advanceTime,nightAlpha,nightAngle,DAY} from './sky.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
 export {sceneVisible} from './world-view.js';
@@ -700,6 +700,7 @@ export class WorldRenderer {
     const game=this.sampleSky(),sky=game?game.fog:sky0;
     this.gameSky=game;
     const skyFloats=game?[...game.fog,1,...game.sun,0,...game.horizon,0,...game.mid,0]:new Array(16).fill(0);
+    if(this.manifest){const [mx,mz]=maelstromCentre(this.manifest);skyFloats[7]=mx-origin[0];skyFloats[11]=mz-origin[1];skyFloats[15]=1;}
     const view=[...this.camera,200000,...right,origin[0]%4096,...up,origin[1]%4096,...look,daylight];
     const distant=settings.horizon?this.horizon.filter(h=>!this.tiles.has(h.near)):[];
     const coastal=[...this.coast].flatMap(([index,item])=>
