@@ -149,7 +149,7 @@ let sceneSubmissionPending=true;
 let scenePumpError,scenePump;
 const collisionBounds=new Map();
 let collisionCount=0;
-let collisionSignature='';
+let collisionSignature='',waterActive=false;
 let collisionToken=0,collisionParts=new Set();
 let collisionFocus;
 const collisionInstances=new Map();
@@ -431,17 +431,17 @@ function updateScene(focus,publish=true,restoring) {
   // Readiness above is live every frame; unchanged snapshot/anchor inputs cannot change submission.
   if(!sceneSubmissionPending)return;
   for(const key of collisionBounds.keys())if(!sceneState.assets.has(key))collisionBounds.delete(key);
-  const active=new Set(),nearby=[];
+  const active=new Set(),nearby=[],waterNearby=[];
   const toGlobal=p=>[-p[1]+r.placement[0]+(32-r.tile_origin[0])*TILE,p[2],-p[0]+r.placement[1]+(32-r.tile_origin[1])*TILE];
   for(const instance of sceneState.collisionInstances) {
     const asset=sceneState.assets.get(instance.key);
-    if(!asset?.collisionIndices?.length)continue;
+    if(!asset?.collisionIndices?.length&&!asset?.waterIndices?.length)continue;
     active.add(instance.id);
     let b=collisionBounds.get(instance.key);
     if(!b) {
       b=[Infinity,Infinity,Infinity,-Infinity,-Infinity,-Infinity];
-      for(let i=0;i<asset.collisionVertices.length;i+=3)for(let a=0;a<3;a++) {
-        b[a]=Math.min(b[a],asset.collisionVertices[i+a]);b[a+3]=Math.max(b[a+3],asset.collisionVertices[i+a]);
+      for(const v of [asset.collisionVertices,asset.waterVertices||[]])for(let i=0;i<v.length;i+=3)for(let a=0;a<3;a++) {
+        b[a]=Math.min(b[a],v[i+a]);b[a+3]=Math.max(b[a+3],v[i+a]);
       }
       collisionBounds.set(instance.key,b);
     }
@@ -456,11 +456,14 @@ function updateScene(focus,publish=true,restoring) {
     }
     const global=cached.bounds;
     if(Math.hypot(Math.max(global[0]-collisionFocus.x,0,collisionFocus.x-global[3]),
-      Math.max(global[2]-collisionFocus.z,0,collisionFocus.z-global[5]))<collisionFocus.reach)nearby.push(cached);
+      Math.max(global[2]-collisionFocus.z,0,collisionFocus.z-global[5]))<collisionFocus.reach) {
+      if(asset.collisionIndices.length)nearby.push(cached);
+      if(asset.waterIndices?.length)waterNearby.push(cached);
+    }
   }
   for(const id of collisionInstances.keys())if(!active.has(id))collisionInstances.delete(id);
   nearby.sort((a,b)=>a.instance.id.localeCompare(b.instance.id));
-  const nextSignature=JSON.stringify(nearby.map(c=>c.token));
+  const nextSignature=JSON.stringify([nearby.map(c=>c.token),waterNearby.map(c=>c.token)]);
   if(nextSignature!==collisionSignature) {
     const start=performance.now();
     const count=nearby.reduce((n,c)=>n+c.asset.collisionIndices.length*3,0);
@@ -478,6 +481,13 @@ function updateScene(focus,publish=true,restoring) {
     }
     world.set_scene_parts(new Uint32Array(nearby.map(c=>c.token)),
       new Uint32Array(nearby.map(c=>collisionParts.has(c.token)?0:c.asset.collisionIndices.length/3)),vertices);
+    const water=[];
+    for(const cached of waterNearby) {
+      const {asset,instance}=cached;
+      cached.waterVertices??=globalCollisionVertices(asset.waterVertices,instance.matrix,r);
+      for(const i of asset.waterIndices)water.push(cached.waterVertices[i*3],cached.waterVertices[i*3+1],cached.waterVertices[i*3+2]);
+    }
+    if(waterNearby.length||waterActive){world.set_scene_water(Float64Array.from(water));waterActive=waterNearby.length>0;}
     const ordered=world.collision_vertices(),nodes=world.collision_nodes();
     postMessage({event:'collision',vertices:ordered,nodes},[ordered.buffer,nodes.buffer]);
     collisionSignature=nextSignature;collisionCount=nearby.length;

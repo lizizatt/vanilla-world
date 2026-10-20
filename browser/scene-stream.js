@@ -108,10 +108,12 @@ function extractModel(handle, collision = true) {
     for (const batch of metadata.batches) if (batch.texture) batch.texture = modelPath(batch.texture);
     const model = { ...metadata, vertices: handle.vertices(), indices: handle.indices(),
       collisionVertices: collision ? handle.collision_vertices() : new Float32Array(),
-      collisionIndices: collision ? handle.collision_indices() : new Uint32Array() };
+      collisionIndices: collision ? handle.collision_indices() : new Uint32Array(),
+      waterVertices: collision&&handle.water_vertices ? handle.water_vertices() : new Float32Array(),
+      waterIndices: collision&&handle.water_indices ? handle.water_indices() : new Uint32Array() };
     model.collisionBounds=metadata.bounds;
-    for(let i=0;i<model.collisionVertices.length;i++){
-      const axis=i%3,v=model.collisionVertices[i];
+    for(let i=0;i<model.collisionVertices.length+model.waterVertices.length;i++){
+      const axis=i%3,v=i<model.collisionVertices.length?model.collisionVertices[i]:model.waterVertices[i-model.collisionVertices.length];
       if(v<model.collisionBounds[0][axis]||v>model.collisionBounds[1][axis]){
         if(model.collisionBounds===metadata.bounds)model.collisionBounds=metadata.bounds.map(b=>b.slice());
         model.collisionBounds[0][axis]=Math.min(model.collisionBounds[0][axis],v);
@@ -123,7 +125,8 @@ function extractModel(handle, collision = true) {
 }
 function modelBytes(model) {
   return model.vertices.byteLength + model.indices.byteLength
-    + model.collisionVertices.byteLength + model.collisionIndices.byteLength;
+    + model.collisionVertices.byteLength + model.collisionIndices.byteLength
+    + model.waterVertices.byteLength + model.waterIndices.byteLength;
 }
 const REQUEST_PRIORITY = Object.freeze({ texture: 0, wmo: 1, group: 2, m2: 3 });
 // Keep the worst retained item at the heap root; rejected scenery never needs sorting.
