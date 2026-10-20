@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {SkyCatalog,DAY,NIGHT,mapPosition,advanceTime} from './sky.js';
+import {SkyCatalog,DAY,NIGHT,mapPosition,advanceTime,nightAlpha} from './sky.js';
 
 function dbc(fields,rows) {
   const strings=[0],str=s=>{const at=strings.length;strings.push(...Buffer.from(s+'\0'));return at;};
@@ -55,3 +55,4 @@ test('time of day only advances forward to the target and stops there',()=>{
   const step=advanceTime(DAY,true,.1);
   assert.ok(step>DAY&&step<NIGHT);
 });
+test('night alpha is full at midnight and zero by day',()=>{assert.equal(nightAlpha(0),1);assert.equal(nightAlpha(DAY),0);assert.ok(nightAlpha(720)<1e-9);});

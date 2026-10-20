@@ -149,8 +149,19 @@ struct V {@builtin(position) clip:vec4f,@location(0) uv:vec2f,@location(1) color
   return vec4f(t.rgb,t.a*s.k.y*v.fade);
 }`;
 
+export const nightAngle=time=>time/HALF_MINUTES*Math.PI*2;
+export const nightAlpha=time=>Math.min(1,Math.max(0,Math.cos(nightAngle(time))*2));
+
 export const skyShader=`
-struct S {look:vec4f,right:vec4f,up:vec4f,c:array<vec4f,5>};
+struct S {look:vec4f,right:vec4f,up:vec4f,c:array<vec4f,5>,k:vec4f};
+fn moon(d:vec3f,az:f32,el:f32,radius:f32,phase:f32,tint:vec3f)->vec4f {
+  let m=vec3f(cos(el)*sin(az),sin(el),cos(el)*cos(az));
+  let r=normalize(cross(vec3f(0,1,0),m));let u=cross(m,r);
+  let x=dot(d,r)/radius;let y=dot(d,u)/radius;let d2=x*x+y*y;
+  let disc=select(0.0,1.0,d2<1.0&&dot(d,m)>0.0)*mix(.3,1.0,smoothstep(-.4,.4,x+phase));
+  let glow=.25*exp(-d2*.35)*select(0.0,1.0,dot(d,m)>0.0);
+  return vec4f(tint*(disc+glow*.6),(disc+glow)*smoothstep(0.0,.08,m.y)*s.k.y);
+}
 @group(0) @binding(0) var<uniform> s:S;
 struct V {@builtin(position) clip:vec4f,@location(0) ndc:vec2f};
 @vertex fn vs(@builtin(vertex_index) i:u32)->V {
@@ -164,14 +175,19 @@ struct V {@builtin(position) clip:vec4f,@location(0) ndc:vec2f};
   c=mix(c,s.c[2].rgb,smoothstep(.12,.3,h));
   c=mix(c,s.c[1].rgb,smoothstep(.3,.6,h));
   c=mix(c,s.c[0].rgb,smoothstep(.6,1.0,h));
+  let t=s.k.x;let h1=cos(t);
+  let a=moon(d,t*.9+1.0,asin(clamp(.15+.8*h1,-.5,.95)),.045,sin(t*.4),vec3f(.86,.91,1.0));
+  let b=moon(d,t*.7+3.5,asin(clamp(.2+.7*cos(t+1.3),-.5,.95)),.026,cos(t*.3),vec3f(.45,.92,.78));
+  c=mix(c,a.rgb,clamp(a.a,0.0,1.0));c=mix(c,b.rgb,clamp(b.a,0.0,1.0));
   return vec4f(c,1);
 }`;
 
 /** Per-frame sky uniform: view axes plus top, mid, band1, band2 and horizon colours. */
-export function skyUniform(view,sky) {
-  const out=new Float32Array(32);
+export function skyUniform(view,sky,time=DAY) {
+  const out=new Float32Array(36);
   out.set(view.look,0);out[3]=view.aspect;out.set(view.right,4);out.set(view.up,8);
   [sky.top,sky.mid,sky.band1,sky.band2,sky.horizon].forEach((c,i)=>out.set(c,12+i*4));
+  out[32]=nightAngle(time);out[33]=nightAlpha(time);
   return out;
 }
 
