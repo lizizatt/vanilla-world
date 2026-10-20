@@ -3,11 +3,11 @@ export {sceneReady} from './scene-stream.js';
 import {MINIMAP_SIZE,TERRAIN_TEXTURE_SIZE} from './terrain-stream.js';
 import {cameraView,craftMatrix,cockpitAnchor} from './world-camera.js';
 import {COAST_GPU_LIMIT} from './water-stream.js';
-import {WATER_NORMAL_SIZE,waterNormalMips,waterShading} from './water-shader.js';
+import {WATER_NORMAL_SIZE,waterNormalMips,waterShading,dayShading} from './water-shader.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
 export {sceneVisible} from './world-view.js';
 export {craftMatrix} from './world-camera.js';
-const SKY=[.08,.15,.20,1];
+const DAY_SKY=[.08,.15,.20],NIGHT_SKY=[.008,.016,.045];
 const sub=(a,b)=>a.map((v,i)=>v-b[i]);
 const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
 const unit=a=>{const n=Math.hypot(...a)||1;return a.map(v=>v/n);};
@@ -80,7 +80,7 @@ struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,body:vec4f,settings:vec4f
 @group(0) @binding(0) var<uniform> u:U;
 @group(0) @binding(1) var minimap:texture_2d<f32>;
 @group(0) @binding(2) var mapSampler:sampler;
-${waterShading}
+${dayShading}${waterShading}
 struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3f,@location(2) @interpolate(flat) material:f32,@location(3) uv:vec2f};
 @vertex fn vs(@location(0) p:vec3f,@location(1) n:vec3f,@location(2) material:f32)->V {
   var position=p+u.tile.xyz;var normal=n;
@@ -105,11 +105,12 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   let mapColor=textureSample(minimap,mapSampler,mapUv);
   if((v.material==0.0 || v.material==3.0) && u.tile.w>=0.0){color=mix(color,mapColor.rgb,mapColor.a);}
   if(v.material==1.0){color=vec3f(.1,.89,.82)*light;}
+  color=grade(color);
   if(v.material==2.0 || v.material==4.0){
     color=waterColor(v.p,select(1.0,v.n.x,v.n.z>.5),rampWidth,dx,dy);
   }
   let fog=clamp(length(v.p-u.eye.xyz)/150000.0,0.0,.93);
-  return vec4f(mix(color,vec3f(.08,.15,.20),fog),1);
+  return vec4f(mix(color,fogTint(),fog),1);
 }`;
 const splatShader=`
 struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,body:vec4f,settings:vec4f,tile:vec4f};
@@ -118,6 +119,7 @@ struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,body:vec4f,settings:vec4f
 @group(0) @binding(2) var masks:texture_2d_array<f32>;
 @group(0) @binding(3) var layerSampler:sampler;
 @group(0) @binding(4) var minimap:texture_2d<f32>;
+${dayShading}
 struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) uv:vec2f,
   @location(2) @interpolate(flat) layers:vec4u,@location(3) @interpolate(flat) chunk:u32,@location(4) light:f32,
   @location(5) tileUv:vec2f};
@@ -150,16 +152,16 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) uv:vec
   if((edges&8u)!=0u){edgeDistance=min(edgeDistance,(1.0-v.tileUv.y)*(1600.0/3.0));}
   color=mix(color,mapColor.rgb,(1.0-smoothstep(0.0,100.0/3.0,edgeDistance))*mapColor.a);
   let base=mix(vec3f(.63,.59,.40)*v.light,mapColor.rgb,mapColor.a);
-  color=mix(base,color,u.settings.z);
+  color=grade(mix(base,color,u.settings.z));
   let fog=clamp(length(v.p-u.eye.xyz)/150000.0,0.0,.93);
-  return vec4f(mix(color,vec3f(.08,.15,.20),fog),1);
+  return vec4f(mix(color,fogTint(),fog),1);
 }`;
 const sceneShader=`
 struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,settings:vec4f,model:mat4x4f,material:vec4f};
 @group(0) @binding(0) var<uniform> u:U;
 @group(0) @binding(1) var image:texture_2d<f32>;
 @group(0) @binding(2) var imageSampler:sampler;
-${waterShading}
+${dayShading}${waterShading}
 struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3f,@location(2) uv:vec2f,@location(3) color:vec4f};
 @vertex fn vs(@location(0) p:vec3f,@location(1) n:vec3f,@location(2) uv:vec2f,@location(3) color:vec4f)->V {
   let position=(u.model*vec4f(p,1)).xyz;let relative=position-u.eye.xyz;let z=dot(relative,u.forward.xyz);
@@ -176,9 +178,9 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   if(fract(dot(floor(v.clip.xy),vec2f(.754877666,.569840296)))>=coverage){discard;}
   let light=mix(.4+.6*max(dot(normalize(v.n),normalize(vec3f(-.3,1.0,.4))),0.0),1.0,u.material.y);
   let fog=max(clamp(distance/150000.0,0.0,.93),u.material.z*.8*smoothstep(3500.0,6000.0,distance));
-  var color=texel.rgb*light;
+  var color=grade(texel.rgb*light);
   if(u.settings.z>.5){color=waterColor(v.p,v.uv.x,rampWidth,dx,dy);}
-  return vec4f(mix(color,vec3f(.08,.15,.20),fog),texel.a);
+  return vec4f(mix(color,fogTint(),fog),texel.a);
 }`;
 
 export class WorldRenderer {
@@ -628,7 +630,10 @@ export class WorldRenderer {
     this.cameraLook=look;
     const aspect=width/height;
     this.view={eye:[this.camera[0]+origin[0],this.camera[1],this.camera[2]+origin[1]],right,up,look,aspect};
-    const view=[...this.camera,200000,...right,origin[0]%4096,...up,origin[1]%4096,...look,0];
+    const target=settings.night?0:1,previous=this.daylight??target;
+    const daylight=this.daylight=Math.abs(target-previous)<.002?target:previous+(target-previous)*Math.min(1,dt*1.5);
+    const sky=DAY_SKY.map((v,i)=>NIGHT_SKY[i]+(v-NIGHT_SKY[i])*daylight);
+    const view=[...this.camera,200000,...right,origin[0]%4096,...up,origin[1]%4096,...look,daylight];
     const distant=settings.horizon?this.horizon.filter(h=>!this.tiles.has(h.near)):[];
     const coastal=[...this.coast].flatMap(([index,item])=>
       this.tiles.has(index)?item.backing?[item.backing]:[]:settings.horizon?[item]:[]);
@@ -704,7 +709,7 @@ export class WorldRenderer {
     draws.sort((a,b)=>a.batch.transparent-b.batch.transparent || (a.batch.transparent?b.distance-a.distance:0));
     if(uniformCount)this.device.queue.writeBuffer(this.frameUniforms,0,this.uniformData.buffer,0,uniformCount*256);
     const encoder=this.device.createCommandEncoder(),pass=encoder.beginRenderPass({
-      colorAttachments:[{view:this.context.getCurrentTexture().createView(),clearValue:SKY,loadOp:'clear',storeOp:'store'}],
+      colorAttachments:[{view:this.context.getCurrentTexture().createView(),clearValue:{r:sky[0],g:sky[1],b:sky[2],a:1},loadOp:'clear',storeOp:'store'}],
       depthStencilAttachment:{view:this.depth.createView(),depthClearValue:1,depthLoadOp:'clear',depthStoreOp:'store'},
     });
     if(!this.cameraBlocked){this.drawTerrain(pass,terrain);this.drawScene(pass,draws);}

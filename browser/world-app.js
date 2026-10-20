@@ -17,8 +17,9 @@ const evidence={ready:false,frames:0,errors:[],mode:'drive'};
 window.worldEvidence=evidence;
 let renderer,folder,flight,running=false,busy=false,last=0,frames=0,hudTime=0,hudFrames=0,permissionNeeded=false;
 let orbit=[0,0],dragging=false,soundAttempt=0,soundError='',soundTime=0,reportTimer,testPads,frozenPresentation=false,tuningValues=TUNING_FIELDS.map(f=>f[1]);
-const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:false,cockpit:false};
+const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:false,cockpit:false,night:false};
 const settings={...defaults};
+try{settings.night=localStorage.getItem('racer.night')==='1';}catch{}
 const loading=$('loading-screen');
 const loadingArt=new LoadingArt($('loading-art'),$('loading-bar-art'),loading);
 loading.addEventListener('cancel',event=>event.preventDefault());
@@ -81,7 +82,8 @@ function enabled(value) {
   $('cockpit').disabled=!value;
 }
 function syncSettings() {
-  for(const key of ['horizon','scenery','distant','sound'])$(key).checked=settings[key];
+  for(const key of ['horizon','scenery','distant','sound','night'])$(key).checked=settings[key];
+  music.setNight(settings.night);
   $('control-profile').value=settings.controls;$('camera-distance').value=settings.cameraDistance;
   $('keyboard-guide').textContent=settings.controls==='legacy'
     ?'W/S thrust/reverse · A/D steer · X/Space brake · J hop · Shift boost · Ctrl/C drift · F9 reset.'
@@ -251,6 +253,11 @@ $('drive').addEventListener('click',()=>{flight=undefined;renderer.camera=undefi
 $('horizon').addEventListener('change',()=>{settings.horizon=$('horizon').checked;});
 $('scenery').addEventListener('change',()=>{settings.scenery=$('scenery').checked;});
 $('distant').addEventListener('change',()=>{settings.distant=$('distant').checked;});
+function setNight(night) {
+  settings.night=night;syncSettings();
+  try{localStorage.setItem('racer.night',night?'1':'0');}catch{}
+}
+$('night').addEventListener('change',()=>{setNight($('night').checked);canvas.focus();});
 $('control-profile').addEventListener('change',()=>{settings.controls=$('control-profile').value;keys.clear();input.keyboard();syncSettings();});
 $('camera-distance').addEventListener('input',()=>{
   settings.cameraDistance=Number($('camera-distance').value);
@@ -283,6 +290,7 @@ $('tuning-defaults').addEventListener('click',()=>{
 $('tuning-close').addEventListener('click',()=>$('tuning-panel').close());
 $('tuning-panel').addEventListener('close',()=>{keys.clear();canvas.focus();});
 canvas.addEventListener('keydown',event=>{
+  if(!event.repeat && event.code==='KeyN' && !event.ctrlKey && !event.altKey && !event.metaKey)setNight(!settings.night);
   if(DRIVE_KEYS.has(event.code)) {
     event.preventDefault();keys.add(event.code);if(!event.repeat)input.keyboard();
     if(!event.repeat && event.code==='F9')$('reset').click();
