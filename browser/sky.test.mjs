@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {SkyCatalog,DAY,NIGHT,mapPosition} from './sky.js';
+import {SkyCatalog,DAY,NIGHT,mapPosition,advanceTime} from './sky.js';
 
 function dbc(fields,rows) {
   const strings=[0],str=s=>{const at=strings.length;strings.push(...Buffer.from(s+'\0'));return at;};
@@ -45,4 +45,13 @@ test('sky files with another layout are rejected instead of guessed',()=>{
 });
 test('map positions undo the region placement',()=>{
   assert.deepEqual(mapPosition({placement:[100,200],tile_origin:[1,2]},100+10,200+20).map(Math.round),[543,1087]);
+});
+test('time of day only advances forward to the target and stops there',()=>{
+  let time=DAY;
+  for(let i=0;i<200&&time!==0;i++)time=advanceTime(time,true,.1);
+  assert.equal(time,0);
+  for(let i=0;i<200&&time!==DAY;i++)time=advanceTime(time,false,.1);
+  assert.equal(time,DAY);
+  const step=advanceTime(DAY,true,.1);
+  assert.ok(step>DAY&&step<NIGHT);
 });

@@ -5,7 +5,7 @@ import {cameraView,craftMatrix,cockpitAnchor} from './world-camera.js';
 import {COAST_GPU_LIMIT} from './water-stream.js';
 import {WATER_NORMAL_SIZE,waterNormalMips,waterShading,dayShading} from './water-shader.js';
 import {cloudShader,cloudUniform} from './clouds.js';
-import {SkyCatalog,mapPosition,skyShader,skyUniform,advanceTime,DAY} from './sky.js';
+import {SkyCatalog,mapPosition,skyShader,skyDomeShader,skyUniform,advanceTime,DAY} from './sky.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
 export {sceneVisible} from './world-view.js';
 export {craftMatrix} from './world-camera.js';
@@ -273,6 +273,13 @@ export class WorldRenderer {
       fragment:{module:skyModule,entryPoint:'fs',targets:[{format:this.format}]},primitive:{topology:'triangle-list'},
       depthStencil:{format:'depth24plus',depthWriteEnabled:false,depthCompare:'always'}});
     this.skyGroup=this.device.createBindGroup({layout:this.skyPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:this.skyBuffer}}]});
+    const domeModule=await shader(skyDomeShader);
+    this.domeBuffer=this.device.createBuffer({size:64,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
+    this.domePipeline=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module:domeModule,entryPoint:'vs',buffers:[{arrayStride:48,attributes:[
+      {shaderLocation:0,offset:0,format:'float32x3'},{shaderLocation:1,offset:12,format:'float32x3'},
+      {shaderLocation:2,offset:24,format:'float32x2'},{shaderLocation:3,offset:32,format:'float32x4'}]}]},
+      fragment:{module:domeModule,entryPoint:'fs',targets:[{format:this.format,blend:{color:{srcFactor:'src-alpha',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},
+      primitive:{topology:'triangle-list',cullMode:'none'},depthStencil:{format:'depth24plus',depthWriteEnabled:false,depthCompare:'always'}});
     this.mapSampler=this.device.createSampler({minFilter:'linear',magFilter:'linear'});
     this.layerSampler=this.device.createSampler({minFilter:'linear',magFilter:'linear',mipmapFilter:'linear',
       addressModeU:'repeat',addressModeV:'repeat',maxAnisotropy:4});
@@ -612,6 +619,24 @@ export class WorldRenderer {
     try {if(data.error)console.warn('Game sky unavailable',data.error);this.skyCatalog=data.error?undefined:new SkyCatalog(data);}
     catch(error) {console.warn('Game sky unavailable',error);this.skyCatalog=undefined;}
   }
+  setSkyDome(data) {
+    if(data.error){console.warn('Sky dome unavailable',data.error);return;}
+    const textures=new Map(data.textures.map(t=>[t.key,this.texture(t.width,t.height,t.rgba)]));
+    const sampler=this.device.createSampler({minFilter:'linear',magFilter:'linear',addressModeU:'repeat',addressModeV:'repeat'});
+    this.skyDome={vertices:this.buffer(data.asset.vertices,GPUBufferUsage.VERTEX),indices:this.buffer(data.asset.indices,GPUBufferUsage.INDEX),
+      batches:data.asset.batches.map(b=>({first:b.firstIndex,count:b.indexCount,group:this.device.createBindGroup({
+        layout:this.domePipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:this.domeBuffer}},
+          {binding:1,resource:(textures.get(b.texture)||this.white).createView()},{binding:2,resource:sampler}]})}))};
+  }
+  drawSkyDome(pass) {
+    const night=Math.cos(this.timeOfDay/2880*Math.PI*2),alpha=Math.min(1,Math.max(0,night*2));
+    if(!this.skyDome||alpha<.01)return;
+    const k=new Float32Array(16),v=this.view;
+    k.set(v.look,0);k[3]=v.aspect;k.set(v.right,4);k.set(v.up,8);k[12]=this.timeOfDay/2880*Math.PI*2;k[13]=alpha;
+    this.device.queue.writeBuffer(this.domeBuffer,0,k);
+    pass.setPipeline(this.domePipeline);pass.setVertexBuffer(0,this.skyDome.vertices);pass.setIndexBuffer(this.skyDome.indices,'uint32');
+    for(const b of this.skyDome.batches){pass.setBindGroup(0,b.group);pass.drawIndexed(b.count,1,b.first);}
+  }
   sampleSky() {
     const region=this.manifest?.regions[this.sceneRegion],map={Azeroth:0,Kalimdor:1}[region?.map];
     if(!this.skyCatalog||map===undefined)return undefined;
@@ -748,7 +773,7 @@ export class WorldRenderer {
       depthStencilAttachment:{view:this.depth.createView(),depthClearValue:1,depthLoadOp:'clear',depthStoreOp:'store'},
     });
     if(!this.cameraBlocked){
-      if(game){this.device.queue.writeBuffer(this.skyBuffer,0,skyUniform(this.view,game));pass.setPipeline(this.skyPipeline);pass.setBindGroup(0,this.skyGroup);pass.draw(3);}
+      if(game){this.device.queue.writeBuffer(this.skyBuffer,0,skyUniform(this.view,game));pass.setPipeline(this.skyPipeline);pass.setBindGroup(0,this.skyGroup);pass.draw(3);this.drawSkyDome(pass);}
       this.drawTerrain(pass,terrain);this.drawScene(pass,draws);
     }
     pass.end();
