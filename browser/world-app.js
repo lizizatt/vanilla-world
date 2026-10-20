@@ -92,8 +92,12 @@ const client=new WorldClient(data=>{
     fail(error);return false;
   }
 },error=>{running=false;fail(error);},()=>running&&!busy&&!document.hidden&&!frozenPresentation);
+function dockFolderButtons(inMenu) {
+  const host=$(inMenu?'data-folder':'folder-extras');
+  for(const id of ['different','fallback','forget'])if($(id).parentNode!==host)host.append($(id));
+}
 function enabled(value) {
-  document.querySelector('.meters').hidden=!value;
+  document.querySelector('.meters').hidden=!value;$('menu-hint').hidden=!value;dockFolderButtons(value);
   for(const id of ['save','load','reset','retry','overview','fly','drive'])$(id).disabled=!value;
   $('tuning').disabled=!value || !Array.isArray(client.info?.tuning);
   $('cockpit').disabled=!value;
@@ -344,7 +348,7 @@ window.addEventListener('focus',()=>resumeAudio());
 document.addEventListener('visibilitychange',()=>{keys.clear();last=0;if(document.hidden)pauseAudio();else resumeAudio();});
 const raceMenu=$('race-menu');
 function openRaceMenu() {
-  keys.clear();dragging=false;mouseButtons=0;
+  keys.clear();dragging=false;mouseButtons=0;menuTab('game');
   $('race-restart').hidden=$('race-abandon').hidden=!race;$('race-editor').hidden=!!race;
   race?.pause(performance.now()/1000);raceMenu.showModal();
 }
@@ -352,7 +356,13 @@ raceMenu.addEventListener('close',()=>{race?.resume(performance.now()/1000);canv
 $('race-restart').addEventListener('click',()=>{const track=race?.track;raceMenu.close();race=undefined;if(track)startRace(track);});
 $('race-abandon').addEventListener('click',()=>{race?.cancel('abandoned');raceMenu.close();});
 $('race-editor').addEventListener('click',()=>{raceMenu.close();toggleEditor();});
-$('race-settings').addEventListener('click',()=>{raceMenu.close();$('preferences').open=true;$('preferences').scrollIntoView?.({block:'nearest'});});
+function menuTab(name) {
+  for(const tab of raceMenu.querySelectorAll('[data-tab]'))tab.setAttribute('aria-selected',String(tab.dataset.tab===name));
+  for(const page of raceMenu.querySelectorAll('[data-page]'))page.hidden=page.dataset.page!==name;
+}
+$('menu-tabs').addEventListener('click',event=>{const tab=event.target.closest('[data-tab]');if(tab)menuTab(tab.dataset.tab);});
+raceMenu.addEventListener('click',event=>{if(event.target.closest('[data-close]'))raceMenu.close();});
+$('menu-map').addEventListener('click',()=>{raceMenu.close();if(running)mapPanel.toggle();});
 let gateKey,editorFlight;
 const mergeTrack=(list,t)=>list.some(x=>x.id===t.id)?list.map(x=>x.id===t.id?t:x):[...list,t];
 async function withOverrides(found) {
@@ -463,7 +473,7 @@ function frame(now) {
     const controls={...input.sample(keys,testPads || Array.from(navigator.getGamepads?.() || []),accepts,settings.controls,!focused||!editing)};
     if(controls.reset)$('reset').click();
     if(controls.flight&&!race)$(flight?'drive':'fly').click();
-    if(controls.help)$('preferences').open=!$('preferences').open;
+    if(controls.help&&!editing)openRaceMenu();
     if(controls.cockpit)cockpit();
     if(controls.zoom)zoom(controls.zoom);
     const cameraOrbit=orbit;orbit=[0,0];const keyDrive=!!(controls.throttle||controls.steer),right=!flight&&!!(mouseButtons&2);
@@ -505,7 +515,7 @@ function frame(now) {
       $('cockpit').setAttribute('aria-pressed',String(settings.cockpit&&!flight));
       $('motion').textContent=flight?'':scene?.waitingCollision||p[8]===1?'Loading nearby ground'
         :p[8]===2?'Unsupported surface':p[8]===3?'Obstacle or steep ground':'';
-      if($('diagnostics').open) {
+      if(raceMenu.open&&!raceMenu.querySelector('[data-page=diagnostics]').hidden) {
       $('input-device').textContent=input.device==='controller'?'Controller':'Keyboard';
       $('camera-status').textContent=flight?'Flight camera is collision-free':settings.cockpit
         ?cameraWarning||(renderer.cameraMode==='cockpit'?'Cockpit / exact posed seat':'Cockpit waiting for craft'):!cameraCollision.ready?'Chase clearance waiting for geometry'

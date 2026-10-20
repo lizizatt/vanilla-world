@@ -259,7 +259,7 @@ try{
       await worldTest.request('restore',{pose:[...p.slice(0,3),yaw]});
     },Number(process.env.YAW));
   }
-  if(await page.locator('#drive').isVisible())await page.locator('#drive').click();
+  if(await page.locator('#drive').evaluate(e=>!e.hidden)){await page.locator('#drive').evaluate(e=>e.click());await page.locator('#world').focus();}
   else await page.locator('#world').click();
   const clock=await page.evaluate(()=>({...worldEvidence.state.drivingClock}));
   await page.waitForFunction(before=>{
@@ -273,10 +273,10 @@ try{
     const p=worldEvidence.state.telemetry;worldTest.focus([...p.slice(0,4),0]);
   });
   if(sound){
-    await page.locator('#preferences').evaluate(e=>e.open=true);
+    await page.keyboard.press('Escape');await page.locator('[data-tab=options]').click();
     await page.locator('#sound').check();
     await page.waitForFunction(()=>worldEvidence.audio.state==='running');
-    await page.locator('#preferences').evaluate(e=>e.open=false);
+    await page.keyboard.press('Escape');await page.locator('#world').focus();
   }
   const stopProfiles=cpuProfile?await startProfiles():undefined;
   await page.evaluate(async ()=>{
