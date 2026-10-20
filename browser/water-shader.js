@@ -31,8 +31,11 @@ export function waterNormalMips() {
 
 export const dayShading=`
 fn nightK()->f32 {return 1.0-u.forward.w;}
-fn grade(c:vec3f)->vec3f {return c*mix(vec3f(1.0),vec3f(.2,.27,.5),nightK());}
-fn fogTint()->vec3f {return mix(vec3f(.08,.15,.20),vec3f(.008,.016,.045),nightK());}
+fn gameSky()->bool {return u.sky[0].w>.5;}
+fn grade(c:vec3f)->vec3f {
+  return c*mix(vec3f(1.0),vec3f(.2,.27,.5),nightK())*select(vec3f(1.0),mix(vec3f(1.0),u.sky[1].rgb,.6),gameSky());
+}
+fn fogTint()->vec3f {return select(mix(vec3f(.08,.15,.20),vec3f(.008,.016,.045),nightK()),u.sky[0].rgb,gameSky());}
 `;
 export const waterShading=`
 @group(0) @binding(3) var waterNormals:texture_2d<f32>;
@@ -47,7 +50,8 @@ fn waterColor(p:vec3f,ramp:f32,rampWidth:f32,dx:vec2f,dy:vec2f)->vec3f {
   let slope=(a.rg+b.gr-vec2f(1.0))*.9*detail;
   let normal=normalize(vec3f(slope.x,1.0,slope.y));
   let reflection=reflect(-view,normal);
-  let sky=mix(vec3f(.16,.29,.38),vec3f(.40,.61,.72),smoothstep(0.0,1.0,reflection.y))*mix(vec3f(1.0),vec3f(.06,.09,.2),nightK());
+  let sky=select(mix(vec3f(.16,.29,.38),vec3f(.40,.61,.72),smoothstep(0.0,1.0,reflection.y))*mix(vec3f(1.0),vec3f(.06,.09,.2),nightK()),
+    mix(u.sky[2].rgb,u.sky[3].rgb,smoothstep(0.0,.6,reflection.y)),gameSky());
   let fresnel=.02+.98*pow(1.0-clamp(dot(normal,view),0.0,1.0),5.0);
   let depth=mix(clamp(ramp,0.0,1.0),1.0,smoothstep(350.0,700.0,distance));
   let body=mix(vec3f(.09,.43,.39),vec3f(.025,.18,.29),1.0-exp(-depth*4.5));
