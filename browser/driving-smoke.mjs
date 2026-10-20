@@ -1,6 +1,6 @@
 import {chromium} from 'playwright';
 import assert from 'node:assert/strict';
-import {mkdir,writeFile} from 'node:fs/promises';
+import {mkdir,readFile,writeFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {execFileSync} from 'node:child_process';
 
@@ -69,6 +69,12 @@ async function startProfiles(){
   };
 }
 try{
+  let populationRequests=0;
+  const population=process.env.NPC_SPAWNS?await readFile(process.env.NPC_SPAWNS):null;
+  if(population)await context.route('**/local/npc-spawns.json',async route=>{
+    populationRequests++;
+    await route.fulfill({contentType:'application/json',body:population});
+  });
   if(process.env.BASELINE_REF)await context.route(/\/[\w-]+\.js(?:\?.*)?$/,async route=>{
     const name=new URL(route.request().url()).pathname.slice(1);
     if(name.includes('/'))return route.continue();
@@ -461,7 +467,10 @@ try{
     const expected=r.p[5]*(b[0]-a[0])/1000;
     return [{at:r.t-data.start,step,expected,ratio:expected>0?step/expected:null}];
   });
-  const summary={settings,water:{enabled:process.env.COAST_WATER!=='0',before:before.water,after:data.after.water},
+  if(population)assert(populationRequests>0,'The isolated private population override must be consumed');
+  const summary={settings,populationOverride:population?{
+    requests:populationRequests,spawns:JSON.parse(population).spawns.length}:undefined,
+    water:{enabled:process.env.COAST_WATER!=='0',before:before.water,after:data.after.water},
     sourceBefore:before.source,sourceAfter:data.after.source,environment:{...environment,final:data.environmentEnd,
     sampleCount:data.samples.length,focusedSamples:data.samples.filter(s=>s.environment.hasFocus).length,
     hiddenSamples:data.samples.filter(s=>s.environment.hidden).length,events:data.environmentEvents},

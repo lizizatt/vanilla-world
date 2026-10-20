@@ -106,8 +106,15 @@ The integration may serve one explicitly configured private loopback companion U
 absent packs must show an honest no-population status.
 
 NPCs are static authored snapshot placements, not live server entities. Snapshot
-export chooses the first authored template/display alternative and patch 10, not
-event/pool scheduling. All models currently use bind pose; equipment, humanoid
+export chooses the first authored template/display alternative and patch 10.
+It excludes `SPAWN_FLAG_DISABLED`/`SPAWN_FLAG_NOT_VISIBLE` and positive-only event
+memberships when every linked event is explicitly disabled or outside patch 10.
+Negative memberships, eligible events, ordinary pools and dead-by-default spawns
+are preserved. Invalid event references/ranges fail explicitly. This is not
+calendar, hardcoded AQ-stage or pool scheduling; addon auras and scripts are not
+interpreted as blanket invisibility. Re-export and resolve a new private pack to
+apply the filter; existing packs are not silently rewritten.
+All models currently use bind pose; equipment, humanoid
 hair/geoset customization, skeletal animation, billboarding, quests and combat are
 not implemented. The baked body texture is retained where available.
 Unresolved hair/cape material batches are omitted from a baked-body NPC, with
@@ -120,5 +127,7 @@ Set `WOW_DATA` and `BENILLA_REQUIRE_DATA=1` for the real both-continent placemen
 complete Elwynn pine/alpha and Goldshire inn checks.
 After building the Wasm exports, `node browser\scene-smoke.mjs` checks real MPQ
 reads and scene admission in an Edge worker at the raceway and Stormwind.
-Optional `NPC_SPAWNS` points to a private companion for that check. This is not a
+Optional `NPC_SPAWNS` points to a private companion for that check or
+`driving-smoke.mjs`; the latter intercepts only its isolated browser context's
+population request without replacing the server's pack. This is not a
 substitute for the integrated renderer's GPU and collision acceptance.
