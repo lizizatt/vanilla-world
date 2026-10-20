@@ -230,6 +230,30 @@ No speculative physics fix or telemetry commit was made; the artwork was
 checkpointed under the explicit fallback authorization. Shell cache v37 includes
 the new loader module.
 
+## Runtime zone music
+
+Zone music is read from the user's Data at runtime and never persisted. The
+world worker resolves the car's `AreaTable` id (`Voyage.area()`, sampled at
+most every 500 ms) through `AreaTable` -> `ZoneMusic` -> `SoundEntries`
+(`music.js`, validated layouts of 25/8/29 fields); sub-areas inherit their
+parent's set. A track is only read after the main thread asks for it, as a
+background (deferrable) archive read, so it cannot delay first-motion reads. The
+page plays the encoded bytes through a media element from a blob URL (no PCM
+decode into memory, decoding stays off the main thread), crossfades over 2 s when
+the zone's set changes, and after a track ends waits the set's silence range
+(`ZoneMusic` silence min/max, 180-300 s for the standard sets) before the next
+one. Music follows the Sound checkbox, pauses with it, and has its own volume
+slider (session only, 0 = off). The CSP gains `media-src blob:`; blobs are
+revoked when a track is disposed. Day/night picks the day/night sound kit by
+local clock (in the shipped DBCs both kits list the same files for several sets).
+
+Coverage in the 1.12.1 DBCs (`client/crates/flats-racer-web/tests/music_audit.rs`,
+local only): 1,081 areas, 1,021 resolve to music, 60 have none, 41 sets, 118
+files, 5 referenced files are missing from the archives. Of 36 ocean-named
+areas 35 inherit music; open ocean outside any loaded tile has area 0 and plays
+none. Run `node browser/music-smoke.mjs` (needs `WOW_DATA`, server on 4183).
+Shell cache v40 adds `music.js` and `world-music.js`.
+
 ## Explore
 
 Selecting Data now opens a full-screen, art-free loading view with accessible
