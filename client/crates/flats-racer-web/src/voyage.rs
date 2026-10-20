@@ -106,6 +106,16 @@ pub struct Manifest {
     pub destination: [f64; 2],
 }
 
+/// Whirlpool surface drop (yd, >= 0) at p for [cx, cz, radius, depth]: depth*(1-(r/radius)^2)^2, zero value and slope at the rim.
+/// Mirrors dipDepth in browser/ocean-mesh.js; constants live in browser/clouds.js WHIRLPOOL_DIP.
+pub fn whirlpool_dip(p: [f64; 2], w: [f64; 4]) -> f32 {
+    let r = (p[0] - w[0]).hypot(p[1] - w[1]);
+    if r >= w[2] {
+        return 0.0;
+    }
+    (w[3] * (1.0 - (r / w[2]).powi(2)).powi(2)) as f32
+}
+
 fn contains(b: [f64; 4], p: [f64; 2]) -> bool {
     p[0] >= b[0] && p[0] < b[2] && p[1] >= b[1] && p[1] < b[3]
 }
@@ -311,6 +321,8 @@ pub struct Voyage {
     scene_bounds: Vec<[f64; 6]>,
     scene_mesh: CollisionTree,
     scene_water: CollisionTree,
+    /// [centre x, centre z, radius, depth]; see whirlpool_dip.
+    whirlpool: Option<[f64; 4]>,
     scene_parts: HashMap<u32, CollisionTree>,
     state: State,
     pub(crate) tuning: Tuning,
@@ -359,6 +371,7 @@ impl Voyage {
             scene_bounds: vec![],
             scene_mesh: CollisionTree::default(),
             scene_water: CollisionTree::default(),
+            whirlpool: None,
             scene_parts: HashMap::new(),
             rebases: 0,
             hold: 1,
@@ -438,6 +451,11 @@ impl Voyage {
         }
     }
 
+    /// Open-ocean surface height: sea level minus the whirlpool dip. Only the unauthored ocean branches use it.
+    fn sea_height(&self, p: [f64; 2]) -> f32 {
+        self.manifest.sea_level - self.whirlpool.map_or(0.0, |w| whirlpool_dip(p, w))
+    }
+
     pub fn sample(&self, p: [f64; 2]) -> Surface {
         self.sample_at(p, self.state.position[1])
     }
@@ -500,12 +518,12 @@ impl Voyage {
                 2
             };
         } else if contains(self.manifest.ocean, p) {
-            result.water = Some(self.manifest.sea_level);
+            result.water = Some(self.sea_height(p));
             result.availability = 0;
             result.region = -1;
         } else if self.manifest.version == 3 {
             if let Some(region) = self.exterior_ocean(p) {
-                result.water = Some(self.manifest.sea_level);
+                result.water = Some(self.sea_height(p));
                 result.availability = 0;
                 result.region = region as i32;
             }
@@ -1183,6 +1201,15 @@ impl Voyage {
         self.scene_mesh = CollisionTree::new(vertices).map_err(JsValue::from_str)?;
         self.scene_parts.clear();
         self.scene_bounds.clear();
+        Ok(())
+    }
+
+    /// Maelstrom dip (centre x/z in global yd, radius, depth), shared with browser/clouds.js WHIRLPOOL_DIP; zero depth clears it.
+    pub fn set_whirlpool(&mut self, x: f64, z: f64, radius: f64, depth: f64) -> Result<(), JsValue> {
+        if ![x, z, radius, depth].iter().all(|v| v.is_finite()) || x.abs() > 1.0e7 || z.abs() > 1.0e7 || !(1.0..=20_000.0).contains(&radius) || !(0.0..=2_000.0).contains(&depth) {
+            return Err(JsValue::from_str("Invalid whirlpool"));
+        }
+        self.whirlpool = (depth > 0.0).then_some([x, z, radius, depth]);
         Ok(())
     }
 
@@ -2440,6 +2467,24 @@ pub(crate) mod tests {
         assert_eq!(world.telemetry()[14], -4.0);
         world.state.velocity[2] = -4.0;
         assert_eq!(world.telemetry()[14], 4.0);
+    }
+
+    #[test]
+    fn whirlpool_dip_is_continuous_and_rides_down() {
+        use super::*;
+        let w = [1000.0, 500.0, 400.0, 100.0];
+        assert_eq!(whirlpool_dip([1000.0, 500.0], w), 100.0);
+        assert_eq!(whirlpool_dip([1400.0, 500.0], w), 0.0);
+        assert_eq!(whirlpool_dip([5000.0, 0.0], w), 0.0);
+        assert!(whirlpool_dip([1399.99, 500.0], w) < 0.001);
+        assert!((whirlpool_dip([1200.0, 500.0], w) - 56.25).abs() < 1e-3);
+        let mut world = Voyage::from_manifest(fixture(0.0)).unwrap();
+        let p = [1000.0, 200.0];
+        assert!(contains(world.manifest.ocean, p));
+        assert_eq!(world.sample(p).water, Some(0.0));
+        world.whirlpool = Some([1000.0, 200.0, 400.0, 100.0]);
+        assert_eq!(world.sample(p).water, Some(-100.0));
+        assert_eq!(world.sample([1500.0, 200.0]).water, Some(0.0));
     }
 
     #[test]

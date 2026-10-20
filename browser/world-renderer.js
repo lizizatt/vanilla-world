@@ -5,6 +5,7 @@ import {cameraView,craftMatrix,cockpitAnchor} from './world-camera.js';
 import {COAST_GPU_LIMIT} from './water-stream.js';
 import {WATER_NORMAL_SIZE,waterNormalMips,waterShading,dayShading} from './water-shader.js';
 import {cloudShader,cloudUniform,maelstromCentre} from './clouds.js';
+import {oceanMesh} from './ocean-mesh.js';
 import {SkyCatalog,mapPosition,skyShader,skyDomeShader,skyUniform,advanceTime,nightAlpha,nightAngle,DAY} from './sky.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
 export {sceneVisible} from './world-view.js';
@@ -354,10 +355,8 @@ export class WorldRenderer {
     this.minimapAtlases=manifest.regions.map(()=>this.device.createTexture({
       size:[64*MINIMAP_SIZE,64*MINIMAP_SIZE],format:'rgba8unorm',
       usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST}));
-    const [x,z,right,bottom]=manifest.ocean,y=manifest.sea_level,w=right-x,h=bottom-z;
-    this.water.push(this.drawable(new Float32Array([
-      0,y,0,0,1,0,2,w,y,0,0,1,0,2,w,y,h,0,1,0,2,0,y,0,0,1,0,2,w,y,h,0,1,0,2,0,y,h,0,1,0,2,
-    ]),[x,z]));
+    const [x,z]=manifest.ocean;
+    this.water.push(this.drawable(oceanMesh(manifest),[x,z]));
     const pending=this.pendingEvents;this.pendingEvents=[];
     for(const data of pending)this.event(data);
   }

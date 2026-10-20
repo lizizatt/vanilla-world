@@ -12,6 +12,10 @@ export const MAELSTROM={eyeRadius:2200,wallRadius:5200,radius:24000,arms:3,pitch
 // and at 35% / 40% of the way down each continent's tile rows, averaged because the two continents are offset provisionally.
 export const MAELSTROM_MAP={across:.43,kalimdorDown:.35,easternDown:.4};
 
+// Whirlpool dip, the single source of truth for JS and Rust (set_whirlpool in voyage.rs): the ocean surface at distance r
+// from the centre sits depth*(1-(r/radius)^2)^2 yd below sea level (zero value and slope at the rim). The funnel ends at the bottom.
+export const WHIRLPOOL_DIP={radius:2400,depth:180};
+
 export function maelstromCentre(manifest) {
   const o=manifest.ocean,[kalimdor,east]=manifest.world_bounds.map((b,i)=>{
     const placement=manifest.regions[i].placement[1];
@@ -29,7 +33,7 @@ export function cloudUniform(view,time,daylight,manifest,near,game,out=new Float
 
 // Funnel: a tapered, rotating column rising far above the sheet at the maelstrom centre (yards). Tunable.
 // The column continues below the sheet down to sea level, flaring into a mist skirt (skirtRadius) at the whirlpool.
-export const FUNNEL={top:7500,seaLevel:0,skirtRadius:1700,baseRadius:500,topRadius:3200,flare:1.5,spin:.5,twist:5,fadeStart:90000,fadeEnd:170000};
+export const FUNNEL={top:7500,seaLevel:-WHIRLPOOL_DIP.depth,skirtRadius:1700,baseRadius:500,topRadius:3200,flare:1.5,spin:.5,twist:5,fadeStart:90000,fadeEnd:170000};
 const COMMON=`
 struct C {eye:vec4f,right:vec4f,up:vec4f,look:vec4f,cloud:vec4f,near:vec4f,tint:vec4f,fog:vec4f};
 @group(0) @binding(0) var<uniform> c:C;
