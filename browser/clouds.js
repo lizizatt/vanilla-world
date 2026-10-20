@@ -30,6 +30,7 @@ const M=MAELSTROM;
 export const cloudShader=`
 struct C {eye:vec4f,right:vec4f,up:vec4f,look:vec4f,cloud:vec4f,near:vec4f};
 @group(0) @binding(0) var<uniform> c:C;
+@group(0) @binding(1) var sceneDepth:texture_depth_2d;
 struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f};
 @vertex fn vs(@builtin(vertex_index) i:u32)->V {
   var q=array<vec2f,6>(vec2f(-1,-1),vec2f(1,-1),vec2f(1,1),vec2f(-1,-1),vec2f(1,1),vec2f(-1,1));
@@ -71,8 +72,16 @@ fn density(pos:vec3f,t:f32)->vec2f {
   if(abs(dir.y)<.0005){discard;}
   let ya=c.cloud.z-THICK*.5;let yb=c.cloud.z+THICK*.5;
   let ta=(ya-c.eye.y)/dir.y;let tb=(yb-c.eye.y)/dir.y;
-  let t0=max(0.0,min(ta,tb));let t1=min(max(ta,tb),t0+9000.0);
-  if(t1<=t0){discard;}
+  let t0=max(0.0,min(ta,tb));var t1=min(max(ta,tb),t0+9000.0);
+  // Linearise the scene depth (same projection as the terrain shader) into distance along this ray.
+  let d=textureLoad(sceneDepth,vec2i(v.clip.xy),0);
+  var edge=1.0;
+  if(d<1.0){
+    let sceneDist=c.near.x*c.eye.w/(c.eye.w-d*(c.eye.w-c.near.x))/max(dot(dir,c.look.xyz),.05);
+    edge=smoothstep(0.0,350.0,sceneDist-t0);
+    t1=min(t1,sceneDist);
+  }
+  if(t1<=t0||edge<=0.0){discard;}
   let step=(t1-t0)/6.0;
   var trans=1.0;var light=vec3f(0);
   let sun=vec3f(.35,.8,.45);
@@ -87,7 +96,7 @@ fn density(pos:vec3f,t:f32)->vec2f {
     let tone=mix(vec3f(.55,.60,.70),vec3f(.98,.97,.95),lit)*lit+vec3f(.18,.1,.1)*(1.0-s.y)*lit;
     light+=trans*absorb*tone;trans*=1.0-absorb;
   }
-  var alpha=(1.0-trans)*(1.0-smoothstep(30000.0,c.cloud.w,dist))*.96;
+  var alpha=(1.0-trans)*(1.0-smoothstep(30000.0,c.cloud.w,dist))*.96*edge;
   if(alpha<.01){discard;}
   let grade=mix(vec3f(1.0),vec3f(.2,.27,.5),night);
   let fog=mix(vec3f(.08,.15,.20),vec3f(.008,.016,.045),night);
