@@ -2473,7 +2473,7 @@ pub(crate) mod tests {
             assert!(world.global()[0] > 205.0, "{kind}");
             assert!(world.state.velocity[0] > 20.0, "{kind}");
             assert!(world.state.position[1] < 98.0, "{kind}");
-            assert!((world.state.boost_reserve - 0.8).abs() < 0.00001, "{kind}");
+            assert!((world.state.boost_reserve - (1.0 - 0.2 / 3.0)).abs() < 0.00001, "{kind}");
             if kind == "hole" {
                 let before = world.state;
                 assert!(world.restore_pose(&[world.global()[0], 100.0, 64.0, 0.0]).is_err());
