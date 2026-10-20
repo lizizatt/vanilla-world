@@ -128,3 +128,21 @@ dialog h2 { color: #ffb34d; margin-top: 0; }
 #te-panel ol button { width: 100%; text-align: left; }
 #te-panel fieldset { border: 1px solid #7a622b; margin: 6px 0; }
 #te-status[data-bad="true"] { color: #ff7a7a; }
+
+/* Esc / Game Menu: sections that used to sit on screen */
+#menu-hint { position: fixed; top: max(8px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); margin: 0; font-size: 11px; letter-spacing: 1px; color: #c9bb94; opacity: .7; pointer-events: none; }
+#welcome { pointer-events: auto; }
+#welcome[hidden] { display: none; }
+#menu-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+#race-menu #menu-tabs button { display: inline-block; width: auto; margin: 0; padding: 5px 10px; font-size: 12px; }
+#race-menu #menu-tabs button[aria-selected=true] { background: #5a3d18; text-decoration: underline; }
+.menu-page { min-width: min(460px, 86vw); max-height: 62dvh; overflow: auto; scrollbar-width: thin; }
+.menu-page[hidden] { display: none; }
+.menu-page fieldset { border: 1px solid #c8a24a66; border-radius: 4px; margin: 0 0 10px; padding: 6px 10px 8px; display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+.menu-page legend { color: #ffb34d; padding: 0 6px; font-size: 12px; letter-spacing: 1px; }
+.menu-page fieldset label { display: flex; gap: 6px; align-items: center; }
+#race-menu .menu-page fieldset button, #race-menu .menu-page .toolbar button, #race-menu #data-folder button { display: inline-block; width: auto; margin: 0; }
+#race-menu .menu-page footer button { width: auto; display: inline-block; }
+#race-menu .menu-page :is(select, input[type=range]) { background: #3a2810; color: #ffd36a; border-color: #c8a24a; }
+#race-menu :is(p, pre) { color: #e8d9aa; }
+#data-folder { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }

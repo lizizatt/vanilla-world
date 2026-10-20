@@ -11,7 +11,8 @@
   <main>
     <section class="viewport" aria-label="Interactive racer view">
       <canvas id="world" tabindex="0" aria-label="World. W thrust, S reverse, A D steer, X brake, Space or J hop. More controls in Controls and settings."></canvas>
-      <div id="welcome"><p>Choose your Classic 1.12 <strong>Data</strong> folder. Files stay on your computer.</p></div>
+      <div id="welcome"><h2 id="welcome-title">Azeroth Racer</h2><p class="welcome-tag">Race the length of Azeroth.</p><div id="welcome-actions"><button id="select" class="primary" type="button" disabled>Select your World Data folder</button><input id="files" type="file" webkitdirectory multiple hidden aria-label="Select Classic Data folder"><div id="folder-extras"><button type="button" id="different" hidden>Choose a different folder</button><button type="button" id="fallback" disabled>Choose folder as files</button><button type="button" id="forget">Forget folder</button></div></div><p class="welcome-help">Pick the <strong>Data</strong> folder of your Classic 1.12 install. Files stay on your computer and are never uploaded.</p></div>
+<p id="menu-hint" hidden>Esc &middot; Menu</p>
       <div class="meters" aria-label="Hover telemetry" hidden>
         <div class="speed-instrument"><span>Speed</span><strong id="speed">000</strong><span><b id="direction">IDLE</b> / YD/S</span><progress id="speed-meter" max="1" value="0" aria-label="Fraction of boost speed"></progress></div>
         <div class="state-instrument"><strong id="drive-state">PARKED</strong><span id="motion"></span></div>
@@ -19,14 +20,6 @@
       </div>
     </section>
     <div class="interface">
-    <section class="toolbar" aria-label="Local world and save controls">
-      <button id="select" class="primary" disabled>Choose Data</button>
-      <input id="files" type="file" webkitdirectory multiple hidden aria-label="Select Classic Data folder">
-      <button id="save" disabled>Save</button><button id="load" disabled>Load</button>
-      <label class="sound-control"><input id="sound" type="checkbox"> Sound</label>
-      <button id="resume-sound" hidden>Resume sound</button><span id="sound-status" role="status"></span>
-      <button id="fly" disabled title="Free camera; your vehicle stays parked">Fly</button><button id="drive" disabled hidden>Drive</button>
-    </section>
     <div class="overlay"><span id="status" role="status">Preparing graphics...</span></div>
     <div class="overlay" id="camera-blocked" role="status" hidden></div>
 <div id="race-prompt" role="status" hidden></div>
@@ -36,33 +29,29 @@
 <div id="track-editor" hidden><canvas id="te-canvas" tabindex="-1" aria-label="Track editor map"></canvas>
 <div id="te-bar" role="toolbar" aria-label="Track editor tools"><button type="button" data-tool="add">Add gate (G)</button><button type="button" data-tool="select">Select/Move (V)</button><button type="button" data-tool="start">Set start (S)</button><button type="button" id="te-delete">Delete (Del)</button><button type="button" id="te-undo">Undo</button><span class="te-gap"></span><button type="button" id="te-test">Test drive</button><button type="button" id="te-save">Save</button><button type="button" id="te-export">Export JSON</button><button type="button" id="te-close">Close (T)</button></div>
 <aside id="te-panel"><label>Track <select id="te-track"></select></label><label>Name <input id="te-name" maxlength="60"></label><label>Mode <select id="te-mode"><option value="lap">Lap</option><option value="p2p">Point to point</option></select></label><label>Laps <input id="te-laps" type="number" min="1" max="20"></label><p>Breakoff: <span id="te-breakoff"></span> <span id="te-dirty" hidden>· unsaved</span></p><ol id="te-list"></ol><fieldset id="te-gate-box" hidden><legend>Selected gate</legend><label>Width (yd) <input id="te-width" type="number" min="20" max="200"></label><label>Heading (deg) <input id="te-heading" type="number" min="0" max="360"></label><p>Shift+wheel resizes. Drag the blue handle to turn.</p></fieldset><p id="te-status" role="status"></p></aside></div>
-<dialog id="race-menu" aria-labelledby="race-menu-title"><form method="dialog"><h2 id="race-menu-title">Game Menu</h2>
-<label class="sound-control"><input id="music-on" type="checkbox" checked> Music</label><button value="resume" autofocus>Resume</button><button type="button" id="race-restart" hidden>Restart race</button><button type="button" id="race-abandon" hidden>Abandon race</button><button type="button" id="race-editor">Track editor (T)</button><button type="button" id="race-settings">Settings</button></form></dialog>
-    <div class="menu-stack">
-    <details id="preferences"><summary>Controls &amp; settings</summary>
-      <div class="panel-content">
-      <p id="keyboard-guide" class="controls">W/S thrust/reverse · A/D steer · X brake · Space/J hop · Shift boost · Ctrl/C drift · F9 reset.</p>
-      <p class="controls">Camera: F cockpit · left-drag orbit · right-drag steer · arrows look · wheel chase zoom · V look back. Flight: W/S forward/back · A/D strafe · Q/E altitude · Shift fast.</p>
-      <p class="controls">Controller: left stick steer · RT/LT thrust/reverse · RB boost · LB drift · A hop · right stick look/click cockpit · D-pad chase zoom · Y reset · Start fly/drive · Back help.</p>
-      <div class="preferences">
-        <label>Space key <select id="control-profile"><option value="native">Hop</option><option value="legacy">Brake</option></select></label>
-        <label>Music volume <input id="music-volume" type="range" min="0" max="100" step="5" value="50" aria-label="Zone music volume"></label>
-    <label>Camera distance <input id="camera-distance" type="range" min="0" max="50" step="0.5" value="15" aria-label="Chase distance in yards"></label>
-        <label><input id="night" type="checkbox"> Night (N)</label>
-        <label><input id="clouds" type="checkbox" checked> Clouds</label>
-        <label><input id="horizon" type="checkbox" checked> Distant terrain</label>
-        <label><input id="scenery" type="checkbox" checked> Scenery</label>
-        <label><input id="distant" type="checkbox" checked> Distant models</label>
-      </div>
-      <div class="toolbar">
-        <button id="reset" disabled title="Return to raceway without overwriting your save">Reset</button><button id="retry" disabled>Retry loading</button>
-        <button id="overview" disabled>Overview</button><button id="tuning" disabled>Handling</button><button id="cockpit" disabled aria-pressed="false" title="F or right-stick click; wheel returns to chase">Cockpit</button>
-        <button id="different" hidden>Choose a different folder</button>
-        <button id="fallback" disabled>Choose folder as files</button>
-      </div>
-      <footer><span id="offline"></span><span id="permission"></span><button id="forget">Forget folder</button></footer>
-      </div>
-    </details>
+<dialog id="race-menu" aria-labelledby="race-menu-title"><form method="dialog" id="game-menu"><h2 id="race-menu-title">Game Menu</h2>
+<div id="menu-tabs" role="tablist" aria-label="Menu sections"><button type="button" role="tab" data-tab="game" aria-selected="true">Game</button><button type="button" role="tab" data-tab="options" aria-selected="false">Options</button><button type="button" role="tab" data-tab="controls" aria-selected="false">Controls</button><button type="button" role="tab" data-tab="diagnostics" aria-selected="false">Diagnostics</button><button type="button" role="tab" data-tab="data" aria-selected="false">Data</button></div>
+<section class="menu-page" data-page="game" role="tabpanel"><button value="resume" autofocus>Resume</button><button type="button" id="race-restart" hidden>Restart race</button><button type="button" id="race-abandon" hidden>Abandon race</button><button type="button" id="menu-map">World map (M)</button><button type="button" id="race-editor">Track editor (T)</button><button type="button" id="fly" data-close disabled title="Free camera; your vehicle stays parked">Fly</button><button type="button" id="drive" data-close disabled hidden>Drive</button><button type="button" id="overview" data-close disabled>Overview</button><button type="button" id="reset" data-close disabled title="Return to raceway without overwriting your save">Reset to raceway (F9)</button></section>
+<section class="menu-page" data-page="options" role="tabpanel" hidden>
+<fieldset><legend>Graphics</legend><label><input id="night" type="checkbox"> Night (N)</label><label><input id="clouds" type="checkbox" checked> Clouds</label><label><input id="horizon" type="checkbox" checked> Distant terrain</label><label><input id="scenery" type="checkbox" checked> Scenery</label><label><input id="distant" type="checkbox" checked> Distant models</label></fieldset>
+<fieldset><legend>Sound</legend><label class="sound-control"><input id="sound" type="checkbox"> Sound</label><label class="sound-control"><input id="music-on" type="checkbox" checked> Music</label><label>Music volume <input id="music-volume" type="range" min="0" max="100" step="5" value="50" aria-label="Zone music volume"></label><button type="button" id="resume-sound" hidden>Resume sound</button><span id="sound-status" role="status"></span></fieldset>
+<fieldset><legend>Camera and handling</legend><label>Camera distance <input id="camera-distance" type="range" min="0" max="50" step="0.5" value="15" aria-label="Chase distance in yards"></label><label>Space key <select id="control-profile"><option value="native">Hop</option><option value="legacy">Brake</option></select></label><button type="button" id="cockpit" data-close disabled aria-pressed="false" title="F or right-stick click; wheel returns to chase">Cockpit (F)</button><button type="button" id="tuning" disabled>Handling</button></fieldset>
+</section>
+<section class="menu-page" data-page="controls" role="tabpanel" hidden>
+<p id="keyboard-guide" class="controls">W/S thrust/reverse · A/D steer · X/Space brake · J hop · Shift boost · Ctrl/C drift · F9 reset.</p>
+<p class="controls">Camera: F cockpit · left-drag orbit · right-drag steer · arrows look · wheel chase zoom · V look back. Flight: W/S forward/back · A/D strafe · Q/E altitude · Shift fast. Shortcuts: M map · T track editor · N night · Esc this menu · F near a race flag starts the race.</p>
+<p class="controls">Controller: left stick steer · RT/LT thrust/reverse · RB boost · LB drift · A hop · right stick look/click cockpit · D-pad chase zoom · Y reset · Start fly/drive · Back menu.</p>
+</section>
+<section class="menu-page" data-page="diagnostics" role="tabpanel" hidden>
+<p id="place"></p><p id="coordinates"></p><p id="input-device"></p><p id="camera-status"></p><p id="resident"></p><p id="details"></p><p id="material-status"></p><p id="population"></p><p id="craft-status"></p>
+<details id="resource-problems" hidden><summary>Loading issues</summary><pre id="problems" class="panel-content"></pre></details>
+</section>
+<section class="menu-page" data-page="data" role="tabpanel" hidden>
+<div class="toolbar"><button type="button" id="save" disabled>Save</button><button type="button" id="load" disabled>Load</button><button type="button" id="retry" disabled>Retry loading</button></div>
+<div id="data-folder"></div>
+<footer><span id="offline"></span><span id="permission"></span></footer>
+</section>
+</form></dialog>
     <dialog id="map-panel" aria-label="World map (M or Esc to close)"><div id="map-stage"><canvas id="map-canvas" width="1600" height="1000" aria-hidden="true"></canvas><button id="map-close" type="button" aria-label="Close map">Close (M)</button><p id="map-status" role="status"></p></div></dialog>
     <dialog id="tuning-panel" aria-labelledby="tuning-title"><form id="tuning-form">
       <h2 id="tuning-title">Handling</h2><p>Driving input is ignored while editing; the vehicle can coast.</p>
@@ -70,14 +59,6 @@
       <div class="toolbar"><button type="submit">Apply &amp; save</button><button id="tuning-defaults" type="button">Restore defaults</button><button id="tuning-close" type="button">Close</button></div>
     </form></dialog>
     <p id="error" role="alert" hidden></p>
-    <details id="resource-problems" hidden><summary>Loading issues</summary><pre id="problems" class="panel-content"></pre></details>
-    <details id="diagnostics"><summary>Diagnostics</summary>
-      <div class="panel-content">
-      <p id="place"></p><p id="coordinates"></p><p id="input-device"></p><p id="camera-status"></p>
-      <p id="resident"></p><p id="details"></p><p id="material-status"></p><p id="population"></p><p id="craft-status"></p>
-      </div>
-    </details>
-    </div>
     </div>
   </main>
   <dialog id="loading-screen" aria-labelledby="loading-title" aria-describedby="loading-tip">
