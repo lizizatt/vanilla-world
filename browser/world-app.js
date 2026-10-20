@@ -17,7 +17,7 @@ const evidence={ready:false,frames:0,errors:[],mode:'drive'};
 window.worldEvidence=evidence;
 let renderer,folder,flight,running=false,busy=false,last=0,frames=0,hudTime=0,hudFrames=0,permissionNeeded=false;
 let orbit=[0,0],dragging=false,soundAttempt=0,soundError='',soundTime=0,reportTimer,testPads,frozenPresentation=false,tuningValues=TUNING_FIELDS.map(f=>f[1]);
-const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:false,cockpit:false,night:false};
+const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:false,cockpit:false,night:false,clouds:true};
 const settings={...defaults};
 try{settings.night=localStorage.getItem('racer.night')==='1';}catch{}
 const loading=$('loading-screen');
@@ -82,7 +82,7 @@ function enabled(value) {
   $('cockpit').disabled=!value;
 }
 function syncSettings() {
-  for(const key of ['horizon','scenery','distant','sound','night'])$(key).checked=settings[key];
+  for(const key of ['horizon','scenery','distant','sound','night','clouds'])$(key).checked=settings[key];
   music.setNight(settings.night);
   $('control-profile').value=settings.controls;$('camera-distance').value=settings.cameraDistance;
   $('keyboard-guide').textContent=settings.controls==='legacy'
@@ -139,7 +139,7 @@ async function restore(save) {
   validateWorldSave(save,client.info.id);
   if(!save)return false;
   client.state=await client.request('restore',{pose:save.vehicle});
-  Object.assign(settings,{distant:true,controls:'legacy',cameraDistance:15,sound:false,cockpit:false},save.settings);syncSettings();
+  Object.assign(settings,{distant:true,controls:'legacy',cameraDistance:15,sound:false,cockpit:false,clouds:true},save.settings);syncSettings();
   if(!settings.sound)pauseAudio();else resumeAudio();
   flight=save.mode==='fly'?save.camera.slice():undefined;
   renderer.camera=undefined;
@@ -252,6 +252,7 @@ $('overview').addEventListener('click',()=>{if(client.info){flight=overview(clie
 $('drive').addEventListener('click',()=>{flight=undefined;renderer.camera=undefined;canvas.focus();});
 $('horizon').addEventListener('change',()=>{settings.horizon=$('horizon').checked;});
 $('scenery').addEventListener('change',()=>{settings.scenery=$('scenery').checked;});
+$('clouds').addEventListener('change',()=>{settings.clouds=$('clouds').checked;});
 $('distant').addEventListener('change',()=>{settings.distant=$('distant').checked;});
 function setNight(night) {
   settings.night=night;syncSettings();
