@@ -28,7 +28,8 @@ export function cloudUniform(view,time,daylight,manifest,near,game,out=new Float
 }
 
 // Funnel: a tapered, rotating column rising far above the sheet at the maelstrom centre (yards). Tunable.
-export const FUNNEL={top:7500,baseRadius:500,topRadius:3200,flare:1.5,spin:.5,twist:5,fadeStart:90000,fadeEnd:170000};
+// The column continues below the sheet down to sea level, flaring into a mist skirt (skirtRadius) at the whirlpool.
+export const FUNNEL={top:7500,seaLevel:0,skirtRadius:1700,baseRadius:500,topRadius:3200,flare:1.5,spin:.5,twist:5,fadeStart:90000,fadeEnd:170000};
 const COMMON=`
 struct C {eye:vec4f,right:vec4f,up:vec4f,look:vec4f,cloud:vec4f,near:vec4f,tint:vec4f,fog:vec4f};
 @group(0) @binding(0) var<uniform> c:C;
@@ -117,24 +118,28 @@ struct V {@builtin(position) clip:vec4f,@location(0) ndc:vec2f};
   var v:V;v.clip=vec4f(q[i],0.5,1);v.ndc=q[i];return v;
 }
 const BASE=${(CLOUD_ALTITUDE-CLOUD_THICKNESS*.5).toFixed(1)};
+const SEA=${F.seaLevel.toFixed(1)};
 const TOP=${(CLOUD_ALTITUDE+F.top).toFixed(1)};
-fn radius(h:f32)->f32 {return mix(${F.baseRadius.toFixed(1)},${F.topRadius.toFixed(1)},pow(h,${F.flare.toFixed(2)}));}
+fn radius(h:f32,y:f32)->f32 {
+  let up=mix(${F.baseRadius.toFixed(1)},${F.topRadius.toFixed(1)},pow(h,${F.flare.toFixed(2)}));
+  return mix(${F.skirtRadius.toFixed(1)},up,pow(smoothstep(SEA,BASE,y),.5));
+}
 fn density(pos:vec3f,t:f32)->vec2f {
   let h=clamp((pos.y-BASE)/(TOP-BASE),0.0,1.0);
   let d=pos.xz-c.cloud.xy;let r=length(d);
-  let rel=r/radius(h);
+  let rel=r/radius(h,pos.y);
   // North is -z, so the swirl turns counter-clockwise on the map like the maelstrom arms.
   let a=atan2(-d.y,d.x)+${F.twist.toFixed(2)}*h-t*${F.spin.toFixed(2)};
   let n=.6*vnoise(vec2f(cos(a),sin(a))*2.6+vec2f(h*9.0,rel*3.0))+.4*vnoise(vec2f(cos(a*2.0),sin(a*2.0))*4.0+vec2f(h*23.0-t*.3,rel*6.0));
   let shell=smoothstep(1.05,.55,rel)*(.5+.9*n);
-  let body=shell*smoothstep(0.0,.06,h)*smoothstep(1.0,.82,h);
+  let body=shell*smoothstep(SEA,SEA+250.0,pos.y)*smoothstep(1.0,.82,h);
   return vec2f(body,h);
 }
 @fragment fn fs(v:V)->@location(0) vec4f {
   let t=c.up.w;let night=1.0-c.look.w;
   let dir=normalize(c.look.xyz+c.right.xyz*v.ndc.x*.55*c.right.w+c.up.xyz*v.ndc.y*.55);
   let o=c.eye.xz-c.cloud.xy;let dxz=dir.xz;
-  let R=${F.topRadius.toFixed(1)}*1.05;
+  let R=${Math.max(F.topRadius,F.skirtRadius).toFixed(1)}*1.05;
   let a=dot(dxz,dxz);let b=dot(o,dxz);let k=dot(o,o)-R*R;
   var t0=0.0;var t1=1e9;
   if(a>1e-8){
@@ -142,9 +147,9 @@ fn density(pos:vec3f,t:f32)->vec2f {
     let sq=sqrt(disc);t0=max(0.0,(-b-sq)/a);t1=(-b+sq)/a;
   } else if(k>0.0){discard;}
   if(abs(dir.y)>1e-4){
-    let ta=(BASE-c.eye.y)/dir.y;let tb=(TOP-c.eye.y)/dir.y;
+    let ta=(SEA-c.eye.y)/dir.y;let tb=(TOP-c.eye.y)/dir.y;
     t0=max(t0,min(ta,tb));t1=min(t1,max(ta,tb));
-  } else if(c.eye.y<BASE||c.eye.y>TOP){discard;}
+  } else if(c.eye.y<SEA||c.eye.y>TOP){discard;}
   if(t1<=t0){discard;}
   var edge=1.0;
   let d=textureLoad(sceneDepth,vec2i(v.clip.xy),0);
@@ -154,10 +159,10 @@ fn density(pos:vec3f,t:f32)->vec2f {
     t1=min(t1,sceneDist);
   }
   if(t1<=t0||edge<=0.0){discard;}
-  let step=(t1-t0)/12.0;
+  let step=(t1-t0)/14.0;
   var trans=1.0;var light=vec3f(0);
   let jitter=.3*hash(v.clip.xy);
-  for(var i=0;i<12;i++){
+  for(var i=0;i<14;i++){
     let pos=c.eye.xyz+dir*(t0+step*(f32(i)+jitter));
     let s=density(pos,t);
     if(s.x<=.001){continue;}
