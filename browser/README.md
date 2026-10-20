@@ -137,6 +137,50 @@ streaming benchmarks: fewer water tiles were loaded in the new captures, so the
 lower total draws/GPU usage must not all be attributed to culling. Coarse distant
 terrain coloring and the existing ocean ripple aliasing remain visible.
 
+## Readiness-aware visual transitions
+
+A ready far instance remains available until its matching near geometry and
+textures arrive, including resource-only updates. New visual admissions dither
+in over 350 ms; objects within 128 yards remain immediately opaque. Ordinary
+offscreen/re-entry does not restart a fade. Far selection gives retained instances
+a 12% prominence preference, without overriding view priority or byte limits.
+Detailed terrain blends from its existing minimap/base color into ready layers.
+There is no additional resource retention, atlas, tile budget or terrain height
+morph. These transitions do not gate physics or collision readiness.
+
+The first transition candidates failed the moving-tail gate. Attribution found
+a 64 ms monolithic terrain-material build and substantial selection/post-frame
+work. Material construction now advances through the same authored Rust chunk
+builder in yielded turns (at most sixteen chunks or 4 ms), before separately
+copying its buffers. An exact terrain spatial shortlist replaces the repeated
+whole-manifest scan; distance ordering and required-tile priority are unchanged.
+Native synchronous material output remains identical. Shell cache v36 requires
+the rebuilt Wasm for these material APIs.
+
+Final isolated Edge `fidelity-transition-grid`, against `e7b07ee` with its preserved
+original Wasm, used the unchanged approximately 585-yard, 6.10-active-second
+segment in both execution orders:
+
+| Metric | Candidate forward / reverse | Baseline forward / reverse |
+| --- | --- | --- |
+| Active handler p99 | 4.1 / 4.2 ms | 5.4 / 3.8 ms |
+| Moving freezes over 50 ms | 0 / 0 | 0 / 0 |
+| Active selection maximum | 9.5 / 6.4 ms | 5.5 / 2.7 ms |
+| Active terrain-stream maximum | 5.5 / 9.5 ms | 15.7 / 16.7 ms |
+| Preparation-inclusive selection maximum | 9.5 / 11.9 ms | 8.7 / 3.9 ms |
+
+Neither order had terrain or object readiness holds. Earlier failed evidence is
+retained; this was a changed implementation, not an unchanged pass-seeking rerun.
+OS cache and shared-host scheduling remain uncontrolled, so the difference is
+not a controlled attribution of every millisecond to the shortlist. The full
+trials still recorded a 42.5 ms material-mask copy, 33 ms background preparation,
+and 30.4 ms geometry extraction outside this active gate. Individual Wasm copies,
+allocations and host pauses are not interruptible; this passes the bounded p99
+and moving-tail target, not a hard 20 ms deadline for every operation.
+Five fixed-pose Edge captures completed without browser errors; sampled dedicated
+GPU memory was 399-457 MiB. Distant terrain geometry/color discontinuities remain
+for the separate color-ring stage.
+
 ## Explore
 
 Selecting Data now opens a full-screen, art-free loading view with accessible

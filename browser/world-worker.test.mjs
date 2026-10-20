@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {readFile} from 'node:fs/promises';
 import {createContext,runInContext} from 'node:vm';
-import {transformedBounds,globalCollisionVertices,SCENE_LIMITS,placementMatrix,boundsWithin,boundsDistance} from './scene-stream.js';
+import {transformedBounds,globalCollisionVertices,SCENE_LIMITS,placementMatrix,boundsWithin,boundsDistance,sceneReady} from './scene-stream.js';
 import {FAR_LIMITS} from './far-stream.js';
 import {prepareDetail} from './camera-collision.js';
 import {validateView,viewChanged} from './world-view.js';
@@ -16,7 +16,7 @@ function boot(events=[],clock=performance) {
   const context=createContext({init:async()=>({memory:{buffer:new ArrayBuffer(0)}}),performance:clock,postMessage:message=>events.push(message),
     setTimeout:(callback,delay)=>{const id=++nextTimer;timers.set(id,{callback,delay});return id;},
     clearTimeout:id=>timers.delete(id),
-    transformedBounds,globalCollisionVertices,SCENE_LIMITS,FAR_LIMITS,boundsWithin,boundsDistance,validateView,viewChanged});
+    transformedBounds,globalCollisionVertices,SCENE_LIMITS,FAR_LIMITS,boundsWithin,boundsDistance,validateView,viewChanged,sceneReady});
   runInContext(worker,context);
   runInContext('far={active:true,close(){},retry(){},near(){},snapshot:()=>({resident:0,failures:[]})};',context);
   context.timers=timers;
@@ -39,6 +39,29 @@ test('optional visual reads never gate an already collision-ready pose',async()=
   await settle();
   assert(complete,'A pending NPC/visual read cannot delay pose readiness');
   await ready;
+});
+test('terrain grid preserves exhaustive distance ordering across offsets, edges and source changes',()=>{
+  const context=boot(),tile=1600/3;
+  for(const offset of [0,173.4,-1269]){
+    const placements=Array.from({length:1705},(_,i)=>[(i%41-20)*tile+offset,(Math.floor(i/41)-20)*tile-offset]);
+    context.positions=placements;
+    runInContext('placements=positions;globalThis.near=nearbyTerrain;',context);
+    for(const p of [[0,0],[-850,850],[tile,tile],[offset,offset],[-9000,8200],[1e6,1e6]]){
+      const distance=a=>Math.hypot(Math.max(a[0]-p[0],0,p[0]-a[0]-tile),Math.max(a[1]-p[1],0,p[1]-a[1]-tile));
+      const expected=placements.map((a,i)=>[i,distance(a)]).filter(([,d])=>d<850)
+        .sort((a,b)=>a[1]-b[1]||a[0]-b[0]).map(([i])=>i);
+      assert.deepEqual([...context.near(p)],expected);
+    }
+    let calls=0;const original=context.positions;
+    context.positions=new Proxy(original,{get(target,key){
+      if(/^\d+$/.test(String(key)))calls++;return Reflect.get(target,key);
+    }});
+    runInContext('placements=positions;',context);
+    context.near([0,0]);calls=0;context.near([1,1]);
+    assert(calls<100,'Moving queries must not scan the whole manifest');
+  }
+  assert.throws(()=>context.near([Infinity,0]),/Invalid terrain observer/);
+  assert.throws(()=>context.near([1e308,0]),/Invalid terrain observer/);
 });
 
 test('cached unresolved broad phase preserves exact moving hull and camera predicates',()=>{
@@ -586,6 +609,19 @@ test('resource-only scene events omit unchanged instances while order and remova
   sent=f.events.filter(e=>e.event==='scene');
   assert.deepEqual(Array.from(sent[3].instances),[],'An empty list explicitly clears the scene');
 });
+test('far fallback is suppressed only after near textures arrive, including resource-only updates',async()=>{
+  const f=collisionFixture(),seen=[];
+  f.context.readyNear=ids=>seen.push([...ids]);
+  runInContext('far.near=readyNear;',f.context);
+  f.add(100);f.state.assets.get('100').batches=[{texture:'leaf.blp'}];
+  await f.update();assert.deepEqual(seen.at(-1),[]);
+  f.state.textures.set('leaf.blp',{width:1,height:1,rgba:new Uint8Array(4)});
+  f.invalidate();await f.update();
+  assert.deepEqual(seen.at(-1),['100']);
+  assert.equal(Object.hasOwn(f.events.filter(e=>e.event==='scene').at(-1),'instances'),false);
+  f.state.textures.delete('leaf.blp');f.invalidate();await f.update();
+  assert.deepEqual(seen.at(-1),[]);
+});
 
 test('failed resource-only scene post retries resources without marking them uploaded',async()=>{
   const f=collisionFixture();
@@ -792,6 +828,21 @@ test('old asynchronous material completion cannot rearm work during source repla
   await f.dispatch({id:3,action:'open',postFrameVisuals:true});
   resume();await settle();
   assert.equal(f.context.timers.size,0);assert.deepEqual(f.state().pending,[]);
+});
+test('staged material construction passes the original world and handle to yielded work',async()=>{
+  const f=materialFixture(),material={};let resume,steps=0;
+  f.context.dependencies.world.begin_terrain_material=index=>{assert.equal(index,0);return material;};
+  f.context.dependencies.world.step_terrain_material=(index,value)=>{
+    assert.equal(index,0);assert.equal(value,material);steps++;return true;
+  };
+  f.context.prepareAsync=(index,value,step)=>{
+    assert.equal(index,0);assert.equal(value,material);
+    return new Promise(resolve=>{resume=()=>{assert(step());resolve();};});
+  };
+  runInContext('terrain.prepareTile=prepareAsync;',f.context);
+  f.context.admissions.push(0);await f.frame(1);await f.frame(2);
+  assert.equal(steps,0);assert(f.events.some(e=>e.id===2));
+  resume();await settle();assert.equal(steps,1);
 });
 
 test('idle material work runs behind an already queued catch-up and cancelled callbacks cannot repeat it',async()=>{

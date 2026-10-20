@@ -1,5 +1,9 @@
 // Static authored geometry only. All matrices are column-major, model -> source WoW world.
 import {boundsVisible} from './world-view.js';
+export function sceneReady(instance,assets,textures) {
+  const asset=assets.get(instance.key);
+  return !!asset&&asset.batches.every(b=>!b.texture||textures.has(b.texture));
+}
 export const SCENE_LIMITS = Object.freeze({
   assets: 192, textures: 192, bytes: 96 * 1024 * 1024, instances: 1024, jobs: 2, radius: 850, distantRadius: 6000,
   nearTiles: 8, distantTiles: 24,
@@ -547,8 +551,11 @@ export class SceneStream {
       i.prominence=size/Math.max(1,i.score);
       if(mode==='visual'&&++processed%64===0)yield;
     }
+    const retained=this.visualOnly?new Set(this.instances.map(i=>i.id)):undefined;
+    const prominence=i=>i.prominence*(retained?.has(i.id)?1.12:1);
     const visualOrder=(a,b)=>(a.viewRank||0)-(b.viewRank||0) || Number(b.score<128)-Number(a.score<128)
-      || (a.score<128?a.score-b.score:b.prominence-a.prominence) || a.score-b.score || a.id.localeCompare(b.id);
+      || (a.score<128?a.score-b.score:retained?prominence(b)-prominence(a):b.prominence-a.prominence)
+      || a.score-b.score || a.id.localeCompare(b.id);
     const near = selectionPrefix(nearCandidates,this.limits.instances,visualOrder);
     if(mode==='visual')yield;
     const farCount=farCandidates.length;

@@ -203,6 +203,20 @@ try{
         }
         return terrain.${method}(index,material);})()`);
     }
+    if(body.includes('world.begin_terrain_material(index)')){
+      replace('const material=staged?world.begin_terrain_material(index):world.terrain_material(index);',`
+        const materialStarted=performance.now();
+        const material=staged?world.begin_terrain_material(index):world.terrain_material(index);
+        drivingWork.push({kind:'terrain-material-begin',ms:performance.now()-materialStarted,index});
+        for(const name of ['vertices','indices','masks']){
+          const read=material[name].bind(material);
+          material[name]=()=>{const began=performance.now();try{return read();}
+            finally{drivingWork.push({kind:'terrain-material-'+name,ms:performance.now()-began,index});}};
+        }`);
+      replace('ownerWorld.step_terrain_material(index,material)',`(()=>{
+        const began=performance.now();try{return ownerWorld.step_terrain_material(index,material);}
+        finally{drivingWork.push({kind:'terrain-material-chunk',ms:performance.now()-began,index});}})()`);
+    }
     await route.fulfill({response,body});
   });
   await page.goto(process.env.WORLD_URL || 'http://127.0.0.1:4185/?test');

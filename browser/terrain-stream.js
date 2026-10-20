@@ -62,15 +62,20 @@ export class TerrainStream {
     for(const name of ['vertices','indices','masks']){tile[name]=material[name]();yield;}
     return tile;
   }
-  async prepareTile(index,material) {
+  async prepareTile(index,material,step) {
     const token={};this.preparing.set(index,token);
     try {
-      const parts=this.materialParts(index,material);
+      const parts=this.materialParts(index,material);let building=!!step;
       for(;;){
         if(this.yieldMaterial)await this.yieldMaterial();
         else if(globalThis.scheduler?.postTask)await scheduler.postTask(()=>{},{priority:'background'});
         else await new Promise(resolve=>setTimeout(resolve,0));
         if(this.preparing.get(index)!==token)return;
+        if(building){
+          const start=performance.now();
+          for(let i=0;i<16&&performance.now()-start<4;i++)if(step()){building=false;break;}
+          continue;
+        }
         const result=parts.next();
         if(result.done){this.tiles.set(index,result.value);this.errors.delete(`tile:${index}`);return;}
       }
