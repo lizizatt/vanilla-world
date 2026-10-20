@@ -39,6 +39,19 @@ export class MusicCatalog {
     }
     return 0;
   }
+  /** The 'Battle' musical-moment files (Musical Moments\\battle\\battleNN.mp3); 1.12 Data has no Molten Core battle kit. */
+  battle() {
+    const paths=new Set();
+    for(let row=0;row<this.sounds.count;row++) {
+      const dir=this.sounds.str(row,23);
+      if(!BATTLE_DIR.test(dir))continue;
+      for(let field=3;field<13;field++) {
+        const file=this.sounds.str(row,field),path=`${dir}\\${file}`;
+        if(file&&MUSIC_PATH.test(path))paths.add(path);
+      }
+    }
+    return [...paths];
+  }
   /** Day/night silence range in ms and candidate files for a set; empty when the set has no playable kit. */
   tracks(set,night) {
     const row=this.zoneRows.get(set);
@@ -57,6 +70,10 @@ export class MusicCatalog {
   }
 }
 
+// Race cues: fixed interface sounds read at runtime from the user's Data, never stored.
+export const CUES={click:'Sound\\interface\\iUiInterfaceButtonA.wav',quest:'Sound\\interface\\iQuestActivate.wav'};
+const BATTLE_DIR=/^sound\\music\\musical moments\\battle$/i;
+
 export class MusicService {
   constructor(source,emit) {this.source=source;this.emit=emit;this.catalog=undefined;}
   async load(shouldDefer) {
@@ -66,9 +83,24 @@ export class MusicService {
     return this.catalog=new MusicCatalog(area,zone,sound);
   }
   /** Replies with the area's set; with `track`, also one random file not equal to `avoid`. */
-  async request({token,area,night,track,avoid},stopped=()=>false) {
+  async request({token,area,night,track,avoid,battle,cue},stopped=()=>false) {
     const shouldDefer=stopped;
     try {
+      if(cue) {
+        if(!CUES[cue])return;
+        const bytes=await this.source.read(CUES[cue],{background:false,shouldDefer});
+        if(!stopped())this.emit({event:'music',token,cue,bytes});
+        return;
+      }
+      if(battle) {
+        const paths=(await this.load(shouldDefer)).battle();
+        if(!paths.length){this.emit({event:'music',token,area,battle:true});return;}
+        const choices=paths.length>1?paths.filter(p=>p!==avoid):paths,path=choices[Math.floor(Math.random()*choices.length)];
+        const bytes=await this.source.read(path,{background:false,shouldDefer});
+        if(stopped())return;
+        this.emit({event:'music',token,area,battle:true,path,bytes});
+        return;
+      }
       const catalog=await this.load(shouldDefer),set=catalog.set(area),{silence,paths}=catalog.tracks(set,night);
       const reply={event:'music',token,area,set,silence,tracks:paths.length};
       if(!track||!paths.length){this.emit(reply);return;}
@@ -79,7 +111,7 @@ export class MusicService {
       this.emit({...reply,path,bytes});
     } catch(error) {
       if(stopped())return;
-      this.emit({event:'music',token,area,retry:error.code==='DEFERRED',error:error.code==='DEFERRED'?undefined:String(error.message||error)});
+      this.emit({event:'music',token,area,battle,cue,retry:error.code==='DEFERRED',error:error.code==='DEFERRED'?undefined:String(error.message||error)});
     }
   }
 }

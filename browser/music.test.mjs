@@ -97,3 +97,33 @@ test('day is the default regardless of the clock and the toggle re-requests the 
   player.setNight(true);time.now=2000;player.update(10,true);
   assert.equal(requests.at(-1).night,true);assert.equal(requests.at(-1).track,false);
 });
+
+test('race mode silences zone music, plays looped battle only at GO, and respects the music toggle',()=>{
+  const {player,requests,tracks,time}=fixture();
+  player.update(10,true);player.event({area:10,set:5,silence:[0,0],tracks:1});
+  player.setBattle(true,false);requests.length=0;
+  player.update(10,true);assert.equal(requests.length,0);
+  player.event({area:10,set:5,silence:[0,0],tracks:1,path:'zone.mp3',bytes:new Uint8Array(1)});
+  assert.equal(player.snapshot().playing,0);
+  player.setBattle(true,true);player.update(10,true);
+  assert.deepEqual([requests.length,requests[0].battle],[1,true]);
+  player.update(10,true);assert.equal(requests.length,1);
+  player.event({battle:true,area:'battle',path:'battle01.mp3',bytes:new Uint8Array(1)});
+  assert.equal(tracks.at(-1).loop,true);assert.equal(player.snapshot().active,true);
+  player.setEnabled(false);requests.length=0;player.update(10,true);assert.equal(requests.length,0);
+  player.setEnabled(true);player.setBattle(false);time.now=2000;player.update(10,true);
+  assert.equal(requests.at(-1).battle,undefined);
+});
+test('cue requests are made once and playCue waits for the decoded buffer',async()=>{
+  const {player,requests,ctx}=fixture();
+  ctx.createBufferSource=()=>({connect(){},disconnect(){},start(){this.started=true;}});
+  ctx.decodeAudioData=async()=>({});
+  player.volume=1;
+  player.loadCue('click');player.loadCue('click');
+  assert.deepEqual(requests.map(r=>r.cue),['click']);
+  assert.equal(player.playCue('click'),false);
+  player.event({cue:'click',bytes:new Uint8Array(4)});
+  await new Promise(r=>setImmediate(r));
+  assert.equal(player.playCue('click'),true);
+  player.setEnabled(false);assert.equal(player.playCue('click'),false);
+});
