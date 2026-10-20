@@ -265,8 +265,7 @@ export class WorldRenderer {
     const cloudModule=await shader(cloudShader);
     this.cloudPipeline=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module:cloudModule,entryPoint:'vs'},
       fragment:{module:cloudModule,entryPoint:'fs',targets:[{format:this.format,blend:{color:{srcFactor:'src-alpha',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},
-      primitive:{topology:'triangle-list',cullMode:'none'},depthStencil:{format:'depth24plus',depthWriteEnabled:false,depthCompare:'less'}});
-    this.cloudGroup=this.device.createBindGroup({layout:this.cloudPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:this.cloudBuffer}}]});
+      primitive:{topology:'triangle-list',cullMode:'none'}});
     this.mapSampler=this.device.createSampler({minFilter:'linear',magFilter:'linear'});
     this.layerSampler=this.device.createSampler({minFilter:'linear',magFilter:'linear',mipmapFilter:'linear',
       addressModeU:'repeat',addressModeV:'repeat',maxAnisotropy:4});
@@ -632,7 +631,10 @@ export class WorldRenderer {
     const height=Math.max(1,Math.round(canvas.clientHeight*Math.min(devicePixelRatio,2)));
     if(!this.depth || canvas.width!==width || canvas.height!==height) {
       canvas.width=width;canvas.height=height;this.depth?.destroy();
-      this.depth=this.device.createTexture({size:[width,height],format:'depth24plus',usage:GPUTextureUsage.RENDER_ATTACHMENT});
+      this.depth=this.device.createTexture({size:[width,height],format:'depth24plus',
+        usage:GPUTextureUsage.RENDER_ATTACHMENT|GPUTextureUsage.TEXTURE_BINDING});
+      this.cloudGroup=this.device.createBindGroup({layout:this.cloudPipeline.getBindGroupLayout(0),
+        entries:[{binding:0,resource:{buffer:this.cloudBuffer}},{binding:1,resource:this.depth.createView()}]});
     }
     const origin=flight?[Math.round(flight[0]),Math.round(flight[2])]:[state[11],state[12]];
     const p=[state[0]-origin[0],state[1],state[2]-origin[1]];
@@ -723,8 +725,14 @@ export class WorldRenderer {
       colorAttachments:[{view:this.context.getCurrentTexture().createView(),clearValue:{r:sky[0],g:sky[1],b:sky[2],a:1},loadOp:'clear',storeOp:'store'}],
       depthStencilAttachment:{view:this.depth.createView(),depthClearValue:1,depthLoadOp:'clear',depthStoreOp:'store'},
     });
-    if(!this.cameraBlocked){this.drawTerrain(pass,terrain);this.drawScene(pass,draws);if(settings.clouds!==false)this.drawClouds(pass,time,daylight,near);}
-    pass.end();this.device.queue.submit([encoder.finish()]);
+    if(!this.cameraBlocked){this.drawTerrain(pass,terrain);this.drawScene(pass,draws);}
+    pass.end();
+    if(!this.cameraBlocked&&settings.clouds!==false) {
+      // Clouds read the finished scene depth to clip their ray march, so they never need a depth-test bias.
+      const cloudPass=encoder.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}]});
+      this.drawClouds(cloudPass,time,daylight,near);cloudPass.end();
+    }
+    this.device.queue.submit([encoder.finish()]);
     return {horizonTiles:distant.length,detailedTiles:this.tiles.size,sceneInstances:this.instances.length,
       culledTerrainDraws:allTerrain.length-terrain.length,
       texturedTerrainTiles:[...this.tiles.values()].filter(t=>t.material).length,

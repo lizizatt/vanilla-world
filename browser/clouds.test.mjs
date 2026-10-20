@@ -18,4 +18,6 @@ test('maelstrom centre is 43% across the gap, north of the old midpoint',()=>{
 });
 test('shader carries the tunable eye/wall radii and counter-clockwise spiral',()=>{
   assert(cloudShader.includes(MAELSTROM.eyeRadius.toFixed(1)));assert(cloudShader.includes('atan2(-d.y,d.x)'));
+});test('clouds clip their ray march to the sampled scene depth instead of depth-testing a bias plane',()=>{
+  assert(cloudShader.includes('textureLoad(sceneDepth'));assert(cloudShader.includes('t1=min(t1,sceneDist)'));
 });
