@@ -1,27 +1,38 @@
 # Nearby authored scene contract
 
-`scene-stream.js` runs in the asset worker with the same `source.read(gamePath)` as
+`scene-stream.js` runs in the near world worker with the same `source.read(gamePath)` as
 terrain. It reuses the pure Rust ADT, M2, WMO and BLP adapters through `scene.rs`;
 there is no Bevy dependency and no bundled game art.
 
-Call `setTile("mapId:x:y", bytes)` once per resident ADT (maximum four), and
+The browser yields through `prepareTile("mapId:x:y", bytes, metadata)` before
+`commitTile(key, prepared)`, publishing the finished placement index together
+with Rust terrain residency. A changed placement revision invalidates preparation.
+`setTile(key, bytes)` remains the synchronous interface for other callers.
+Near residency is limited to eight ADTs; call
 `removeTile(key)` when its terrain leaves. Each frame/job cycle calls
 `update(mapId, [sourceX, sourceY, sourceZ])`, then `await pump()`. A pump admits at
 most two file reads/decodes, serially; WMO roots and individual groups are separate
 jobs. `clear()` invalidates pending completion and releases retained Wasm roots.
 
 `setDistantTile(key, bytes)` / `removeDistantTile(key)` manage a separate maximum of
-12 visual metadata tiles. Only their parsed placements remain resident, not terrain
-meshes. Their full authored M2/WMO batches and real alpha textures use the same
-bounded model cache out to 6,000 yards. `instance.distant` identifies these visual
+24 visual metadata tiles in the dedicated far worker. Only their parsed placements
+remain resident, not terrain meshes. Their full authored M2/WMO batches and real
+alpha textures use a separate 32 MiB, 96-model/96-texture cache out to 6,000 yards.
+`instance.distant` identifies these visual
 instances; near copies win authored-ID deduplication. Near requests precede distant
 requests, so saturated near residency may defer distant content. Distant metadata
 never creates NPCs, collision instances, or unresolved collision holds. The caller
 must separately bound metadata ADT IO and enforce combined near/far draw budgets
 (the integration uses two million triangles) and distance fog.
 
+Far-only selection prefers known visible bounds and budgets complete known
+resource dependencies while retaining unknown-model discovery. `budgetOmitted`
+counts ordinary optional capacity omissions. Camera turns reprioritize work
+without changing the nearest 24-tile set; neither view ranking nor draw culling
+changes near collision candidates.
+
 `snapshot()` returns `instances`, `assets` and `textures` Maps, bounded error
-history, population status and cache counters. Hard limits are 96 geometry/root
+history, population status and cache counters. Near hard limits are 192 geometry/root
 resources plus 192 dependent textures, 96 MiB shared accounted decoded payload,
 1,024 closest scene instances and 850 yards. Texture dependencies do not consume
 geometry slots; nearest requests win, with texture-first ties and protected owners.

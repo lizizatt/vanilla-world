@@ -1,4 +1,5 @@
 // Static authored geometry only. All matrices are column-major, model -> source WoW world.
+import {boundsVisible} from './world-view.js';
 export const SCENE_LIMITS = Object.freeze({
   assets: 192, textures: 192, bytes: 96 * 1024 * 1024, instances: 1024, jobs: 2, radius: 850, distantRadius: 6000,
   nearTiles: 8, distantTiles: 24,
@@ -417,6 +418,7 @@ export class SceneStream {
       }
       instance.bounds=bounds;instance.boundsKnown=boundsKnown;instance.score=score;instance.distant=distant;
       instance.collidable=collidable;
+      if(this.visualOnly)instance.viewRank=boundsKnown&&!boundsVisible(bounds,this.view)?1:0;
       instance.collisionScore=undefined;
       if(distant)farCandidates.push(instance);
       else candidates.set(id,instance);
@@ -545,7 +547,7 @@ export class SceneStream {
       i.prominence=size/Math.max(1,i.score);
       if(mode==='visual'&&++processed%64===0)yield;
     }
-    const visualOrder=(a,b)=>Number(b.score<128)-Number(a.score<128)
+    const visualOrder=(a,b)=>(a.viewRank||0)-(b.viewRank||0) || Number(b.score<128)-Number(a.score<128)
       || (a.score<128?a.score-b.score:b.prominence-a.prominence) || a.score-b.score || a.id.localeCompare(b.id);
     const near = selectionPrefix(nearCandidates,this.limits.instances,visualOrder);
     if(mode==='visual')yield;
@@ -573,6 +575,7 @@ export class SceneStream {
     // Reserve distant silhouettes without removing a single near collision candidate.
     this.instances = [...near.slice(0,this.limits.instances-reserved),
       ...far.slice(0,Math.max(reserved,this.limits.instances-near.length))];
+    if(this.visualOnly)this.instances=this.budgetInstances(this.instances.sort((a,b)=>a.viewRank-b.viewRank),discoveryKeys);
     const keep = new Set(this.instances.map(i => i.key));
     if(mode!=='visual')requireCollisions(keep);
     for (const [visualRank,i] of this.instances.entries()) {
@@ -596,7 +599,7 @@ export class SceneStream {
       if(mode==='visual'&&visualRank%64===63)yield;
     }
     // Roots with no loaded metadata must be requested before their group instances exist.
-    for (const [key, request] of requests) if (request.kind === 'wmo') keep.add(key);
+    if(!this.visualOnly)for (const [key, request] of requests) if (request.kind === 'wmo') keep.add(key);
     this.requests = new Map([...requests].filter(([key]) => keep.has(key)));
     this.foregroundKey=[...this.requests.values()].find(r=>(r.required||(!r.distant&&r.score<128))
       && !this.cache.has(r.key)&&!this.failures.has(r.key))?.key;
@@ -605,6 +608,27 @@ export class SceneStream {
       for (const key of this.failures.keys()) if (!keep.has(key)) this.failures.delete(key);
     }
     this.selectionRevision = this.revision;
+  }
+  budgetInstances(instances,discoveryKeys) {
+    const retained=new Set();let bytes=0,models=0,textures=0;
+    this.budgetOmitted=0;
+    const chosen=new Set(instances.toSorted((a,b)=>a.viewRank-b.viewRank ||
+      Number(discoveryKeys.has(b.key))-Number(discoveryKeys.has(a.key))).filter(instance=>{
+      const keys=new Set([instance.key]);
+      if(instance.rootKey)keys.add(instance.rootKey);
+      for(const batch of this.cache.get(instance.key)?.value.batches||[])
+        if(batch.texture)keys.add(`texture:${batch.texture}`);
+      let addedBytes=0,addedModels=0,addedTextures=0;
+      for(const key of keys)if(!retained.has(key)){
+        addedBytes+=this.cache.get(key)?.bytes??this.sizeHints?.get(key)??0;
+        if(key.startsWith('texture:'))addedTextures++;else addedModels++;
+      }
+      if(bytes+addedBytes>this.limits.bytes || models+addedModels>this.limits.assets ||
+        textures+addedTextures>this.limits.textures){this.budgetOmitted++;return false;}
+      for(const key of keys)retained.add(key);
+      bytes+=addedBytes;models+=addedModels;textures+=addedTextures;return true;
+    }));
+    return instances.filter(instance=>chosen.has(instance));
   }
   mergeRequests() {
     this.requests=new Map(this.visualRequests);
@@ -677,6 +701,11 @@ export class SceneStream {
             result.dispose?.(); continue;
           }
           if(this.visualOnly&&request.kind==='m2')this.discovered?.set(request.key,{bounds:result.value.bounds});
+          if(this.visualOnly){
+            this.sizeHints??=new Map();this.sizeHints.delete(request.key);this.sizeHints.set(request.key,result.bytes);
+            while(this.sizeHints.size>(this.limits.assets+this.limits.textures)*4)
+              this.sizeHints.delete(this.sizeHints.keys().next().value);
+          }
           if (result.bytes > this.limits.bytes) throw new Error('Decoded scene resource exceeds cache byte budget');
           while (this.resourceCount(request.kind) >= limit || this.bytes + result.bytes > this.limits.bytes) {
             const victim = this.victimFor(request, this.resourceCount(request.kind) >= limit);
@@ -685,6 +714,7 @@ export class SceneStream {
           }
           if (this.resourceCount(request.kind) >= limit || this.bytes + result.bytes > this.limits.bytes) {
             this.capacityBlocked = true;
+            if(this.visualOnly){result.dispose?.();this.revision++;break;}
             throw Object.assign(new Error(`Pinned ${this.visualOnly?'distant':'nearby'} scene resources exhaust cache budget`), { code: 'LIMIT' });
           }
           this.cache.set(request.key, { ...result, used: this.clock }); this.bytes += result.bytes;
@@ -715,7 +745,8 @@ export class SceneStream {
   victimFor(request, sameKind = false) {
     const protectedRoots = new Set([...this.requests.values()].filter(r => r.rootKey).map(r => r.rootKey));
     const owners = request.kind === 'texture' ? new Set([...this.cache.entries()]
-      .filter(([, entry]) => entry.value.batches?.some(b => b.texture === request.path))
+      .filter(([key, entry]) => (!this.visualOnly||this.requests.has(key)) &&
+        entry.value.batches?.some(b => b.texture === request.path))
       .map(([key]) => key)) : new Set();
     return [...this.cache.entries()].filter(([key]) => !protectedRoots.has(key) && !owners.has(key)
       && (!sameKind || key.startsWith('texture:') === (request.kind === 'texture'))
@@ -808,6 +839,7 @@ export class SceneStream {
     });
     return { instances, collisionInstances, unresolvedCollision, assets, textures, errors: [...this.errors], populationStatus: this.populationStatus,
       cachedAssets: this.cache.size, cachedBytes: this.bytes, capacityBlocked: !!this.capacityBlocked, timings: {...this.timings},
+      budgetOmitted:this.budgetOmitted||0,
       cachedModels: this.resourceCount('m2'), cachedTextures: this.resourceCount('texture'),
       pending: [...this.requests.keys()].filter(k => !this.cache.has(k) && !this.failures.has(k)).length };
   }
@@ -828,6 +860,7 @@ export class SceneStream {
     this.tiles.clear(); this.distantTiles.clear(); this.requests.clear(); this.failures.clear();
     this.placementLists.clear();
     this.discovered?.clear();
+    this.sizeHints?.clear();
     this.visualRequests=undefined;this.collisionRequests=undefined;this.visualPosition=undefined;this.visualJob=undefined;
     this.visualInstances=undefined;
     this.collisionIndex=undefined;this.placementRevision++;

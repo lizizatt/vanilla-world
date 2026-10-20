@@ -1,6 +1,6 @@
-const CACHE = 'racer-shell-v34';
+const CACHE = 'racer-shell-v35';
 const FILES = ['./', './index.html', './world-app.js', './world-client.js', './world-worker.js', './world-renderer.js',
-  './world-store.js', './world-camera.js', './camera-collision.js', './world-input.js', './world-audio.js', './world-tuning.js',
+  './world-store.js', './world-camera.js', './world-view.js', './camera-collision.js', './world-input.js', './world-audio.js', './world-tuning.js',
   './asset-source.js', './asset-folder.js', './scene-stream.js', './terrain-stream.js', './water-stream.js', './craft-stream.js', './flight.js',
   './far-worker.js', './far-stream.js', './far-channel.js', './asset-worker.js', './asset-channel.js',
   './style.css', './pkg/flats_racer_web.js', './pkg/flats_racer_web_bg.wasm'];

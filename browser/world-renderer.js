@@ -2,11 +2,20 @@ import {modelPath} from './scene-stream.js';
 import {MINIMAP_SIZE,TERRAIN_TEXTURE_SIZE} from './terrain-stream.js';
 import {cameraView,craftMatrix,cockpitAnchor} from './world-camera.js';
 import {COAST_GPU_LIMIT} from './water-stream.js';
+import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
+export {sceneVisible} from './world-view.js';
 export {craftMatrix} from './world-camera.js';
 const SKY=[.08,.15,.20,1];
 const sub=(a,b)=>a.map((v,i)=>v-b[i]);
 const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
 const unit=a=>{const n=Math.hypot(...a)||1;return a.map(v=>v/n);};
+export function cameraAxes(look,preferredUp=[0,1,0]) {
+  let right=cross(look,preferredUp);
+  // Clipping onto the chase pivot can leave only the vertical suspension offset.
+  if(Math.hypot(...right)<1e-6)right=cross(look,Math.abs(look[2])<.9?[0,0,1]:[1,0,0]);
+  right=unit(right);
+  return {right,up:unit(cross(right,look))};
+}
 export function renderMatrix(source,region,origin) {
   const m=new Float32Array(16);
   for(let col=0;col<4;col++){
@@ -16,23 +25,6 @@ export function renderMatrix(source,region,origin) {
   m[13]=source[14];
   m[14]=-source[12]+region.placement[1]+(32-region.tile_origin[1])*1600/3-origin[1];
   return m;
-}
-export function sceneVisible(bounds,m,eye,right,up,forward,aspect) {
-  if(!bounds)return true;
-  const lo=bounds[0],hi=bounds[1],hx=(hi[0]-lo[0])/2,hy=(hi[1]-lo[1])/2,hz=(hi[2]-lo[2])/2;
-  const x=lo[0]+hx,y=lo[1]+hy,z=lo[2]+hz;
-  const cx=m[0]*x+m[4]*y+m[8]*z+m[12]-eye[0],
-    cy=m[1]*x+m[5]*y+m[9]*z+m[13]-eye[1],
-    cz=m[2]*x+m[6]*y+m[10]*z+m[14]-eye[2];
-  for(let plane=0;plane<5;plane++){
-    const axis=plane===0?forward:plane<3?right:up,sign=plane===0?1:plane%2?-1:1,
-      slope=plane===0?0:.55*(plane<3?aspect:1);
-    const nx=axis[0]*sign+forward[0]*slope,ny=axis[1]*sign+forward[1]*slope,nz=axis[2]*sign+forward[2]*slope;
-    const radius=hx*Math.abs(nx*m[0]+ny*m[1]+nz*m[2])+hy*Math.abs(nx*m[4]+ny*m[5]+nz*m[6])
-      +hz*Math.abs(nx*m[8]+ny*m[9]+nz*m[10]);
-    if(cx*nx+cy*ny+cz*nz+radius<-.01)return false;
-  }
-  return true;
 }
 export function sceneSelection(instances,assets,visible=()=>true) {
   const selected=[];
@@ -239,7 +231,13 @@ export class WorldRenderer {
     return texture;
   }
   drawable(vertices,placement,map=this.emptyMap) {
+    const low=[Infinity,Infinity,Infinity],high=[-Infinity,-Infinity,-Infinity];
+    for(let i=0;i<vertices.length;i+=7)for(let a=0;a<3;a++){
+      low[a]=Math.min(low[a],vertices[i+a]);high[a]=Math.max(high[a],vertices[i+a]);
+    }
+    for(const b of [low,high]){b[0]+=placement[0];b[2]+=placement[1];}
     return {buffer:this.buffer(vertices,GPUBufferUsage.VERTEX),count:vertices.length/7,placement,
+      bounds:vertices.length?[low,high]:undefined,
       group:this.device.createBindGroup({layout:this.pipeline.getBindGroupLayout(0),entries:[
         {binding:0,resource:{buffer:this.frameUniforms,size:112}},{binding:1,resource:map.createView()},{binding:2,resource:this.mapSampler}]})};
   }
@@ -264,6 +262,7 @@ export class WorldRenderer {
     this.items.clear();
     this.instances=[];this.nearInstances=[];this.farInstances=[];this.farRegion=undefined;
     this.camera=undefined;this.origin=[0,0];
+    this.view=undefined;this.terrainView=undefined;
     for(const item of this.materialPending.values())this.releaseMaterial(item.gpu);
     this.materialPending.clear();
     for(const texture of this.minimapAtlases)texture.destroy();this.minimapAtlases=[];
@@ -560,16 +559,24 @@ export class WorldRenderer {
     const origin=flight?[Math.round(flight[0]),Math.round(flight[2])]:[state[11],state[12]];
     const p=[state[0]-origin[0],state[1],state[2]-origin[1]];
     const {look,near,up:cameraUp}=cameraView(this,state,flight,dt,origin,settings,lookBack);
-    const right=unit(cross(look,cameraUp||[0,1,0])),up=cross(right,look);
+    const {right,up}=cameraAxes(look,cameraUp);
     this.cameraLook=look;
+    const aspect=width/height;
+    this.view={eye:[this.camera[0]+origin[0],this.camera[1],this.camera[2]+origin[1]],right,up,look,aspect};
     const view=[...this.camera,200000,...right,0,...up,0,...look,0];
     const distant=settings.horizon?this.horizon.filter(h=>!this.tiles.has(h.near)):[];
     const coastal=[...this.coast].flatMap(([index,item])=>
       this.tiles.has(index)?item.backing?[item.backing]:[]:settings.horizon?[item]:[]);
-    const terrain=this.cameraBlocked?[]:[...distant,...this.tiles.values(),...(settings.horizon?this.seams.values():[]),...this.water,...coastal];
-    if(!flight&&!this.craft&&!this.cameraBlocked)terrain.push(this.body);
+    const allTerrain=this.cameraBlocked?[]:[...distant,...this.tiles.values(),...(settings.horizon?this.seams.values():[]),...this.water,...coastal];
+    if(!flight&&!this.craft&&!this.cameraBlocked)allTerrain.push(this.body);
+    const cachedView=this.terrainView;
+    if(!cachedView || viewChanged(cachedView.view,this.view) ||
+      cachedView.all.length!==allTerrain.length || allTerrain.some((item,i)=>cachedView.all[i]!==item))
+      this.terrainView={view:this.view,all:allTerrain,
+        visible:allTerrain.filter(item=>item===this.body || boundsVisible(item.bounds,this.view))};
+    const terrain=this.terrainView.visible;
     let uniformCount=0;
-    const u=this.uniformData,aspect=width/height;
+    const u=this.uniformData;
     const writeUniform=item=>{
       if(uniformCount>=16384)throw Error('World draw uniform budget exceeded');
       const base=uniformCount++*64;
@@ -629,6 +636,7 @@ export class WorldRenderer {
     if(!this.cameraBlocked){this.drawTerrain(pass,terrain);this.drawScene(pass,draws);}
     pass.end();this.device.queue.submit([encoder.finish()]);
     return {horizonTiles:distant.length,detailedTiles:this.tiles.size,sceneInstances:this.instances.length,
+      culledTerrainDraws:allTerrain.length-terrain.length,
       texturedTerrainTiles:[...this.tiles.values()].filter(t=>t.material).length,
       terrainGpuBytes:[...this.tiles.values()].reduce((n,t)=>n+(t.material?.bytes||0),0),
       terrainUploadPending:this.materialPending.size,minimapGpuBytes:this.minimapAtlases.length*(64*MINIMAP_SIZE)**2*4,

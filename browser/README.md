@@ -92,6 +92,51 @@ There were no terrain holds, but real object-readiness holds remained:
 254/323 ms over the full trials, versus 253/639 ms baseline.
 Fresh contexts do not control filesystem caches or other shared-host activity.
 
+## View-aware distant selection
+
+Far selection now prefers visible known bounds, retaining bounded discovery for
+unknown models. A selected instance must fit together with its known mesh, WMO
+root and texture dependencies in the existing 32 MiB/96-model/96-texture budget.
+Ordinary optional omissions are reported as `budgetOmitted`, rather than treating
+a full distant cache as missing world data. Invalid or individually oversized
+resources still report errors.
+
+The nearest 24 placement tiles are unchanged, but metadata ahead of the camera
+is requested before tiles behind it. Camera turns refresh selection even while
+stationary. Near collision demand is not view-culled. Terrain and water draws
+use conservative cached bounds with movement/rotation guards; neither residency
+nor collision data is culled. A clipped vertical chase view retains a valid
+camera basis instead of failing the new camera-metadata validation.
+
+This is fidelity step 1 only: no extra tiles, impostors, terrain morph, admission
+fade or color-ring change. Shell cache v35 includes the shared view module.
+
+The `fidelity-rebased-camera` equal-path Edge gate against admission-only
+`7c5aa2d` passed in both orders (about 585 yards / 6.10 active seconds):
+
+| Metric | Fidelity candidate | Admission-only baseline |
+| --- | --- | --- |
+| Active handler p99 | 11.6 / 15.2 ms | 16.9 / 11.1 ms |
+| Moving freezes over 50 ms | 0 / 0 | 0 / 0 |
+| Active selection maximum | 10.3 / 22.3 ms | 18.6 / 16.0 ms |
+| Active terrain-stream maximum | 18.6 / 15.1 ms | 19.6 / 24.2 ms |
+
+The reverse selection still exceeds 20 ms, despite passing the p99 gate.
+Including startup, background preparation reached 45.7/18.4 ms and separately
+yielded geometry 104.3/38.8 ms. Real full-trial object holds were 612/0 ms versus
+253/140 ms; no terrain holds occurred. This does not close startup/all-work
+hitches. The earlier restored run failed camera validation; the subsequent run
+includes its deterministic clipped-camera regression fix, not an unchanged retry.
+
+Five fixed-pose captures have no browser errors. Compared with the original
+analysis snapshots, city distant draws increased from 99 to 307 and the sixteen
+distant-capacity errors disappeared. The candidate culled 1,258 terrain/water
+draws in that city view and 1,924 at the coast. Sampled dedicated GPU usage was
+371-428 MiB, with unchanged residency/cache caps. These are not synchronized
+streaming benchmarks: fewer water tiles were loaded in the new captures, so the
+lower total draws/GPU usage must not all be attributed to culling. Coarse distant
+terrain coloring and the existing ocean ripple aliasing remain visible.
+
 ## Explore
 
 Selecting Data now opens a full-screen, art-free loading view with accessible

@@ -21,12 +21,12 @@ export class FarChannel {
     if(this.active)try {this.worker.postMessage(data,transfers);}
     catch(error) {this.fail(error);}
   }
-  focus(region,position,enabled) {
+  focus(region,position,enabled,view) {
     if(region!==this.region||enabled!==this.enabled) {
       if(region!==this.region)this.state={...this.state,resident:0,pending:0,scene:undefined};
       this.epoch++;this.region=region;this.enabled=enabled;
     }
-    this.latest={action:'focus',epoch:this.epoch,region,position,enabled};
+    this.latest={action:'focus',epoch:this.epoch,region,position,enabled,view};
     this.flushFocus();
   }
   flushFocus() {

@@ -7,6 +7,7 @@ import {loadCraft} from './craft-stream.js';
 import {WaterStream} from './water-stream.js';
 import {FarChannel} from './far-channel.js';
 import {FAR_LIMITS} from './far-stream.js';
+import {validateView,viewChanged} from './world-view.js';
 
 const TILE=1600/3,LIMIT=SCENE_LIMITS.nearTiles;
 let wasm;
@@ -153,9 +154,9 @@ const timings={frames:0,totalMs:0,maxMs:0,terrainMs:0,sceneMs:0,selectionMs:0,sn
   geometrySliceMs:0,geometrySliceMax:0,
   terrainSliceMs:0,terrainSliceMax:0,
   physicsMs:0,cameraUnknownMs:0,postMs:0,postFrameMs:0,scenePostMs:0,scenePosts:0,sceneInstancePosts:0,collisionBuildMs:0,collisionBuilds:0};
-let far,farFocus,farUpdated=0,farFlight=false;
+let far,farFocus,farView,farUpdated=0,farFlight=false;
 function startFarWorker() {
-  far?.close();farFocus=undefined;
+  far?.close();farFocus=undefined;farView=undefined;
   far=new FarChannel(()=>new Worker('./far-worker.js',{type:'module'}),source,manifest,
     (message,transfers)=>postMessage(message,transfers),
     ()=>!!objectWait.length ||
@@ -181,7 +182,7 @@ function tileKey(index) {
   const t=manifest.tiles[index];
   return `${t.region===0?1:0}:${t.x}:${t.y}`;
 }
-function prepareDistant(focus,enabled,flying=false) {
+function prepareDistant(focus,enabled,flying=false,view) {
   farFlight=flying;
   water?.setFocus(focus);
   const region=focusRegion(focus),p=[focus[0],focus[2]];
@@ -191,8 +192,9 @@ function prepareDistant(focus,enabled,flying=false) {
   const limit=SCENE_LIMITS.instances-(enabled&&far.active?FAR_LIMITS.instances:0);
   if(scene.limits.instances!==limit){scene.limits.instances=limit;sceneFocus=undefined;}
   if(!farFocus || region!==far.region || enabled!==far.enabled ||
-    performance.now()-farUpdated>=100 && Math.hypot(...focus.map((v,a)=>v-farFocus[a]))>=16) {
-    far.focus(region,focus.slice(),enabled);farFocus=focus.slice();farUpdated=performance.now();
+    performance.now()-farUpdated>=100 &&
+      (Math.hypot(...focus.map((v,a)=>v-farFocus[a]))>=16 || viewChanged(farView,view))) {
+    far.focus(region,focus.slice(),enabled,view);farFocus=focus.slice();farView=view;farUpdated=performance.now();
   }
 }
 function recordTerrainFailure(index,error) {
@@ -691,10 +693,11 @@ async function handle(message) {
   if(message.action==='frame') {
     if(message.hop!==undefined&&(!Number.isSafeInteger(message.hop)||message.hop<0))throw new Error('Invalid hop sequence');
     if(message.sampleTime!==undefined && !Number.isFinite(message.sampleTime))throw new Error('Invalid input sample time');
+    if(message.view!==undefined)validateView(message.view);
     const started=performance.now();
     const p=world.telemetry(),focus=message.focus || Array.from(p.slice(0,3));
     if(!Array.isArray(focus)||focus.length!==3||!focus.every(v=>Number.isFinite(v)&&Math.abs(v)<1e12))throw new Error('Invalid world focus');
-    prepareDistant(focus,message.distant!==false,!!message.focus);
+    prepareDistant(focus,message.distant!==false,!!message.focus,message.view);
     const frameLoads=loads;
     const terrainStart=performance.now();await stream([focus[0],focus[2]],!message.focus);
     timings.terrainMs+=performance.now()-terrainStart;

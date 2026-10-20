@@ -20,6 +20,34 @@ function fixture(read=async()=>new Uint8Array([1]),entries=placements) {
   stream.focus(focus);
   return {stream,messages};
 }
+test('camera focus is source-transformed and reprioritizes without increasing the placement ring',()=>{
+  const {stream}=fixture(),before=stream.wanted.slice().sort((a,b)=>a-b);
+  stream.focus({...focus,view:{eye:[10,20,30],right:[1,0,0],up:[0,1,0],look:[0,0,1],aspect:1.6}});
+  assert.deepEqual(stream.scene.view.eye,[-30,-10,20]);
+  assert.deepEqual(stream.scene.view.look,[-1,-0,0]);
+  assert.deepEqual(stream.wanted.slice().sort((a,b)=>a-b),before);
+  const revision=stream.scene.revision;
+  stream.focus({...focus,view:{eye:[10,20,30],right:[-1,0,0],up:[0,1,0],look:[0,0,-1],aspect:1.6}});
+  assert(stream.scene.revision>revision,'A stationary turn must refresh selection and publication');
+  assert.throws(()=>stream.focus({...focus,view:{}}),/Invalid world view/);
+});
+test('far byte selection retains complete visible resource closures before hidden models',()=>{
+  const {stream}=fixture(),scene=stream.scene,bounds=[[-1,-1,0],[1,1,3]];
+  const entries=[{...placements[0],id:1,path:'behind.m2',position:[-1000,0,0]},
+    {...placements[0],id:2,path:'visible.m2',position:[1000,0,0]}];
+  scene.limits={...scene.limits,bytes:250};
+  scene.view={eye:[0,0,0],right:[0,1,0],up:[0,0,1],look:[1,0,0],aspect:1.6};
+  scene.sizeHints=new Map([['m2:behind.m2:[]',200],['m2:visible.m2:[]',200]]);
+  for(const key of scene.sizeHints.keys())scene.discovered.set(key,{bounds});
+  scene.setDistantPlacements('1:32:32',scene.parsePlacements(null,JSON.stringify(entries)));
+  scene.update(1,[0,0,0]);
+  assert.deepEqual(scene.instances.map(i=>i.id),['1:m2:2']);
+  assert.equal(scene.snapshot().budgetOmitted,1);
+  assert.deepEqual(scene.collisionCandidates,[]);
+  scene.cache.set('m2:visible.m2:[]',{bytes:200,value:{bounds,batches:[{texture:'big.blp'}]}});
+  scene.sizeHints.set('texture:big.blp',100);scene.update(1,[0,0,0]);
+  assert(!scene.requests.has('m2:visible.m2:[]'),'A model and its known texture must fit together');
+});
 test('far residency, decoding and transfers are bounded and cannot supply nearby collision',async()=>{
   const {stream,messages}=fixture();
   for(let i=0;i<30;i++)await stream.step();

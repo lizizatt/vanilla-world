@@ -5,6 +5,7 @@ import {createContext,runInContext} from 'node:vm';
 import {transformedBounds,globalCollisionVertices,SCENE_LIMITS,placementMatrix,boundsWithin,boundsDistance} from './scene-stream.js';
 import {FAR_LIMITS} from './far-stream.js';
 import {prepareDetail} from './camera-collision.js';
+import {validateView,viewChanged} from './world-view.js';
 
 // Exercise the actual worker queue with synthetic archive/Wasm boundaries, without starting WebGPU.
 const worker=(await readFile(new URL('./world-worker.js',import.meta.url),'utf8'))
@@ -15,7 +16,7 @@ function boot(events=[],clock=performance) {
   const context=createContext({init:async()=>({memory:{buffer:new ArrayBuffer(0)}}),performance:clock,postMessage:message=>events.push(message),
     setTimeout:(callback,delay)=>{const id=++nextTimer;timers.set(id,{callback,delay});return id;},
     clearTimeout:id=>timers.delete(id),
-    transformedBounds,globalCollisionVertices,SCENE_LIMITS,FAR_LIMITS,boundsWithin,boundsDistance});
+    transformedBounds,globalCollisionVertices,SCENE_LIMITS,FAR_LIMITS,boundsWithin,boundsDistance,validateView,viewChanged});
   runInContext(worker,context);
   runInContext('far={active:true,close(){},retry(){},near(){},snapshot:()=>({resident:0,failures:[]})};',context);
   context.timers=timers;

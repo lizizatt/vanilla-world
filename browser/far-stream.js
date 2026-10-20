@@ -1,4 +1,5 @@
 import {SceneStream,SCENE_LIMITS} from './scene-stream.js';
+import {validateView,viewChanged} from './world-view.js';
 
 export const FAR_LIMITS=Object.freeze({assets:96,textures:96,bytes:32*1024*1024,instances:256,jobs:1});
 const TILE=1600/3;
@@ -20,10 +21,11 @@ export class FarStream {
       return [r.placement[0]+(t.x-r.tile_origin[0])*TILE,r.placement[1]+(t.y-r.tile_origin[1])*TILE];
     });
   }
-  focus({epoch,region,position,enabled}) {
+  focus({epoch,region,position,enabled,view}) {
     if(!Number.isSafeInteger(epoch)||![0,1].includes(region)||!Array.isArray(position)||
       position.length!==3||!position.every(Number.isFinite)||typeof enabled!=='boolean')
       throw Error('Invalid distant worker focus');
+    if(view!==undefined)validateView(view);
     if(this.region!==undefined && region!==this.region) {
       this.scene.clear();this.resident.clear();this.failures.clear();this.reset=true;
     } else if(epoch!==this.epoch) {
@@ -31,6 +33,12 @@ export class FarStream {
     }
     if(epoch!==this.epoch)this.reset=true;
     this.epoch=epoch;this.region=region;this.position=position;this.enabled=enabled;
+    const r=this.manifest.regions[region],toSource=v=>[-v[2],-v[0],v[1]];
+    const nextView=view?{...view,right:toSource(view.right),up:toSource(view.up),look:toSource(view.look),
+      eye:[-view.eye[2]+r.placement[1]+(32-r.tile_origin[1])*TILE,
+        -view.eye[0]+r.placement[0]+(32-r.tile_origin[0])*TILE,view.eye[1]]}:undefined;
+    if(viewChanged(this.scene.view,nextView))this.scene.revision++;
+    this.scene.view=nextView;
     if(!enabled){this.wanted=[];return;}
     const distance=i=>{
       const p=this.positions[i];
@@ -40,6 +48,13 @@ export class FarStream {
     this.wanted=this.manifest.tiles.map((t,i)=>({t,i,distance:t.region===region?distance(i):Infinity}))
       .filter(t=>t.distance<SCENE_LIMITS.distantRadius).sort((a,b)=>a.distance-b.distance)
       .slice(0,SCENE_LIMITS.distantTiles).map(t=>t.i);
+    if(view){
+      const behind=i=>{
+        const p=this.positions[i];
+        return (p[0]+TILE/2-view.eye[0])*view.look[0]+(p[1]+TILE/2-view.eye[2])*view.look[2]<-TILE;
+      };
+      this.wanted.sort((a,b)=>Number(behind(a))-Number(behind(b))||distance(a)-distance(b));
+    }
     for(const index of this.resident)if(!this.wanted.includes(index)) {
       this.scene.removeDistantTile(keyOf(this.manifest.tiles[index]));this.resident.delete(index);
     }
@@ -133,6 +148,7 @@ export class FarStream {
       failures:[...this.failures.values()],scene:{instances:state.instances.length,models:state.cachedModels,
         textures:state.cachedTextures,bytes:state.cachedBytes,pending:state.pending,errors:state.errors,
         capacityBlocked:state.capacityBlocked,decoder:state.timings},
+      budgetOmitted:state.budgetOmitted,
       wasmBytes:this.memory(),wasmPeakBytes:this.wasmPeakBytes,selectionMs:this.selectionMs,
       publications:this.publications,transferPeakBytes:this.transferPeakBytes};
   }

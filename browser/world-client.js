@@ -54,13 +54,14 @@ export class WorldClient {
     this.info=result.info;this.state=result.state;
     return result;
   }
-  frame(dt,throttle,steer,flags,focus,distant=true) {
+  frame(dt,throttle,steer,flags,focus,distant=true,view) {
     if(!!focus!==this.poseFlying){this.discardFrame();this.poseFlying=!!focus;}
     const hop=!!(flags&8)&&!focus;
     if(hop&&!this.hopHeld)this.pendingHop=++this.hopSequence;
     this.hopHeld=hop;
     this.elapsed=Math.min(.1,this.elapsed+dt);
     this.pendingFrame={throttle,steer,flags,focus,distant,sampleTime:performance.now()};
+    if(view!==undefined)this.pendingFrame.view=view;
     this.flushFrame();
   }
   discardFrame() {

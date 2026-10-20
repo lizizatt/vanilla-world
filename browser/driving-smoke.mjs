@@ -90,7 +90,7 @@ try{
       'let phaseStart=performance.now();const phases=[];const phase=name=>{const now=performance.now();phases.push({name,ms:now-phaseStart});phaseStart=now;};const candidates = new Map(), requests = new Map(), farCandidates=[];');
     replace('for (const p of this.placementList(this.distantTiles,map))',
       "phase('near');for (const p of this.placementList(this.distantTiles,map))");
-    replace('if (this.npcs) {',"phase('distant');if (this.npcs) {");
+    replace("if (this.npcs&&mode!=='collision') {","phase('distant');if (this.npcs&&mode!=='collision') {");
     replace('const all = [...candidates.values(),...farCandidates];',"phase('npcs');const all = [...candidates.values(),...farCandidates];");
     replace('const keep = new Set(this.instances.map(i => i.key));',"phase('sort');const keep = new Set(this.instances.map(i => i.key));");
     replace('for (const [visualRank,i] of this.instances.entries()) {',
@@ -98,6 +98,18 @@ try{
     replace('// Roots with no loaded metadata',"phase('materials');// Roots with no loaded metadata");
     replace('this.selectionRevision = this.revision;',
       "phase('finish');globalThis.drivingWork?.push({kind:'selection-phases',ms:phases.reduce((n,p)=>n+p.ms,0),phases,candidates:all.length,nearCandidates:this.collisionCandidates.length,unknownBounds:all.filter(i=>!i.boundsKnown).length,requests:requests.size});this.selectionRevision = this.revision;");
+    replace('this.mergeRequests();this.selectionRevision=this.revision;',
+      "phase('required');globalThis.drivingWork?.push({kind:'collision-phases',ms:phases.reduce((n,p)=>n+p.ms,0),phases,candidates:all.length});this.mergeRequests();this.selectionRevision=this.revision;");
+    body+=`
+      for(const [type,names] of [[SceneStream,['collisionPlacements']],[CollisionPlacementIndex,['refresh','query']]])
+        for(const name of names){
+          const original=type.prototype[name];
+          type.prototype[name]=function(...args){
+            const start=performance.now();
+            try{return original.apply(this,args);}
+            finally{const ms=performance.now()-start;if(ms>1)globalThis.drivingWork?.push({kind:'collision-'+name,ms});}
+          };
+        }`;
     await route.fulfill({response,body});
   });
   if(process.env.SCENE_REQUESTS==='1')await context.route('**/scene-stream.js',async route=>{
@@ -162,8 +174,10 @@ try{
     replace('const result=await handle(data),start=performance.now();','const begin=performance.timeOrigin+performance.now();const result=await handle(data),start=performance.now();if(result.telemetry)result.transport={begin,end:performance.timeOrigin+start};');
     replace("postMessage({event:'scene',region,", "const scenePayload={instances:sendInstances?sceneState.instances.length:0,updatedInstances:typeof instancePayload==='undefined'?(sendInstances?sceneState.instances.length:0):(instancePayload.instances?.length??0),geometryBytes:assets.reduce((n,a)=>n+a.vertices.byteLength+a.indices.byteLength,0),textureBytes:textures.reduce((n,t)=>n+t.rgba.byteLength,0)};postMessage({event:'scene',region,");
     replace('timings.scenePostMs+=performance.now()-start;', "const posted=performance.now()-start;drivingWork.push({kind:'scene-message',ms:posted,...scenePayload});timings.scenePostMs+=posted;");
-    for(const call of ['prepareDistant(focus,message.distant!==false,!!message.focus)','water?.setFocus(focus)',
-      'terrain.prioritize(region,x,y)','far.focus(region,focus.slice(),enabled)','source.refresh?.()','world.telemetry()']){
+    for(const call of ['prepareDistant(focus,message.distant!==false,!!message.focus)',
+      'prepareDistant(focus,message.distant!==false,!!message.focus,message.view)','water?.setFocus(focus)',
+      'terrain.prioritize(region,x,y)','far.focus(region,focus.slice(),enabled)','far.focus(region,focus.slice(),enabled,view)',
+      'source.refresh?.()','world.telemetry()']){
       body=body.replaceAll(call,`(()=>{const began=performance.now();try{return ${call};}finally{
         const ms=performance.now()-began;if(ms>=.5)drivingWork.push({kind:${JSON.stringify(call)},ms});}})()`);
     }
