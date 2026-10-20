@@ -10,6 +10,7 @@ const output=new URL(`./test-results/loading/${process.env.LABEL||'current'}/`,i
 await mkdir(output,{recursive:true});
 const browser=await chromium.launch({channel:'msedge',headless:true});
 const results=[];
+const checkArt=process.env.CHECK_ART==='1';
 try {
   const context=await browser.newContext({viewport:{width:1280,height:800},serviceWorkers:'block'});
   await context.addInitScript(()=>{delete Navigator.prototype.serviceWorker;window.loadingTrace=[];});
@@ -33,6 +34,16 @@ try {
   });
   const assetUrl=new URL('./asset-worker.js',base);
   let assetBody=await (await fetch(assetUrl)).text();
+  const indexed="postMessage({event:'progress',stage:'archives',text:'Indexing local archives',...progress}));";
+  assert(assetBody.includes(indexed),'Missing indexed-source trace hook');
+  assetBody=assetBody.replace(indexed,indexed+`
+    const originalRead=source.read;
+    source.read=async(path,options)=>{
+      const start=performance.now()+performance.timeOrigin;
+      try{return await originalRead(path,options);}
+      finally{postMessage({event:'load-trace',kind:'archive-read',path,background:!!options?.background,
+        start,end:performance.now()+performance.timeOrigin});}
+    };`);
     for(const [before,after] of [
       ['jobs.push(data);','data.queuedAt=performance.now();jobs.push(data);'],
       ['active=job.id;','active=job.id;job.startedAt=performance.now();'],
@@ -83,7 +94,23 @@ try {
         this.onEvent=data=>{
           if(data.event==='load-trace')loadingTrace.push(data);
           if(data.event==='progress')loadingTrace.push({kind:'progress',...data,end:performance.timeOrigin+performance.now()});
-          return event(data);
+          const result=event(data);
+          if(data.event==='loading-art'){
+            const screen=document.getElementById('loading-art');
+            loadingTrace.push({kind:'loading-art',part:data.kind,width:data.width,height:data.height,
+              displayed:document.getElementById('loading-screen').open&&!screen.hidden,
+              end:performance.timeOrigin+performance.now()});
+            if(data.kind==='screen'&&screen.width){
+              const pixels=screen.getContext('2d').getImageData(0,0,screen.width,screen.height).data;
+              let matching=true,colored=0;
+              for(let i=0;i<pixels.length;i+=4096){
+                if(pixels[i]!==data.rgba[i]||pixels[i+1]!==data.rgba[i+1]||pixels[i+2]!==data.rgba[i+2])matching=false;
+                if(pixels[i]!==pixels[i+1]||pixels[i+1]!==pixels[i+2])colored++;
+              }
+              loadingTrace.at(-1).pixels={matching,colored};
+            }
+          }
+          return result;
         };
         return open.apply(this,args);
       };
@@ -99,12 +126,26 @@ try {
       assert.equal(await page.locator('#loading-progress').getAttribute('role'),'progressbar');
       await page.keyboard.press('Escape');
       assert(await page.locator('#loading-screen').isVisible(),'Escape must not expose a blocked world');
-      await page.screenshot({path:fileURLToPath(new URL(`${label}-loading.png`,output))});
+      if(!checkArt&&!await page.locator('#loading-art').count())
+        await page.screenshot({path:fileURLToPath(new URL(`${label}-loading.png`,output))});
     }
     await page.waitForFunction(()=>worldEvidence.ready||worldEvidence.errors.length,null,{timeout:180000});
     assert.deepEqual(await page.evaluate(()=>worldEvidence.errors),[]);
     const readyMs=await page.evaluate(()=>performance.timeOrigin+performance.now()-loadingStarted);
     if(process.env.CHECK_SCREEN==='1')assert(await page.locator('#loading-screen').isHidden());
+    if(checkArt){
+      const art=await page.evaluate(()=>({
+        reads:loadingTrace.filter(e=>e.kind==='archive-read').sort((a,b)=>a.start-b.start),
+        images:loadingTrace.filter(e=>e.kind==='loading-art'),
+        screen:document.getElementById('loading-art').width,
+        bar:document.getElementById('loading-bar-art').width,
+      }));
+      assert.equal(art.reads[0].path,'DBFilesClient\\LoadingScreens.dbc');
+      assert(art.images.some(e=>e.part==='screen'&&e.displayed&&e.pixels.matching&&e.pixels.colored>0),
+        'Actual local loading artwork must reach a visible canvas before entry');
+      assert.deepEqual(art.images.map(e=>e.part).sort(),['background','border','fill','screen']);
+      assert.equal(art.screen,0);assert.equal(art.bar,0);
+    }
     await page.keyboard.down('w');
     await page.waitForFunction(()=>worldEvidence.state?.telemetry[5]>2&&!worldEvidence.state.scene.waitingCollision
       &&!worldEvidence.state.telemetry[8],null,{timeout:60000});

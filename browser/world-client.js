@@ -10,6 +10,7 @@ export class WorldClient {
     for(const request of this.requests.values()) request.reject(new DOMException('World closed','AbortError'));
     this.requests.clear();this.inFlight=false;this.discardFrame();
   }
+  stopLoadingArt(){this.worker?.postMessage({action:'stop-loading-art'});}
   request(action,fields={}) {
     if(!this.worker) return Promise.reject(new Error('Select the local Data folder first.'));
     if(action==='reset' || action==='restore')this.discardFrame();
@@ -20,7 +21,7 @@ export class WorldClient {
       catch(error){this.requests.delete(id);reject(error);}
     });
   }
-  async open(folder) {
+  async open(folder,loadingMap) {
     this.stop();
     const worker=new Worker('./world-worker.js',{type:'module'});
     this.worker=worker;
@@ -50,7 +51,7 @@ export class WorldClient {
       this.requests.delete(data.id);
       if(data.error)request.reject(new Error(data.error));else request.resolve(data.result);
     };
-    const result=await this.request('open',{folder,sceneInstanceDeltas:true,sceneInstanceUpdates:true,postFrameVisuals:true});
+    const result=await this.request('open',{folder,loadingMap,sceneInstanceDeltas:true,sceneInstanceUpdates:true,postFrameVisuals:true});
     this.info=result.info;this.state=result.state;
     return result;
   }

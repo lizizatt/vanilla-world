@@ -68,6 +68,16 @@ dialog h2 { color: #ffb34d; margin-top: 0; }
 #loading-screen { width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: max(24px, env(safe-area-inset-top)); background: radial-gradient(ellipse at 50% 35%, #263137, #090d12 75%); text-align: center; }
 #loading-screen[open] { display: grid; place-items: center; }
 #loading-screen::backdrop { background: #090d12; }
+#loading-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.loading-bar { position: relative; }
+#loading-bar-art { display: block; width: 100%; height: auto; }
+.has-loading-bar #loading-progress { position: absolute; opacity: 0; }
+.has-loading-art .loading-frame { position: relative; align-self: end; width: min(900px, 100%); padding: 12px 24px; border: 0; box-shadow: none; background: #090d12dd; }
+.has-loading-art .loading-kicker { display: none; }
+.has-loading-art #loading-title { font-size: 22px; margin: 0 0 12px; }
+.has-loading-art #loading-tip { margin-top: 12px; }
+#loading-warning:empty { display: none; }
+#loading-warning { color: #f0d48a; font-size: 12px; }
 .loading-frame { width: min(680px, 100%); padding: 48px clamp(16px, 5vw, 64px); border-block: 2px solid #9c7b41; box-shadow: 0 1px #dac18a, 0 -1px #40351f; }
 .loading-kicker { color: #dac18a; letter-spacing: .25em; text-transform: uppercase; font-size: 12px; }
 #loading-title { color: #ead5a4; font: 38px/1.2 Georgia, serif; margin: 24px 0 36px; }

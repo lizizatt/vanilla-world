@@ -181,6 +181,53 @@ Five fixed-pose Edge captures completed without browser errors; sampled dedicate
 GPU memory was 399-457 MiB. Distant terrain geometry/color discontinuities remain
 for the separate color-ring stage.
 
+## Runtime loading-screen artwork
+
+After archive indexing, the first archive asset read is
+`DBFilesClient\LoadingScreens.dbc`. The previous continent is used when known;
+otherwise the first valid authored entry is the default. The selected BLP and
+`Interface\Glues\LoadingBar\Loading-Bar{Background,Fill,Border}.blp` are decoded
+with the existing BLP decoder. Missing or invalid art produces an explicit
+nonfatal notice and retains the art-free screen/native progress bar.
+
+Only the small DBC read is foreground work. Image reads use the existing
+preemptible background extraction queue, retry when required world reads take
+priority, and stop on dismissal. No worker, MPQ index or decode lane was added.
+The images are transferred directly into temporary canvases: no object URLs,
+image files, IndexedDB records, service-worker image entries or shipped artwork.
+All canvases, including the bar's intermediate surfaces, are cleared on close;
+late results are ignored. The accessible native progress element remains driven
+by actual stage counts underneath the decorative bar.
+
+Isolated Edge checks verified the DBC was first, actual decoded screen pixels
+reached the visible canvas, all three bar parts appeared before entry, Escape
+could not expose an unready world, and dismissal/error cleanup removed the
+surfaces. The artwork check deliberately does not save loading-screen captures.
+The local default screen arrived around 0.49-0.78 seconds after folder selection.
+
+Matched first-motion measurements against `c17975b`, in seconds:
+
+| Execution order | Baseline cold / warm | Artwork cold / warm |
+| --- | --- | --- |
+| Forward | 2.07 / 1.97 | 2.20 / 1.89 |
+| Reverse | 2.15 / 2.47 | 2.42 / 2.14 |
+
+Cold entry cost about 0.12-0.28 seconds here; warm results were faster but are not
+a speedup claim. Browser/worker contexts were fresh on cold entry; OS file cache
+and shared-host load were uncontrolled.
+
+**This artwork checkpoint has an explicitly accepted telemetry-tail caveat, not
+a passing strict moving-tail gate.** `loading-local-art` measured active-handler
+p99 7.5/6.1 ms, but moving freezes over 50 ms were **1/0**. The forward freeze was
+81.6 ms, attributed to an 88.7 ms `world.telemetry()` call after the artwork was
+already dismissed. Active selection was 8.7/6.5 ms and terrain-stream maxima
+4.7/6.7 ms. A separate, single bounded profile with artwork removed caught a
+48.5 ms telemetry pause with a 38.8 ms sampling gap, but did not isolate a costly
+Rust surface-sampling operation. That profile is diagnostic, not another gate.
+No speculative physics fix or telemetry commit was made; the artwork was
+checkpointed under the explicit fallback authorization. Shell cache v37 includes
+the new loader module.
+
 ## Explore
 
 Selecting Data now opens a full-screen, art-free loading view with accessible
