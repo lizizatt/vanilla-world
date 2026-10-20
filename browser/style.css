@@ -108,3 +108,9 @@ dialog h2 { color: #ffb34d; margin-top: 0; }
 #race-board strong { display: block; margin-bottom: 4px; color: #ffd36a; }
 #race-board .this { color: #6bff9a; font-weight: 700; }
 #race-hud[hidden], #race-board[hidden], #race-arrow[hidden] { display: none; }
+#race-menu { min-width: 240px; padding: 16px 20px; background: #1a1209; border: 3px double #c8a24a; border-radius: 6px; color: #ffd36a; }
+#race-menu::backdrop { background: rgba(0,0,0,.55); }
+#race-menu h2 { margin: 0 0 12px; font-size: 1.1rem; text-align: center; }
+#race-menu button { display: block; width: 100%; margin: 6px 0; padding: 8px; background: #3a2810; color: #ffd36a; border: 1px solid #c8a24a; border-radius: 4px; font: inherit; cursor: pointer; }
+#race-menu button:hover, #race-menu button:focus-visible { background: #5a3d18; }
+#race-menu button[hidden] { display: none; }

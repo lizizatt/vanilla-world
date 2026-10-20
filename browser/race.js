@@ -54,6 +54,12 @@ export class Race {
   lined(now) { if(this.state==='lineup'){this.state='countdown';this.cd=now;} }
   countdown(now) { return this.state==='countdown'?Math.max(0,COUNTDOWN_SECONDS-(now-this.cd)):0; }
   elapsed(now) { return this.state==='running'?now-this.t0:this.time??0; }
+  pause(now) { if(this.paused===undefined&&(this.state==='countdown'||this.state==='running'))this.paused=now; }
+  resume(now) {
+    if(this.paused===undefined)return;
+    const d=now-this.paused;this.paused=undefined;
+    if(this.state==='countdown')this.cd+=d;else if(this.state==='running')this.t0+=d;
+  }
   cancel(reason='cancelled') { if(this.state!=='idle'&&this.state!=='finished'){this.state='cancelled';this.reason=reason;} }
   // Advance with the craft's latest position. Returns 'go', 'gate', 'finish' or null.
   update(pos,now) {
