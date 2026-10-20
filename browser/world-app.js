@@ -1,7 +1,7 @@
 import {WorldClient} from './world-client.js';
 import {WorldRenderer} from './world-renderer.js';
 import {rememberDataFolder,restoreDataFolder,forgetDataFolder,authorizeDataFolder} from './asset-folder.js';
-import {worldSave,worldTuning,validateWorldSave,LAYOUT_VERSION,raceScores} from './world-store.js';
+import {worldSave,worldTuning,validateWorldSave,LAYOUT_VERSION,raceScores,trackOverride} from './world-store.js';
 import {overview,moveFlight} from './flight.js';
 import {WorldInput,DRIVE_KEYS} from './world-input.js';
 import {WorldAudio} from './world-audio.js';
@@ -10,7 +10,8 @@ import {CameraCollision} from './camera-collision.js';
 import {LoadingArt} from './loading-art.js';
 import {MusicPlayer} from './world-music.js';
 import {MapPanel} from './map-panel.js';
-import {Race,formatTime,bearing,addScore,validScores} from './race.js';
+import {Race,formatTime,bearing,addScore,validScores,validateTrack} from './race.js';
+import {createTrackEditor} from './track-editor.js';
 import {loadTracks,nearestFlag,flagPosition} from './race-flags.js';
 
 const $=id=>document.getElementById(id),canvas=$('world'),keys=new Set();
@@ -173,7 +174,7 @@ async function open(selection,remember=false) {
     renderer.reset();renderer.clipCamera=undefined;cameraCollision.reset();flight=undefined;pauseAudio();music.stop();Object.assign(settings,defaults);syncSettings();
     const result=await client.open(selection,loadingMap);
     renderer.configure(result.info.manifest);client.sky();mapPanel.configure(result.info.manifest);
-    void loadTracks().then(found=>{tracks=found;gateKey=undefined;renderer.setFlags(found.map(flagPosition));});
+    void loadTracks().then(async found=>{tracks=await withOverrides(found);gateKey=undefined;renderer.setFlags(tracks.map(flagPosition));});
     cameraCollision.configure(result.info.manifest);
     tuningValues=Array.isArray(result.info.tuning)?result.info.tuning.slice():TUNING_FIELDS.map(f=>f[1]);
     opened=true;
@@ -316,6 +317,7 @@ $('tuning-panel').addEventListener('close',()=>{keys.clear();canvas.focus();});
 canvas.addEventListener('keydown',event=>{
   if(!event.repeat && event.code==='KeyN' && !event.ctrlKey && !event.altKey && !event.metaKey)setNight(!settings.night);
   if(!event.repeat && event.code==='KeyM' && !event.ctrlKey && !event.altKey && !event.metaKey && running){event.preventDefault();keys.clear();dragging=false;mouseButtons=0;mapPanel.toggle();}
+  if(!event.repeat && event.code==='KeyT' && !event.ctrlKey && !event.altKey && !event.metaKey && running){event.preventDefault();toggleEditor();return;}
   if(!event.repeat && event.code==='Escape' && running && !raceMenu.open){event.preventDefault();openRaceMenu();return;}
   if(DRIVE_KEYS.has(event.code)) {
     event.preventDefault();keys.add(event.code);if(!event.repeat)input.keyboard();
@@ -342,19 +344,50 @@ document.addEventListener('visibilitychange',()=>{keys.clear();last=0;if(documen
 const raceMenu=$('race-menu');
 function openRaceMenu() {
   keys.clear();dragging=false;mouseButtons=0;
-  $('race-restart').hidden=$('race-abandon').hidden=!race;
+  $('race-restart').hidden=$('race-abandon').hidden=!race;$('race-editor').hidden=!!race;
   race?.pause(performance.now()/1000);raceMenu.showModal();
 }
 raceMenu.addEventListener('close',()=>{race?.resume(performance.now()/1000);canvas.focus();});
 $('race-restart').addEventListener('click',()=>{const track=race?.track;raceMenu.close();race=undefined;if(track)startRace(track);});
 $('race-abandon').addEventListener('click',()=>{race?.cancel('abandoned');raceMenu.close();});
+$('race-editor').addEventListener('click',()=>{raceMenu.close();toggleEditor();});
 $('race-settings').addEventListener('click',()=>{raceMenu.close();$('preferences').open=true;$('preferences').scrollIntoView?.({block:'nearest'});});
-let gateKey;
+let gateKey,editorFlight;
+const mergeTrack=(list,t)=>list.some(x=>x.id===t.id)?list.map(x=>x.id===t.id?t:x):[...list,t];
+async function withOverrides(found) {
+  let list=found;
+  try {
+    for(const id of (await trackOverride('~index'))||[]) {
+      try{list=mergeTrack(list,validateTrack(await trackOverride(id)));}catch{}
+    }
+  } catch {}
+  return list;
+}
+const editor=createTrackEditor({
+  view:()=>renderer?.view,tracks:()=>tracks,
+  save:async track=>{
+    await trackOverride(track.id,track);
+    const ids=new Set((await trackOverride('~index'))||[]);ids.add(track.id);await trackOverride('~index',[...ids]);
+    tracks=mergeTrack(tracks,track);
+  },
+  test:track=>startRace(track),
+  closed:()=>{flight=editorFlight;editorFlight=undefined;gateKey=undefined;keys.clear();renderer.setFlags(tracks.map(flagPosition));canvas.focus();},
+});
+function toggleEditor() {
+  if(race||!running||!client.state)return;
+  if(editor.isOpen){editor.close();return;}
+  keys.clear();dragging=false;mouseButtons=0;editorFlight=flight;
+  editor.open(client.state.telemetry.slice(0,3));
+}
+let editorStart;
 function syncGates(force) {
-  const key=tracks.map(t=>t.id).join()+'|'+(race?race.track.id+race.gateIndex:'');
+  const live=editor.isOpen?mergeTrack(tracks,editor.draft.preview()):tracks;
+  const key=live.map(t=>t.id).join()+'|'+(race?race.track.id+race.gateIndex:'')+(editor.isOpen?'|'+editor.draft.revision+':'+editor.selected:'');
   if(!force&&key===gateKey)return;
   gateKey=key;
-  renderer.setGates(tracks.flatMap(t=>t.gates.map((gate,i)=>({gate,next:race?.track.id===t.id&&race.gateIndex===i}))));
+  const pick=editor.isOpen?editor.draft.trackId:undefined;
+  renderer.setGates(live.flatMap(t=>t.gates.map((gate,i)=>({gate,next:pick?t.id===pick&&i===editor.selected:race?.track.id===t.id&&race.gateIndex===i}))));
+  if(editor.isOpen){const s=JSON.stringify(editor.draft.start);if(s!==editorStart){editorStart=s;renderer.setFlags(live.map(flagPosition));}}
 }
 function startRace(track) {
   if(race||busy||!running||!client.info)return;
@@ -418,7 +451,7 @@ function frame(now) {
     return;
   }
   try {
-    const focused=document.hasFocus(),editing=$('tuning-panel').open||mapPanel.open||raceMenu.open;
+    const focused=document.hasFocus(),editing=$('tuning-panel').open||mapPanel.open||raceMenu.open||editor.isOpen;
     const accepts=document.activeElement===canvas && focused && !editing;
     const controls={...input.sample(keys,testPads || Array.from(navigator.getGamepads?.() || []),accepts,settings.controls,!focused||!editing)};
     if(controls.reset)$('reset').click();
@@ -433,11 +466,13 @@ function frame(now) {
       flight[4]=Math.max(-1.55,Math.min(1.55,flight[4]-cameraOrbit[1]*.004));
     }
     if(race){flight=undefined;if(!raceMenu.open)raceFrame(controls,now/1000);}
+    if(editor.isOpen)flight=editor.pose();
     syncGates();
     if(!frozenPresentation)client.frame(dt,controls.throttle,controls.steer,controls.flags,flight?.slice(0,3),settings.distant,renderer.view);
     cameraCollision.frame(client.state,renderer.sceneRegion ?? client.state.telemetry[10]);
     const stats=renderer.draw(frozenPresentation || flight?client.state.telemetry:client.presentation(),flight,dt,frozenPresentation?0:now/1000,
       {...settings,cameraLook:controls.look,cameraOrbit,cameraSteer:right,cameraRecentre:keyDrive&&!dragging},keys.has('KeyV')&&!keys.has('AltLeft')&&!keys.has('AltRight'));
+    editor.frame();
     const cameraWarning=stats.cameraBlocked==='pending'?'Cockpit view waiting for nearby camera geometry.'
       :stats.cameraBlocked?'Cockpit view blocked by nearby geometry.':'';
     $('camera-blocked').hidden=!cameraWarning;

@@ -37,6 +37,7 @@ async function stored(key,record) {
 export const worldSave=(sourceId,record)=>stored(`${LAYOUT_VERSION}:${sourceId}`,record);
 export const worldTuning=(sourceId,record)=>stored(`tuning:${LAYOUT_VERSION}:${sourceId}`,record);
 export const raceScores=(trackId,record)=>stored(`race:1:${trackId}`,record);
+export const trackOverride=(id,record)=>stored(`track:1:${id}`,record);
 export const worldLiquids=(sourceId,tile,record)=>stored(`liquids:2:${sourceId}:${tile}`,record);
 export function validateWorldSave(save,sourceId) {
   if (!save) return;
