@@ -649,8 +649,8 @@ export class WorldRenderer {
   }
   drawClouds(pass,time,daylight,near) {
     this.device.queue.writeBuffer(this.cloudBuffer,0,cloudUniform(this.view,time,daylight,this.manifest,near,this.gameSky));
-    pass.setPipeline(this.cloudPipeline);pass.setBindGroup(0,this.cloudGroup);pass.draw(6);
     pass.setPipeline(this.funnelPipeline);pass.setBindGroup(0,this.funnelGroup);pass.draw(3);
+    pass.setPipeline(this.cloudPipeline);pass.setBindGroup(0,this.cloudGroup);pass.draw(6);
   }
   drawScene(pass,draws) {
     const firstTransparent=draws.findIndex(draw=>draw.batch.transparent);

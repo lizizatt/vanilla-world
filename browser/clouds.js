@@ -67,7 +67,7 @@ fn density(pos:vec3f,t:f32)->vec2f {
   let eye=smoothstep(${M.eyeRadius.toFixed(1)},${(M.eyeRadius*1.5).toFixed(1)},r);
   let coverage=clamp(mix(.4,mix(.1,.95,arm),storm)+.6*wall,0.0,.95)*eye;
   let top=(n-(1.0-coverage))*(2.2+1.6*wall);
-  let body=smoothstep(0.0,.18,top-hf*.9)*smoothstep(0.0,.1,hf+.05);
+  let body=smoothstep(0.0,.3,top-hf*.9)*smoothstep(0.0,.1,hf+.05);
   return vec2f(body,storm*(.55+.45*smoothstep(${(M.eyeRadius).toFixed(1)},${(M.wallRadius*2).toFixed(1)},r)));
 }
 @fragment fn fs(v:V)->@location(0) vec4f {
@@ -86,17 +86,17 @@ fn density(pos:vec3f,t:f32)->vec2f {
     t1=min(t1,sceneDist);
   }
   if(t1<=t0||edge<=0.0){discard;}
-  let step=(t1-t0)/6.0;
+  let step=(t1-t0)/8.0;
   var trans=1.0;var light=vec3f(0);
   let sun=vec3f(.35,.8,.45);
-  let jitter=.3*hash(v.clip.xy);
-  for(var i=0;i<6;i++){
+  let jitter=fract(52.9829189*fract(dot(v.clip.xy,vec2f(.06711056,.00583715))));
+  for(var i=0;i<8;i++){
     let pos=c.eye.xyz+dir*(t0+step*(f32(i)+jitter));
     let s=density(pos,t);
     if(s.x<=.001){continue;}
     let hf=clamp((pos.y-ya)/THICK,0.0,1.0);
     let absorb=1.0-exp(-s.x*step*.008);
-    let lit=mix(.38,1.0,hf)*mix(.55,1.0,s.y)*(.55+.45*trans);
+    let lit=mix(.62,1.0,hf)*mix(.75,1.0,s.y)*(.7+.3*trans);
     let tone=mix(vec3f(.55,.60,.70),vec3f(.98,.97,.95),lit)*lit+vec3f(.18,.1,.1)*(1.0-s.y)*lit;
     light+=trans*absorb*tone;trans*=1.0-absorb;
   }
