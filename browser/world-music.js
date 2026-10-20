@@ -2,12 +2,17 @@ const FADE=2;
 
 /** Intermittent zone music: tracks arrive as encoded bytes from the worker, play through a media element, then silence. */
 export class MusicPlayer {
-  constructor({request,context,now=()=>performance.now(),random=Math.random,hour=()=>new Date().getHours()}) {
-    Object.assign(this,{requestMusic:request,context,clock:now,random,hour});
+  constructor({request,context,now=()=>performance.now(),random=Math.random}) {
+    Object.assign(this,{requestMusic:request,context,clock:now,random,isNight:false});
     this.volume=.5;this.set=0;this.area=undefined;this.areaAt=-1e9;this.nextAt=0;this.silence=[0,0];this.tracks=0;
     this.pending=false;this.current=undefined;this.playing=new Set();this.errors=0;this.lastError='';this.serial=0;
   }
-  get night() {const h=this.hour();return h<6||h>=18;}
+  get night() {return this.isNight;}
+  setNight(night) {
+    night=!!night;
+    if(night===this.isNight)return;
+    this.isNight=night;this.area=undefined;this.nextAt=0;this.fadeOut();
+  }
   output(ctx) {
     if(!this.master||this.master.context!==ctx){
       this.master=ctx.createGain();this.master.gain.value=this.volume;this.master.connect(ctx.destination);

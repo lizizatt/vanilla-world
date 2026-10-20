@@ -1238,6 +1238,10 @@ slices 28.2/22.0 ms: this is a p99 pass, not a hard all-work 20 ms guarantee.
 114 focused tests cover visual NPC residency, shared-model static solids,
 collision-index exclusion and pose readiness during pending optional reads.
 
+## Day / night
+
+The **Night (N)** setting (default day, kept in `localStorage` and the save's settings) picks the day or night zone-music variants (previously night was chosen from the machine clock) and grades scene/terrain colours, fog, the clear colour and the water shader's sky reflection through one existing uniform slot (`forward.w`), eased over about a second. It is analytic only: no new passes or art.
+
 ## Checks and evidence
 
 ```powershell

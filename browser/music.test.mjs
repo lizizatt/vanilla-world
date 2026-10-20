@@ -61,7 +61,7 @@ function fixture() {
   const ctx={state:'running',currentTime:0,destination:{},createGain:()=>({...node(),context:ctx}),
     createMediaElementSource:()=>node()};
   globalThis.Audio=class{constructor(url){this.url=url;tracks.push(this);}play(){return Promise.resolve();}pause(){}load(){}removeAttribute(){}};
-  const player=new MusicPlayer({request:r=>requests.push(r),context:()=>ctx,now:()=>time.now,random:()=>.5,hour:()=>12});
+  const player=new MusicPlayer({request:r=>requests.push(r),context:()=>ctx,now:()=>time.now,random:()=>.5});
   return {player,requests,time,tracks,ctx};
 }
 test('player requests the set once per area change, plays a track, then waits out the silence gap',()=>{
@@ -88,4 +88,12 @@ test('leaving music for a no-music area silences it and stale replies are ignore
   time.now=9000;player.update(11,true);
   assert.equal(requests.filter(r=>r.track).length,0);
   player.update(11,false);player.stop();assert.equal(player.snapshot().set,0);
+});
+
+test('day is the default regardless of the clock and the toggle re-requests the other variant',()=>{
+  const {player,requests,time}=fixture();
+  player.update(10,true);assert.equal(requests[0].night,false);
+  player.event({area:10,set:5,silence:[0,0],tracks:1});
+  player.setNight(true);time.now=2000;player.update(10,true);
+  assert.equal(requests.at(-1).night,true);assert.equal(requests.at(-1).track,false);
 });
