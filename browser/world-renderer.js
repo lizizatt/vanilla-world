@@ -4,7 +4,7 @@ import {MINIMAP_SIZE,TERRAIN_TEXTURE_SIZE} from './terrain-stream.js';
 import {cameraView,craftMatrix,cockpitAnchor} from './world-camera.js';
 import {COAST_GPU_LIMIT} from './water-stream.js';
 import {WATER_NORMAL_SIZE,waterNormalMips,waterShading,dayShading} from './water-shader.js';
-import {cloudShader,funnelShader,cloudUniform,maelstromCentre} from './clouds.js';
+import {cloudShader,cloudUniform,maelstromCentre} from './clouds.js';
 import {SkyCatalog,mapPosition,skyShader,skyDomeShader,skyUniform,advanceTime,nightAlpha,nightAngle,DAY} from './sky.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
 export {sceneVisible} from './world-view.js';
@@ -266,10 +266,6 @@ export class WorldRenderer {
     const cloudModule=await shader(cloudShader);
     this.cloudPipeline=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module:cloudModule,entryPoint:'vs'},
       fragment:{module:cloudModule,entryPoint:'fs',targets:[{format:this.format,blend:{color:{srcFactor:'src-alpha',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},
-      primitive:{topology:'triangle-list',cullMode:'none'}});
-    const funnelModule=await shader(funnelShader);
-    this.funnelPipeline=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module:funnelModule,entryPoint:'vs'},
-      fragment:{module:funnelModule,entryPoint:'fs',targets:[{format:this.format,blend:{color:{srcFactor:'src-alpha',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},
       primitive:{topology:'triangle-list',cullMode:'none'}});
     this.skyBuffer=this.device.createBuffer({size:144,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
     const skyModule=await shader(skyShader);
@@ -649,8 +645,7 @@ export class WorldRenderer {
   }
   drawClouds(pass,time,daylight,near) {
     this.device.queue.writeBuffer(this.cloudBuffer,0,cloudUniform(this.view,time,daylight,this.manifest,near,this.gameSky));
-    pass.setPipeline(this.funnelPipeline);pass.setBindGroup(0,this.funnelGroup);pass.draw(3);
-    pass.setPipeline(this.cloudPipeline);pass.setBindGroup(0,this.cloudGroup);pass.draw(6);
+    pass.setPipeline(this.cloudPipeline);pass.setBindGroup(0,this.cloudGroup);pass.draw(3);
   }
   drawScene(pass,draws) {
     const firstTransparent=draws.findIndex(draw=>draw.batch.transparent);
@@ -683,8 +678,6 @@ export class WorldRenderer {
         usage:GPUTextureUsage.RENDER_ATTACHMENT|GPUTextureUsage.TEXTURE_BINDING});
       this.cloudGroup=this.device.createBindGroup({layout:this.cloudPipeline.getBindGroupLayout(0),
         entries:[{binding:0,resource:{buffer:this.cloudBuffer}},{binding:1,resource:this.depth.createView()}]});
-      this.funnelGroup=this.device.createBindGroup({layout:this.funnelPipeline.getBindGroupLayout(0),
-        entries:[{binding:0,resource:{buffer:this.cloudBuffer}},{binding:1,resource:this.depth.createView()}]});
     }
     const origin=flight?[Math.round(flight[0]),Math.round(flight[2])]:[state[11],state[12]];
     const p=[state[0]-origin[0],state[1],state[2]-origin[1]];
@@ -700,7 +693,7 @@ export class WorldRenderer {
     const game=this.sampleSky(),sky=game?game.fog:sky0;
     this.gameSky=game;
     const skyFloats=game?[...game.fog,1,...game.sun,0,...game.horizon,0,...game.mid,0]:new Array(16).fill(0);
-    if(this.manifest){const [mx,mz]=maelstromCentre(this.manifest);skyFloats[7]=mx-origin[0];skyFloats[11]=mz-origin[1];skyFloats[15]=1;}
+    if(this.manifest?.world_bounds){const [mx,mz]=maelstromCentre(this.manifest);skyFloats[7]=mx-origin[0];skyFloats[11]=mz-origin[1];skyFloats[15]=1;}
     const view=[...this.camera,200000,...right,origin[0]%4096,...up,origin[1]%4096,...look,daylight];
     const distant=settings.horizon?this.horizon.filter(h=>!this.tiles.has(h.near)):[];
     const coastal=[...this.coast].flatMap(([index,item])=>

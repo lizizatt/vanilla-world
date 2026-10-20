@@ -40,18 +40,17 @@ fn vnoise(p:vec2f)->f32 {
   return mix(mix(hash(i),hash(i+vec2f(1,0)),s.x),mix(hash(i+vec2f(0,1)),hash(i+vec2f(1,1)),s.x),s.y);
 }`;
 const M=MAELSTROM;
+const F=FUNNEL;
+// One fullscreen ray march samples the cumulus sheet and the funnel together, always taking whichever sample is nearer,
+// so the two volumes occlude each other in true front-to-back order. Both are clipped to the scene depth.
 export const cloudShader=COMMON+`
-struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f};
+struct V {@builtin(position) clip:vec4f,@location(0) ndc:vec2f};
 @vertex fn vs(@builtin(vertex_index) i:u32)->V {
-  var q=array<vec2f,6>(vec2f(-1,-1),vec2f(1,-1),vec2f(1,1),vec2f(-1,-1),vec2f(1,1),vec2f(-1,1));
-  let position=vec3f(c.eye.x+q[i].x*c.cloud.w,c.cloud.z,c.eye.z+q[i].y*c.cloud.w);
-  let relative=position-c.eye.xyz;let z=dot(relative,c.look.xyz);
-  var v:V;v.clip=vec4f(dot(relative,c.right.xyz)/(0.55*c.right.w),dot(relative,c.up.xyz)/0.55,
-    (z*.999-c.near.x)*c.eye.w/(c.eye.w-c.near.x),z);
-  v.p=position;return v;
+  var q=array<vec2f,3>(vec2f(-1,-1),vec2f(3,-1),vec2f(-1,3));
+  var v:V;v.clip=vec4f(q[i],0.5,1);v.ndc=q[i];return v;
 }
 const THICK=${CLOUD_THICKNESS.toFixed(1)};
-fn density(pos:vec3f,t:f32)->vec2f {
+fn sheetDensity(pos:vec3f,t:f32)->vec2f {
   let hf=clamp((pos.y-(c.cloud.z-THICK*.5))/THICK,0.0,1.0);
   let d=pos.xz-c.cloud.xy;let r=length(d);
   let turn=t*${M.drift}*exp(-r/${M.radius.toFixed(1)});
@@ -71,52 +70,6 @@ fn density(pos:vec3f,t:f32)->vec2f {
   let body=smoothstep(0.0,.3,top-hf*.9)*smoothstep(0.0,.1,hf+.05);
   return vec2f(body,storm*(.55+.45*smoothstep(${(M.eyeRadius).toFixed(1)},${(M.wallRadius*2).toFixed(1)},r)));
 }
-@fragment fn fs(v:V)->@location(0) vec4f {
-  let t=c.up.w;let night=1.0-c.look.w;
-  let toPoint=v.p-c.eye.xyz;let dist=length(toPoint);let dir=toPoint/dist;
-  if(abs(dir.y)<.0005){discard;}
-  let ya=c.cloud.z-THICK*.5;let yb=c.cloud.z+THICK*.5;
-  let ta=(ya-c.eye.y)/dir.y;let tb=(yb-c.eye.y)/dir.y;
-  let t0=max(0.0,min(ta,tb));var t1=min(max(ta,tb),t0+9000.0);
-  // Linearise the scene depth (same projection as the terrain shader) into distance along this ray.
-  let d=textureLoad(sceneDepth,vec2i(v.clip.xy),0);
-  var edge=1.0;
-  if(d<1.0){
-    let sceneDist=c.near.x*c.eye.w/(c.eye.w-d*(c.eye.w-c.near.x))/max(dot(dir,c.look.xyz),.05);
-    edge=smoothstep(0.0,350.0,sceneDist-t0);
-    t1=min(t1,sceneDist);
-  }
-  if(t1<=t0||edge<=0.0){discard;}
-  let step=(t1-t0)/8.0;
-  var trans=1.0;var light=vec3f(0);
-  let sun=vec3f(.35,.8,.45);
-  let jitter=fract(52.9829189*fract(dot(v.clip.xy,vec2f(.06711056,.00583715))));
-  for(var i=0;i<8;i++){
-    let pos=c.eye.xyz+dir*(t0+step*(f32(i)+jitter));
-    let s=density(pos,t);
-    if(s.x<=.001){continue;}
-    let hf=clamp((pos.y-ya)/THICK,0.0,1.0);
-    let absorb=1.0-exp(-s.x*step*.008);
-    let lit=mix(.62,1.0,hf)*mix(.75,1.0,s.y)*(.7+.3*trans);
-    let tone=mix(vec3f(.55,.60,.70),vec3f(.98,.97,.95),lit)*lit+vec3f(.18,.1,.1)*(1.0-s.y)*lit;
-    light+=trans*absorb*tone;trans*=1.0-absorb;
-  }
-  var alpha=(1.0-trans)*(1.0-smoothstep(30000.0,c.cloud.w,dist))*.96*edge;
-  if(alpha<.01){discard;}
-  let game=c.tint.w>.5;
-  let grade=select(mix(vec3f(1.0),vec3f(.2,.27,.5),night),mix(vec3f(1.0),c.tint.rgb,.6),game);
-  let fog=select(mix(vec3f(.08,.15,.20),vec3f(.008,.016,.045),night),c.fog.rgb,game);
-  let color=light/max(1.0-trans,.001)*grade;
-  return vec4f(mix(color,fog,clamp(dist/150000.0,0.0,.93)),alpha);
-}`;
-
-const F=FUNNEL;
-export const funnelShader=COMMON+`
-struct V {@builtin(position) clip:vec4f,@location(0) ndc:vec2f};
-@vertex fn vs(@builtin(vertex_index) i:u32)->V {
-  var q=array<vec2f,3>(vec2f(-1,-1),vec2f(3,-1),vec2f(-1,3));
-  var v:V;v.clip=vec4f(q[i],0.5,1);v.ndc=q[i];return v;
-}
 const BASE=${(CLOUD_ALTITUDE-CLOUD_THICKNESS*.5).toFixed(1)};
 const SEA=${F.seaLevel.toFixed(1)};
 const TOP=${(CLOUD_ALTITUDE+F.top).toFixed(1)};
@@ -124,7 +77,7 @@ fn radius(h:f32,y:f32)->f32 {
   let up=mix(${F.baseRadius.toFixed(1)},${F.topRadius.toFixed(1)},pow(h,${F.flare.toFixed(2)}));
   return mix(${F.skirtRadius.toFixed(1)},up,pow(smoothstep(SEA,BASE,y),.5));
 }
-fn density(pos:vec3f,t:f32)->vec2f {
+fn funnelDensity(pos:vec3f,t:f32)->vec2f {
   let h=clamp((pos.y-BASE)/(TOP-BASE),0.0,1.0);
   let d=pos.xz-c.cloud.xy;let r=length(d);
   let rel=r/radius(h,pos.y);
@@ -135,48 +88,78 @@ fn density(pos:vec3f,t:f32)->vec2f {
   let body=shell*smoothstep(SEA,SEA+250.0,pos.y)*smoothstep(1.0,.82,h);
   return vec2f(body,h);
 }
+const NS=8;
+const NF=14;
 @fragment fn fs(v:V)->@location(0) vec4f {
   let t=c.up.w;let night=1.0-c.look.w;
   let dir=normalize(c.look.xyz+c.right.xyz*v.ndc.x*.55*c.right.w+c.up.xyz*v.ndc.y*.55);
-  let o=c.eye.xz-c.cloud.xy;let dxz=dir.xz;
-  let R=${Math.max(F.topRadius,F.skirtRadius).toFixed(1)}*1.05;
-  let a=dot(dxz,dxz);let b=dot(o,dxz);let k=dot(o,o)-R*R;
-  var t0=0.0;var t1=1e9;
-  if(a>1e-8){
-    let disc=b*b-a*k;if(disc<0.0){discard;}
-    let sq=sqrt(disc);t0=max(0.0,(-b-sq)/a);t1=(-b+sq)/a;
-  } else if(k>0.0){discard;}
-  if(abs(dir.y)>1e-4){
-    let ta=(SEA-c.eye.y)/dir.y;let tb=(TOP-c.eye.y)/dir.y;
-    t0=max(t0,min(ta,tb));t1=min(t1,max(ta,tb));
-  } else if(c.eye.y<SEA||c.eye.y>TOP){discard;}
-  if(t1<=t0){discard;}
-  var edge=1.0;
-  let d=textureLoad(sceneDepth,vec2i(v.clip.xy),0);
-  if(d<1.0){
-    let sceneDist=c.near.x*c.eye.w/(c.eye.w-d*(c.eye.w-c.near.x))/max(dot(dir,c.look.xyz),.05);
-    edge=smoothstep(0.0,300.0,sceneDist-t0);
-    t1=min(t1,sceneDist);
-  }
-  if(t1<=t0||edge<=0.0){discard;}
-  let step=(t1-t0)/14.0;
-  var trans=1.0;var light=vec3f(0);
-  let jitter=.3*hash(v.clip.xy);
-  for(var i=0;i<14;i++){
-    let pos=c.eye.xyz+dir*(t0+step*(f32(i)+jitter));
-    let s=density(pos,t);
-    if(s.x<=.001){continue;}
-    let absorb=1.0-exp(-s.x*step*.004);
-    let lit=mix(.32,1.0,pow(s.y,.7))*(.6+.4*trans);
-    let tone=mix(vec3f(.5,.52,.6),vec3f(.98,.96,.94),lit)*lit+vec3f(.2,.08,.06)*(1.0-s.y)*lit;
-    light+=trans*absorb*tone;trans*=1.0-absorb;
-  }
-  let dist=length(c.eye.xyz-vec3f(c.cloud.x,(BASE+TOP)*.5,c.cloud.y));
-  let alpha=(1.0-trans)*(1.0-smoothstep(${F.fadeStart.toFixed(1)},${F.fadeEnd.toFixed(1)},dist))*.95*edge;
-  if(alpha<.01){discard;}
   let game=c.tint.w>.5;
   let grade=select(mix(vec3f(1.0),vec3f(.2,.27,.5),night),mix(vec3f(1.0),c.tint.rgb,.6),game);
   let fog=select(mix(vec3f(.08,.15,.20),vec3f(.008,.016,.045),night),c.fog.rgb,game);
-  let color=light/max(1.0-trans,.001)*grade;
-  return vec4f(mix(color,fog,clamp(dist/200000.0,0.0,.9)),alpha);
+  // Linearise the scene depth (same projection as the terrain shader) into distance along this ray.
+  let d=textureLoad(sceneDepth,vec2i(v.clip.xy),0);
+  var sceneDist=1e9;
+  if(d<1.0){sceneDist=c.near.x*c.eye.w/(c.eye.w-d*(c.eye.w-c.near.x))/max(dot(dir,c.look.xyz),.05);}
+  // Sheet slab extent.
+  var s0=0.0;var s1=0.0;var ns=0;var sEdge=1.0;
+  let ya=c.cloud.z-THICK*.5;let yb=c.cloud.z+THICK*.5;
+  if(abs(dir.y)>.0005){
+    let ta=(ya-c.eye.y)/dir.y;let tb=(yb-c.eye.y)/dir.y;
+    s0=max(0.0,min(ta,tb));s1=min(max(ta,tb),s0+9000.0);
+    if(sceneDist<1e8){sEdge=smoothstep(0.0,350.0,sceneDist-s0);s1=min(s1,sceneDist);}
+    if(s1>s0&&sEdge>0.0){ns=NS;}
+  }
+  // Funnel cylinder-and-height extent.
+  var f0=0.0;var f1=1e9;var nf=NF;var fEdge=1.0;
+  let o=c.eye.xz-c.cloud.xy;let dxz=dir.xz;
+  let R=${Math.max(F.topRadius,F.skirtRadius).toFixed(1)}*1.05;
+  let qa=dot(dxz,dxz);let qb=dot(o,dxz);let qk=dot(o,o)-R*R;
+  if(qa>1e-8){
+    let disc=qb*qb-qa*qk;
+    if(disc<0.0){nf=0;} else {let sq=sqrt(disc);f0=max(0.0,(-qb-sq)/qa);f1=(-qb+sq)/qa;}
+  } else if(qk>0.0){nf=0;}
+  if(abs(dir.y)>1e-4){
+    let ta=(SEA-c.eye.y)/dir.y;let tb=(TOP-c.eye.y)/dir.y;
+    f0=max(f0,min(ta,tb));f1=min(f1,max(ta,tb));
+  } else if(c.eye.y<SEA||c.eye.y>TOP){nf=0;}
+  if(sceneDist<1e8){fEdge=smoothstep(0.0,300.0,sceneDist-f0);f1=min(f1,sceneDist);}
+  if(f1<=f0||fEdge<=0.0){nf=0;}
+  if(ns==0&&nf==0){discard;}
+  let ss=(s1-s0)/f32(NS);let fstep=(f1-f0)/f32(NF);
+  let sJit=fract(52.9829189*fract(dot(v.clip.xy,vec2f(.06711056,.00583715))));
+  let fJit=.3*hash(v.clip.xy);
+  let fDist=length(c.eye.xyz-vec3f(c.cloud.x,(BASE+TOP)*.5,c.cloud.y));
+  let fWeight=(1.0-smoothstep(${F.fadeStart.toFixed(1)},${F.fadeEnd.toFixed(1)},fDist))*.95*fEdge;
+  var trans=1.0;var light=vec3f(0);
+  var i=0;var j=0;
+  for(var n=0;n<NS+NF;n++){
+    if(i>=ns&&j>=nf){break;}
+    let ts=s0+ss*(f32(i)+sJit);let tf=f0+fstep*(f32(j)+fJit);
+    if(i<ns&&(j>=nf||ts<=tf)){
+      i++;
+      let pos=c.eye.xyz+dir*ts;
+      let s=sheetDensity(pos,t);
+      if(s.x<=.001){continue;}
+      let hf=clamp((pos.y-ya)/THICK,0.0,1.0);
+      let w=(1.0-smoothstep(30000.0,c.cloud.w,ts))*.96*sEdge;
+      let absorb=(1.0-exp(-s.x*ss*.008))*w;
+      let lit=mix(.62,1.0,hf)*mix(.75,1.0,s.y)*(.7+.3*trans);
+      let tone=mix(vec3f(.55,.60,.70),vec3f(.98,.97,.95),lit)*lit+vec3f(.18,.1,.1)*(1.0-s.y)*lit;
+      light+=trans*absorb*mix(tone*grade,fog,clamp(ts/150000.0,0.0,.93));trans*=1.0-absorb;
+    } else {
+      j++;
+      let pos=c.eye.xyz+dir*tf;
+      let s=funnelDensity(pos,t);
+      if(s.x<=.001){continue;}
+      let absorb=(1.0-exp(-s.x*fstep*.004))*fWeight;
+      let lit=mix(.32,1.0,pow(s.y,.7))*(.6+.4*trans);
+      let tone=mix(vec3f(.5,.52,.6),vec3f(.98,.96,.94),lit)*lit+vec3f(.2,.08,.06)*(1.0-s.y)*lit;
+      light+=trans*absorb*mix(tone*grade,fog,clamp(fDist/200000.0,0.0,.9));trans*=1.0-absorb;
+    }
+    if(trans<.01){break;}
+  }
+  let alpha=1.0-trans;
+  if(alpha<.01){discard;}
+  return vec4f(light/alpha,alpha);
 }`;
+export const funnelShader=cloudShader;
