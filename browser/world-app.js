@@ -10,12 +10,15 @@ import {CameraCollision} from './camera-collision.js';
 import {LoadingArt} from './loading-art.js';
 import {MusicPlayer} from './world-music.js';
 import {MapPanel} from './map-panel.js';
+import {Race} from './race.js';
+import {loadTracks,nearestFlag,flagPosition} from './race-flags.js';
 
 const $=id=>document.getElementById(id),canvas=$('world'),keys=new Set();
 const input=new WorldInput(),audio=new WorldAudio();
 const cameraCollision=new CameraCollision();
 const evidence={ready:false,frames:0,errors:[],mode:'drive'};
 window.worldEvidence=evidence;
+let tracks=[],race,promptTrack,goUntil=0;
 let renderer,folder,flight,running=false,busy=false,last=0,frames=0,hudTime=0,hudFrames=0,permissionNeeded=false;
 let orbit=[0,0],dragging=false,mouseButtons=0,soundAttempt=0,soundError='',soundTime=0,reportTimer,testPads,frozenPresentation=false,tuningValues=TUNING_FIELDS.map(f=>f[1]);
 const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:false,cockpit:false,night:false,clouds:true};
@@ -170,6 +173,7 @@ async function open(selection,remember=false) {
     renderer.reset();renderer.clipCamera=undefined;cameraCollision.reset();flight=undefined;pauseAudio();music.stop();Object.assign(settings,defaults);syncSettings();
     const result=await client.open(selection,loadingMap);
     renderer.configure(result.info.manifest);client.sky();mapPanel.configure(result.info.manifest);
+    void loadTracks().then(found=>{tracks=found;renderer.setFlags(found.map(flagPosition));});
     cameraCollision.configure(result.info.manifest);
     tuningValues=Array.isArray(result.info.tuning)?result.info.tuning.slice():TUNING_FIELDS.map(f=>f[1]);
     opened=true;
@@ -315,7 +319,7 @@ canvas.addEventListener('keydown',event=>{
   if(DRIVE_KEYS.has(event.code)) {
     event.preventDefault();keys.add(event.code);if(!event.repeat)input.keyboard();
     if(!event.repeat && event.code==='F9')$('reset').click();
-    if(!event.repeat && event.code==='KeyF' && !event.ctrlKey && !event.altKey)cockpit();
+    if(!event.repeat && event.code==='KeyF' && !event.ctrlKey && !event.altKey){if(promptTrack&&!race)startRace(promptTrack);else cockpit();}
     if(!event.repeat && event.code==='KeyV' && event.ctrlKey && event.altKey && !event.shiftKey)cockpit();
     resumeAudio(true);
   }
@@ -334,6 +338,27 @@ canvas.addEventListener('blur',()=>{keys.clear();orbit=[0,0];dragging=false;mous
 window.addEventListener('blur',()=>{keys.clear();pauseAudio();});
 window.addEventListener('focus',()=>resumeAudio());
 document.addEventListener('visibilitychange',()=>{keys.clear();last=0;if(document.hidden)pauseAudio();else resumeAudio();});
+function startRace(track) {
+  if(race||busy||!running||!client.info)return;
+  operation(async()=>{
+    flight=undefined;
+    const [x,y,z]=track.start.pos;
+    client.state=await client.request('restore',{pose:[x,y+2,z,track.start.yaw]});
+    renderer.camera=undefined;running=true;$('error').hidden=true;
+    race=new Race(track);const t=performance.now()/1000;race.start(t);race.lined(t);promptTrack=undefined;
+  });
+}
+function raceFrame(controls,t) {
+  if(race.state==='lineup'||race.state==='countdown'){controls.throttle=0;controls.steer=0;}
+  const count=Math.ceil(race.countdown(t)),event=race.update(client.state.telemetry,t);
+  if(event==='go')goUntil=t+.8;
+  const text=race.state==='countdown'?String(count):t<goUntil?'GO!':'';
+  const box=$('race-countdown');
+  if(box.textContent!==text){box.textContent=text;box.hidden=!text;}
+  if(race.state==='finished'||race.state==='cancelled'){
+    report(race.state==='finished'?`Race finished in ${race.time.toFixed(2)} s.`:`Race ${race.reason}.`,true);race=undefined;
+  }
+}
 function frame(now) {
   requestAnimationFrame(frame);
   if(now-soundTime>250){syncSound();soundTime=now;}
@@ -358,6 +383,7 @@ function frame(now) {
       flight=moveFlight(flight,keys,dt);flight[3]-=cameraOrbit[0]*.004;
       flight[4]=Math.max(-1.55,Math.min(1.55,flight[4]-cameraOrbit[1]*.004));
     }
+    if(race)raceFrame(controls,now/1000);
     if(!frozenPresentation)client.frame(dt,controls.throttle,controls.steer,controls.flags,flight?.slice(0,3),settings.distant,renderer.view);
     cameraCollision.frame(client.state,renderer.sceneRegion ?? client.state.telemetry[10]);
     const stats=renderer.draw(frozenPresentation || flight?client.state.telemetry:client.presentation(),flight,dt,frozenPresentation?0:now/1000,
@@ -375,6 +401,8 @@ function frame(now) {
     if(now-hudTime>250) {
       const s=client.state,p=s.telemetry,scene=s.scene;
       const held=!!scene?.waitingCollision || !!p[8];
+      promptTrack=race||flight?undefined:nearestFlag(tracks,p);
+      $('race-prompt').hidden=!promptTrack;if(promptTrack)$('race-prompt').textContent=`Press F to start race: ${promptTrack.name||promptTrack.id}`;
       $('speed').textContent=flight?'FLY':p[5]<10000?p[5].toFixed(0).padStart(3,'0'):p[5].toExponential(1);
       $('direction').textContent=flight?'FREE':p[14]<-.1?'REV':p[14]>.1?'FWD':p[5]<.1?'IDLE':'--';
       $('drive-state').textContent=flight?'FLIGHT':scene?.waitingCollision||p[8]===1?'WAIT':p[8]===3?'CONTACT':p[8]===2?'NO GROUND':p[7]?'HOVER':'AIR';
