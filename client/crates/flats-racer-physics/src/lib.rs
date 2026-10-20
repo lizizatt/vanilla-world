@@ -7,6 +7,9 @@
 use std::{error::Error, fmt};
 
 pub const FIXED_DT: f32 = 1.0 / 120.0;
+/// Boost reserve fraction per second: 7.5 s of full boost, 10 s to recharge from empty.
+pub const BOOST_DRAIN_PER_SEC: f32 = 0.4 / 3.0;
+pub const BOOST_RECHARGE_PER_SEC: f32 = 0.1;
 /// Equilibrium distance in world units from body center to a level support surface.
 pub const HOVER_HEIGHT: f32 = 1.1;
 /// Downward probe length measured from body center, not from the bottom of the collision shape.
@@ -397,14 +400,14 @@ impl State {
             && self.boost_reserve > 0.0;
         // Prorate the final fraction of boost rather than granting a whole free last tick.
         let boost_fraction = if boosting {
-            (self.boost_reserve / (0.4 * dt)).min(1.0)
+            (self.boost_reserve / (BOOST_DRAIN_PER_SEC * dt)).min(1.0)
         } else {
             0.0
         };
         if boosting {
-            self.boost_reserve = (self.boost_reserve - 0.4 * dt).max(0.0);
+            self.boost_reserve = (self.boost_reserve - BOOST_DRAIN_PER_SEC * dt).max(0.0);
         } else if !input.boost {
-            self.boost_reserve = (self.boost_reserve + 0.2 * dt).min(1.0);
+            self.boost_reserve = (self.boost_reserve + BOOST_RECHARGE_PER_SEC * dt).min(1.0);
         }
         longitudinal += throttle
             * (tuning.acceleration as f64
@@ -624,7 +627,7 @@ mod tests {
             }
             assert!(state.yaw.abs() > 0.5);
             assert!(speed(&state) > 30.0);
-            assert!(state.boost_reserve < 0.7);
+            assert!(state.boost_reserve < 0.95);
         }
     }
 
@@ -747,7 +750,7 @@ mod tests {
             assert!(speed(&state) > 0.0);
             assert!(state.boost_reserve < 1.0);
         }
-        assert!((state.boost_reserve - 0.8).abs() < 0.00001);
+        assert!((state.boost_reserve - (1.0 - 0.2 / 3.0)).abs() < 0.00001);
         assert!(state.velocity[1].abs() < 0.0001);
         for _ in 0..600 {
             tick(&mut state, Input::default());
@@ -941,7 +944,7 @@ mod tests {
                 .unwrap();
         }
         assert!(speed(&state) > before + 1.0);
-        assert!((state.boost_reserve - (reserve - 0.4)).abs() < 0.00001);
+        assert!((state.boost_reserve - (reserve - 0.4 / 3.0)).abs() < 0.00001);
         assert!(state.velocity[1] < -20.0);
     }
 
@@ -1017,7 +1020,7 @@ mod tests {
                 }
                 assert!((speed(&normal) - tuning.acceleration * air_control).abs() < 0.001);
                 assert!((speed(&boosted) - (tuning.acceleration + tuning.boost_acceleration) * air_control).abs() < 0.001);
-                let expected = if air_control > 0.0 { 0.6 } else { 1.0 };
+                let expected = if air_control > 0.0 { 1.0 - 0.4 / 3.0 } else { 1.0 };
                 assert!((boosted.boost_reserve - expected).abs() < 0.00001);
                 assert_eq!(normal.boost_reserve, 1.0);
             }
@@ -1084,7 +1087,7 @@ mod tests {
             }
         }
         assert_eq!(boosted.boost_reserve, 0.0);
-        for _ in 0..600 {
+        for _ in 0..1200 {
             tick(&mut boosted, Input::default());
         }
         assert!((boosted.boost_reserve - 1.0).abs() < 0.00001);
