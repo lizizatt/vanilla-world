@@ -1,4 +1,5 @@
-import {modelPath} from './scene-stream.js';
+import {modelPath,sceneReady} from './scene-stream.js';
+export {sceneReady} from './scene-stream.js';
 import {MINIMAP_SIZE,TERRAIN_TEXTURE_SIZE} from './terrain-stream.js';
 import {cameraView,craftMatrix,cockpitAnchor} from './world-camera.js';
 import {COAST_GPU_LIMIT} from './water-stream.js';
@@ -43,6 +44,36 @@ export function terrainEdgeMask(entry,neighbors) {
   return [[-1,0],[1,0],[0,-1],[0,1]].reduce((mask,[dx,dy],edge)=>
     neighbors.some(t=>t.region===entry.region&&t.x===entry.x+dx&&t.y===entry.y+dy)?mask:mask|(1<<edge),0);
 }
+export function readySceneInstances(near,far,assets,textures) {
+  const fallback=new Map(far.map(i=>[i.id,i])),ids=new Set(near.map(i=>i.id));
+  return [...near.map(i=>{
+    const other=fallback.get(i.id);
+    return other&&!sceneReady(i,assets,textures)&&sceneReady(other,assets,textures)?other:i;
+  }),...far.filter(i=>!ids.has(i.id))];
+}
+export class AdmissionFade {
+  constructor(){this.entries=new Map();this.active=new Set();}
+  update(ids,time) {
+    if(ids.length>1024)throw Error('Admission fade exceeds the scene instance budget');
+    const active=new Set(ids);
+    for(const id of this.active)if(!active.has(id))this.entries.get(id).removed=time;
+    for(const id of active)if(!this.active.has(id)){
+      const old=this.entries.get(id),entry=old&&time-old.removed<=.25?old:{start:time};
+      this.entries.delete(id);this.entries.set(id,entry);
+    }
+    this.active=active;
+    for(const id of this.entries.keys()){
+      if(this.entries.size<=2048)break;
+      if(!active.has(id))this.entries.delete(id);
+    }
+  }
+  opacity(id,time) {
+    const entry=this.entries.get(id);
+    if(!entry)return 1;
+    const t=Math.min(1,Math.max(0,(time-entry.start)/.35));
+    return t*t*(3-2*t);
+  }
+}
 const terrainShader=`
 struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,body:vec4f,settings:vec4f,tile:vec4f};
 @group(0) @binding(0) var<uniform> u:U;
@@ -71,7 +102,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   let cell=vec2f(u.tile.w%64.0,floor(u.tile.w/64.0));
   let mapUv=(cell+clamp(v.uv,vec2f(.5/32.0),vec2f(1.0-.5/32.0)))/64.0;
   let mapColor=textureSample(minimap,mapSampler,mapUv);
-  if(v.material==3.0 && u.tile.w>=0.0){color=mix(color,mapColor.rgb,mapColor.a);}
+  if((v.material==0.0 || v.material==3.0) && u.tile.w>=0.0){color=mix(color,mapColor.rgb,mapColor.a);}
   if(v.material==1.0){color=vec3f(.1,.89,.82)*light;}
   if(v.material==2.0 || v.material==4.0){color=mix(vec3f(.025,.18,.29),vec3f(.06,.36,.48),ripple);}
   let fog=clamp(length(v.p-u.eye.xyz)/150000.0,0.0,.93);
@@ -115,6 +146,8 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) uv:vec
   if((edges&4u)!=0u){edgeDistance=min(edgeDistance,v.tileUv.y*(1600.0/3.0));}
   if((edges&8u)!=0u){edgeDistance=min(edgeDistance,(1.0-v.tileUv.y)*(1600.0/3.0));}
   color=mix(color,mapColor.rgb,(1.0-smoothstep(0.0,100.0/3.0,edgeDistance))*mapColor.a);
+  let base=mix(vec3f(.63,.59,.40)*v.light,mapColor.rgb,mapColor.a);
+  color=mix(base,color,u.settings.z);
   let fog=clamp(length(v.p-u.eye.xyz)/150000.0,0.0,.93);
   return vec4f(mix(color,vec3f(.08,.15,.20),fog),1);
 }`;
@@ -134,7 +167,8 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   let texel=textureSample(image,imageSampler,v.uv)*v.color;
   if(texel.a<u.material.x){discard;}
   let distance=length(v.p-u.eye.xyz);
-  if(u.material.z>0.0 && fract(dot(floor(v.clip.xy),vec2f(.754877666,.569840296)))>=1.0-smoothstep(3500.0,6000.0,distance)){discard;}
+  let coverage=u.material.w*select(1.0,1.0-smoothstep(3500.0,6000.0,distance),u.material.z>0.0);
+  if(fract(dot(floor(v.clip.xy),vec2f(.754877666,.569840296)))>=coverage){discard;}
   let light=mix(.4+.6*max(dot(normalize(v.n),normalize(vec3f(-.3,1.0,.4))),0.0),1.0,u.material.y);
   let fog=max(clamp(distance/150000.0,0.0,.93),u.material.z*.8*smoothstep(3500.0,6000.0,distance));
   return vec4f(mix(texel.rgb*light,vec3f(.08,.15,.20),fog),texel.a);
@@ -158,6 +192,7 @@ export class WorldRenderer {
     this.context=canvas.getContext('webgpu');this.context.configure({device,format:this.format,alphaMode:'opaque'});
     this.tiles=new Map();this.seams=new Map();this.horizon=[];this.water=[];this.coast=new Map();this.indices=new Map();
     this.coastBytes=0;
+    this.admissionFade=new AdmissionFade();
     this.assets=new Map();this.textures=new Map();this.items=new Map();this.instances=[];this.pipelines=new Map();
     this.materialPending=new Map();this.minimapAtlases=[];
     this.pendingEvents=[];
@@ -263,6 +298,8 @@ export class WorldRenderer {
     this.instances=[];this.nearInstances=[];this.farInstances=[];this.farRegion=undefined;
     this.camera=undefined;this.origin=[0,0];
     this.view=undefined;this.terrainView=undefined;
+    this.admissionFade?.entries.clear();
+    this.admissionFade?.active.clear();
     for(const item of this.materialPending.values())this.releaseMaterial(item.gpu);
     this.materialPending.clear();
     for(const texture of this.minimapAtlases)texture.destroy();this.minimapAtlases=[];
@@ -356,7 +393,7 @@ export class WorldRenderer {
         }
         if(!(liquid instanceof Float32Array)||liquid.length%21||liquid.byteLength>t.vertices.byteLength)
           throw Error('Invalid prepared terrain liquid');
-        this.tiles.set(t.index,{...this.drawable(t.vertices,t.placement),liquid,
+        this.tiles.set(t.index,{...this.drawable(t.vertices,t.placement,this.minimapAtlases[entry.region]),liquid,
           entry,cell:entry.x+64*entry.y});
       }
       const entries=[...this.tiles.values()].map(t=>t.entry);
@@ -411,10 +448,13 @@ export class WorldRenderer {
       if(instances!==undefined){
         if(far){this.farInstances=instances;this.farRegion=data.region;}
         else {this.nearInstances=instances;this.sceneRegion=data.region;}
-        const near=this.nearInstances||(far?this.instances:previousInstances),nearIds=new Set(near.map(i=>i.id));
-        this.instances=[...near,...(this.farRegion===this.sceneRegion?this.farInstances||[]:[])
-          .filter(i=>!nearIds.has(i.id))];
       }
+      const merged=readySceneInstances(this.nearInstances||(far?this.instances:previousInstances),
+        this.farRegion===this.sceneRegion?this.farInstances||[]:[],this.assets,this.textures);
+      if(merged.length!==this.instances.length||merged.some((i,n)=>i!==this.instances[n]))this.instances=merged;
+      this.admissionFade??=new AdmissionFade();
+      this.admissionFade.update(this.instances.filter(i=>this.assets.has(i.key)&&
+        (!i.distant||sceneReady(i,this.assets,this.textures))).map(i=>i.id),performance.now()/1000);
       const wanted=new Set(this.instances.map(i=>i.id));
       for(const [key,item] of this.items)if((wanted&&!wanted.has(item.id)) || !this.assets.has(item.key)){
         this.items.delete(key);
@@ -575,6 +615,8 @@ export class WorldRenderer {
       this.terrainView={view:this.view,all:allTerrain,
         visible:allTerrain.filter(item=>item===this.body || boundsVisible(item.bounds,this.view))};
     const terrain=this.terrainView.visible;
+    this.fadeTime=Math.max(this.fadeTime||0,time);
+    const fadeTime=this.fadeTime;
     let uniformCount=0;
     const u=this.uniformData;
     const writeUniform=item=>{
@@ -585,16 +627,21 @@ export class WorldRenderer {
     for(const item of terrain){
       const base=writeUniform(item),body=item===this.body;
       u.set(p,base+16);u[base+19]=body?state[3]:(item.edgeMask||0);
-      u[base+20]=aspect;u[base+21]=time;u[base+22]=state[4];u[base+23]=near;
+      if(item.material&&item.materialSince===undefined)item.materialSince=fadeTime;
+      u[base+20]=aspect;u[base+21]=time;
+      u[base+22]=body?state[4]:Math.min(1,Math.max(0,(fadeTime-(item.materialSince??fadeTime))/.35));u[base+23]=near;
       u[base+24]=body?0:item.placement[0]-origin[0];u[base+25]=0;
       u[base+26]=body?0:item.placement[1]-origin[1];u[base+27]=item.cell??-1;
     }
     const draws=[],selection=this.cameraBlocked?{selected:[],omitted:0}:
-      sceneSelection(this.instances.filter(i=>settings.distant!==false || !i.distant),this.assets,(instance,asset)=>
+      sceneSelection(this.instances.filter(i=>(settings.distant!==false || !i.distant)&&
+        (!i.distant||sceneReady(i,this.assets,this.textures))),this.assets,(instance,asset)=>
         sceneVisible(asset.bounds,this.sceneMatrix(instance,this.manifest.regions[this.sceneRegion],origin),
           this.camera,right,up,look,aspect));
     const append=(asset,instance,m,textures,items)=>{
         const distance=Math.hypot(m[12]-this.camera[0],m[13]-this.camera[1],m[14]-this.camera[2]);
+        this.admissionFade??=new AdmissionFade();
+        const coverage=instance.craft?1:this.admissionFade.opacity(instance.id,fadeTime);
         const cached=instance.drawItems || (instance.drawItems=[]);
         for(let b=0;b<asset.batches.length;b++) {
           const batch=asset.batches[b];
@@ -614,7 +661,8 @@ export class WorldRenderer {
           }
           const base=writeUniform(item);
           u[base+16]=aspect;u[base+17]=time;u[base+18]=0;u[base+19]=near;u.set(m,base+20);
-          u[base+36]=batch.alphaCutoff||0;u[base+37]=batch.emissive?1:0;u[base+38]=instance.distant?1:0;u[base+39]=0;
+          u[base+36]=batch.alphaCutoff||0;u[base+37]=batch.emissive?1:0;u[base+38]=instance.distant?1:0;
+          u[base+39]=distance<128?1:coverage;
           draws.push({asset,batch,item,distant:instance.distant,craft:instance.craft,pipeline:batch.pipeline,distance});
         }
     };

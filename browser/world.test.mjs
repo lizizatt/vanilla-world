@@ -309,11 +309,11 @@ test('direct uniform packing matches shader layouts and cached bindings follow t
     for(const item of renderer.drawnTerrain){
       const body=item===renderer.body,base=item.offset/4;
       assert.deepEqual(u.slice(base,base+28),new Float32Array([...view,...p,body?state[3]:(item.edgeMask||0),
-        2,123,state[4],.1,body?0:item.placement[0]-origin[0],0,body?0:item.placement[1]-origin[1],item.cell??-1]));
+        2,123,body?state[4]:0,.1,body?0:item.placement[0]-origin[0],0,body?0:item.placement[1]-origin[1],item.cell??-1]));
     }
     const base=renderer.drawnScene[0].item.offset/4;
     assert.deepEqual(u.slice(base,base+40),new Float32Array([...view,2,123,0,.1,
-      ...renderMatrix(instance.matrix,region,origin),.5,1,0,0]));
+      ...renderMatrix(instance.matrix,region,origin),.5,1,0,1]));
     renderer.tiles.set(5,{...detail,placement:horizon.placement});
     renderer.draw(state,undefined,1/60,124,{horizon:true,scenery:true});assert.equal(groups,1);
     assert(!renderer.drawnTerrain.includes(coastFar));

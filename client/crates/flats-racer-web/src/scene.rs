@@ -422,91 +422,118 @@ pub struct TerrainMaterial {
     indices: Vec<u32>,
     masks: Vec<u8>,
     paths: Vec<String>,
+    nw: [f64; 2],
+    chunks: usize,
 }
 
 impl TerrainMaterial {
-    fn build(tile: &benilla_formats::TileMesh, x: u32, y: u32) -> Result<Self, String> {
+    fn begin(tile: &benilla_formats::TileMesh, x: u32, y: u32) -> Result<Self, String> {
         if tile.chunks.is_empty() || tile.chunks.len() > 256 {
             return Err("Terrain requires 1..256 authored chunks".into());
         }
-        let mut out = Self {
-            vertices: Vec::new(),
-            indices: Vec::new(),
-            masks: vec![0; tile.chunks.len() * 64 * 64 * 4],
+        Ok(Self {
+            vertices: Vec::with_capacity(tile.vertex_count() * 13),
+            indices: Vec::with_capacity(tile.chunks.iter().map(|c| c.indices.len()).sum()),
+            masks: Vec::with_capacity(tile.chunks.len() * 64 * 64 * 4),
             paths: Vec::new(),
-        };
-        let nw = [
-            (32.0 - f64::from(y)) * crate::voyage::TILE,
-            (32.0 - f64::from(x)) * crate::voyage::TILE,
-        ];
-        for (chunk_id, chunk) in tile.chunks.iter().enumerate() {
-            validate_mesh(&chunk.positions, &chunk.indices)?;
-            if chunk.normals.len() != chunk.positions.len()
-                || chunk.uvs.len() != chunk.positions.len()
-                || chunk.layer_textures.is_empty()
-                || chunk.layer_textures.len() > 4
-                || chunk
-                    .alpha_map
-                    .as_ref()
-                    .is_some_and(|a| a.len() != 64 * 64 * 4)
-                || chunk.shadow.as_ref().is_some_and(|s| s.len() != 64 * 64)
-            {
-                return Err(format!(
-                    "Invalid terrain material streams in chunk {chunk_id}"
-                ));
-            }
-            let mut layers = [0.0; 4];
-            for (layer, path) in chunk.layer_textures.iter().enumerate() {
-                let path = path.replace('/', "\\").to_ascii_lowercase();
-                let index = if let Some(index) = out.paths.iter().position(|p| p == &path) {
-                    index
-                } else {
-                    if out.paths.len() == 64 {
-                        return Err("Terrain tile exceeds 64 unique texture layers".into());
-                    }
-                    out.paths.push(path);
-                    out.paths.len() - 1
-                };
-                layers[layer] = index as f32;
-            }
-            for layer in chunk.layer_textures.len()..4 {
-                layers[layer] = layers[0];
-            }
-            let mask = &mut out.masks[chunk_id * 16384..(chunk_id + 1) * 16384];
-            for (i, pixel) in mask.as_chunks_mut::<4>().0.iter_mut().enumerate() {
-                if let Some(alpha) = &chunk.alpha_map {
-                    pixel[..3].copy_from_slice(&alpha[i * 4..i * 4 + 3]);
-                }
-                pixel[3] = chunk.shadow.as_ref().map_or(0, |s| s[i]);
-            }
-            let base = (out.vertices.len() / 13) as u32;
-            for (i, p) in chunk.positions.iter().enumerate() {
-                let n = chunk.normals[i];
-                let uv = chunk.uvs[i];
-                if n.iter().chain(uv.iter()).any(|v| !v.is_finite())
-                    || n.iter().map(|v| v * v).sum::<f32>() < 0.01
-                {
-                    return Err("Invalid authored terrain normal or UV".into());
-                }
-                out.vertices.extend([
-                    (nw[1] - f64::from(p[1])) as f32,
-                    p[2],
-                    (nw[0] - f64::from(p[0])) as f32,
-                    -n[1],
-                    n[2],
-                    -n[0],
-                    uv[0],
-                    uv[1],
-                    layers[0],
-                    layers[1],
-                    layers[2],
-                    layers[3],
-                    chunk_id as f32,
-                ]);
-            }
-            // The native fan indices already omit every authored MCNK hole.
-            out.indices.extend(chunk.indices.iter().map(|i| base + i));
+            nw: [
+                (32.0 - f64::from(y)) * crate::voyage::TILE,
+                (32.0 - f64::from(x)) * crate::voyage::TILE,
+            ],
+            chunks: tile.chunks.len(),
+        })
+    }
+
+    fn step(&mut self, tile: &benilla_formats::TileMesh, x: u32, y: u32) -> Result<bool, String> {
+        if self.chunks != tile.chunks.len()
+            || self.nw
+                != [
+                    (32.0 - f64::from(y)) * crate::voyage::TILE,
+                    (32.0 - f64::from(x)) * crate::voyage::TILE,
+                ]
+        {
+            return Err("Terrain material belongs to a different tile".into());
         }
+        let chunk_id = self.masks.len() / 16384;
+        if chunk_id == self.chunks {
+            return Ok(true);
+        }
+        let chunk = &tile.chunks[chunk_id];
+        let nw = self.nw;
+        let out = self;
+        validate_mesh(&chunk.positions, &chunk.indices)?;
+        if chunk.normals.len() != chunk.positions.len()
+            || chunk.uvs.len() != chunk.positions.len()
+            || chunk.layer_textures.is_empty()
+            || chunk.layer_textures.len() > 4
+            || chunk
+                .alpha_map
+                .as_ref()
+                .is_some_and(|a| a.len() != 64 * 64 * 4)
+            || chunk.shadow.as_ref().is_some_and(|s| s.len() != 64 * 64)
+        {
+            return Err(format!(
+                "Invalid terrain material streams in chunk {chunk_id}"
+            ));
+        }
+        let mut layers = [0.0; 4];
+        for (layer, path) in chunk.layer_textures.iter().enumerate() {
+            let path = path.replace('/', "\\").to_ascii_lowercase();
+            let index = if let Some(index) = out.paths.iter().position(|p| p == &path) {
+                index
+            } else {
+                if out.paths.len() == 64 {
+                    return Err("Terrain tile exceeds 64 unique texture layers".into());
+                }
+                out.paths.push(path);
+                out.paths.len() - 1
+            };
+            layers[layer] = index as f32;
+        }
+        for layer in chunk.layer_textures.len()..4 {
+            layers[layer] = layers[0];
+        }
+        out.masks.resize((chunk_id + 1) * 16384, 0);
+        let mask = &mut out.masks[chunk_id * 16384..(chunk_id + 1) * 16384];
+        for (i, pixel) in mask.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+            if let Some(alpha) = &chunk.alpha_map {
+                pixel[..3].copy_from_slice(&alpha[i * 4..i * 4 + 3]);
+            }
+            pixel[3] = chunk.shadow.as_ref().map_or(0, |s| s[i]);
+        }
+        let base = (out.vertices.len() / 13) as u32;
+        for (i, p) in chunk.positions.iter().enumerate() {
+            let n = chunk.normals[i];
+            let uv = chunk.uvs[i];
+            if n.iter().chain(uv.iter()).any(|v| !v.is_finite())
+                || n.iter().map(|v| v * v).sum::<f32>() < 0.01
+            {
+                return Err("Invalid authored terrain normal or UV".into());
+            }
+            out.vertices.extend([
+                (nw[1] - f64::from(p[1])) as f32,
+                p[2],
+                (nw[0] - f64::from(p[0])) as f32,
+                -n[1],
+                n[2],
+                -n[0],
+                uv[0],
+                uv[1],
+                layers[0],
+                layers[1],
+                layers[2],
+                layers[3],
+                chunk_id as f32,
+            ]);
+        }
+        // The native fan indices already omit every authored MCNK hole.
+        out.indices.extend(chunk.indices.iter().map(|i| base + i));
+        Ok(chunk_id + 1 == out.chunks)
+    }
+
+    fn build(tile: &benilla_formats::TileMesh, x: u32, y: u32) -> Result<Self, String> {
+        let mut out = Self::begin(tile, x, y)?;
+        while !out.step(tile, x, y)? {}
         Ok(out)
     }
 }
@@ -554,6 +581,28 @@ impl Voyage {
             .ok_or_else(|| js("Tile is not resident"))?;
         let entry = &self.manifest.tiles[index];
         TerrainMaterial::build(tile, entry.x, entry.y).map_err(js)
+    }
+
+    pub fn begin_terrain_material(&self, index: usize) -> Result<TerrainMaterial, JsValue> {
+        let tile = self
+            .resident
+            .get(&index)
+            .ok_or_else(|| js("Tile is not resident"))?;
+        let entry = &self.manifest.tiles[index];
+        TerrainMaterial::begin(tile, entry.x, entry.y).map_err(js)
+    }
+
+    pub fn step_terrain_material(
+        &self,
+        index: usize,
+        material: &mut TerrainMaterial,
+    ) -> Result<bool, JsValue> {
+        let tile = self
+            .resident
+            .get(&index)
+            .ok_or_else(|| js("Tile is not resident"))?;
+        let entry = &self.manifest.tiles[index];
+        material.step(tile, entry.x, entry.y).map_err(js)
     }
 }
 
@@ -770,6 +819,20 @@ mod tests {
                 .unwrap();
             let tile = adt_to_tile_mesh(&bytes).unwrap();
             let material = TerrainMaterial::build(&tile, x, y).unwrap();
+            let mut staged = TerrainMaterial::begin(&tile, x, y).unwrap();
+            for chunk in 0..tile.chunks.len() {
+                assert_eq!(
+                    staged.step(&tile, x, y).unwrap(),
+                    chunk + 1 == tile.chunks.len()
+                );
+                assert_eq!(staged.masks.len(), (chunk + 1) * 16384);
+            }
+            assert!(staged.step(&tile, x, y).unwrap());
+            assert!(staged.step(&tile, x + 1, y).is_err());
+            assert_eq!(staged.vertices, material.vertices);
+            assert_eq!(staged.indices, material.indices);
+            assert_eq!(staged.masks, material.masks);
+            assert_eq!(staged.paths, material.paths);
             assert_eq!(
                 material.indices.len(),
                 tile.chunks.iter().map(|c| c.indices.len()).sum::<usize>()

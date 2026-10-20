@@ -1,7 +1,7 @@
 import init,{Voyage,world_manifest} from './pkg/flats_racer_web.js';
 import * as wasmTypes from './pkg/flats_racer_web.js';
 import {openAssetSource} from './asset-channel.js';
-import {SceneStream,SCENE_LIMITS,transformedBounds,globalCollisionVertices,boundsWithin,boundsDistance} from './scene-stream.js';
+import {SceneStream,SCENE_LIMITS,transformedBounds,globalCollisionVertices,boundsWithin,boundsDistance,sceneReady} from './scene-stream.js';
 import {TerrainStream} from './terrain-stream.js';
 import {loadCraft} from './craft-stream.js';
 import {WaterStream} from './water-stream.js';
@@ -16,6 +16,7 @@ let world,source,manifest,placements,scene,terrain,water,accumulator=0,queue=Pro
 let poseTime;
 const terrainErrors=new Map();
 let terrainFocus='';
+let terrainGridSource,terrainGrid;
 let craft={ready:false,pending:false};
 function startCraft() {
   if(craft.ready || craft.pending || craft.error)return;
@@ -161,7 +162,7 @@ function startFarWorker() {
     (message,transfers)=>postMessage(message,transfers),
     ()=>!!objectWait.length ||
       (!farFlight&&!Array.from(world.required_tiles()).every(i=>resident.has(i))));
-  if(sceneState)far.near(sceneState.instances.map(i=>i.id));
+  if(sceneState)far.near(readyNearIds());
 }
 let objectWait=[],cameraUnknown=[],lastHoldTime=0,lastHold='clear',holdRun=0;
 let unresolvedWindow;
@@ -177,6 +178,29 @@ const assetPath=t=>`World\\Maps\\${manifest.regions[t.region].map}\\${t.file}`;
 function distance(index,p) {
   const a=placements[index];
   return Math.hypot(Math.max(a[0]-p[0],0,p[0]-a[0]-TILE),Math.max(a[1]-p[1],0,p[1]-a[1]-TILE));
+}
+function nearbyTerrain(p) {
+  if(p.length!==2||!p.every(Number.isFinite))throw Error('Invalid terrain observer');
+  const low=p.map(v=>Math.floor((v-850)/TILE)),high=p.map(v=>Math.floor((v+850)/TILE));
+  if(![...low,...high].every(Number.isSafeInteger))throw Error('Invalid terrain observer');
+  if(terrainGridSource!==placements){
+    terrainGrid=new Map();terrainGridSource=placements;
+    for(let i=0;i<placements.length;i++){
+      const a=placements[i];
+      for(let x=Math.floor(a[0]/TILE);x<=Math.floor((a[0]+TILE)/TILE);x++)
+        for(let y=Math.floor(a[1]/TILE);y<=Math.floor((a[1]+TILE)/TILE);y++){
+          const key=`${x}:${y}`;
+          if(!terrainGrid.has(key))terrainGrid.set(key,[]);
+          terrainGrid.get(key).push(i);
+        }
+    }
+  }
+  const found=new Set();
+  for(let x=low[0];x<=high[0];x++)
+    for(let y=low[1];y<=high[1];y++)
+      for(const index of terrainGrid.get(`${x}:${y}`)||[])found.add(index);
+  return [...found].map(i=>[i,distance(i,p)]).filter(([,d])=>d<850)
+    .sort((a,b)=>a[1]-b[1]||a[0]-b[0]).map(([i])=>i);
 }
 function tileKey(index) {
   const t=manifest.tiles[index];
@@ -203,7 +227,7 @@ function recordTerrainFailure(index,error) {
 async function stream(p,pin,fill=false) {
   const required=pin?Array.from(world.required_tiles()):[];
   if(required.length>LIMIT)throw new Error('Support footprint exceeds the bounded terrain collision budget.');
-  const nearby=manifest.tiles.map((_,i)=>i).filter(i=>distance(i,p)<850).sort((a,b)=>distance(a,p)-distance(b,p));
+  const nearby=nearbyTerrain(p);
   const wanted=[...required,...nearby.filter(i=>!required.includes(i))].slice(0,LIMIT);
   const tiles=[],removed=[];
   if(terrainRead?.ready && !wanted.includes(terrainRead.index)) {
@@ -496,6 +520,9 @@ async function restorePose(pose) {
     throw error;
   } finally {sceneFocus=undefined;collisionFocus=undefined;}
 }
+function readyNearIds() {
+  return sceneState.instances.filter(i=>sceneReady(i,sceneState.assets,sceneState.textures)).map(i=>i.id);
+}
 function publishScene(region) {
   if(!sceneSubmissionPending)return;
   const assets=[],textures=[],removedAssets=[],removedTextures=[],transfers=[];
@@ -528,7 +555,7 @@ function publishScene(region) {
     const start=performance.now();
     postMessage({event:'scene',region,...instancePayload,
       assets,textures,removedAssets,removedTextures},transfers);
-    if(instancesChanged)far.near(sceneState.instances.map(i=>i.id));
+    far.near(readyNearIds());
     timings.scenePostMs+=performance.now()-start;timings.scenePosts++;
     if(sendInstances)timings.sceneInstancePosts++;
     for(const key of removedAssets)sentAssets.delete(key);
@@ -555,7 +582,9 @@ function prepareTerrainMaterial() {
     try {
       if(postFrameVisuals&&terrain.prepareTile){
         const owner=terrain,generation=materialGeneration;materialBusy=true;
-        void terrain.prepareTile(index,world.terrain_material(index)).catch(error=>{
+        const ownerWorld=world,staged=!!world.begin_terrain_material;
+        const material=staged?world.begin_terrain_material(index):world.terrain_material(index);
+        void terrain.prepareTile(index,material,staged?()=>ownerWorld.step_terrain_material(index,material):undefined).catch(error=>{
           if(terrain===owner&&generation===materialGeneration&&resident.has(index))
             terrainErrors.set(index,`Terrain material ${manifest.tiles[index].file}: ${error.message || error}`);
         }).finally(()=>{

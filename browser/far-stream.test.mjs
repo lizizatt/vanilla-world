@@ -48,6 +48,21 @@ test('far byte selection retains complete visible resource closures before hidde
   scene.sizeHints.set('texture:big.blp',100);scene.update(1,[0,0,0]);
   assert(!scene.requests.has('m2:visible.m2:[]'),'A model and its known texture must fit together');
 });
+test('far admission hysteresis resists small rank changes but releases a clearly worse instance',()=>{
+  const {stream}=fixture(),scene=stream.scene;
+  scene.limits={...scene.limits,instances:1};
+  const template={...placements[0],path:'tree.m2'};
+  scene.discovered.set('m2:tree.m2:[]',{bounds:[[-1,-1,0],[1,1,3]]});
+  const select=x=>{
+    scene.setDistantPlacements('1:32:32',scene.parsePlacements(null,JSON.stringify([
+      {...template,id:1,position:[x,0,0]},{...template,id:2,position:[1050,0,0]}])));
+    scene.update(1,[0,0,0]);
+    return scene.instances[0].id;
+  };
+  assert.equal(select(1000),'1:m2:1');
+  assert.equal(select(1100),'1:m2:1');
+  assert.equal(select(1400),'1:m2:2');
+});
 test('far residency, decoding and transfers are bounded and cannot supply nearby collision',async()=>{
   const {stream,messages}=fixture();
   for(let i=0;i<30;i++)await stream.step();
@@ -148,7 +163,7 @@ test('source replacement drops pending reads and transfer ownership waits for ex
 test('render ownership favors near IDs and prevents far eviction or cross-map placement',()=>{
   const renderer=Object.create(WorldRenderer.prototype),near={id:'shared',key:'near'};
   Object.assign(renderer,{manifest:{},sceneRegion:0,instances:[near],nearInstances:[near],
-    assets:new Map([['near',{}],['far:model',{}]]),textures:new Map(),items:new Map()});
+    assets:new Map([['near',{batches:[]}],['far:model',{batches:[]}]]),textures:new Map(),items:new Map()});
   const delta={event:'far-scene',region:0,removedAssets:[],removedTextures:[],assets:[],textures:[],
     instances:[{id:'shared',key:'far:model'},{id:'distant',key:'far:model'}]};
   renderer.event(delta);assert.equal(renderer.instances[0],near);

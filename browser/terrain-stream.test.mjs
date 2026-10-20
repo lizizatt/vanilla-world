@@ -212,6 +212,29 @@ test('removed or cleared material jobs free their handles without resurrecting t
     assert.equal(stream.tiles.size,0);assert.equal(stream.preparing.size,0);assert(material.freed);
   }
 });
+test('authored material construction is bounded and finishes before any buffer is extracted',async()=>{
+  const stream=new TerrainStream({}, {}, ()=>{}),material=fixture();
+  let built=0,last=0,yields=0;
+  stream.yieldMaterial=async()=>{
+    assert(built-last<=16);last=built;yields++;
+    assert.equal(stream.tiles.size,0);
+  };
+  const paths=material.paths;material.paths=()=>{assert.equal(built,35);return paths();};
+  await stream.prepareTile(0,material,()=>++built===35);
+  assert(yields>=7);assert(material.freed);assert(stream.tiles.has(0));
+});
+test('cancelling or failing construction never publishes a partial material',async()=>{
+  for(const fail of [false,true]){
+    const stream=new TerrainStream({}, {}, ()=>{}),material=fixture();let steps=0;
+    stream.yieldMaterial=async()=>{if(steps&&!fail)stream.removeTile(0);};
+    const work=stream.prepareTile(0,material,()=>{
+      steps++;if(fail)throw Error('Broken chunk');return false;
+    });
+    if(fail)await assert.rejects(work,/Broken chunk/);else await work;
+    assert(steps>0&&steps<=16);assert(material.freed);
+    assert.equal(stream.tiles.size,0);assert.equal(stream.preparing.size,0);
+  }
+});
 test('a failed asynchronous material extraction preserves the prior tile and rejects explicitly',async()=>{
   const stream=new TerrainStream({}, {}, ()=>{}),material=fixture();
   stream.setTile(0,fixture());const previous=stream.tiles.get(0);
