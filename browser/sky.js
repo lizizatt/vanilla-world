@@ -82,7 +82,7 @@ export function mapPosition(region,x,z) {
 }
 
 export class SkyService {
-  constructor(source,emit) {this.source=source;this.emit=emit;this.sent=false;}
+  constructor(source,emit,wasm) {this.source=source;this.emit=emit;this.wasm=wasm;this.sent=false;}
   async request(stopped=()=>false) {
     if(this.sent)return;
     this.sent=true;
@@ -92,6 +92,7 @@ export class SkyService {
       if(stopped())return;
       new SkyCatalog({light,params,skybox,bands});
       this.emit({event:'sky',light,params,skybox,bands});
+      void this.dome(stopped);
     } catch(error) {
       this.sent=false;
       if(stopped())return;
@@ -100,6 +101,53 @@ export class SkyService {
     }
   }
 }
+
+const DOME='Environments\\Stars\\Stars.m2';
+SkyService.prototype.dome=async function(stopped) {
+  if(!this.wasm)return;
+  try {
+    const read=path=>this.source.read(path,{background:true,shouldDefer:stopped});
+    const model=this.wasm.SceneModel.m2(await read(DOME),DOME,'[]');
+    let asset;
+    try {
+      const meta=JSON.parse(model.metadata());
+      asset={vertices:model.vertices(),indices:model.indices(),batches:meta.batches};
+    } finally {model.free();}
+    if(asset.indices.length>3000||asset.vertices.byteLength>64*1024||asset.batches.length>16)throw Error('Sky dome exceeds budget');
+    const textures=[];
+    for(const key of new Set(asset.batches.map(b=>b.texture).filter(Boolean))) {
+      const handle=new this.wasm.SceneTexture(await read(key));
+      try {textures.push({key,...JSON.parse(handle.metadata()),rgba:handle.rgba()});} finally {handle.free();}
+    }
+    if(stopped())return;
+    this.emit({event:'sky-dome',asset,textures},[asset.vertices.buffer,asset.indices.buffer,...textures.map(t=>t.rgba.buffer)]);
+  } catch(error) {
+    if(stopped())return;
+    if(error.code==='DEFERRED')setTimeout(()=>this.dome(stopped),2000);
+    else this.emit({event:'sky-dome',error:String(error.message||error)});
+  }
+};
+
+/** Stars.m2 dome (M2 space: x north, y west, z up) spun about a tilted celestial axis; alpha follows the night factor. */
+export const skyDomeShader=`
+struct S {look:vec4f,right:vec4f,up:vec4f,k:vec4f};
+@group(0) @binding(0) var<uniform> s:S;
+@group(0) @binding(1) var image:texture_2d<f32>;
+@group(0) @binding(2) var imageSampler:sampler;
+struct V {@builtin(position) clip:vec4f,@location(0) uv:vec2f,@location(1) color:vec4f,@location(2) fade:f32};
+@vertex fn vs(@location(0) p:vec3f,@location(1) n:vec3f,@location(2) uv:vec2f,@location(3) color:vec4f)->V {
+  let axis=normalize(vec3f(0.0,.64,-.77));
+  let c=cos(s.k.x);let sn=sin(s.k.x);
+  var d=vec3f(-p.y,p.z,-p.x);
+  d=d*c+cross(axis,d)*sn+axis*dot(axis,d)*(1.0-c);
+  var v:V;let w=dot(d,s.look.xyz);
+  v.clip=vec4f(dot(d,s.right.xyz)/(0.55*s.look.w),dot(d,s.up.xyz)/0.55,w*.9999,w);
+  v.uv=uv;v.color=color;v.fade=smoothstep(-.02,.12,d.y/length(d));return v;
+}
+@fragment fn fs(v:V)->@location(0) vec4f {
+  let t=textureSample(image,imageSampler,v.uv)*v.color;
+  return vec4f(t.rgb,t.a*s.k.y*v.fade);
+}`;
 
 export const skyShader=`
 struct S {look:vec4f,right:vec4f,up:vec4f,c:array<vec4f,5>};

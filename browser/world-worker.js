@@ -815,7 +815,7 @@ onmessage=({data})=>{
   if(data.action==='sky'){
     if(!source)return;
     const owner=source;
-    if(sky?.source!==owner)sky=new SkyService(owner,data=>postMessage(data));
+    if(sky?.source!==owner)sky=new SkyService(owner,(data,transfers)=>postMessage(data,transfers),wasmTypes);
     void sky.request(()=>source!==owner);
     return;
   }

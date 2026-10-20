@@ -56,6 +56,7 @@ const client=new WorldClient(data=>{
     if(data.event==='progress'){if(!evidence.ready){report(data.text);loadingProgress(data);}}
     else if(data.event==='music')music.event(data);
     else if(data.event==='sky')renderer.setSky(data);
+    else if(data.event==='sky-dome')renderer.setSkyDome(data);
     else if(data.event==='loading-art')loadingArt.event(data);
     else if(data.event==='loading-art-warning'){
       console.warn(data.message);
