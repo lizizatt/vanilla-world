@@ -61,11 +61,15 @@ export function cameraView(rig,state,flight,dt,origin,settings={},lookBack=false
   else if(look.some(Boolean) || orbit.some(Boolean)) {
     rig.chase[0]=wrap(rig.chase[0]-look[0]*Math.PI*dt-orbit[0]*.004);
     rig.chase[1]=Math.max(-PITCH_LIMIT,Math.min(PITCH_LIMIT,rig.chase[1]+look[1]*Math.PI/2*dt-orbit[1]*.004));
-  } else {
+  } else if(settings.cameraRecentre) {
+    // Recentre only while the user drives with keys/pad; a mouse orbit otherwise stays where it was left.
     const follow=-Math.expm1(-7*Math.max(0,dt));
     rig.chase[0]=wrap(rig.chase[0]* (1-follow));
     rig.chase[1]+=(pitch-rig.chase[1])*follow;
   }
+  // While steering with the mouse the camera keeps its world heading and the craft turns toward it.
+  if(settings.cameraSteer && Number.isFinite(rig.lastYaw))rig.chase[0]=wrap(rig.chase[0]-(state[3]-rig.lastYaw));
+  rig.lastYaw=state[3];
   rig.lookBack=lookBack;
   const distance=settings.cameraDistance ?? 15,seconds=settings.cameraSeconds ?? .5;
   const heading=yaw+rig.chase[0],tilt=rig.chase[1],pivot=[state[0]-origin[0],state[1]+3,state[2]-origin[1]];
