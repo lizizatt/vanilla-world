@@ -71,7 +71,8 @@ test('guarded cached bounds retain newly visible points before camera refresh',(
 test('terrain bounds include elevated geometry and translated tile overhangs',()=>{
   const previous=globalThis.GPUBufferUsage;globalThis.GPUBufferUsage={VERTEX:1};
   try{
-    const renderer={buffer:()=>({}),device:{createBindGroup:()=>({})},pipeline:{getBindGroupLayout:()=>({})}};
+    const renderer={buffer:()=>({}),device:{createBindGroup:()=>({})},pipeline:{getBindGroupLayout:()=>({})},
+      waterNormals:{createView:()=>({})}};
     const vertices=new Float32Array([-2,-10,7,0,0,0,0,5,200,-3,0,0,0,0]);
     const item=WorldRenderer.prototype.drawable.call(renderer,vertices,[100,200],{createView:()=>({})});
     assert.deepEqual(item.bounds,[[98,-10,197],[105,200,207]]);
