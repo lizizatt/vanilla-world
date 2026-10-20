@@ -682,6 +682,12 @@ including Crystal Lake (`Azeroth_32_49`), uses the same shader. Lava/slime,
 authored dry holes outside the approved exterior exception, and unavailable
 or not-yet-loaded water are not filled speculatively.
 
+**WMO water is rideable.** Still/ocean WMO liquid (Stormwind canals) is also exported as a
+separate water-surface triangle set (`water_vertices`/`water_indices`, never solid collision)
+and fed to the physics through `set_scene_water`. The surface rule matches ADT water
+(`max(ground, water)`, loaded tiles only, strict saves unchanged). A canal probe sank to the
+bed before (y 88.9) and now rides the surface (y 98.5).
+
 With a separately started isolated server on port 4183 and `WOW_DATA` set,
 `node browser\water-smoke.mjs` checks actual Edge shader execution, captures
 lake/coast/canal/high-ocean views and asserts that canal batches reach the

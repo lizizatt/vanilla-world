@@ -160,6 +160,7 @@ pub struct SceneModel {
     vertices: Vec<f32>,
     indices: Vec<u32>,
     collision: CollisionMesh,
+    water: CollisionMesh,
     metadata: String,
 }
 
@@ -241,6 +242,7 @@ impl SceneModel {
             vertices,
             indices,
             collision,
+            water: CollisionMesh::default(),
             metadata,
         })
     }
@@ -336,6 +338,13 @@ impl SceneModel {
     pub fn collision_indices(&self) -> Vec<u32> {
         self.collision.indices.clone()
     }
+    /// Authored WMO liquid surface (model space); a rideable surface, never solid collision.
+    pub fn water_vertices(&self) -> Vec<f32> {
+        self.water.positions.iter().flatten().copied().collect()
+    }
+    pub fn water_indices(&self) -> Vec<u32> {
+        self.water.indices.clone()
+    }
 }
 
 #[wasm_bindgen]
@@ -380,6 +389,7 @@ impl SceneRoot {
             .into_iter()
             .map(|sub| (sub, false))
             .collect();
+        let mut water = CollisionMesh::default();
         if let Some(liquid) = wmo_group_liquid_mesh(bytes) {
             if matches!(liquid.kind, LiquidKind::Still | LiquidKind::Ocean) {
                 if liquid.depths.len() != liquid.positions.len()
@@ -391,6 +401,8 @@ impl SceneRoot {
                 {
                     return Err("Invalid WMO liquid depth ramp".into());
                 }
+                water.positions = liquid.positions.clone();
+                water.indices = liquid.indices.clone();
                 subs.push((
                     RenderSubmesh {
                         positions: liquid.positions,
@@ -436,7 +448,9 @@ impl SceneRoot {
         }
         let mut collision = CollisionMesh::default();
         accumulate_wmo_group_collision(bytes, &mut collision.positions, &mut collision.indices);
-        SceneModel::build(subs, collision)
+        let mut model = SceneModel::build(subs, collision)?;
+        model.water = water;
+        Ok(model)
     }
 }
 

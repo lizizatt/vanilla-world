@@ -310,6 +310,7 @@ pub struct Voyage {
     pub(crate) exterior: Vec<bool>,
     scene_bounds: Vec<[f64; 6]>,
     scene_mesh: CollisionTree,
+    scene_water: CollisionTree,
     scene_parts: HashMap<u32, CollisionTree>,
     state: State,
     pub(crate) tuning: Tuning,
@@ -357,6 +358,7 @@ impl Voyage {
             exterior,
             scene_bounds: vec![],
             scene_mesh: CollisionTree::default(),
+            scene_water: CollisionTree::default(),
             scene_parts: HashMap::new(),
             rebases: 0,
             hold: 1,
@@ -509,6 +511,11 @@ impl Voyage {
             }
         }
         if result.availability != 1 {
+            // Authored WMO liquid (canals) rides like ADT water; a 2 yd ceiling keeps a shallow dip supported.
+            if let Some(h) = self.scene_water.height(p, f64::from(body_y) + 2.0) {
+                result.water = Some(result.water.map_or(h as f32, |w| w.max(h as f32)));
+                result.availability = 0;
+            }
             if let Some(height) = self.scene_mesh.height(p, f64::from(body_y)) {
                 result.ground = Some(
                     result
@@ -1176,6 +1183,12 @@ impl Voyage {
         self.scene_mesh = CollisionTree::new(vertices).map_err(JsValue::from_str)?;
         self.scene_parts.clear();
         self.scene_bounds.clear();
+        Ok(())
+    }
+
+    /// Indexed WMO liquid-surface triangles (global east/up/south); replaces the previous set.
+    pub fn set_scene_water(&mut self, vertices: &[f64]) -> Result<(), JsValue> {
+        self.scene_water = CollisionTree::new(vertices).map_err(JsValue::from_str)?;
         Ok(())
     }
 
@@ -2427,6 +2440,26 @@ pub(crate) mod tests {
         assert_eq!(world.telemetry()[14], -4.0);
         world.state.velocity[2] = -4.0;
         assert_eq!(world.telemetry()[14], 4.0);
+    }
+
+    #[test]
+    fn wmo_water_surface_supports_only_on_loaded_tiles() {
+        use super::*;
+        let tri = |h: f64| [0.0, h, 0.0, TILE, h, 0.0, 0.0, h, TILE];
+        let mut world = Voyage::from_manifest(fixture(0.0)).unwrap();
+        world.scene_water = CollisionTree::new(&tri(5.0)).unwrap();
+        assert!(world.sample([10.0, 10.0]).support().is_none(), "unloaded tile stays unavailable");
+        let entry = &world.manifest.tiles[0];
+        world.resident.insert(0, crate::world::tests::flat_tile(entry.x, entry.y));
+        world.origin = [200.0, 64.0];
+        world.state = State::new([0.0, 100.0, 0.0], 0.0).unwrap();
+        world.scene_water = CollisionTree::default();
+        let p = world.global();
+        let ground = world.sample(p).support().unwrap();
+        world.scene_water = CollisionTree::new(&tri(f64::from(ground) + 3.0)).unwrap();
+        let wet = world.sample(p);
+        assert_eq!(wet.support(), Some(ground + 3.0));
+        assert!(wet.on_water());
     }
 
     #[test]
