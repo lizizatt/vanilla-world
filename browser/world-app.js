@@ -7,6 +7,7 @@ import {WorldInput,DRIVE_KEYS} from './world-input.js';
 import {WorldAudio} from './world-audio.js';
 import {TUNING_FIELDS,validateTuningRecord} from './world-tuning.js';
 import {CameraCollision} from './camera-collision.js';
+import {LoadingArt} from './loading-art.js';
 
 const $=id=>document.getElementById(id),canvas=$('world'),keys=new Set();
 const input=new WorldInput(),audio=new WorldAudio();
@@ -18,7 +19,9 @@ let orbit=[0,0],dragging=false,soundAttempt=0,soundError='',soundTime=0,reportTi
 const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:false,cockpit:false};
 const settings={...defaults};
 const loading=$('loading-screen');
+const loadingArt=new LoadingArt($('loading-art'),$('loading-bar-art'),loading);
 loading.addEventListener('cancel',event=>event.preventDefault());
+loading.addEventListener('close',()=>{if(!loading.open){loadingArt.clear();client.stopLoadingArt();}});
 function loadingProgress({text,completed,total}) {
   if(!loading.open)return;
   $('loading-stage').textContent=text;
@@ -32,6 +35,7 @@ function loadingProgress({text,completed,total}) {
   }
   $('loading-count').textContent=known?`${completed} / ${total}`:'';
   bar.setAttribute('aria-valuetext',text);
+  loadingArt.progress(completed,total);
 }
 const report=(text,temporary=false)=>{
   clearTimeout(reportTimer);if($('status').textContent!==text)$('status').textContent=text;
@@ -47,6 +51,11 @@ const client=new WorldClient(data=>{
   try {
     evidence.eventRevision=(evidence.eventRevision||0)+1;
     if(data.event==='progress'){if(!evidence.ready){report(data.text);loadingProgress(data);}}
+    else if(data.event==='loading-art')loadingArt.event(data);
+    else if(data.event==='loading-art-warning'){
+      console.warn(data.message);
+      if(loading.open)$('loading-warning').textContent=data.message;
+    }
     else {
       cameraCollision.event(data);
       if(data.event==='collision')renderer.clipCamera=(pivot,point,origin)=>{
@@ -135,11 +144,13 @@ async function open(selection,remember=false) {
   if(busy)return;
   busy=true;running=false;enabled(false);$('error').hidden=true;$('welcome').hidden=true;report('Loading world...');
   $('select').disabled=true;evidence.ready=false;
+  loadingArt.clear();$('loading-warning').textContent='';
   loading.showModal();loadingProgress({text:'Opening local Data...'});
   let opened=false;
   try {
+    const loadingMap=renderer.manifest?.regions[renderer.sceneRegion]?.map;
     renderer.reset();renderer.clipCamera=undefined;cameraCollision.reset();flight=undefined;pauseAudio();Object.assign(settings,defaults);syncSettings();
-    const result=await client.open(selection);
+    const result=await client.open(selection,loadingMap);
     renderer.configure(result.info.manifest);
     cameraCollision.configure(result.info.manifest);
     tuningValues=Array.isArray(result.info.tuning)?result.info.tuning.slice():TUNING_FIELDS.map(f=>f[1]);

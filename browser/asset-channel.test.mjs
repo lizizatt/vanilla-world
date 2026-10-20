@@ -5,12 +5,13 @@ import {createContext,runInContext} from 'node:vm';
 import {AssetSource,openAssetSource} from './asset-channel.js';
 import {terrainMips,resizeRgba,MINIMAP_SIZE} from './terrain-stream.js';
 import {prepareDetail} from './camera-collision.js';
+import {loadLoadingArt} from './loading-art.js';
 
 const code=(await readFile(new URL('./asset-worker.js',import.meta.url),'utf8')).replace(/^import .*;\r?$/gm,'');
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 function worker(source) {
   const messages=[],out=[],fake={messages,out,terminated:false,terminate(){this.terminated=true;}};
-  const context=createContext({Uint8Array,performance,terrainMips,resizeRgba,MINIMAP_SIZE,prepareDetail,
+  const context=createContext({Uint8Array,performance,terrainMips,resizeRgba,MINIMAP_SIZE,prepareDetail,loadLoadingArt,
     init:async()=>({memory:{buffer:new ArrayBuffer(65536)}}),openDataSource:async()=>source,
     SceneTexture:class {
       constructor(bytes){this.bytes=bytes;}
@@ -62,6 +63,15 @@ test('progress events neither consume request receipts nor settle source operati
   assert.equal(progress.length,1);assert.equal(w.messages.filter(m=>m.action==='ack').length,receipts);
   assert.deepEqual(await source.read('file'),new Uint8Array([1]));
   source.close();
+});
+test('loading artwork events bypass resource receipts and dismissal cancels the optional job',async()=>{
+  const w=worker(dataSource(async()=>new Uint8Array([1]))),events=[];
+  const source=await openAssetSource([],()=>w,data=>events.push(data));
+  const receipts=w.messages.filter(m=>m.action==='ack').length;
+  w.onmessage({data:{event:'loading-art',kind:'screen',width:1,height:1,rgba:new Uint8Array(4)}});
+  assert.equal(events.length,1);assert.equal(w.messages.filter(m=>m.action==='ack').length,receipts);
+  source.stopLoadingArt();assert.equal(w.messages.at(-1).action,'stop-art');
+  assert.deepEqual(await source.read('required'),new Uint8Array([1]));source.close();
 });
 
 test('detail preparation transfers typed camera indices and exact liquid geometry off the renderer',async()=>{

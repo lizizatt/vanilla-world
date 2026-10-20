@@ -683,7 +683,8 @@ async function handle(message) {
     far?.close();
     const previousSource=source;source=undefined;
     previousSource?.close();
-    source=await openAssetSource(message.folder,undefined,data=>postMessage(data));
+    source=await openAssetSource(message.folder,undefined,data=>postMessage(data,data.rgba?[data.rgba.buffer]:[]),
+      {loadingArt:true,map:message.loadingMap});
     report('World and archive workers ready');
     const wdts=[],wdls=[];
     for(const map of ['Kalimdor','Azeroth']) {
@@ -799,6 +800,7 @@ async function handle(message) {
   return snapshot();
 }
 onmessage=({data})=>{
+  if(data.action==='stop-loading-art'){source?.stopLoadingArt();return;}
   if(data.action==='far-ack'){far?.ack(data.token,data.producer);return;}
   if(data.action==='far-reject'){far?.reject(data.token,data.producer);return;}
   queue=queue.then(async()=>{

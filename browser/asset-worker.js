@@ -2,8 +2,10 @@ import init,{SceneTexture} from './pkg/flats_racer_web.js';
 import {openDataSource} from './asset-source.js';
 import {terrainMips,resizeRgba,MINIMAP_SIZE} from './terrain-stream.js';
 import {prepareDetail} from './camera-collision.js';
+import {loadLoadingArt} from './loading-art.js';
 
 let source,wasm,busy=false,receipt,active;
+let artStopped=false;
 const jobs=[],cancelled=new Set();
 const work={decodeMs:0,textureLoads:0,transferPeakBytes:0};
 function reply(job,result,error) {
@@ -28,6 +30,12 @@ async function pump() {
       if(source)throw Error('Asset source already open');
       wasm=await init();source=await openDataSource(job.folder,progress=>
         postMessage({event:'progress',stage:'archives',text:'Indexing local archives',...progress}));
+      if(job.loadingArt&&!artStopped)void loadLoadingArt(source,bytes=>{
+        const texture=new SceneTexture(bytes);
+        try{return {...JSON.parse(texture.metadata()),rgba:texture.rgba()};}
+        finally{texture.free();}
+      },data=>postMessage(data,data.rgba?[data.rgba.buffer]:[]),()=>artStopped,job.map)
+        .catch(error=>postMessage({event:'loading-art-warning',message:`Loading artwork: ${error.message||error}`}));
       reply(job,{fingerprint:source.fingerprint,archives:source.archives});
     } else if(job.action==='detail') {
       if(!source)throw Error('Asset source is not open');
@@ -61,6 +69,7 @@ async function pump() {
   finally {cancelled.delete(job.id);active=undefined;busy=false;}
 }
 onmessage=({data})=>{
+  if(data.action==='stop-art'){artStopped=true;return;}
   if(data.action==='ack'){
     if(data.id===receipt)receipt=undefined;
   } else if(data.action==='cancel') {

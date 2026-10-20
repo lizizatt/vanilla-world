@@ -2,7 +2,7 @@ export class AssetSource {
   constructor(worker) {
     this.worker=worker;this.pending=new Map();this.serial=0;this.stats={};
     worker.onmessage=({data})=>{
-      if(data.event==='progress'){this.onProgress?.(data);return;}
+      if(['progress','loading-art','loading-art-warning'].includes(data.event)){this.onProgress?.(data);return;}
       const request=this.pending.get(data.id);
       if(!request)return;
       this.pending.delete(data.id);
@@ -52,11 +52,12 @@ export class AssetSource {
     this.pending.clear();
   }
   close(){this.fail(Object.assign(Error('Data source closed'),{code:'CLOSED'}));}
+  stopLoadingArt(){this.post({action:'stop-art'});}
 }
 
-export async function openAssetSource(folder,createWorker=()=>new Worker('./asset-worker.js',{type:'module'}),onProgress) {
+export async function openAssetSource(folder,createWorker=()=>new Worker('./asset-worker.js',{type:'module'}),onProgress,{loadingArt=false,map}={}) {
   const source=new AssetSource(createWorker());
   source.onProgress=onProgress;
-  try {Object.assign(source,await source.request('open',{folder}));return source;}
+  try {Object.assign(source,await source.request('open',{folder,loadingArt,map}));return source;}
   catch(error){source.close();throw error;}
 }
