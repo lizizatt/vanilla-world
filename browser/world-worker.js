@@ -10,12 +10,13 @@ import {FAR_LIMITS} from './far-stream.js';
 import {validateView,viewChanged} from './world-view.js';
 import {MusicService} from './music.js';
 import {SkyService} from './sky.js';
+import {WorldMapService} from './worldmap.js';
 
 const TILE=1600/3,LIMIT=SCENE_LIMITS.nearTiles;
 let wasm;
 const ready=init().then(exports=>(wasm=exports));
 let world,source,manifest,placements,scene,terrain,water,accumulator=0,queue=Promise.resolve();
-let poseTime,music,sky,areaTime=-1e9,areaId=0;
+let poseTime,music,sky,worldMap,areaTime=-1e9,areaId=0;
 const terrainErrors=new Map();
 let terrainFocus='';
 let terrainGridSource,terrainGrid;
@@ -827,6 +828,13 @@ onmessage=({data})=>{
     const owner=source;
     if(sky?.source!==owner)sky=new SkyService(owner,(data,transfers)=>postMessage(data,transfers),wasmTypes);
     void sky.request(()=>source!==owner);
+    return;
+  }
+  if(data.action==='worldmap'){
+    if(!source||!Array.isArray(data.names))return;
+    const owner=source;
+    if(worldMap?.source!==owner)worldMap=new WorldMapService(owner,(data,transfers)=>postMessage(data,transfers),wasmTypes);
+    void worldMap.request(data.names.filter(n=>typeof n==='string'),()=>source!==owner);
     return;
   }
   if(data.action==='far-ack'){far?.ack(data.token,data.producer);return;}
