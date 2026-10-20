@@ -534,19 +534,51 @@ impl Voyage {
     }
 
     fn heights_at(&self, p: [f64; 2], yaw: f32, body_y: f32) -> Result<[f32; 4], u8> {
-        let (sin, cos) = yaw.sin_cos();
         let mut heights = [0.0; 4];
-        for (i, [x, _, z]) in PROBE_OFFSETS.into_iter().enumerate() {
-            let surface = self.sample_at(
+        for (height, surface) in heights.iter_mut().zip(self.surfaces_at(p, yaw, body_y)) {
+            *height = surface
+                .support()
+                .ok_or(if surface.availability == 1 { 1 } else { 2 })?;
+        }
+        Ok(heights)
+    }
+
+    fn surfaces_at(&self, p: [f64; 2], yaw: f32, body_y: f32) -> [Surface; 4] {
+        let (sin, cos) = yaw.sin_cos();
+        PROBE_OFFSETS.map(|[x, _, z]| {
+            self.sample_at(
                 [
                     p[0] + f64::from(x * cos + z * sin),
                     p[1] + f64::from(-x * sin + z * cos),
                 ],
                 body_y,
-            );
-            heights[i] = surface
-                .support()
-                .ok_or(if surface.availability == 1 { 1 } else { 2 })?;
+            )
+        })
+    }
+
+    fn motion_heights_at(
+        &self,
+        p: [f64; 2],
+        yaw: f32,
+        body_y: f32,
+        airborne: bool,
+    ) -> Result<[Option<f32>; 4], u8> {
+        let mut heights = [None; 4];
+        for (height, surface) in heights.iter_mut().zip(self.surfaces_at(p, yaw, body_y)) {
+            *height = surface.support();
+            if height.is_some() {
+                continue;
+            }
+            if !airborne || surface.availability == 1 || surface.region < 0 {
+                return Err(if surface.availability == 1 { 1 } else { 2 });
+            }
+            // Known holes have no floor; impassable terrain is not an infinite-height wall.
+            if surface.solid {
+                *height = Surface { solid: false, ..surface }.support();
+                if height.is_none_or(|h| body_y - h <= self.tuning.support_reach()) {
+                    return Err(2);
+                }
+            }
         }
         Ok(heights)
     }
@@ -623,7 +655,7 @@ impl Voyage {
     fn advance_substep(&mut self, input: Input, dt: f32) -> Result<(), String> {
         let p = self.global();
         let before = self.state;
-        let heights = match self.heights(p, before.yaw) {
+        let heights = match self.motion_heights_at(p, before.yaw, before.position[1], !before.grounded) {
             Ok(h) => h,
             Err(hold) => {
                 self.physics_stats[if hold == 1 { 2 } else { 3 }] =
@@ -638,18 +670,22 @@ impl Voyage {
             p[1] + f64::from(before.velocity[2] * dt),
         ];
         let rise = self
-            .heights(projected, before.yaw)
+            .motion_heights_at(projected, before.yaw, before.position[1], !before.grounded)
             .map_or(0.0, |hs| {
-                (hs.iter().sum::<f32>() - heights.iter().sum::<f32>()) / (4.0 * dt)
+                if hs.iter().all(Option::is_some) && heights.iter().all(Option::is_some) {
+                    (hs.iter().flatten().sum::<f32>() - heights.iter().flatten().sum::<f32>()) / (4.0 * dt)
+                } else {
+                    0.0
+                }
             })
             .min(SUPPORT_RISE / dt);
         self.state
             .step_with_surface_motion(
                 input,
-                heights.map(|h| {
+                heights.map(|h| h.and_then(|h| {
                     let distance = (before.position[1] - h).max(0.0);
                     (distance <= self.tuning.support_reach()).then_some(distance)
-                }),
+                })),
                 rise,
                 dt,
                 &self.tuning,
@@ -677,15 +713,15 @@ impl Voyage {
             self.hold = 3;
             return Ok(());
         }
-        match self.heights_at(next, self.state.yaw, swept_end[1] as f32) {
+        match self.motion_heights_at(next, self.state.yaw, swept_end[1] as f32, !self.state.grounded) {
             Ok(hs)
                 if hs
                     .iter()
                     .zip(heights)
-                    .all(|(h, old)| h - old < SUPPORT_RISE
-                        || f64::from(*h) + HULL_HALF_HEIGHT <= swept_start[1].min(swept_end[1])) =>
+                    .all(|(h, old)| h.is_none_or(|h| old.is_some_and(|old| h - old < SUPPORT_RISE)
+                        || f64::from(h) + HULL_HALF_HEIGHT <= swept_start[1].min(swept_end[1]))) =>
             {
-                let floor = hs.into_iter().fold(f32::NEG_INFINITY, f32::max) + FLOOR_CLEARANCE;
+                let floor = hs.into_iter().flatten().fold(f32::NEG_INFINITY, f32::max) + FLOOR_CLEARANCE;
                 let corrected_end = [swept_end[0], f64::from(floor), swept_end[2]];
                 if swept_end[1] < corrected_end[1]
                     && (self.scene_bounds.iter().any(|b| swept_box(swept_end, corrected_end, *b))
@@ -2356,6 +2392,75 @@ pub(crate) mod tests {
         let surface = world.sample([10.0, 10.0]);
         assert_eq!(surface.availability, 1);
         assert!(surface.support().is_none());
+    }
+
+    #[test]
+    fn airborne_thrust_from_rest_crosses_known_holes_without_arresting_the_fall() {
+        for kind in ["terrain", "hole", "partial-hole", "impassable"] {
+            let mut world = Voyage::from_manifest(fixture(0.0)).unwrap();
+            let entry = &world.manifest.tiles[0];
+            let mut tile = crate::world::tests::flat_tile(entry.x, entry.y);
+            for chunk in &mut tile.chunks {
+                if kind == "hole" {
+                    chunk.holes = u16::MAX;
+                }
+                chunk.impassable = kind == "impassable";
+            }
+            if kind == "partial-hole" {
+                tile.chunks[22].holes = u16::MAX;
+            }
+            world.resident.insert(0, tile);
+            world.origin = [200.0, 64.0];
+            world.state = State::new([0.0, 100.0, 0.0], -std::f32::consts::FRAC_PI_2).unwrap();
+            if kind == "partial-hole" {
+                let hs = world.motion_heights_at(world.global(), world.state.yaw, 100.0, true).unwrap();
+                assert!(hs.iter().any(Option::is_none) && hs.iter().any(Option::is_some));
+            }
+            let mut falling = world.state;
+            for _ in 0..60 {
+                world.advance(Input { throttle: 1.0, boost: true, ..Default::default() }).unwrap();
+                falling.step_with_tuning(Input::default(), [None; 4], FIXED_DT, &world.tuning).unwrap();
+                assert_eq!(world.hold, 0, "{kind}");
+                assert!(!world.state.grounded, "{kind}");
+                assert!((world.state.velocity[1] - falling.velocity[1]).abs() < 0.001, "{kind}");
+            }
+            assert!(world.global()[0] > 205.0, "{kind}");
+            assert!(world.state.velocity[0] > 20.0, "{kind}");
+            assert!(world.state.position[1] < 98.0, "{kind}");
+            assert!((world.state.boost_reserve - 0.8).abs() < 0.00001, "{kind}");
+            if kind == "hole" {
+                let before = world.state;
+                assert!(world.restore_pose(&[world.global()[0], 100.0, 64.0, 0.0]).is_err());
+                assert_eq!(world.state, before, "Save validation stays strict");
+            }
+        }
+    }
+
+    #[test]
+    fn airborne_motion_preserves_unloaded_boundary_ground_and_solid_guards() {
+        for (kind, hold) in [("missing", 1), ("outside", 2), ("ground-hole", 2), ("ground-impassable", 2), ("wall", 3)] {
+            let mut world = Voyage::from_manifest(fixture(0.0)).unwrap();
+            let entry = &world.manifest.tiles[0];
+            let mut tile = crate::world::tests::flat_tile(entry.x, entry.y);
+            for chunk in &mut tile.chunks {
+                chunk.holes = if kind == "ground-hole" { u16::MAX } else { 0 };
+                chunk.impassable = kind == "ground-impassable";
+            }
+            if kind != "missing" {
+                world.resident.insert(0, tile);
+            }
+            world.origin = [200.0, if kind == "outside" { -64.0 } else { 64.0 }];
+            let grounded = kind.starts_with("ground-");
+            world.state = State::new([0.0, if grounded { 1.1 } else { 100.0 }, 0.0], 0.0).unwrap();
+            world.state.grounded = grounded;
+            if kind == "wall" {
+                world.scene_bounds = vec![[199.0, 90.0, 63.0, 201.0, 110.0, 65.0]];
+            }
+            let before = world.state;
+            world.advance(Input { throttle: 1.0, boost: true, ..Default::default() }).unwrap();
+            assert_eq!(world.hold, hold, "{kind}");
+            assert_eq!(world.state, before, "{kind}: failed motion is atomic");
+        }
     }
 
     #[test]
