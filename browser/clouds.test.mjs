@@ -21,3 +21,10 @@ test('shader carries the tunable eye/wall radii and counter-clockwise spiral',()
 });test('clouds clip their ray march to the sampled scene depth instead of depth-testing a bias plane',()=>{
   assert(cloudShader.includes('textureLoad(sceneDepth'));assert(cloudShader.includes('t1=min(t1,sceneDist)'));
 });
+
+test('game cloud and fog colours ride in the spare uniform slots',()=>{
+  const view={eye:[0,0,0],right:[1,0,0],up:[0,1,0],look:[0,0,1],aspect:1};
+  const u=cloudUniform(view,0,1,manifest,0,{cloud:[.1,.2,.3],fog:[.4,.5,.6]});
+  assert.equal(u[27],1);assert.ok(Math.abs(u[28]-.4)<1e-6);
+  assert.equal(cloudUniform(view,0,1,manifest,0)[27],0);
+});

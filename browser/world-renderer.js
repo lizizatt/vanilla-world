@@ -5,7 +5,7 @@ import {cameraView,craftMatrix,cockpitAnchor} from './world-camera.js';
 import {COAST_GPU_LIMIT} from './water-stream.js';
 import {WATER_NORMAL_SIZE,waterNormalMips,waterShading,dayShading} from './water-shader.js';
 import {cloudShader,cloudUniform} from './clouds.js';
-import {SkyCatalog,mapPosition,skyShader,skyDomeShader,skyUniform,advanceTime,DAY} from './sky.js';
+import {SkyCatalog,mapPosition,skyShader,skyDomeShader,skyUniform,advanceTime,nightAlpha,nightAngle,DAY} from './sky.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
 export {sceneVisible} from './world-view.js';
 export {craftMatrix} from './world-camera.js';
@@ -262,12 +262,12 @@ export class WorldRenderer {
       primitive:{topology:'triangle-list',cullMode:'none'},
       depthStencil:{format:'depth24plus',depthWriteEnabled:true,depthCompare:'less'},
     });
-    this.cloudBuffer=this.device.createBuffer({size:96,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
+    this.cloudBuffer=this.device.createBuffer({size:128,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
     const cloudModule=await shader(cloudShader);
     this.cloudPipeline=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module:cloudModule,entryPoint:'vs'},
       fragment:{module:cloudModule,entryPoint:'fs',targets:[{format:this.format,blend:{color:{srcFactor:'src-alpha',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},
       primitive:{topology:'triangle-list',cullMode:'none'}});
-    this.skyBuffer=this.device.createBuffer({size:128,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
+    this.skyBuffer=this.device.createBuffer({size:144,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
     const skyModule=await shader(skyShader);
     this.skyPipeline=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module:skyModule,entryPoint:'vs'},
       fragment:{module:skyModule,entryPoint:'fs',targets:[{format:this.format}]},primitive:{topology:'triangle-list'},
@@ -629,10 +629,10 @@ export class WorldRenderer {
           {binding:1,resource:(textures.get(b.texture)||this.white).createView()},{binding:2,resource:sampler}]})}))};
   }
   drawSkyDome(pass) {
-    const night=Math.cos(this.timeOfDay/2880*Math.PI*2),alpha=Math.min(1,Math.max(0,night*2));
+    const alpha=nightAlpha(this.timeOfDay);
     if(!this.skyDome||alpha<.01)return;
     const k=new Float32Array(16),v=this.view;
-    k.set(v.look,0);k[3]=v.aspect;k.set(v.right,4);k.set(v.up,8);k[12]=this.timeOfDay/2880*Math.PI*2;k[13]=alpha;
+    k.set(v.look,0);k[3]=v.aspect;k.set(v.right,4);k.set(v.up,8);k[12]=nightAngle(this.timeOfDay);k[13]=alpha;
     this.device.queue.writeBuffer(this.domeBuffer,0,k);
     pass.setPipeline(this.domePipeline);pass.setVertexBuffer(0,this.skyDome.vertices);pass.setIndexBuffer(this.skyDome.indices,'uint32');
     for(const b of this.skyDome.batches){pass.setBindGroup(0,b.group);pass.drawIndexed(b.count,1,b.first);}
@@ -644,7 +644,7 @@ export class WorldRenderer {
     return this.skyCatalog.sample(map,x,z,this.timeOfDay);
   }
   drawClouds(pass,time,daylight,near) {
-    this.device.queue.writeBuffer(this.cloudBuffer,0,cloudUniform(this.view,time,daylight,this.manifest,near));
+    this.device.queue.writeBuffer(this.cloudBuffer,0,cloudUniform(this.view,time,daylight,this.manifest,near,this.gameSky));
     pass.setPipeline(this.cloudPipeline);pass.setBindGroup(0,this.cloudGroup);pass.draw(6);
   }
   drawScene(pass,draws) {
@@ -773,7 +773,7 @@ export class WorldRenderer {
       depthStencilAttachment:{view:this.depth.createView(),depthClearValue:1,depthLoadOp:'clear',depthStoreOp:'store'},
     });
     if(!this.cameraBlocked){
-      if(game){this.device.queue.writeBuffer(this.skyBuffer,0,skyUniform(this.view,game));pass.setPipeline(this.skyPipeline);pass.setBindGroup(0,this.skyGroup);pass.draw(3);this.drawSkyDome(pass);}
+      if(game){this.device.queue.writeBuffer(this.skyBuffer,0,skyUniform(this.view,game,this.timeOfDay));pass.setPipeline(this.skyPipeline);pass.setBindGroup(0,this.skyGroup);pass.draw(3);this.drawSkyDome(pass);}
       this.drawTerrain(pass,terrain);this.drawScene(pass,draws);
     }
     pass.end();

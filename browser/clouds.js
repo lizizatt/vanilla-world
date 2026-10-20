@@ -20,15 +20,16 @@ export function maelstromCentre(manifest) {
   return [o[0]+MAELSTROM_MAP.across*(o[2]-o[0]),(kalimdor+east)/2];
 }
 
-export function cloudUniform(view,time,daylight,manifest,near,out=new Float32Array(24)) {
+export function cloudUniform(view,time,daylight,manifest,near,game,out=new Float32Array(32)) {
   const [x,z]=maelstromCentre(manifest);
   out.set([...view.eye,200000,...view.right,view.aspect,...view.up,time,...view.look,daylight,x,z,CLOUD_ALTITUDE,CLOUD_HALF_SIZE,near]);
+  if(game)out.set([...game.cloud,1,...game.fog,0],24);
   return out;
 }
 
 const M=MAELSTROM;
 export const cloudShader=`
-struct C {eye:vec4f,right:vec4f,up:vec4f,look:vec4f,cloud:vec4f,near:vec4f};
+struct C {eye:vec4f,right:vec4f,up:vec4f,look:vec4f,cloud:vec4f,near:vec4f,tint:vec4f,fog:vec4f};
 @group(0) @binding(0) var<uniform> c:C;
 @group(0) @binding(1) var sceneDepth:texture_depth_2d;
 struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f};
@@ -98,8 +99,9 @@ fn density(pos:vec3f,t:f32)->vec2f {
   }
   var alpha=(1.0-trans)*(1.0-smoothstep(30000.0,c.cloud.w,dist))*.96*edge;
   if(alpha<.01){discard;}
-  let grade=mix(vec3f(1.0),vec3f(.2,.27,.5),night);
-  let fog=mix(vec3f(.08,.15,.20),vec3f(.008,.016,.045),night);
+  let game=c.tint.w>.5;
+  let grade=select(mix(vec3f(1.0),vec3f(.2,.27,.5),night),mix(vec3f(1.0),c.tint.rgb,.6),game);
+  let fog=select(mix(vec3f(.08,.15,.20),vec3f(.008,.016,.045),night),c.fog.rgb,game);
   let color=light/max(1.0-trans,.001)*grade;
   return vec4f(mix(color,fog,clamp(dist/150000.0,0.0,.93)),alpha);
 }`;
