@@ -29,13 +29,13 @@ export function unproject(view,w,h,sx,sy,planeY) {
 export class TrackDraft {
   constructor(track) { this.load(track); }
   load(t) {
-    this.id=t.id;this.name=t.name||t.id;this.mode=t.mode||'lap';this.laps=t.laps||1;
+    this.id=t.id;this.name=t.name||t.id;this.vehicle=t.vehicle||'podracer';this.mode=t.mode||'lap';this.laps=t.laps||1;
     this.start={pos:[...t.start.pos],yaw:t.start.yaw};
     this.gates=(t.gates||[]).map(g=>({pos:[...g.pos],yaw:g.yaw,width:g.width}));
     this.history=[];this.revision=(this.revision||0)+1;
   }
   static blank(pos,yaw=0) { return new TrackDraft({id:'new-track',name:'New track',mode:'lap',laps:1,start:{pos,yaw},gates:[]}); }
-  state() { return JSON.stringify({id:this.id,name:this.name,mode:this.mode,laps:this.laps,start:this.start,gates:this.gates}); }
+  state() { return JSON.stringify({id:this.id,name:this.name,vehicle:this.vehicle,mode:this.mode,laps:this.laps,start:this.start,gates:this.gates}); }
   // Call before every mutation so undo can restore it.
   checkpoint() { this.history.push(this.state());if(this.history.length>100)this.history.shift();this.revision++; }
   undo() {
@@ -53,7 +53,8 @@ export class TrackDraft {
   setWidth(i,width) { this.gates[i].width=Math.max(MIN_WIDTH,Math.min(MAX_WIDTH,Math.round(width)));this.revision++; }
   deleteGate(i) { if(i<0||i>=this.gates.length)return false;this.checkpoint();this.gates.splice(i,1);return true; }
   setStart(pos,yaw) { this.checkpoint();this.start={pos:[pos[0],this.start.pos[1],pos[2]],yaw:yaw??this.start.yaw};this.revision++; }
-  setMeta({name,mode,laps}) {
+  setMeta({name,mode,laps,vehicle}) {
+    if(vehicle)this.vehicle=vehicle;
     if(name!==undefined){this.name=name;}
     if(mode)this.mode=mode;
     if(laps!==undefined)this.laps=Math.max(1,Math.floor(laps)||1);
@@ -63,11 +64,11 @@ export class TrackDraft {
   // Validated track record (throws on invalid), id taken from the name unless already a slug.
   toTrack() {
     const id=slug(this.id==='new-track'?this.name:this.id)||'track';
-    const {mode,laps}=this,t={id,name:this.name,mode,laps:mode==='p2p'?1:laps,start:this.start,gates:this.gates};
+    const {mode,laps}=this,t={id,name:this.name,vehicle:this.vehicle,mode,laps:mode==='p2p'?1:laps,start:this.start,gates:this.gates};
     return validateTrack(JSON.parse(JSON.stringify(t)));
   }
   get trackId() { return slug(this.id==='new-track'?this.name:this.id)||'track'; }
   // Unvalidated view of the draft for live rendering.
-  preview() { return {id:this.trackId,name:this.name,start:this.start,gates:this.gates}; }
+  preview() { return {id:this.trackId,name:this.name,vehicle:this.vehicle,start:this.start,gates:this.gates}; }
   breakoff() { try{return breakoffDistance(this.toTrack());}catch{return undefined;} }
 }

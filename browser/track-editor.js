@@ -103,8 +103,8 @@ export function createTrackEditor({view,tracks,save,test,closed}) {
   $('te-close').addEventListener('click',ed.close);
   $('te-track').addEventListener('change',e=>choose(e.target.value));
 
-  const meta=()=>ed.draft.setMeta({name:$('te-name').value,mode:$('te-mode').value,laps:+$('te-laps').value||1});
-  for(const id of ['te-name','te-mode','te-laps'])$(id).addEventListener('change',()=>{ed.draft.checkpoint();meta();});
+  const meta=()=>ed.draft.setMeta({name:$('te-name').value,mode:$('te-mode').value,vehicle:$('te-vehicle').value,laps:+$('te-laps').value||1});
+  for(const id of ['te-name','te-mode','te-laps','te-vehicle'])$(id).addEventListener('change',()=>{ed.draft.checkpoint();meta();});
   $('te-name').addEventListener('input',meta);
   $('te-width').addEventListener('change',()=>{if(ed.selected<0)return;ed.draft.checkpoint();ed.draft.setWidth(ed.selected,+$('te-width').value);});
   $('te-heading').addEventListener('change',()=>{if(ed.selected<0)return;ed.draft.checkpoint();ed.draft.setGateYaw(ed.selected,(+$('te-heading').value||0)*Math.PI/180);});
@@ -130,7 +130,7 @@ export function createTrackEditor({view,tracks,save,test,closed}) {
     drawn=d.revision;sel=ed.selected;
     const active=document.activeElement;
     if(active!==$('te-name'))$('te-name').value=d.name;
-    $('te-mode').value=d.mode;$('te-laps').value=d.laps;$('te-laps').disabled=d.mode==='p2p';
+    $('te-mode').value=d.mode;$('te-vehicle').value=d.vehicle;$('te-laps').value=d.laps;$('te-laps').disabled=d.mode==='p2p';
     const b=d.breakoff();$('te-breakoff').textContent=b?`${Math.round(b)} yd (auto)`:'n/a';
     const gate=d.gates[ed.selected];
     $('te-gate-box').hidden=!gate;

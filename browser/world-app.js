@@ -13,13 +13,14 @@ import {MapPanel} from './map-panel.js';
 import {Race,formatTime,bearing,addScore,validScores,validateTrack} from './race.js';
 import {createTrackEditor} from './track-editor.js';
 import {loadTracks,nearestFlag,flagPosition} from './race-flags.js';
+import {readChoice,tracksFor,vehicleOf} from './vehicles.js';
 
 const $=id=>document.getElementById(id),canvas=$('world'),keys=new Set();
 const input=new WorldInput(),audio=new WorldAudio();
 const cameraCollision=new CameraCollision();
 const evidence={ready:false,frames:0,errors:[],mode:'drive'};
 window.worldEvidence=evidence;
-let tracks=[],race,raceBest,promptTrack,goUntil=0,boardTimer=0,againTrack,againUntil=0;
+let choice=readChoice(),tracks=[],race,raceBest,promptTrack,goUntil=0,boardTimer=0,againTrack,againUntil=0;
 const raceAgain=()=>againTrack&&performance.now()<againUntil?againTrack:undefined;
 let renderer,folder,flight,running=false,busy=false,last=0,frames=0,hudTime=0,hudFrames=0,permissionNeeded=false;
 let orbit=[0,0],dragging=false,mouseButtons=0,soundAttempt=0,soundError='',soundTime=0,reportTimer,testPads,frozenPresentation=false,tuningValues=TUNING_FIELDS.map(f=>f[1]);
@@ -392,7 +393,7 @@ function toggleEditor() {
 }
 let flagKey;
 function syncGates(force) {
-  const live=editor.isOpen?mergeTrack(tracks,editor.draft.preview()):tracks;
+  const live=editor.isOpen?mergeTrack(tracks,editor.draft.preview()):tracksFor(tracks,choice.vehicle);
   const key=live.map(t=>t.id).join()+'|'+(race?race.track.id+':'+race.next:'')+(editor.isOpen?'|'+editor.draft.revision+':'+editor.selected:'');
   if(!force&&key===gateKey)return;
   gateKey=key;
@@ -503,7 +504,7 @@ function frame(now) {
     if(now-hudTime>250) {
       const s=client.state,p=s.telemetry,scene=s.scene;
       const held=!!scene?.waitingCollision || !!p[8];
-      promptTrack=race||flight?undefined:nearestFlag(tracks,p);
+      promptTrack=race||flight?undefined:nearestFlag(tracksFor(tracks,choice.vehicle),p);
       const again=race||flight?undefined:raceAgain();
       $('race-prompt').hidden=!promptTrack&&!again;if(again)$('race-prompt').textContent='Press F to race again';else if(promptTrack)$('race-prompt').textContent=`Press F to start race: ${promptTrack.name||promptTrack.id}`;
       $('speed').textContent=flight?'FLY':p[5]<10000?p[5].toFixed(0).padStart(3,'0'):p[5].toExponential(1);
