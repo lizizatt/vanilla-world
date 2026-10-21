@@ -794,9 +794,9 @@ export class WorldRenderer {
       }
     }
     if(!flight&&this.craft&&this.cameraMode!=='cockpit')append(this.craft.asset,this.craft.instance,
-      craftMatrix(state,origin,this.craft.metadata.scale),this.craft.textures,this.craft.items);
+      craftMatrix(state,origin,this.craft.metadata.scale,this.bankSign),this.craft.textures,this.craft.items);
     if(!flight&&this.craft?.flame&&this.cameraMode!=='cockpit') {
-      const m=craftMatrix(state,origin,this.craft.metadata.scale),k=(.35+.9*Math.min(1,Math.abs(state[5])/150))*(1+.08*Math.sin(time*45));
+      const m=craftMatrix(state,origin,this.craft.metadata.scale,this.bankSign),k=(.35+.9*Math.min(1,Math.abs(state[5])/150))*(1+.08*Math.sin(time*45));
       for(const part of this.craft.flame.parts) {
         const [x,y,z]=part.at,f=new Float32Array(m);
         for(let i=0;i<3;i++){f[i]=m[i]*k;f[12+i]=m[12+i]+m[i]*x+m[4+i]*y+m[8+i]*z;}
