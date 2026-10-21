@@ -14,6 +14,7 @@ import {Race,formatTime,bearing,addScore,validScores,validateTrack} from './race
 import {createTrackEditor} from './track-editor.js';
 import {loadTracks,nearestFlag,flagPosition} from './race-flags.js';
 import {loadVehicleModel} from './vehicle-model.js';
+import {planePayload} from './plane-model.js';
 import {readChoice,writeChoice,tracksFor,vehicleOf,VEHICLES,canSwitch,normalizeChoice,skinOf} from './vehicles.js';
 
 const $=id=>document.getElementById(id),canvas=$('world'),keys=new Set();
@@ -373,9 +374,18 @@ let skinToken=0,skinNote='';
 async function applySkin() {
   const token=++skinToken,skin=skinOf(choice);
   if(!renderer)return;
+  syncVehicle();
+  if(choice.vehicle==='plane'){skinNote='';renderer.setCraftOverride(planePayload());return;}
   if(skin.source!=='glb'){skinNote='';renderer.setCraftOverride(undefined);return;}
   try{const model=await loadVehicleModel(skin);if(token===skinToken){renderer.setCraftOverride(model);skinNote='';}}
   catch(error){if(token===skinToken){renderer.setCraftOverride(undefined);skinNote=`Skin ${skin.name} unavailable (${error.message}); using the default craft`;report(skinNote,true);}}
+}
+let sentKind=0;
+// Rust owns the plane's state; tell the worker which vehicle mode to step.
+function syncVehicle() {
+  const kind=choice.vehicle==='plane'?1:0;
+  if(kind===sentKind||!client.state)return;
+  sentKind=kind;client.discardFrame();client.request('vehicle',{kind}).then(state=>{client.state=state;}).catch(error=>{sentKind=1-kind;report(error.message,true);});
 }
 function selectVehicle(next) {
   if(!canSwitch({race,editing:editor.isOpen}))return false;
@@ -536,10 +546,10 @@ function frame(now) {
     if(race){flight=undefined;if(!raceMenu.open)raceFrame(controls,now/1000);}
     if(editor.isOpen)flight=editor.pose();
     syncGates();
-    if(!frozenPresentation)client.frame(dt,controls.throttle,controls.steer,controls.flags,flight?.slice(0,3),settings.distant,renderer.view);
+    if(!frozenPresentation)client.frame(dt,controls.throttle,controls.steer,controls.flags,flight?.slice(0,3),settings.distant,renderer.view,choice.vehicle==='plane'?controls.look[1]:0);
     cameraCollision.frame(client.state,renderer.sceneRegion ?? client.state.telemetry[10]);
     const stats=renderer.draw(frozenPresentation || flight?client.state.telemetry:client.presentation(),flight,dt,frozenPresentation?0:now/1000,
-      {...settings,cameraLook:controls.look,cameraOrbit,cameraSteer:right,cameraRecentre:keyDrive&&!dragging},keys.has('KeyV')&&!keys.has('AltLeft')&&!keys.has('AltRight'));
+      {...settings,cameraLook:choice.vehicle==='plane'?[controls.look[0],0]:controls.look,cameraOrbit,cameraSteer:right,cameraRecentre:keyDrive&&!dragging},keys.has('KeyV')&&!keys.has('AltLeft')&&!keys.has('AltRight'));
     editor.frame();
     const cameraWarning=stats.cameraBlocked==='pending'?'Cockpit view waiting for nearby camera geometry.'
       :stats.cameraBlocked?'Cockpit view blocked by nearby geometry.':'';
@@ -558,8 +568,8 @@ function frame(now) {
       const again=race||flight?undefined:raceAgain();
       $('race-prompt').hidden=!promptTrack&&!again;if(again)$('race-prompt').textContent='Press F to race again';else if(promptTrack)$('race-prompt').textContent=`Press F to start race: ${promptTrack.name||promptTrack.id}`;
       $('speed').textContent=flight?'FLY':p[5]<10000?p[5].toFixed(0).padStart(3,'0'):p[5].toExponential(1);
-      $('direction').textContent=flight?'FREE':p[14]<-.1?'REV':p[14]>.1?'FWD':p[5]<.1?'IDLE':'--';
-      $('drive-state').textContent=flight?'FLIGHT':scene?.waitingCollision||p[8]===1?'WAIT':p[8]===3?'CONTACT':p[8]===2?'NO GROUND':p[7]?'HOVER':'AIR';
+      $('direction').textContent=flight?'FREE':choice.vehicle==='plane'?`ALT ${Math.round(p[1])}`:p[14]<-.1?'REV':p[14]>.1?'FWD':p[5]<.1?'IDLE':'--';
+      $('drive-state').textContent=flight?'FLIGHT':choice.vehicle==='plane'&&!p[8]?(p[7]?'SKIM':'FLYING'):scene?.waitingCollision||p[8]===1?'WAIT':p[8]===3?'CONTACT':p[8]===2?'NO GROUND':p[7]?'HOVER':'AIR';
       document.querySelector('.meters').dataset.held=String(held);
       $('boost').textContent=`${Math.round(p[6]*100)}%`;$('boost-meter').value=p[6];
       $('speed-meter').value=Math.min(1,p[5]/tuningValues[1]);

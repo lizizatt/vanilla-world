@@ -761,6 +761,7 @@ async function handle(message) {
         accumulator+=Math.min(Math.max(message.dt,0),.1);
         while(accumulator>=1/120){
           const tickFlags=message.flags|((message.hop||0)>hopConsumed?8:0);
+          world.set_plane_pitch(message.pitch||0);
           world.tick(message.throttle,message.steer,tickFlags);
           if(message.hop)hopConsumed=Math.max(hopConsumed,message.hop);
           advanced=true;accumulator-=1/120;
@@ -809,6 +810,8 @@ async function handle(message) {
       return Array.from(values);
     }
     return Array.from(world.tuning());
+  } else if(message.action==='vehicle') {
+    world.set_vehicle(message.kind===1?1:0);
   } else if(message.action==='probe') {
     return message.points.map(p=>Array.from(world.surface(p[0],p[1])));
   } else if(message.action!=='snapshot')throw new Error('Unknown world operation');
