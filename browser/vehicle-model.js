@@ -35,6 +35,6 @@ export async function loadVehicleModel(skin,fetcher=fetch) {
   if(!response.ok)throw new Error(`${skin.model}: HTTP ${response.status}`);
   const payload=vehiclePayload(await response.arrayBuffer());
   payload.textures=await decodeImages(payload.imageSources);
-  delete payload.imageSources;payload.key=`glb:${skin.id}`;
+  delete payload.imageSources;payload.metadata.scale=skin.scale??1;payload.key=`glb:${skin.id}`;
   return payload;
 }

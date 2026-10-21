@@ -352,9 +352,10 @@ export class WorldRenderer {
     if(bytes>32*1024*1024)throw Error('Craft exceeds GPU budget');
     const build=asset=>({vertices:this.buffer(asset.vertices,GPUBufferUsage.VERTEX),
       indices:this.buffer(asset.indices,GPUBufferUsage.INDEX),batches:this.prepareBatches(asset.batches),count:asset.indices.length});
-    const anchor=cockpitAnchor(data.metadata),asset=build(data.asset);
+    const anchor=cockpitAnchor(data.metadata),asset=build(data.asset),lo=[1e9,1e9,1e9],hi=[-1e9,-1e9,-1e9];
+    for(let i=0;i<data.asset.vertices.length;i+=12)for(let a=0;a<3;a++){lo[a]=Math.min(lo[a],data.asset.vertices[i+a]);hi[a]=Math.max(hi[a],data.asset.vertices[i+a]);}
     return {asset,textures:new Map(data.textures.map(t=>[t.key,this.texture(t.width,t.height,t.rgba)])),
-      metadata:data.metadata,anchor,items:new Map(),instance:{id:'player-craft',key,craft:true},bytes,
+      metadata:data.metadata,anchor,items:new Map(),instance:{id:'player-craft',key,craft:true},bytes,size:hi.map((v,a)=>(v-lo[a])*data.metadata.scale),
       flame:data.flame&&data.metadata.exhausts?.length?{asset:build(data.flame),
         parts:data.metadata.exhausts.map((at,i)=>({at,instance:{id:`player-craft-flame:${i}`,key:'flame',craft:true}}))}:undefined};
   }
@@ -829,7 +830,7 @@ export class WorldRenderer {
       cameraBlocked:this.cameraBlocked,worldDraws:terrain.length+draws.length,
       coastalWaterTiles:coastal.length,coastalWaterGpuBytes:this.coastBytes,
       waterShaderGpuBytes:this.waterNormalBytes||0,wmoWaterDraws:draws.filter(d=>d.batch.water).length,
-      craftSource:this.craft&&this.craft===this.override?'model':'game data',craftStatus:this.craft?'ready':this.craftError?'failed':'loading',
+      craftSize:this.craft?.size,craftSource:this.craft&&this.craft===this.override?'model':'game data',craftStatus:this.craft?'ready':this.craftError?'failed':'loading',
       craftTriangles:this.craft?this.craft.asset.count/3:0,craftError:this.craftError,
       npcInstances:this.instances.filter(i=>i.id.includes(':npc:')).length,
       wmoInstances:this.instances.filter(i=>i.kind==='group').length,
