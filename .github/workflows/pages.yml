@@ -1,0 +1,51 @@
+name: Deploy browser racer to Pages
+
+on:
+  push:
+    branches: [main]
+    paths: ['browser/**', 'client/crates/**', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build Wasm package
+        working-directory: client
+        run: |
+          cargo install wasm-bindgen-cli --version 0.2.122 --locked
+          cargo build -p flats-racer-web --target wasm32-unknown-unknown --release
+          wasm-bindgen target/wasm32-unknown-unknown/release/flats_racer_web.wasm --target web --out-dir ../browser/pkg
+      - name: Test and build dist
+        run: |
+          node --test browser
+          node browser/build-dist.mjs dist
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,9 +1,9 @@
-const CACHE = 'racer-shell-v66';
+const CACHE = 'racer-shell-v68';
 const FILES = ['./', './index.html', './world-app.js', './world-client.js', './world-worker.js', './world-renderer.js',
   './world-store.js', './world-camera.js', './world-view.js', './camera-collision.js', './world-input.js', './world-audio.js', './world-tuning.js',
   './asset-source.js', './asset-folder.js', './scene-stream.js', './terrain-stream.js', './water-stream.js', './craft-stream.js', './flight.js',
   './far-worker.js', './far-stream.js', './far-channel.js', './asset-worker.js', './asset-channel.js', './loading-art.js',
-  './water-shader.js', './music.js', './sky.js', './clouds.js', './race.js', './race-flags.js', './track-edit.js', './track-editor.js', './tracks/steamwheedle.json', './world-music.js', './ocean-mesh.js', './worldmap.js', './map-panel.js', './style.css', './pkg/flats_racer_web.js', './pkg/flats_racer_web_bg.wasm'];
+  './water-shader.js', './music.js', './sky.js', './clouds.js', './race.js', './race-flags.js', './track-edit.js', './track-editor.js', './tracks/steamwheedle.json', './world-music.js', './ocean-mesh.js', './worldmap.js', './map-panel.js', './style.css', './icon.svg', './pkg/flats_racer_web.js', './pkg/flats_racer_web_bg.wasm'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(FILES)).then(() => self.skipWaiting()));
 });
@@ -14,7 +14,7 @@ self.addEventListener('activate', event => {
 });
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET' || new URL(event.request.url).origin !== self.location.origin) return;
-  if(new URL(event.request.url).pathname==='/local/npc-spawns.json') {
+  if(new URL(event.request.url).pathname.endsWith('/local/npc-spawns.json')) {
     event.respondWith((async()=>{
       const cache=await caches.open('world-private-population-v1');
       try {
