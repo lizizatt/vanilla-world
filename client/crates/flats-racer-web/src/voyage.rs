@@ -2654,6 +2654,23 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn worker_steer_axis_banks_the_plane_the_way_the_key_says() {
+        // Worker steer axis: +1 is A (left), -1 is D (right), as for the car.
+        for (steer, left) in [(1.0_f32, true), (-1.0, false)] {
+            let mut world = plane_world(400.0, 150.0);
+            for _ in 0..90 {
+                world.tick(0.0, steer, 0).unwrap();
+            }
+            let plane = world.plane.unwrap();
+            let right_wing_y = plane.axes[1][1];
+            assert_eq!(right_wing_y > 0.1, left, "left wing must be the low one for A: {right_wing_y}");
+            assert_eq!(right_wing_y < -0.1, !left);
+            let t = world.telemetry();
+            assert_eq!(t[4] < 0.0, left, "telemetry bank is negative for left roll: {}", t[4]);
+            assert_eq!(t[3] > 0.0, left, "heading turns left (yaw grows counter-clockwise) for A: {}", t[3]);
+        }
+    }
+    #[test]
     fn plane_holds_on_unloaded_tiles_and_never_moves() {
         let mut world = Voyage::from_manifest(fixture(0.0)).unwrap();
         world.origin = [200.0, 64.0];
