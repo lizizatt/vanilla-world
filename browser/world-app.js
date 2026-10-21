@@ -12,6 +12,7 @@ import {MusicPlayer} from './world-music.js';
 import {MapPanel} from './map-panel.js';
 import {Race,formatTime,bearing,addScore,validScores,validateTrack} from './race.js';
 import {createTrackEditor} from './track-editor.js';
+import {clampTrack} from './track-edit.js';
 import {loadTracks,nearestFlag,flagPosition} from './race-flags.js';
 import {loadVehicleModel} from './vehicle-model.js';
 import {bootChoice,writeChoice,tracksFor,vehicleOf,VEHICLES,canSwitch,normalizeChoice,skinOf} from './vehicles.js';
@@ -181,7 +182,7 @@ async function open(selection,remember=false) {
     renderer.reset();renderer.clipCamera=undefined;cameraCollision.reset();flight=undefined;pauseAudio();music.stop();Object.assign(settings,defaults);syncSettings();
     const result=await client.open(selection,loadingMap);
     renderer.configure(result.info.manifest);client.sky();mapPanel.configure(result.info.manifest);
-    void loadTracks().then(async found=>{tracks=await withOverrides(found);gateKey=undefined;});
+    void loadTracks().then(async found=>{shipped=found;tracks=await withOverrides(found);gateKey=undefined;});
     cameraCollision.configure(result.info.manifest);
     tuningValues=Array.isArray(result.info.tuning)?result.info.tuning.slice():TUNING_FIELDS.map(f=>f[1]);
     opened=true;
@@ -418,8 +419,16 @@ $('garage-skins').addEventListener('click',event=>{const b=event.target.closest(
 $('garage-use').addEventListener('click',()=>{if(selectVehicle(garagePick))garage.close();});
 garage.addEventListener('close',()=>canvas.focus());
 $('menu-garage').addEventListener('click',()=>{raceMenu.close();openGarage();});
-let gateKey,editorFlight;
+let gateKey,editorFlight,shipped=[];
 const mergeTrack=(list,t)=>list.some(x=>x.id===t.id)?list.map(x=>x.id===t.id?t:x):[...list,t];
+const probeSurface=points=>client.request('probe',{points});
+// Pull stale saved heights back above the current ground/water; unloaded tiles leave a point as saved.
+async function groundTrack(track) {
+  try {
+    const pts=[track.start.pos,...track.gates.map(g=>g.pos)].map(p=>[p[0],p[2]]);
+    return clampTrack(track,(await probeSurface(pts)).map(s=>({ground:s[1],water:s[2]})));
+  } catch { return track; }
+}
 async function withOverrides(found) {
   let list=found;
   try {
@@ -430,11 +439,16 @@ async function withOverrides(found) {
   return list;
 }
 const editor=createTrackEditor({
-  view:()=>renderer?.view,tracks:()=>tracks,
+  view:()=>renderer?.view,tracks:()=>tracks,shipped:()=>shipped.map(t=>t.id),probe:probeSurface,
   save:async track=>{
     await trackOverride(track.id,track);
     const ids=new Set((await trackOverride('~index'))||[]);ids.add(track.id);await trackOverride('~index',[...ids]);
     tracks=mergeTrack(tracks,track);
+  },
+  remove:async id=>{
+    const ids=new Set((await trackOverride('~index'))||[]);ids.delete(id);await trackOverride('~index',[...ids]);await trackOverride(id,null);
+    const base=shipped.find(t=>t.id===id);
+    tracks=base?mergeTrack(tracks,base):tracks.filter(t=>t.id!==id);
   },
   test:track=>startRace(track),
   closed:()=>{flight=editorFlight;editorFlight=undefined;gateKey=undefined;keys.clear();canvas.focus();},
@@ -447,16 +461,17 @@ function toggleEditor() {
 }
 let flagKey;
 function syncGates(force) {
-  const live=editor.isOpen?mergeTrack(tracks,editor.draft.preview()):tracksFor(tracks,choice.vehicle);
-  const key=live.map(t=>t.id).join()+'|'+(race?race.track.id+':'+race.next:'')+(editor.isOpen?'|'+editor.draft.revision+':'+editor.selected:'');
+  const live=editor.isOpen?tracks:tracksFor(tracks,choice.vehicle);
+  const key=live.map(t=>t.id).join()+'|'+(race?race.track.id+':'+race.next:'')+(editor.isOpen?'|'+editor.draft.id+':'+editor.draft.revision+':'+editor.selected:'');
   if(!force&&key===gateKey)return;
   gateKey=key;
-  const pick=editor.isOpen?editor.draft.trackId:undefined;
   const racing=!editor.isOpen&&race;
-  const items=editor.isOpen?live.flatMap(t=>t.gates.map((gate,i)=>({gate,next:t.id===pick&&i===editor.selected}))):
+  // The editor draws only the draft being edited; every other track shows as its flag.
+  const items=editor.isOpen?editor.draft.gates.map((gate,i)=>({gate,next:i===editor.selected})):
     racing?[{gate:race.track.gates[race.gateIndex],next:true,finish:race.next===race.totalGates-1}]:[];
   renderer.setGates(items);
-  const spots=live.filter(t=>!racing||t.id!==race.track.id).map(flagPosition),fk=JSON.stringify(spots);
+  const own=editor.isOpen?editor.draft.id:racing?race.track.id:undefined;
+  const spots=live.filter(t=>t.id!==own).map(flagPosition),fk=JSON.stringify(spots);
   if(fk!==flagKey){flagKey=fk;renderer.setFlags(spots);}
 }
 function startRace(track) {
@@ -464,6 +479,7 @@ function startRace(track) {
   if(vehicleOf(track)!==choice.vehicle)selectVehicle({vehicle:vehicleOf(track)});
   operation(async()=>{
     flight=undefined;
+    track=await groundTrack(track);
     const [x,y,z]=track.start.pos;
     client.state=await client.request('restore',{pose:[x,y+2,z,track.start.yaw]});
     renderer.camera=undefined;running=true;$('error').hidden=true;

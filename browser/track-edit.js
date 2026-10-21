@@ -8,6 +8,26 @@ const TAN_HALF=.55; // matches the renderer's 0.55 projection slope
 export const yawToward=(a,b)=>Math.atan2(-(b[0]-a[0]),-(b[2]-a[2]));
 export const slug=s=>String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
 
+// Gate height: always above the higher of ground and water, by a bounded clearance (yd).
+export const CLEAR_MIN=5,CLEAR_DEFAULT=20,CLEAR_MAX=150;
+export const surfaceBase=s=>Math.max(Number.isFinite(s?.ground)?s.ground:-Infinity,Number.isFinite(s?.water)?s.water:-Infinity);
+export function gateY(y,s,min=CLEAR_MIN,max=CLEAR_MAX) {
+  const base=surfaceBase(s);
+  return Number.isFinite(base)?Math.max(base+min,Math.min(base+max,y)):y;
+}
+// surfaces[i] is the sample for [start,...gates][i]; unknown samples leave the height alone. Start only needs to be above ground.
+export function clampTrack(track,surfaces) {
+  const t=JSON.parse(JSON.stringify(track)),base=surfaceBase(surfaces[0]);
+  if(Number.isFinite(base))t.start.pos[1]=Math.max(t.start.pos[1],base);
+  t.gates.forEach((g,i)=>{g.pos[1]=gateY(g.pos[1],surfaces[i+1]);});
+  return t;
+}
+export function uniqueId(name,taken) {
+  const base=slug(name)||'track',used=new Set(taken);let id=base,n=2;
+  while(used.has(id)||id==='new-track')id=`${base}-${n++}`;
+  return id;
+}
+
 const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
 
 // view = renderer.view {eye,right,up,look,aspect}; returns [screenX,screenY,depth] or undefined behind the eye.
@@ -49,6 +69,9 @@ export class TrackDraft {
     return this.gates.length-1;
   }
   moveGate(i,pos) { this.gates[i].pos=[pos[0],this.gates[i].pos[1],pos[2]];this.revision++; }
+  setGateHeight(i,y) { this.gates[i].pos[1]=y;this.revision++; }
+  // A new draft keeps the id 'new-track' until its first save; this makes it permanent and unique.
+  assignId(taken) { if(this.id==='new-track')this.id=uniqueId(this.name,taken);return this.id; }
   setGateYaw(i,yaw) { this.gates[i].yaw=yaw;this.revision++; }
   setWidth(i,width) { this.gates[i].width=Math.max(MIN_WIDTH,Math.min(MAX_WIDTH,Math.round(width)));this.revision++; }
   deleteGate(i) { if(i<0||i>=this.gates.length)return false;this.checkpoint();this.gates.splice(i,1);return true; }

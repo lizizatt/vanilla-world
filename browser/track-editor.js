@@ -1,5 +1,5 @@
 // In-game race track editor: the live world rendered top-down is the backdrop, a transparent canvas draws the gizmos.
-import {TrackDraft,project,unproject,yawToward} from './track-edit.js';
+import {TrackDraft,project,unproject,yawToward,gateY,surfaceBase,CLEAR_MIN,CLEAR_DEFAULT,CLEAR_MAX} from './track-edit.js';
 
 const $=id=>document.getElementById(id);
 const TOOLS={KeyG:'add',KeyV:'select',KeyS:'start'};
@@ -7,7 +7,7 @@ const NEAREST_RANGE=5000,ALT_MIN=60,ALT_MAX=3000;
 const fwd=g=>[-Math.sin(g.yaw),-Math.cos(g.yaw)],side=g=>[Math.cos(g.yaw),-Math.sin(g.yaw)];
 const clone=o=>JSON.parse(JSON.stringify(o));
 
-export function createTrackEditor({view,tracks,save,test,closed}) {
+export function createTrackEditor({view,tracks,save,remove:removeTrack,shipped=()=>[],probe=async()=>[],test,closed}) {
   const root=$('track-editor'),cv=$('te-canvas'),g2=cv.getContext('2d');
   const ed={isOpen:false,draft:undefined,selected:-1,tool:'select'};
   let cam,drag,drawn=-1,sel=-2,savedState;
@@ -24,20 +24,42 @@ export function createTrackEditor({view,tracks,save,test,closed}) {
     const span=Math.max(Math.max(...xs)-Math.min(...xs),Math.max(...zs)-Math.min(...zs),150)*1.5;
     cam={x:(Math.min(...xs)+Math.max(...xs))/2,z:(Math.min(...zs)+Math.max(...zs))/2,alt:Math.max(ALT_MIN,Math.min(ALT_MAX,span/1.1))};
   }
+  const dirty=()=>!!ed.draft&&ed.draft.state()!==savedState;
+  function fill() {
+    const select=$('te-track');
+    select.replaceChildren(...tracks().map(t=>new Option(t.name||t.id,t.id)),new Option('+ New track here',''));
+    select.value=ed.draft.id==='new-track'?'':ed.draft.id;
+    const saved=tracks().some(t=>t.id===ed.draft.id);
+    $('te-remove').hidden=!saved;$('te-remove').textContent=shipped().includes(ed.draft.id)?'Revert to shipped':'Delete track';
+  }
+  async function sample(pos) {
+    const [s]=await probe([[pos[0],pos[2]]]).catch(()=>[]);
+    return s&&{ground:s[1],water:s[2]};
+  }
+  async function snapGate(i,lift) {
+    const d=ed.draft,gate=d.gates[i],s=gate&&await sample(gate.pos);
+    if(d!==ed.draft||d.gates[i]!==gate||!Number.isFinite(surfaceBase(s)))return;
+    d.setGateHeight(i,surfaceBase(s)+Math.max(CLEAR_MIN,Math.min(CLEAR_MAX,lift)));
+  }
+  async function showHeight() {
+    const d=ed.draft,i=ed.selected,gate=d.gates[i],s=gate&&await sample(gate.pos);
+    if(d!==ed.draft||i!==ed.selected||!Number.isFinite(surfaceBase(s)))return;
+    $('te-height').value=Math.round(gate.pos[1]-surfaceBase(s));
+  }
   function choose(id) {
+    if(dirty()&&!confirm('Discard unsaved changes to this track?')){fill();return;}
     const found=tracks().find(t=>t.id===id);
     if(found)load(new TrackDraft(clone(found)));
     else load(TrackDraft.blank(ed.from.slice(),0));
-    $('te-track').value=found?id:'';
+    fill();status(found?`Loaded "${found.name||id}".`:'New track.');
   }
   ed.open=from=>{
-    ed.from=from;cam=undefined;
+    ed.from=from;
     const list=tracks(),near=list.map(t=>[Math.hypot(t.start.pos[0]-from[0],t.start.pos[2]-from[2]),t]).sort((a,b)=>a[0]-b[0])[0];
-    const select=$('te-track');
-    select.replaceChildren(...list.map(t=>new Option(t.name||t.id,t.id)),new Option('+ New track here',''));
-    if(near&&near[0]<NEAREST_RANGE)load(new TrackDraft(clone(near[1])));else load(TrackDraft.blank(from.slice(),0));
-    select.value=ed.draft.id==='new-track'?'':ed.draft.id;
-    ed.isOpen=true;root.hidden=false;ed.tool='select';cv.focus();status('Editing. G add · V select · S start · Del delete · Ctrl+Z undo · Wheel zoom · right-drag pan');
+    const keep=dirty();
+    if(!keep){if(near&&near[0]<NEAREST_RANGE)load(new TrackDraft(clone(near[1])));else load(TrackDraft.blank(from.slice(),0));}
+    fill();
+    ed.isOpen=true;root.hidden=false;ed.tool='select';cv.focus();status(keep?'Restored your unsaved edits.':'Editing. G add · V select · S start · Del delete · Ctrl+Z undo · Wheel zoom · right-drag pan');
     refresh(true);
   };
   ed.close=()=>{if(!ed.isOpen)return;ed.isOpen=false;root.hidden=true;drag=undefined;closed();};
@@ -59,12 +81,12 @@ export function createTrackEditor({view,tracks,save,test,closed}) {
     const x=e.offsetX,y=e.offsetY;
     if(e.button!==0){drag={kind:'pan'};return;}
     const world=toWorld(x,y),d=ed.draft;
-    if(ed.tool==='add'&&world){d.addGate(world);ed.selected=d.gates.length-1;drag={kind:'gate',i:ed.selected,moved:true};return;}
+    if(ed.tool==='add'&&world){d.addGate(world);ed.selected=d.gates.length-1;drag={kind:'gate',i:ed.selected,lift:CLEAR_DEFAULT};return;}
     if(ed.tool==='start'&&world){d.setStart(world);drag={kind:'start'};return;}
     const h=hit(x,y);
     if(!h){ed.selected=-1;drag={kind:'pan'};return;}
     ed.selected=h.i;
-    d.checkpoint();drag=h;
+    d.checkpoint();drag={...h,lift:+$('te-height').value||CLEAR_DEFAULT};
   });
   cv.addEventListener('pointermove',e=>{
     if(!drag||!ed.isOpen)return;
@@ -75,7 +97,7 @@ export function createTrackEditor({view,tracks,save,test,closed}) {
     else if(drag.kind==='handle')d.setGateYaw(drag.i,yawToward(d.gates[drag.i].pos,world));
     else if(drag.kind==='start'){d.start.yaw=yawToward(d.start.pos,world);d.revision++;}
   });
-  const end=()=>{drag=undefined;};
+  const end=()=>{const d=drag;drag=undefined;if(d?.kind==='gate')void snapGate(d.i,d.lift);};
   cv.addEventListener('pointerup',end);cv.addEventListener('pointercancel',end);
   cv.addEventListener('wheel',e=>{
     e.preventDefault();
@@ -106,14 +128,27 @@ export function createTrackEditor({view,tracks,save,test,closed}) {
   const meta=()=>ed.draft.setMeta({name:$('te-name').value,mode:$('te-mode').value,vehicle:$('te-vehicle').value,laps:+$('te-laps').value||1});
   for(const id of ['te-name','te-mode','te-laps','te-vehicle'])$(id).addEventListener('change',()=>{ed.draft.checkpoint();meta();});
   $('te-name').addEventListener('input',meta);
+  $('te-height').addEventListener('change',async()=>{
+    const d=ed.draft,i=ed.selected,gate=d.gates[i];if(!gate)return;
+    const s=await sample(gate.pos);if(d!==ed.draft||!Number.isFinite(surfaceBase(s)))return;
+    d.checkpoint();d.setGateHeight(i,gateY(surfaceBase(s)+(+$('te-height').value||CLEAR_DEFAULT),s));
+  });
   $('te-width').addEventListener('change',()=>{if(ed.selected<0)return;ed.draft.checkpoint();ed.draft.setWidth(ed.selected,+$('te-width').value);});
   $('te-heading').addEventListener('change',()=>{if(ed.selected<0)return;ed.draft.checkpoint();ed.draft.setGateYaw(ed.selected,(+$('te-heading').value||0)*Math.PI/180);});
 
-  const valid=()=>{try{return ed.draft.toTrack();}catch(error){status(error.message,true);}};
+  const valid=()=>{try{ed.draft.assignId(tracks().map(t=>t.id));return ed.draft.toTrack();}catch(error){status(error.message,true);}};
   $('te-test').addEventListener('click',()=>{const t=valid();if(!t)return;ed.close();test(t);});
+  $('te-remove').addEventListener('click',async()=>{
+    const id=ed.draft.id,revert=shipped().includes(id);
+    if(!confirm(revert?`Revert "${ed.draft.name}" to the shipped version?`:`Delete "${ed.draft.name}" from this browser?`))return;
+    try{await removeTrack(id);}catch(error){status(`Failed: ${error.message}`,true);return;}
+    const left=tracks().find(t=>t.id===id);
+    if(left)load(new TrackDraft(clone(left)));else load(TrackDraft.blank(ed.from.slice(),0));
+    fill();status(revert?'Reverted.':'Deleted.');
+  });
   $('te-save').addEventListener('click',async()=>{
     const t=valid();if(!t)return;
-    try{await save(t);savedState=ed.draft.state();status(`Saved "${t.name}" locally (${t.gates.length} gates).`);}
+    try{await save(t);savedState=ed.draft.state();fill();status(`Saved "${t.name}" locally (${t.gates.length} gates).`);}
     catch(error){status(`Save failed: ${error.message}`,true);}
   });
   $('te-export').addEventListener('click',()=>{
@@ -134,7 +169,7 @@ export function createTrackEditor({view,tracks,save,test,closed}) {
     const b=d.breakoff();$('te-breakoff').textContent=b?`${Math.round(b)} yd (auto)`:'n/a';
     const gate=d.gates[ed.selected];
     $('te-gate-box').hidden=!gate;
-    if(gate){$('te-width').value=gate.width;$('te-heading').value=Math.round(((gate.yaw*180/Math.PI)%360+360)%360);}
+    if(gate){if(!drag)void showHeight();$('te-width').value=gate.width;$('te-heading').value=Math.round(((gate.yaw*180/Math.PI)%360+360)%360);}
     $('te-list').replaceChildren(...d.gates.map((gt,i)=>{
       const li=document.createElement('li'),btn=document.createElement('button');
       btn.type='button';btn.textContent=`Gate ${i+1} · width ${gt.width}`;btn.setAttribute('aria-pressed',String(i===ed.selected));
