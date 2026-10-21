@@ -43,3 +43,12 @@ export const skinOf=choice=>VEHICLES[choice.vehicle].skins.find(s=>s.id===choice
 
 // Switching is open-world only: never while a race is lining up, counting down or running, nor while editing.
 export const canSwitch=({race,editing})=>!race&&!editing;
+
+// Ironforge Airfield: gnomish gyrocopter placements in Azeroth_35_40 (WoW x -4740, y -1706, ground ~503). Heading is along the placement row; the exact runway axis is a guess.
+export const AIRFIELD=Object.freeze({wowX:-4740,wowY:-1706,wowZ:503,yaw:Math.PI,above:60});
+const SCALE=1600/3;
+/** Render-space [x,y,z,yaw] for the airfield, or undefined when no Eastern Kingdoms region is in the manifest. */
+export function airfieldPose(manifest,a=AIRFIELD) {
+  const r=manifest?.regions?.find(r=>/^azeroth$/i.test(r.map));if(!r)return undefined;
+  return [r.placement[0]+(32-r.tile_origin[0])*SCALE-a.wowY,a.wowZ+a.above,r.placement[1]+(32-r.tile_origin[1])*SCALE-a.wowX,a.yaw];
+}

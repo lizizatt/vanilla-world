@@ -16,7 +16,7 @@ import {loadTracks,nearestFlag,flagPosition} from './race-flags.js';
 import {loadVehicleModel} from './vehicle-model.js';
 import {planePayload} from './plane-model.js';
 import {planeKeys} from './plane-input.js';
-import {readChoice,writeChoice,tracksFor,vehicleOf,VEHICLES,canSwitch,normalizeChoice,skinOf} from './vehicles.js';
+import {airfieldPose,readChoice,writeChoice,tracksFor,vehicleOf,VEHICLES,canSwitch,normalizeChoice,skinOf} from './vehicles.js';
 
 const $=id=>document.getElementById(id),canvas=$('world'),keys=new Set();
 const input=new WorldInput(),audio=new WorldAudio();
@@ -384,16 +384,29 @@ async function applySkin() {
   try{const model=await loadVehicleModel(skin);if(token===skinToken){renderer.setCraftOverride(model);skinNote='';}}
   catch(error){if(token===skinToken){renderer.setCraftOverride(undefined);skinNote=`Skin ${skin.name} unavailable (${error.message}); using the default craft`;report(skinNote,true);}}
 }
-let sentKind=0;
+let sentKind=0,carPose,moving=Promise.resolve();
 // Rust owns the plane's state; tell the worker which vehicle mode to step.
 function syncVehicle() {
   const kind=choice.vehicle==='plane'?1:0;
   if(kind===sentKind||!client.state)return;
-  sentKind=kind;client.discardFrame();client.request('vehicle',{kind}).then(state=>{client.state=state;}).catch(error=>{sentKind=1-kind;report(error.message,true);});
+  sentKind=kind;client.discardFrame();moving=moving.then(()=>client.request('vehicle',{kind})).then(state=>{client.state=state;}).catch(error=>{sentKind=1-kind;report(error.message,true);});
+}
+// Plane spawns at Ironforge Airfield; the car pose is remembered and restored on the way back. Falls back to staying put.
+function relocate(toPlane) {
+  let pose;
+  if(toPlane){const t=client.state.telemetry;carPose=[t[0],t[1],t[2],t[3]];pose=airfieldPose(renderer.manifest);}else{pose=carPose;carPose=undefined;}
+  if(!pose)return;
+  client.discardFrame();moving=moving.then(()=>client.request('restore',{pose})).then(state=>{client.state=state;renderer.camera=undefined;}).catch(error=>{report('Could not move: '+(error.message||error),true);});
+}
+const MiB=v=>((v||0)/1048576).toFixed(0);
+function memoryLine(s,stats) {
+  const heap=performance.memory?.usedJSHeapSize;
+  return ` · ${heap?`JS heap ${MiB(heap)} MiB · `:''}wasm ${MiB(s.horizon?.wasmPeakBytes)} MiB · GPU terrain ${MiB(stats.terrainGpuBytes)} / scene ${MiB(stats.sceneGpuMeshBytes)} / coast water ${MiB(stats.coastalWaterGpuBytes)} MiB`;
 }
 function selectVehicle(next) {
   if(!canSwitch({race,editing:editor.isOpen}))return false;
-  const wasFree=choice.vehicle==='free-flight';choice=normalizeChoice(next);writeChoice(choice);
+  const wasFree=choice.vehicle==='free-flight',wasPlane=choice.vehicle==='plane';choice=normalizeChoice(next);writeChoice(choice);
+  if(!wasPlane&&choice.vehicle==='plane'&&client.state&&!flight)relocate(true);else if(wasPlane&&choice.vehicle!=='plane')relocate(false);
   if(choice.vehicle==='free-flight'){if(!flight&&client.state){const p=client.state.telemetry;flight=[p[0],p[1]+20,p[2]+20,p[3],-.25];}}
   else if(wasFree||flight){flight=undefined;renderer.camera=undefined;}
   syncGates(true);applySkin();return true;
@@ -588,7 +601,7 @@ function frame(now) {
       $('camera-status').textContent=flight?'Flight camera is collision-free':settings.cockpit
         ?cameraWarning||(renderer.cameraMode==='cockpit'?'Cockpit / exact posed seat':'Cockpit waiting for craft'):!cameraCollision.ready?'Chase clearance waiting for geometry'
         :cameraCollision.coverageLimited?'Chase distance limited to its collision window':'Vehicle-relative chase collision ready';
-      $('place').textContent=flight?'FREE FLIGHT':p[10]===-1?'THE GREAT SEA':p[10]===1?'EASTERN KINGDOMS':'KALIMDOR';
+      $('place').textContent=choice.vehicle==='plane'&&p[8]===1?'EDGE OF THE LOADED WORLD - TURN BACK':flight?'FREE FLIGHT':p[10]===-1?'THE GREAT SEA':p[10]===1?'EASTERN KINGDOMS':'KALIMDOR';
       $('coordinates').textContent=`${(flight?.[0]??p[0]).toFixed(0)} E / ${(flight?.[2]??p[2]).toFixed(0)} S`;
       $('resident').textContent=`${s.resident.length}/${s.limit} terrain tiles · ${stats.horizonTiles} distant patches · ${stats.sceneInstances||0} scene instances`;
       $('population').textContent=scene?.population || 'Reading static population…';
@@ -598,6 +611,7 @@ function frame(now) {
       if(s.water)$('material-status').textContent+=` · authored water ${s.water.resident} tiles / ${(s.water.bytes/1048576).toFixed(1)} MiB (${s.water.pending} pending${s.water.deferred?`, ${s.water.deferred} background deferrals`:''}${s.water.limited?', nearest-water cache full':''})`;
       $('details').textContent=`${client.info.archiveCount} local archives · ${((scene?.bytes||0)/1048576).toFixed(1)} MiB scene cache · ${scene?.pending||0} pending assets${scene?.capacityBlocked?' · scene capacity reached':''}${!flight&&scene?.waitingCollision?` · waiting for ${scene.waitingCollision} nearby collision assets`:''}${stats.gpuOmittedInstances?` · ${stats.gpuOmittedInstances} meshes beyond GPU budget`:''}`;
       if(s.distant?.scene)$('details').textContent+=` · distant worker ${(s.distant.scene.bytes/1048576).toFixed(1)} MiB / ${s.distant.scene.pending} pending${s.distant.scene.capacityBlocked?' / visual cache full':''}`;
+      $('details').textContent+=memoryLine(s,stats);
       $('craft-status').textContent=skinNote||(stats.craftSource==='model'?`Vehicle model `+skinOf(choice).name:stats.craftReady?`Authored racer display 10318 / ${stats.craftPose}`
         :stats.craftStatus==='failed'?'Player craft failed to load; temporary body remains':'Loading authored player craft; temporary body shown');
       }

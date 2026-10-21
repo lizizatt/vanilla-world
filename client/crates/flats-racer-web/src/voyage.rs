@@ -862,6 +862,9 @@ impl Voyage {
                     let counter = if reason == 1 { 2 } else { 3 };
                     self.physics_stats[counter] = self.physics_stats[counter].saturating_add(1);
                     self.hold = reason;
+                    // Attitude keeps flying so the pilot can turn away from the edge of the loaded world.
+                    self.mirror_plane(plane);
+                    self.plane = Some(plane);
                     return Ok(());
                 }
             };
@@ -2680,6 +2683,21 @@ pub(crate) mod tests {
         world.tick(1.0, 0.0, 0).unwrap();
         assert_eq!(world.hold, 1);
         assert_eq!(world.state.position, before);
+    }
+
+    #[test]
+    fn plane_held_at_the_world_edge_can_still_turn_away() {
+        let mut world = Voyage::from_manifest(fixture(0.0)).unwrap();
+        world.origin = [200.0, 64.0];
+        world.state = State::new([0.0, 50.0, 0.0], 0.0).unwrap();
+        world.set_vehicle(1).unwrap();
+        let before = world.state.position;
+        for _ in 0..120 {
+            world.tick(1.0, 1.0, 0).unwrap();
+        }
+        assert_eq!(world.hold, 1);
+        assert_eq!(world.state.position, before);
+        assert!(world.state.bank.abs() > 0.5, "attitude frozen at the edge");
     }
 
     #[test]

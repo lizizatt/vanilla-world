@@ -35,3 +35,11 @@ test('choice round-trips and bad stored values fall back',()=>{
 test('switching is blocked during a race or while editing',()=>{
   assert.equal(canSwitch({}),true);assert.equal(canSwitch({race:{}}),false);assert.equal(canSwitch({editing:true}),false);
 });
+
+test('airfieldPose maps WoW coordinates into the Eastern Kingdoms region',async()=>{
+  const {airfieldPose,AIRFIELD}=await import('./vehicles.js');
+  const m={regions:[{map:'Kalimdor',placement:[0,0],tile_origin:[32,32]},{map:'Azeroth',placement:[100,20000],tile_origin:[30,31]}]};
+  const p=airfieldPose(m);
+  assert.equal(p[0],100+2*1600/3-AIRFIELD.wowY);assert.equal(p[2],20000+1600/3-AIRFIELD.wowX);assert.equal(p[1],AIRFIELD.wowZ+AIRFIELD.above);
+  assert.equal(airfieldPose({regions:[m.regions[0]]}),undefined);
+});
