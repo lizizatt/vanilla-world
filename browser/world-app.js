@@ -532,6 +532,7 @@ function frame(now) {
     const focused=document.hasFocus(),editing=mapPanel.open||raceMenu.open||editor.isOpen;
     const accepts=document.activeElement===canvas && focused && !editing;
     const controls={...input.sample(keys,testPads || Array.from(navigator.getGamepads?.() || []),accepts,settings.controls,!focused||!editing)};
+    if(choice.vehicle==='plane'&&!flight&&accepts&&input.device==='keyboard'){const k=c=>Number(keys.has(c));controls.throttle=k('ShiftLeft')+k('ShiftRight')-k('ControlLeft')-k('ControlRight');controls.flags=k('Space')<<1;}
     if(controls.reset)$('reset').click();
     if(controls.flight&&!race)$(flight?'drive':'fly').click();
     if(controls.help&&!editing)openRaceMenu();
