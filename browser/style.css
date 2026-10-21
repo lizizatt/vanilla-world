@@ -181,3 +181,5 @@ dialog h2 { color: #ffb34d; margin-top: 0; }
 #race-menu button:hover, #race-menu button:focus-visible { background: linear-gradient(#6a4a1e, #43300f); border-color: var(--gold); color: #fff3c4; text-decoration: none; }
 #race-menu #menu-tabs button[aria-selected=true] { background: linear-gradient(#7a5622, #4d3511); color: #fff3c4; }
 #menu-hint { font-family: var(--serif); color: var(--gold); }
+
+.welcome-note { margin: 0.9rem 0 0; font-size: 0.72rem; line-height: 1.4; opacity: 0.7; }

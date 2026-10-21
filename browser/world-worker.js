@@ -723,9 +723,12 @@ async function handle(message) {
     terrain=new TerrainStream(source,wasmTypes,(message,transfers)=>postMessage(message,transfers));
     water=new WaterStream(source,wasmTypes,manifest,(message,transfers)=>postMessage(message,transfers));
     void terrain.init(manifest);
-    const population=await fetch('./local/npc-spawns.json');
-    if(population.ok)scene.setPopulation(await population.json());
-    else if(population.status!==404)throw new Error(`Private NPC companion failed: HTTP ${population.status}`);
+    const loopback=/^(localhost|127\.0\.0\.1|\[::1\])$/.test(self.location.hostname);
+    const population=loopback?await fetch('./local/npc-spawns.json').catch(()=>undefined):undefined;
+    // Static hosts omit the private pack (404, or an HTML fallback with 200): no creatures, no error.
+    const pack=population?.ok&&/json/.test(population.headers.get('content-type')||'')?await population.json().catch(()=>undefined):undefined;
+    if(pack)scene.setPopulation(pack);
+    else if(population&&population.status>=500)throw new Error(`Private NPC companion failed: HTTP ${population.status}`);
     // Horizon initialization is synchronous before its first yield; required near work can then overlap publication.
     const horizonReady=buildHorizon(wdls);
     await Promise.all([horizonReady,(async()=>{
