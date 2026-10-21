@@ -22,7 +22,7 @@ window.worldEvidence=evidence;
 let tracks=[],race,raceBest,promptTrack,goUntil=0,boardTimer=0;
 let renderer,folder,flight,running=false,busy=false,last=0,frames=0,hudTime=0,hudFrames=0,permissionNeeded=false;
 let orbit=[0,0],dragging=false,mouseButtons=0,soundAttempt=0,soundError='',soundTime=0,reportTimer,testPads,frozenPresentation=false,tuningValues=TUNING_FIELDS.map(f=>f[1]);
-const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:false,cockpit:false,night:false,clouds:true,music:true};
+const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:true,cockpit:false,night:false,clouds:true,music:true};
 const settings={...defaults};
 try{settings.night=localStorage.getItem('racer.night')==='1';settings.music=localStorage.getItem('racer.music')!=='0';}catch{}
 const loading=$('loading-screen');
@@ -160,7 +160,7 @@ async function restore(save) {
   validateWorldSave(save,client.info.id);
   if(!save)return false;
   client.state=await client.request('restore',{pose:save.vehicle});
-  Object.assign(settings,{distant:true,controls:'legacy',cameraDistance:15,sound:false,cockpit:false,clouds:true},save.settings);syncSettings();
+  Object.assign(settings,{distant:true,controls:'legacy',cameraDistance:15,sound:true,cockpit:false,clouds:true},save.settings);syncSettings();
   if(!settings.sound)pauseAudio();else resumeAudio();
   flight=save.mode==='fly'?save.camera.slice():undefined;
   renderer.camera=undefined;
