@@ -4,13 +4,13 @@ import {planeKeys} from './plane-input.js';
 
 const axes=(...codes)=>planeKeys(new Set(codes));
 test('plane keys: W up, S down, Q left, E right, Shift/Ctrl throttle, Space boost',()=>{
-  assert.deepEqual(axes(),{throttle:0,pitch:0,roll:0,yaw:0,flags:0});
+  assert.deepEqual(axes(),{throttle:0,pitch:0,steer:0,yaw:0,flags:0});
   assert.equal(axes('KeyW').pitch,-1);
   assert.equal(axes('KeyS').pitch,1);
   assert.equal(axes('ArrowUp').pitch,-1);
   assert.equal(axes('ArrowDown').pitch,1);
-  assert.equal(axes('KeyA').roll,-1);
-  assert.equal(axes('KeyD').roll,1);
+  assert.equal(axes('KeyA').steer,1);
+  assert.equal(axes('KeyD').steer,-1);
   assert.equal(axes('KeyW','ArrowUp').pitch,-1,'alias keys do not double the stick');
   assert.equal(axes('KeyW','KeyS').pitch,0);
   assert.equal(axes('KeyQ').yaw,-1);
