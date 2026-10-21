@@ -2,8 +2,8 @@ const wrap=a=>Math.atan2(Math.sin(a),Math.cos(a));
 const unit=v=>{const length=Math.hypot(...v);return length?v.map(n=>n/length):[0,0,-1];};
 const PITCH_LIMIT=89*Math.PI/180;
 
-export function craftMatrix(state,origin,scale) {
-  const c=Math.cos(state[3]),s=Math.sin(state[3]),cb=Math.cos(state[4]),sb=Math.sin(state[4]);
+export function craftMatrix(state,origin,scale,bankSign=1) {
+  const c=Math.cos(state[3]),s=Math.sin(state[3]),cb=Math.cos(state[4]),sb=Math.sin(state[4])*bankSign;
   const pitch=state[15]||0,cp=Math.cos(pitch),sp=Math.sin(pitch);
   const m=new Float32Array(16);
   for(const [column,v] of [[0,[0,0,-1]],[1,[-1,0,0]],[2,[0,1,0]]]){

@@ -537,7 +537,7 @@ function frame(now) {
     const accepts=document.activeElement===canvas && focused && !editing;
     const controls={...input.sample(keys,testPads || Array.from(navigator.getGamepads?.() || []),accepts,settings.controls,!focused||!editing)};
     const plane=choice.vehicle==='plane'&&!flight&&accepts&&input.device==='keyboard'?planeKeys(keys):undefined;
-    if(plane){controls.throttle=plane.throttle;controls.flags=plane.flags;}
+    renderer.bankSign=choice.vehicle==="plane"?-1:1;if(plane){controls.throttle=plane.throttle;controls.flags=plane.flags;controls.steer=plane.roll;}
     if(controls.reset)$('reset').click();
     if(controls.flight&&!race)$(flight?'drive':'fly').click();
     if(controls.help&&!editing)openRaceMenu();
