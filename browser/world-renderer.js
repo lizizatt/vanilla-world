@@ -338,11 +338,29 @@ export class WorldRenderer {
   }
   releaseMaterial(item){if(item)for(const resource of [item.vertices,item.indices,item.layers,item.masks])resource?.destroy();}
   release(item){item?.buffer.destroy();this.releaseMaterial(item?.material);}
-  releaseCraft(){
-    if(!this.craft)return;
-    this.craft.asset.vertices.destroy();this.craft.asset.indices.destroy();
-    for(const texture of this.craft.textures.values())texture.destroy();
-    this.craft=undefined;
+  destroyCraft(craft){
+    if(!craft)return;
+    for(const asset of [craft.asset,craft.flame?.asset])if(asset){asset.vertices.destroy();asset.indices.destroy();}
+    for(const texture of craft.textures.values())texture.destroy();
+  }
+  // Only the Data rocket is released with the world; a shipped/procedural override survives world reloads.
+  releaseCraft(){this.destroyCraft(this.dataCraft);this.dataCraft=undefined;this.craft=this.override;}
+  buildCraft(data,display,key,maxIndices=60000) {
+    if(data.metadata.display!==display||!Number.isFinite(data.metadata.scale)||data.metadata.scale<=0||
+      data.asset.indices.length>maxIndices||data.textures.length>16)throw Error('Invalid craft payload');
+    const bytes=data.asset.vertices.byteLength+data.asset.indices.byteLength+data.textures.reduce((n,t)=>n+t.rgba.byteLength,0);
+    if(bytes>32*1024*1024)throw Error('Craft exceeds GPU budget');
+    const build=asset=>({vertices:this.buffer(asset.vertices,GPUBufferUsage.VERTEX),
+      indices:this.buffer(asset.indices,GPUBufferUsage.INDEX),batches:this.prepareBatches(asset.batches),count:asset.indices.length});
+    const anchor=cockpitAnchor(data.metadata),asset=build(data.asset);
+    return {asset,textures:new Map(data.textures.map(t=>[t.key,this.texture(t.width,t.height,t.rgba)])),
+      metadata:data.metadata,anchor,items:new Map(),instance:{id:'player-craft',key,craft:true},bytes,
+      flame:data.flame&&data.metadata.exhausts?.length?{asset:build(data.flame),
+        parts:data.metadata.exhausts.map((at,i)=>({at,instance:{id:`player-craft-flame:${i}`,key:'flame',craft:true}}))}:undefined};
+  }
+  setCraftOverride(model) {
+    const next=model?this.buildCraft(model,0,model.key,120000):undefined;
+    this.destroyCraft(this.override);this.override=next;this.craft=next??this.dataCraft;
   }
   reset() {
     this.terrainBundle=undefined;this.terrainBundleBuilds=0;
@@ -381,17 +399,10 @@ export class WorldRenderer {
       this.pendingEvents.push(data);return;
     }
     if(data.event==='craft'){
-      if(data.metadata.display!==10318||!Number.isFinite(data.metadata.scale)||data.metadata.scale<=0||
-        data.asset.indices.length>60000||data.textures.length>16)throw Error('Invalid authored craft payload');
-      const bytes=data.asset.vertices.byteLength+data.asset.indices.byteLength+data.textures.reduce((n,t)=>n+t.rgba.byteLength,0);
-      if(bytes>32*1024*1024)throw Error('Authored craft exceeds GPU budget');
-      const anchor=cockpitAnchor(data.metadata),batches=this.prepareBatches(data.asset.batches);
+      const craft=this.buildCraft(data,10318,'10318');
       this.releaseCraft();
       this.craftError=undefined;
-      this.craft={asset:{vertices:this.buffer(data.asset.vertices,GPUBufferUsage.VERTEX),
-        indices:this.buffer(data.asset.indices,GPUBufferUsage.INDEX),batches,count:data.asset.indices.length},
-        textures:new Map(data.textures.map(t=>[t.key,this.texture(t.width,t.height,t.rgba)])),
-        metadata:data.metadata,anchor,items:new Map(),instance:{id:'player-craft',key:'10318',craft:true},bytes};
+      this.dataCraft=craft;this.craft=this.override??craft;
     }
     else if(data.event==='craft-error')this.craftError=data.error;
     else if(data.event==='horizon-index'){
@@ -781,6 +792,14 @@ export class WorldRenderer {
     }
     if(!flight&&this.craft&&this.cameraMode!=='cockpit')append(this.craft.asset,this.craft.instance,
       craftMatrix(state,origin,this.craft.metadata.scale),this.craft.textures,this.craft.items);
+    if(!flight&&this.craft?.flame&&this.cameraMode!=='cockpit') {
+      const m=craftMatrix(state,origin,this.craft.metadata.scale),k=(.35+.9*Math.min(1,Math.abs(state[5])/150))*(1+.08*Math.sin(time*45));
+      for(const part of this.craft.flame.parts) {
+        const [x,y,z]=part.at,f=new Float32Array(m);
+        for(let i=0;i<3;i++){f[i]=m[i]*k;f[12+i]=m[12+i]+m[i]*x+m[4+i]*y+m[8+i]*z;}
+        append(this.craft.flame.asset,part.instance,f,this.craft.textures,this.craft.items);
+      }
+    }
     draws.sort((a,b)=>a.batch.transparent-b.batch.transparent || (a.batch.transparent?b.distance-a.distance:0));
     if(uniformCount)this.device.queue.writeBuffer(this.frameUniforms,0,this.uniformData.buffer,0,uniformCount*256);
     const encoder=this.device.createCommandEncoder(),pass=encoder.beginRenderPass({
@@ -810,7 +829,7 @@ export class WorldRenderer {
       cameraBlocked:this.cameraBlocked,worldDraws:terrain.length+draws.length,
       coastalWaterTiles:coastal.length,coastalWaterGpuBytes:this.coastBytes,
       waterShaderGpuBytes:this.waterNormalBytes||0,wmoWaterDraws:draws.filter(d=>d.batch.water).length,
-      craftStatus:this.craft?'ready':this.craftError?'failed':'loading',
+      craftSource:this.craft&&this.craft===this.override?'model':'game data',craftStatus:this.craft?'ready':this.craftError?'failed':'loading',
       craftTriangles:this.craft?this.craft.asset.count/3:0,craftError:this.craftError,
       npcInstances:this.instances.filter(i=>i.id.includes(':npc:')).length,
       wmoInstances:this.instances.filter(i=>i.kind==='group').length,
