@@ -1,0 +1,7 @@
+/*
+  X-Content-Type-Options: nosniff
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; media-src blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'
+/sw.js
+  Cache-Control: no-cache
+/index.html
+  Cache-Control: no-cache
