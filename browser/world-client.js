@@ -77,7 +77,7 @@ export class WorldClient {
   recordPose(state) {
     this.state=state;
     const p=state.telemetry,time=state.poseTime,previous=this.poseSamples.at(-1);
-    if(time!==undefined && (!Number.isFinite(time) || !Array.isArray(p) || p.length<15
+    if(time!==undefined && (!Number.isFinite(time) || !Array.isArray(p) || p.length<16
       || !p.slice(0,15).every(Number.isFinite)))throw new Error('Invalid confirmed vehicle pose');
     if(time===undefined || this.poseFlying || p[8] || state.scene?.waitingCollision) {
       this.clearPose();

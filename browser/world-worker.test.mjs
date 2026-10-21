@@ -390,7 +390,7 @@ function collisionFixture(clock=performance,instanceDeltas=true) {
       state.unresolvedCollision=state.unresolvedCollision.map(i=>({...i,status:'PENDING'}));
     }};
   context.dependencies={
-    world:{telemetry:()=>body,frame_sweep_distance:()=>f.sweep,frame_vertical_sweep_distance:()=>f.vertical,set_scene_parts:(ids,counts,vertices)=>{
+    world:{telemetry:()=>body,set_plane_pitch(){},set_vehicle(){},frame_sweep_distance:()=>f.sweep,frame_vertical_sweep_distance:()=>f.vertical,set_scene_parts:(ids,counts,vertices)=>{
       updates.push({ids:[...ids],counts:[...counts],supplied:vertices.length});
       if(f.failNext){f.failNext=false;throw new Error('Rejected synthetic collision payload');}
       let offset=0;
