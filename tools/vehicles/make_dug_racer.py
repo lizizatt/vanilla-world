@@ -113,21 +113,21 @@ def build():
     dark = material("Soot and rubber", (0.024, 0.029, 0.027, 1))
     leather = material("Worn saddle", (0.20, 0.08, 0.034, 1))
     glow = material("Alchemical jade", (0.20, 0.72, 0.37, 1))
+    glow.node_tree.nodes["Principled BSDF"].inputs["Emission"].default_value = (0.30, 3, 1.14, 1)
     body = empty("Body")
     # Author in Blender's Z-up coordinates; glTF exports Y-up and forward -Z.
     for side, x in (("L", -1.58), ("R", 1.58)):
         engine = empty("Engine" + side, body)
-        engine.scale.y = 0.65
         profile = [
-            (-2.25, 0.48), (-2.12, 0.58), (-1.85, 0.58), (-1.7, 0.68),
-            (-1.55, 0.70), (-1.42, 0.63), (-1.10, 0.64), (-0.95, 0.70),
-            (-0.75, 0.72), (-0.40, 0.76), (0, 0.79), (0.4, 0.81),
-            (0.8, 0.78), (1.2, 0.74), (1.65, 0.69), (1.92, 0.77),
-            (2.12, 0.86), (2.36, 0.86), (2.55, 0.77),
+            (-2.25, 0.40), (-2.12, 0.43), (-1.85, 0.44), (-1.7, 0.45),
+            (-1.55, 0.46), (-1.42, 0.47), (-1.10, 0.50), (-0.95, 0.51),
+            (-0.75, 0.53), (-0.40, 0.55), (0, 0.58), (0.4, 0.62),
+            (0.8, 0.65), (1.2, 0.69), (1.65, 0.72), (1.92, 0.77),
+            (2.12, 0.79), (2.36, 0.79), (2.55, 0.77),
             (2.55, 0.62), (2.34, 0.60), (2.02, 0.50), (1.85, 0.21),
         ]
         shell("Faceted engine casing", x, 1.02, profile, [paint, shade, light], engine)
-        for y, r in ((-1.6, 0.72), (-0.92, 0.74), (1.62, 0.73), (2.34, 0.885)):
+        for y, r in ((-1.6, 0.48), (-0.92, 0.54), (1.62, 0.75), (2.34, 0.81)):
             shell("Riveted hoop", x, 1.02,
                   [(y - 0.065, r), (y + 0.065, r)], [brass], engine)
             for i in range(12):
@@ -154,24 +154,57 @@ def build():
             mesh("Intake paddle", verts,
                  [(0, 1, 2, 3), (4, 7, 6, 5), (0, 4, 5, 1),
                   (1, 5, 6, 2), (2, 6, 7, 3), (3, 7, 4, 0)], iron, engine)
-        fin("Engine dorsal fin", x, -0.75, 1.70, paint, engine)
+        fin("Engine dorsal fin", x, -0.75, 1.42, paint, engine, 0.45)
+        sign = -1 if x < 0 else 1
+
+        def cowl_point(u, height, depth=0):
+            return (x + sign * u, 2.90 - 0.22 * u - depth, 1.45 + height)
+
+        outline = [(-0.96, -0.22), (0.95, 0.78), (1.12, 0.23), (-0.77, -0.78)]
+        verts = [cowl_point(u, h, d) for d in (0, 0.65) for u, h in outline]
+        faces = [(0, 1, 2, 3), (4, 7, 6, 5), (0, 4, 5, 1),
+                 (1, 5, 6, 2), (2, 6, 7, 3), (3, 7, 4, 0)]
+        if sign < 0:
+            faces = [tuple(reversed(face)) for face in faces]
+        mesh("Angular brow armor", verts, faces, paint, engine)
+        vent = [(-0.73, -0.27), (0.85, 0.55), (0.91, 0.29), (-0.66, -0.54)]
+        face = (0, 1, 2, 3) if sign > 0 else (3, 2, 1, 0)
+        mesh("Dark slanted intake", [cowl_point(u, h, -0.015) for u, h in vent],
+             [face], dark, engine)
+        for i in range(10):
+            u = -0.65 + i * 0.16
+            rod("Vent louvre", cowl_point(u, 0.52 * u - 0.19, -0.04),
+                cowl_point(u, 0.52 * u + 0.04, -0.04), 0.025, iron, engine, 4)
+        rod("Worn brow edge", cowl_point(-0.96, -0.22, -0.025),
+            cowl_point(0.95, 0.78, -0.025), 0.055, brass, engine)
+        for i in range(8):
+            a = i * math.tau / 8
+            rod("Exhaust cooling fin",
+                (x + 0.51 * math.cos(a), -2.32, 1.02 + 0.51 * math.sin(a)),
+                (x + 0.49 * math.cos(a), -1.65, 1.02 + 0.49 * math.sin(a)),
+                0.055, iron, engine, 4)
         for offset in (-0.26, 0, 0.26):
-            rod("Top cooling pipe", (x + offset, -1.2, 1.75),
-                (x + offset, 0.85, 1.84), 0.045, brass, engine)
+            rod("Top cooling pipe", (x + offset, -1.2, 1.48),
+                (x + offset, 0.85, 1.65), 0.045, brass, engine)
         cube("Landing skid", (x, -0.05, 0.08), (0.26, 3.3, 0.16), iron, engine)
         for y in (-1.05, 1.1):
             rod("Skid leg", (x, y, 0.16), (x, y, 0.47), 0.10, iron, engine)
-        rod("VArm" + side, (0, 3.55, 1.55), (x * 1.2, 1.65, 1.25),
-            0.13, brass, body)
-        points = [(x * 0.22, 3.8, 1.75), (x * 0.40, 3.0, 0.90),
-                  (x * 0.70, 2.2, 0.62), (x, 1.25, 0.95)]
+        rod("TowLine" + side, (sign * 0.26, 7.15, 1.45), (x, 2.35, 1.4),
+            0.037, brass, body)
+        points = [(sign * 0.26, 7.15, 1.45), (x * 0.40, 5.5, 0.90),
+                  (x * 0.70, 3.8, 0.72), (x, 2.35, 1.15)]
         for a, b in zip(points, points[1:]):
             rod("Suspended control cable", a, b, 0.037, dark, body)
 
     rod("Rear cross brace", (-1.58, -1.05, 0.95), (1.58, -1.05, 0.95),
         0.12, iron, body)
-    cockpit = empty("Cockpit", body, (0, 5.6, 0.45))
-    cockpit.scale.y = 0.7
+    arc = [(-0.83, 2.82, 1.10), (-0.60, 2.85, 1.19), (-0.30, 2.82, 1.02),
+           (0, 2.88, 1.15), (0.26, 2.82, 0.98), (0.56, 2.85, 1.16),
+           (0.83, 2.82, 1.10)]
+    for start, end in zip(arc, arc[1:]):
+        rod("Jade energy arc", start, end, 0.028, glow, body, 6)
+    cockpit = empty("Cockpit", body, (0, 8.5, 0.45))
+    cockpit.scale = (0.7, 0.45, 0.7)
     shell("Cockpit belly", 0, 0.95,
           [(-3.0, 0.12), (-2.7, 0.38), (-2.1, 0.48), (-1.4, 0.43),
            (-0.75, 0.31), (-0.45, 0.06)], [paint, shade, light], cockpit, 8)
@@ -231,7 +264,7 @@ def verify(path, expected):
     coords = [obj.matrix_world @ Vector(corner) for obj in bpy.context.scene.objects
               if obj.type == "MESH" for corner in obj.bound_box]
     bounds = [max(v[i] for v in coords) - min(v[i] for v in coords) for i in range(3)]
-    assert 4.7 < bounds[0] < 5.3 and 6 < bounds[1] < 7, bounds
+    assert 5 < bounds[0] < 5.7 and 10 < bounds[1] < 11, bounds
     assert abs(min(v.z for v in coords)) < 0.001
     def group_bounds(name):
         return [obj.matrix_world @ Vector(corner)
@@ -245,17 +278,17 @@ def verify(path, expected):
     gap = pod_rear - engine_front
     offset = (pod_rear + pod_front) / 2 - engine_front
     inner_gap = min(v.x for v in right) - max(v.x for v in left)
-    assert gap > 1.5 and 2.5 <= offset <= 3.5, (gap, offset)
+    assert gap > 3.8 and 4 <= offset <= 5, (gap, offset)
     assert inner_gap >= max(v.x for v in pod) - min(v.x for v in pod)
     for side in ("L", "R"):
-        arm = bpy.data.objects["VArm" + side]
+        arm = bpy.data.objects["TowLine" + side]
         ends = [arm.matrix_world @ Vector((0, 0, z))
                 for z in (min(v.co.z for v in arm.data.vertices),
                           max(v.co.z for v in arm.data.vertices))]
         delta = ends[1] - ends[0]
         angle = math.degrees(math.atan2(abs(delta.x), abs(delta.y)))
-        assert 40 <= angle <= 60, angle
-    print("Silhouette: gap {:.2f} m; center lead {:.2f} m; V half-angle {:.1f} deg"
+        assert 10 <= angle <= 20 and delta.length > 4.5, (angle, delta.length)
+    print("Silhouette: gap {:.2f} m; center lead {:.2f} m; tow half-angle {:.1f} deg"
           .format(gap, offset, angle))
     print("VERIFIED {}: {} triangles".format(path.name, count))
 
@@ -275,16 +308,17 @@ def preview(path):
         lamp.data.energy = power
         lamp.data.size = size
         lamp.rotation_euler = (Vector((0, 0, 1)) - lamp.location).to_track_quat("-Z", "Y").to_euler()
-    bpy.ops.object.camera_add(location=(8, 12, 9))
+    bpy.ops.object.camera_add(location=(9, 15, 11))
     camera = bpy.context.object
-    camera.rotation_euler = (Vector((0, 1.8, 1.3)) - camera.location).to_track_quat("-Z", "Y").to_euler()
+    camera.rotation_euler = (Vector((0, 2.7, 1.3)) - camera.location).to_track_quat("-Z", "Y").to_euler()
     camera.data.type = "ORTHO"
-    camera.data.ortho_scale = 9.3
+    camera.data.ortho_scale = 13.0
     scene.camera = camera
     scene.render.engine = "BLENDER_EEVEE"
     scene.eevee.use_gtao = True
     scene.eevee.gtao_distance = 3
     scene.eevee.use_soft_shadows = True
+    scene.eevee.use_bloom = True
     scene.render.resolution_x = 1200
     scene.render.resolution_y = 1000
     scene.render.resolution_percentage = 100
@@ -293,9 +327,15 @@ def preview(path):
     scene.render.image_settings.file_format = "PNG"
     scene.render.filepath = str(path)
     bpy.ops.render.render(write_still=True)
-    camera.location = (0, 1.8, 14)
+    camera.location = (0, 2.95, 16)
+    camera.data.ortho_scale = 14
     camera.rotation_euler = (0, 0, 0)
     scene.render.filepath = str(path.with_name(path.stem + "-above" + path.suffix))
+    bpy.ops.render.render(write_still=True)
+    camera.location = (0, 16, 2.8)
+    camera.rotation_euler = (Vector((0, 2.5, 1.45)) - camera.location).to_track_quat("-Z", "Y").to_euler()
+    camera.data.ortho_scale = 7.0
+    scene.render.filepath = str(path.with_name(path.stem + "-front" + path.suffix))
     bpy.ops.render.render(write_still=True)
 
 
