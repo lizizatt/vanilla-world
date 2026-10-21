@@ -15,6 +15,7 @@ import {createTrackEditor} from './track-editor.js';
 import {loadTracks,nearestFlag,flagPosition} from './race-flags.js';
 import {loadVehicleModel} from './vehicle-model.js';
 import {planePayload} from './plane-model.js';
+import {planeKeys} from './plane-input.js';
 import {readChoice,writeChoice,tracksFor,vehicleOf,VEHICLES,canSwitch,normalizeChoice,skinOf} from './vehicles.js';
 
 const $=id=>document.getElementById(id),canvas=$('world'),keys=new Set();
@@ -375,7 +376,10 @@ async function applySkin() {
   const token=++skinToken,skin=skinOf(choice);
   if(!renderer)return;
   syncVehicle();
-  if(choice.vehicle==='plane'){skinNote='';renderer.setCraftOverride(planePayload());return;}
+  if(choice.vehicle==='plane'){
+  skinNote='';client.planeCraft();
+  renderer.setCraftOverride(skin.source==='data'&&renderer.planeModel?renderer.planeModel:planePayload());return;
+ }
   if(skin.source!=='glb'){skinNote='';renderer.setCraftOverride(undefined);return;}
   try{const model=await loadVehicleModel(skin);if(token===skinToken){renderer.setCraftOverride(model);skinNote='';}}
   catch(error){if(token===skinToken){renderer.setCraftOverride(undefined);skinNote=`Skin ${skin.name} unavailable (${error.message}); using the default craft`;report(skinNote,true);}}
@@ -532,7 +536,8 @@ function frame(now) {
     const focused=document.hasFocus(),editing=mapPanel.open||raceMenu.open||editor.isOpen;
     const accepts=document.activeElement===canvas && focused && !editing;
     const controls={...input.sample(keys,testPads || Array.from(navigator.getGamepads?.() || []),accepts,settings.controls,!focused||!editing)};
-    if(choice.vehicle==='plane'&&!flight&&accepts&&input.device==='keyboard'){const k=c=>Number(keys.has(c));controls.throttle=k('ShiftLeft')+k('ShiftRight')-k('ControlLeft')-k('ControlRight');controls.flags=k('Space')<<1;}
+    const plane=choice.vehicle==='plane'&&!flight&&accepts&&input.device==='keyboard'?planeKeys(keys):undefined;
+    if(plane){controls.throttle=plane.throttle;controls.flags=plane.flags;}
     if(controls.reset)$('reset').click();
     if(controls.flight&&!race)$(flight?'drive':'fly').click();
     if(controls.help&&!editing)openRaceMenu();
@@ -547,7 +552,7 @@ function frame(now) {
     if(race){flight=undefined;if(!raceMenu.open)raceFrame(controls,now/1000);}
     if(editor.isOpen)flight=editor.pose();
     syncGates();
-    if(!frozenPresentation)client.frame(dt,controls.throttle,controls.steer,controls.flags,flight?.slice(0,3),settings.distant,renderer.view,choice.vehicle==='plane'?controls.look[1]:0);
+    if(!frozenPresentation)client.frame(dt,controls.throttle,controls.steer,controls.flags,flight?.slice(0,3),settings.distant,renderer.view,plane?plane.pitch:choice.vehicle==='plane'?controls.look[1]:0,plane?.yaw||0);
     cameraCollision.frame(client.state,renderer.sceneRegion ?? client.state.telemetry[10]);
     const stats=renderer.draw(frozenPresentation || flight?client.state.telemetry:client.presentation(),flight,dt,frozenPresentation?0:now/1000,
       {...settings,cameraLook:choice.vehicle==='plane'?[controls.look[0],0]:controls.look,cameraOrbit,cameraSteer:right,cameraRecentre:keyDrive&&!dragging},keys.has('KeyV')&&!keys.has('AltLeft')&&!keys.has('AltRight'));
@@ -613,6 +618,7 @@ function frame(now) {
 async function start() {
   try {
     renderer=await WorldRenderer.create(canvas,error=>{running=false;fail(error);});
+ renderer.onPlaneModel=()=>{if(choice.vehicle==='plane')applySkin();};
     $('select').disabled=false;$('fallback').disabled=false;evidence.started=performance.now();
     report('');
     if('serviceWorker' in navigator) {

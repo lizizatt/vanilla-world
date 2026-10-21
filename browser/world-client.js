@@ -11,6 +11,7 @@ export class WorldClient {
     this.requests.clear();this.inFlight=false;this.discardFrame();
   }
   stopLoadingArt(){this.worker?.postMessage({action:'stop-loading-art'});}
+  planeCraft(){this.worker?.postMessage({action:'plane-craft'});}
   sky(){this.worker?.postMessage({action:'sky'});}
   worldmap(names){this.worker?.postMessage({action:'worldmap',names});}
   music(fields){this.worker?.postMessage({action:'music',...fields});}
@@ -58,13 +59,13 @@ export class WorldClient {
     this.info=result.info;this.state=result.state;
     return result;
   }
-  frame(dt,throttle,steer,flags,focus,distant=true,view,pitch=0) {
+  frame(dt,throttle,steer,flags,focus,distant=true,view,pitch=0,yaw=0) {
     if(!!focus!==this.poseFlying){this.discardFrame();this.poseFlying=!!focus;}
     const hop=!!(flags&8)&&!focus;
     if(hop&&!this.hopHeld)this.pendingHop=++this.hopSequence;
     this.hopHeld=hop;
     this.elapsed=Math.min(.1,this.elapsed+dt);
-    this.pendingFrame={throttle,steer,flags,focus,distant,pitch,sampleTime:performance.now()};
+    this.pendingFrame={throttle,steer,flags,focus,distant,pitch,yaw,sampleTime:performance.now()};
     if(view!==undefined)this.pendingFrame.view=view;
     this.flushFrame();
   }
