@@ -25,24 +25,52 @@ fn js(error: impl std::fmt::Display) -> JsValue {
 }
 
 fn craft_display(models: &[u8], displays: &[u8]) -> Result<String, String> {
+    display_json(models, displays, None)
+}
+
+/// The lowest creature display id whose model is `path`, e.g. the Ironforge airfield flying machine.
+fn same_model(a: &str, b: &str) -> bool {
+    let stem = |s: &str| s.rsplit_once('.').map_or(s.to_ascii_lowercase(), |(n, _)| n.to_ascii_lowercase());
+    stem(a) == stem(b)
+}
+
+fn display_json(models: &[u8], displays: &[u8], path: Option<&str>) -> Result<String, String> {
     bounded(models)?;
     bounded(displays)?;
     let catalog =
         benilla_formats::parse_creature_catalog(models, displays).map_err(|e| e.to_string())?;
+    let id = match path {
+        None => 10318,
+        Some(path) => catalog
+            .display_models()
+            .map(|(id, _)| id)
+            .filter(|id| {
+                catalog
+                    .model(*id)
+                    .is_some_and(|m| same_model(&m.model_path, path))
+            })
+            .min()
+            .ok_or_else(|| format!("No creature display uses {path}"))?,
+    };
     let model = catalog
-        .model(10318)
-        .ok_or("Creature display 10318 is unavailable")?;
+        .model(id)
+        .ok_or_else(|| format!("Creature display {id} is unavailable"))?;
     let scale = catalog
-        .display_scale(10318)
+        .display_scale(id)
         .ok_or("Craft display scale is unavailable")?;
     if !scale.is_finite() || scale <= 0.0 || scale > 10.0 || model.model_path.is_empty() {
         return Err("Invalid authored craft display".into());
     }
     Ok(
-        json!({"display":10318,"path":model.model_path,"scale":scale,"skins":model.textures,
+        json!({"display":id,"path":model.model_path,"scale":scale,"skins":model.textures,
         "pose":"bind-pose","cockpitAvailable":false})
         .to_string(),
     )
+}
+
+#[wasm_bindgen]
+pub fn scene_vehicle_display(models: &[u8], displays: &[u8], path: &str) -> Result<String, JsValue> {
+    display_json(models, displays, Some(path)).map_err(js)
 }
 
 #[wasm_bindgen]

@@ -405,6 +405,8 @@ export class WorldRenderer {
       this.craftError=undefined;
       this.dataCraft=craft;this.craft=this.override??craft;
     }
+    else if(data.event==='plane-craft'){this.planeModel=data;this.onPlaneModel?.();}
+    else if(data.event==='plane-craft-error')this.planeError=data.error;
     else if(data.event==='craft-error')this.craftError=data.error;
     else if(data.event==='horizon-index'){
       this.indices.set(data.region,this.buffer(data.indices,GPUBufferUsage.INDEX));
@@ -831,7 +833,7 @@ export class WorldRenderer {
       coastalWaterTiles:coastal.length,coastalWaterGpuBytes:this.coastBytes,
       waterShaderGpuBytes:this.waterNormalBytes||0,wmoWaterDraws:draws.filter(d=>d.batch.water).length,
       craftSize:this.craft?.size,craftSource:this.craft&&this.craft===this.override?'model':'game data',craftStatus:this.craft?'ready':this.craftError?'failed':'loading',
-      craftTriangles:this.craft?this.craft.asset.count/3:0,craftError:this.craftError,
+      craftTriangles:this.craft?this.craft.asset.count/3:0,craftError:this.craftError,planeError:this.planeError,planeModel:!!this.planeModel,
       npcInstances:this.instances.filter(i=>i.id.includes(':npc:')).length,
       wmoInstances:this.instances.filter(i=>i.kind==='group').length,
       texturedDraws:draws.filter(d=>d.item.texture!==this.white).length,

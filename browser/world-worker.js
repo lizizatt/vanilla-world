@@ -21,7 +21,7 @@ let poseTime,music,sky,worldMap,areaTime=-1e9,areaId=0;
 const terrainErrors=new Map();
 let terrainFocus='';
 let terrainGridSource,terrainGrid;
-let craft={ready:false,pending:false};
+let craft={ready:false,pending:false},planeCraft=false;
 function startCraft() {
   if(craft.ready || craft.pending || craft.error)return;
   craft.pending=true;
@@ -761,7 +761,7 @@ async function handle(message) {
         accumulator+=Math.min(Math.max(message.dt,0),.1);
         while(accumulator>=1/120){
           const tickFlags=message.flags|((message.hop||0)>hopConsumed?8:0);
-          world.set_plane_pitch(message.pitch||0);
+          world.set_plane_pitch(message.pitch||0);world.set_plane_yaw(message.yaw||0);
           world.tick(message.throttle,message.steer,tickFlags);
           if(message.hop)hopConsumed=Math.max(hopConsumed,message.hop);
           advanced=true;accumulator-=1/120;
@@ -843,6 +843,12 @@ onmessage=({data})=>{
     const owner=source;
     if(worldMap?.source!==owner)worldMap=new WorldMapService(owner,(data,transfers)=>postMessage(data,transfers),wasmTypes);
     void worldMap.request(data.names.filter(n=>typeof n==='string'),()=>source!==owner);
+    return;
+  }
+  if(data.action==='plane-craft'){
+    if(!source||planeCraft)return;
+    planeCraft=true;
+    void loadCraft(source,wasmTypes,(message,transfers)=>postMessage(message,transfers),{path:'Creature\\FlyingMachineCreature\\FlyingMachineCreature.m2'}).catch(()=>{});
     return;
   }
   if(data.action==='far-ack'){far?.ack(data.token,data.producer);return;}

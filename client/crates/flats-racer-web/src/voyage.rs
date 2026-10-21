@@ -332,6 +332,7 @@ pub struct Voyage {
     plane: Option<PlaneState>,
     plane_tuning: PlaneTuning,
     plane_pitch: f32,
+    plane_yaw: f32,
     plane_contact: bool,
     pub(crate) tuning: Tuning,
     origin: [f64; 2],
@@ -373,6 +374,7 @@ impl Voyage {
             plane: None,
             plane_tuning: PlaneTuning::default(),
             plane_pitch: 0.0,
+            plane_yaw: 0.0,
             plane_contact: false,
             origin: [manifest.spawn[0], manifest.spawn[2]],
             manifest,
@@ -817,7 +819,7 @@ impl Voyage {
     /// Re-seats an active plane on the car state after a reset/restore teleport.
     fn sync_plane(&mut self) {
         if let Some(old) = self.plane {
-            let speed = old.speed.max(self.plane_tuning.cruise * 0.6);
+            let speed = old.speed.max(self.plane_tuning.cruise * 0.9);
             let mut plane = PlaneState::new(self.state.position, self.state.yaw, speed).expect("finite pose");
             plane.throttle = old.throttle;
             self.plane = Some(plane);
@@ -1612,8 +1614,8 @@ impl Voyage {
             }
             (1, false) => {
                 let mut position = self.state.position;
-                position[1] += 15.0;
-                let plane = PlaneState::new(position, self.state.yaw, self.plane_tuning.cruise * 0.6)
+                position[1] += 30.0;
+                let plane = PlaneState::new(position, self.state.yaw, self.plane_tuning.cruise * 0.9)
                     .map_err(|e| JsValue::from_str(&e.to_string()))?;
                 self.plane = Some(plane);
                 self.mirror_plane(plane);
@@ -1631,10 +1633,17 @@ impl Voyage {
         }
     }
 
+    /// Plane rudder in [-1, 1] (positive yaws right); ignored for the racer.
+    pub fn set_plane_yaw(&mut self, yaw: f32) {
+        if yaw.is_finite() {
+            self.plane_yaw = yaw.clamp(-1.0, 1.0);
+        }
+    }
+
     pub fn tick(&mut self, throttle: f32, steer: f32, flags: u32) -> Result<(), JsValue> {
         if self.plane.is_some() {
             return self
-                .advance_plane(PlaneInput { throttle, roll: -steer, pitch: self.plane_pitch, boost: flags & 2 != 0 })
+                .advance_plane(PlaneInput { throttle, roll: -steer, pitch: self.plane_pitch, yaw: self.plane_yaw, boost: flags & 2 != 0 })
                 .map_err(|e| JsValue::from_str(&e));
         }
         self.advance(Input {

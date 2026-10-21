@@ -53,3 +53,19 @@ test('an unsupported Stand rig fails rather than publishing the old sideways bin
   await assert.rejects(loadCraft({read:async()=>new Uint8Array(1)},f.wasm,m=>messages.push(m)),/unsupported Stand rig/);
   assert.deepEqual(messages.map(m=>m.event),['craft-error']);
 });
+
+test('a vehicle model loads by path as an override payload without touching the rocket event',async()=>{
+  const f=fixture(),messages=[],asked=[];
+  f.wasm.scene_vehicle_display=(_m,_d,path)=>{asked.push(path);return JSON.stringify({display:77,path:'Creature\\Plane.mdx',skins:[],scale:2});};
+  await loadCraft({read:async()=>new Uint8Array(1)},f.wasm,m=>messages.push(structuredClone(m)),{path:'Creature\\FlyingMachineCreature\\FlyingMachineCreature.m2'});
+  assert.deepEqual(asked,['Creature\\FlyingMachineCreature\\FlyingMachineCreature.m2']);
+  assert.equal(messages[0].event,'plane-craft');
+  assert.equal(messages[0].metadata.display,0);
+  assert.equal(messages[0].metadata.scale,2);
+  assert.deepEqual(messages[0].metadata.exhausts,[]);
+  assert.equal(messages[0].key,'data:creature\\plane.m2');
+  const failing=fixture(),errors=[];
+  failing.wasm.scene_vehicle_display=()=>{throw Error('No creature display');};
+  await assert.rejects(loadCraft({read:async()=>new Uint8Array(1)},failing.wasm,m=>errors.push(m),{path:'x'}),/No creature display/);
+  assert.equal(errors[0].event,'plane-craft-error');
+});

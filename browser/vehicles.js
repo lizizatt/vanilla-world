@@ -18,7 +18,7 @@ export const VEHICLES=Object.freeze({
       {id:'dug-racer-green',name:'Dug racer (green)',source:'glb',model:'./vehicles/dug-racer-green.glb',scale:METRES},
       {id:'dug-racer-crimson',name:'Dug racer (crimson)',source:'glb',model:'./vehicles/dug-racer-crimson.glb',scale:METRES}]},
   plane:{id:'plane',name:'Gnomish plane',races:true,stats:{Speed:.8,Handling:.8,Boost:.4},
-    note:'Rigid-body flight model: Shift/Ctrl throttle up/down, A/D roll, Up/Down pitch, Space boost; stalls below about 70 yd/s and recovers when the nose drops. Collides with terrain, water, buildings and trees by skimming off them; creatures are not solid.',
+    note:'Rigid-body flight model: W/S pitch up/down, A/D roll, Q/E rudder, Shift/Ctrl throttle up/down, Space boost (arrows alias W/S); letting go levels the wings and flight path; stalls below about 70 yd/s and recovers when the nose drops. Collides with terrain, water, buildings and trees by skimming off them; creatures are not solid.',
     skins:[{id:'gnomish',name:'Ironforge airfield (game model)',source:'data'},
       {id:'procedural',name:'Plain plane',source:'procedural'}]},
 });
