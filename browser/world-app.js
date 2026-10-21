@@ -19,7 +19,8 @@ const input=new WorldInput(),audio=new WorldAudio();
 const cameraCollision=new CameraCollision();
 const evidence={ready:false,frames:0,errors:[],mode:'drive'};
 window.worldEvidence=evidence;
-let tracks=[],race,raceBest,promptTrack,goUntil=0,boardTimer=0;
+let tracks=[],race,raceBest,promptTrack,goUntil=0,boardTimer=0,againTrack,againUntil=0;
+const raceAgain=()=>againTrack&&performance.now()<againUntil?againTrack:undefined;
 let renderer,folder,flight,running=false,busy=false,last=0,frames=0,hudTime=0,hudFrames=0,permissionNeeded=false;
 let orbit=[0,0],dragging=false,mouseButtons=0,soundAttempt=0,soundError='',soundTime=0,reportTimer,testPads,frozenPresentation=false,tuningValues=TUNING_FIELDS.map(f=>f[1]);
 const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:true,cockpit:false,night:false,clouds:true,music:true};
@@ -99,7 +100,7 @@ function dockFolderButtons(inMenu) {
 function enabled(value) {
   document.querySelector('.meters').hidden=!value;$('menu-hint').hidden=!value;dockFolderButtons(value);
   for(const id of ['save','load','reset','retry','overview','fly','drive'])$(id).disabled=!value;
-  $('tuning').disabled=!value || !Array.isArray(client.info?.tuning);
+  $('tuning-panel').inert=!value || !Array.isArray(client.info?.tuning);
   $('cockpit').disabled=!value;
 }
 function syncSettings() {
@@ -299,15 +300,16 @@ $('resume-sound').addEventListener('click',()=>{canvas.focus();resumeAudio(true)
 $('cockpit').addEventListener('click',cockpit);
 for(const [i,field] of [...TUNING_FIELDS,['Chase damping (s)',.5]].entries()) {
   const label=document.createElement('label'),box=document.createElement('input');
-  box.id=`tune-${i}`;box.type='number';box.step='any';box.min='0';box.required=true;box.value=field[1];
+  box.id=`tune-${i}`;box.type='number';box.step='any';box.value=field[1];
   label.append(document.createTextNode(field[0]),box);$('tuning-fields').append(label);
 }
-$('tuning').addEventListener('click',()=>operation(async()=>{
+$('tuning-panel').addEventListener('toggle',()=>{if($('tuning-panel').open)operation(async()=>{
   tuningValues=Array.from(await client.request('tuning'));fillTuning(tuningValues,settings.cameraSeconds);
-  $('tuning-status').textContent='';keys.clear();$('tuning-panel').showModal();
-}));
-$('tuning-form').addEventListener('submit',event=>{
-  event.preventDefault();if(busy)return;
+  $('tuning-status').textContent='';
+});});
+$('tuning-fields').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();$('tuning-apply').click();}});
+$('tuning-apply').addEventListener('click',()=>{
+  if(busy)return;
   busy=true;client.discardFrame();
   applyTuning({version:1,values:TUNING_FIELDS.map((_,i)=>Number($(`tune-${i}`).value)),cameraSeconds:Number($('tune-17').value)})
     .catch(error=>{$('tuning-status').textContent=error.message;}).finally(()=>{busy=false;});
@@ -317,8 +319,6 @@ $('tuning-defaults').addEventListener('click',()=>{
   applyTuning({version:1,values:TUNING_FIELDS.map(f=>f[1]),cameraSeconds:.5})
     .catch(error=>{$('tuning-status').textContent=error.message;}).finally(()=>{busy=false;});
 });
-$('tuning-close').addEventListener('click',()=>$('tuning-panel').close());
-$('tuning-panel').addEventListener('close',()=>{keys.clear();canvas.focus();});
 canvas.addEventListener('keydown',event=>{
   if(!event.repeat && event.code==='KeyN' && !event.ctrlKey && !event.altKey && !event.metaKey)setNight(!settings.night);
   if(!event.repeat && event.code==='KeyM' && !event.ctrlKey && !event.altKey && !event.metaKey && running){event.preventDefault();keys.clear();dragging=false;mouseButtons=0;mapPanel.toggle();}
@@ -327,7 +327,7 @@ canvas.addEventListener('keydown',event=>{
   if(DRIVE_KEYS.has(event.code)) {
     event.preventDefault();keys.add(event.code);if(!event.repeat)input.keyboard();
     if(!event.repeat && event.code==='F9')$('reset').click();
-    if(!event.repeat && event.code==='KeyF' && !event.ctrlKey && !event.altKey){if(promptTrack&&!race)startRace(promptTrack);else cockpit();}
+    if(!event.repeat && event.code==='KeyF' && !event.ctrlKey && !event.altKey){const again=raceAgain();if(again&&!race)startRace(again);else if(promptTrack&&!race)startRace(promptTrack);else cockpit();}
     if(!event.repeat && event.code==='KeyV' && event.ctrlKey && event.altKey && !event.shiftKey)cockpit();
     resumeAudio(true);
   }
@@ -340,7 +340,7 @@ canvas.addEventListener('pointermove',event=>{if(dragging){mouseButtons=event.bu
 canvas.addEventListener('pointerup',event=>{mouseButtons=event.buttons;dragging=!!(mouseButtons&3);});
 canvas.addEventListener('lostpointercapture',()=>{dragging=false;mouseButtons=0;});
 canvas.addEventListener('contextmenu',event=>event.preventDefault());
-canvas.addEventListener('wheel',event=>{if(running && !$('tuning-panel').open){event.preventDefault();zoom(-Math.sign(event.deltaY));}},{passive:false});
+canvas.addEventListener('wheel',event=>{if(running){event.preventDefault();zoom(-Math.sign(event.deltaY));}},{passive:false});
 window.addEventListener('keyup',event=>keys.delete(event.code));
 canvas.addEventListener('blur',()=>{keys.clear();orbit=[0,0];dragging=false;mouseButtons=0;});
 window.addEventListener('blur',()=>{keys.clear();pauseAudio();});
@@ -427,7 +427,7 @@ function raceFrame(controls,t) {
   if(race.state==='finished'||race.state==='cancelled'){
     const finished=race.state==='finished',run=finished&&{time:race.time,splits:race.splits.slice(),date:new Date().toISOString()};
     const track=race.track;race=undefined;$('race-hud').hidden=true;
-    if(finished)recordRun(track,run);else report(`Race ${track.name||track.id} cancelled.`,true);
+    if(finished){recordRun(track,run);againTrack=track;againUntil=performance.now()+10000;}else report(`Race ${track.name||track.id} cancelled.`,true);
   } else raceHud(t);
 }
 const setText=(id,value)=>{const e=$(id);if(e.textContent!==value)e.textContent=value;};
@@ -468,7 +468,7 @@ function frame(now) {
     return;
   }
   try {
-    const focused=document.hasFocus(),editing=$('tuning-panel').open||mapPanel.open||raceMenu.open||editor.isOpen;
+    const focused=document.hasFocus(),editing=mapPanel.open||raceMenu.open||editor.isOpen;
     const accepts=document.activeElement===canvas && focused && !editing;
     const controls={...input.sample(keys,testPads || Array.from(navigator.getGamepads?.() || []),accepts,settings.controls,!focused||!editing)};
     if(controls.reset)$('reset').click();
@@ -494,7 +494,7 @@ function frame(now) {
       :stats.cameraBlocked?'Cockpit view blocked by nearby geometry.':'';
     $('camera-blocked').hidden=!cameraWarning;
     if($('camera-blocked').textContent!==cameraWarning)$('camera-blocked').textContent=cameraWarning;
-    const audible=document.hasFocus()&&!$('tuning-panel').open&&!flight&&!frozenPresentation;
+    const audible=document.hasFocus()&&!flight&&!frozenPresentation;
     audio.update(client.state,controls,dt,audible);if(!race)music.setBattle(false);music.update(client.state.area,audible);evidence.music=music.snapshot();
     frames++;Object.assign(evidence,{frames,state:client.state,mode:flight?'fly':'drive',camera:flight?.slice(),render:stats,adapter:renderer.adapter});
     evidence.input={...controls,device:input.device};evidence.view=renderer.camera?.slice();
@@ -504,7 +504,8 @@ function frame(now) {
       const s=client.state,p=s.telemetry,scene=s.scene;
       const held=!!scene?.waitingCollision || !!p[8];
       promptTrack=race||flight?undefined:nearestFlag(tracks,p);
-      $('race-prompt').hidden=!promptTrack;if(promptTrack)$('race-prompt').textContent=`Press F to start race: ${promptTrack.name||promptTrack.id}`;
+      const again=race||flight?undefined:raceAgain();
+      $('race-prompt').hidden=!promptTrack&&!again;if(again)$('race-prompt').textContent='Press F to race again';else if(promptTrack)$('race-prompt').textContent=`Press F to start race: ${promptTrack.name||promptTrack.id}`;
       $('speed').textContent=flight?'FLY':p[5]<10000?p[5].toFixed(0).padStart(3,'0'):p[5].toExponential(1);
       $('direction').textContent=flight?'FREE':p[14]<-.1?'REV':p[14]>.1?'FWD':p[5]<.1?'IDLE':'--';
       $('drive-state').textContent=flight?'FLIGHT':scene?.waitingCollision||p[8]===1?'WAIT':p[8]===3?'CONTACT':p[8]===2?'NO GROUND':p[7]?'HOVER':'AIR';
@@ -562,7 +563,7 @@ async function start() {
       else {permissionNeeded=true;showReconnect(true);
         $('permission').textContent='Click to allow reading your remembered folder.';}
     }
-    if(new URLSearchParams(location.search).has('test'))window.worldTest={
+    if(new URLSearchParams(location.search).has('test'))window.worldTest={startRace,
       focus:pose=>{flight=pose.slice();},
       instances:()=>renderer.instances.filter(i=>i.kind==='group').slice(0,8),
       npcs:()=>renderer.instances.filter(i=>i.id.includes(':npc:')).slice(0,5),
