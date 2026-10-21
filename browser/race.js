@@ -3,7 +3,7 @@
 export const BREAKOFF_MARGIN=500;
 export const COUNTDOWN_SECONDS=3;
 // Vehicle classes that can race (free flight has no races); see vehicles.js.
-export const RACE_VEHICLES={podracer:1,plane:1};
+export const RACE_VEHICLES={podracer:1};
 
 const dist=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2]);
 const finite=v=>Array.isArray(v)&&v.length===3&&v.every(Number.isFinite);
@@ -17,7 +17,7 @@ export function validateTrack(t) {
   if(mode!=='p2p'&&mode!=='lap')throw new Error('mode must be p2p or lap');
   if(!Number.isInteger(laps)||laps<1||(mode==='p2p'&&laps!==1))throw new Error('laps must be a positive integer (1 for p2p)');
   const vehicle=t.vehicle??'podracer';
-  if(!Object.hasOwn(RACE_VEHICLES,vehicle))throw new Error('vehicle must be podracer or plane');
+  if(!Object.hasOwn(RACE_VEHICLES,vehicle))throw new Error('vehicle must be podracer');
   return {...t,mode,laps,vehicle};
 }
 

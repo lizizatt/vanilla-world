@@ -411,8 +411,6 @@ export class WorldRenderer {
       this.craftError=undefined;
       this.dataCraft=craft;this.craft=this.override??craft;
     }
-    else if(data.event==='plane-craft'){this.planeModel=data;this.onPlaneModel?.();}
-    else if(data.event==='plane-craft-error')this.planeError=data.error;
     else if(data.event==='craft-error')this.craftError=data.error;
     else if(data.event==='horizon-index'){
       this.indices.set(data.region,this.buffer(data.indices,GPUBufferUsage.INDEX));
@@ -806,9 +804,9 @@ export class WorldRenderer {
       }
     }
     if(!flight&&this.craft&&this.cameraMode!=='cockpit')append(this.craft.asset,this.craft.instance,
-      craftMatrix(state,origin,this.craft.metadata.scale,this.bankSign),this.craft.textures,this.craft.items);
+      craftMatrix(state,origin,this.craft.metadata.scale),this.craft.textures,this.craft.items);
     if(!flight&&this.craft?.flame&&this.cameraMode!=='cockpit') {
-      const m=craftMatrix(state,origin,this.craft.metadata.scale,this.bankSign),k=(.35+.9*Math.min(1,Math.abs(state[5])/150))*(1+.08*Math.sin(time*45));
+      const m=craftMatrix(state,origin,this.craft.metadata.scale),k=(.35+.9*Math.min(1,Math.abs(state[5])/150))*(1+.08*Math.sin(time*45));
       for(const part of this.craft.flame.parts) {
         const [x,y,z]=part.at,f=new Float32Array(m);
         for(let i=0;i<3;i++){f[i]=m[i]*k;f[12+i]=m[12+i]+m[i]*x+m[4+i]*y+m[8+i]*z;}
@@ -849,7 +847,7 @@ export class WorldRenderer {
       coastalWaterTiles:coastal.length,coastalWaterGpuBytes:this.coastBytes,
       waterShaderGpuBytes:this.waterNormalBytes||0,wmoWaterDraws:draws.filter(d=>d.batch.water).length,
       craftSize:this.craft?.size,craftSource:this.craft&&this.craft===this.override?'model':'game data',craftStatus:this.craft?'ready':this.craftError?'failed':'loading',
-      craftTriangles:this.craft?this.craft.asset.count/3:0,craftError:this.craftError,planeError:this.planeError,planeModel:!!this.planeModel,
+      craftTriangles:this.craft?this.craft.asset.count/3:0,craftError:this.craftError,
       npcInstances:this.instances.filter(i=>i.id.includes(':npc:')).length,
       wmoInstances:this.instances.filter(i=>i.kind==='group').length,
       texturedDraws:draws.filter(d=>d.item.texture!==this.white).length,

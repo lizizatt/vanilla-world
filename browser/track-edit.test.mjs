@@ -38,7 +38,7 @@ test('unproject inverts project on the ground plane for a tilted camera',()=>{
 });
 
 test('draft carries the vehicle class into the validated track',()=>{
-  const d=TrackDraft.blank([0,0,0]);d.addGate([0,0,-300]);d.setMeta({name:'Air',vehicle:'plane'});
-  assert.equal(d.toTrack().vehicle,'plane');assert.equal(d.preview().vehicle,'plane');
+  const d=TrackDraft.blank([0,0,0]);d.addGate([0,0,-300]);d.setMeta({name:'Air',vehicle:'podracer'});
+  assert.equal(d.toTrack().vehicle,'podracer');assert.equal(d.preview().vehicle,'podracer');
   d.undo();assert.equal(d.vehicle,'podracer');
 });

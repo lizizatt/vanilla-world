@@ -17,10 +17,6 @@ export const VEHICLES=Object.freeze({
       {id:'dug-racer',name:'Dug racer',source:'glb',model:'./vehicles/dug-racer.glb',scale:METRES},
       {id:'dug-racer-green',name:'Dug racer (green)',source:'glb',model:'./vehicles/dug-racer-green.glb',scale:METRES},
       {id:'dug-racer-crimson',name:'Dug racer (crimson)',source:'glb',model:'./vehicles/dug-racer-crimson.glb',scale:METRES}]},
-  plane:{id:'plane',name:'Gnomish plane',races:true,stats:{Speed:.8,Handling:.8,Boost:.4},
-    note:'Rigid-body flight model: S/Down pitch up (pull), W/Up pitch down, A/D roll left/right, Q/E rudder, Shift/Ctrl throttle up/down, Space boost; letting go levels the wings and flight path; stalls below about 70 yd/s and recovers when the nose drops. Collides with terrain, water, buildings and trees by skimming off them; creatures are not solid.',
-    skins:[{id:'gnomish',name:'Ironforge airfield (game model)',source:'data'},
-      {id:'procedural',name:'Plain plane',source:'procedural'}]},
 });
 
 export const vehicleOf=track=>track?.vehicle??'podracer';
@@ -36,7 +32,7 @@ export function normalizeChoice(raw) {
 export function readChoice(storage=globalThis.localStorage) {
   try{return normalizeChoice(JSON.parse(storage.getItem(STORAGE_KEY)));}catch{return {...DEFAULT_CHOICE};}
 }
-// A fresh page always starts as the rocket podracer at the car spawn; the plane and free flight only start from an explicit Garage switch.
+// A fresh page always starts as the rocket podracer at the car spawn; free flight only starts from an explicit Garage switch.
 export function bootChoice(storage=globalThis.localStorage) {
   const saved=readChoice(storage);return saved.vehicle==='podracer'?saved:{...DEFAULT_CHOICE};
 }
@@ -47,12 +43,3 @@ export const skinOf=choice=>VEHICLES[choice.vehicle].skins.find(s=>s.id===choice
 
 // Switching is open-world only: never while a race is lining up, counting down or running, nor while editing.
 export const canSwitch=({race,editing})=>!race&&!editing;
-
-// Ironforge Airfield: gnomish gyrocopter placements in Azeroth_35_40 (WoW x -4740, y -1706, ground ~503). Heading is along the placement row; the exact runway axis is a guess.
-export const AIRFIELD=Object.freeze({wowX:-4740,wowY:-1706,wowZ:503,yaw:Math.PI,above:60});
-const SCALE=1600/3;
-/** Render-space [x,y,z,yaw] for the airfield, or undefined when no Eastern Kingdoms region is in the manifest. */
-export function airfieldPose(manifest,a=AIRFIELD) {
-  const r=manifest?.regions?.find(r=>/^azeroth$/i.test(r.map));if(!r)return undefined;
-  return [r.placement[0]+(32-r.tile_origin[0])*SCALE-a.wowY,a.wowZ+a.above,r.placement[1]+(32-r.tile_origin[1])*SCALE-a.wowX,a.yaw];
-}

@@ -1,6 +1,6 @@
 ﻿// Projected craft shadow: one fullscreen pass (like clouds) reads the finished scene depth, rebuilds each pixel's world
 // position and darkens it where it lies under the craft along the sun direction. Works on terrain, water, scenery
-// and the plane at altitude without any ground probe or shadow map.
+// and a craft at altitude without any ground probe or shadow map.
 export const SHADOW={maxHeight:500,sun:[-.35,1,-.25],strength:.5,fallbackHalf:[5,3]};
 
 /** Half length/width in yards from a model's bounding size [x,y,z] (longer horizontal axis is the length). */
