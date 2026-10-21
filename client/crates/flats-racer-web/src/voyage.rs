@@ -808,7 +808,7 @@ impl Voyage {
     fn mirror_plane(&mut self, plane: PlaneState) {
         self.state.position = plane.position;
         self.state.yaw = plane.yaw;
-        self.state.velocity = plane.forward().map(|v| v * plane.speed);
+        self.state.velocity = plane.velocity;
         self.state.bank = plane.roll;
         self.state.grounded = false;
         self.state.boost_reserve = plane.boost_reserve;
@@ -818,7 +818,8 @@ impl Voyage {
     fn sync_plane(&mut self) {
         if let Some(old) = self.plane {
             let speed = old.speed.max(self.plane_tuning.cruise * 0.6);
-            let plane = PlaneState::new(self.state.position, self.state.yaw, speed).expect("finite pose");
+            let mut plane = PlaneState::new(self.state.position, self.state.yaw, speed).expect("finite pose");
+            plane.throttle = old.throttle;
             self.plane = Some(plane);
             self.mirror_plane(plane);
         }
@@ -1623,7 +1624,7 @@ impl Voyage {
         Ok(())
     }
 
-    /// Plane pitch input in [-1, 1] (positive pulls up); ignored for the racer.
+    /// Plane pitch input in [-1, 1] (positive pulls up); ignored for the racer. The tick throttle is the plane's throttle change rate.
     pub fn set_plane_pitch(&mut self, pitch: f32) {
         if pitch.is_finite() {
             self.plane_pitch = pitch.clamp(-1.0, 1.0);
