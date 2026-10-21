@@ -1,5 +1,5 @@
 export const TUNING_FIELDS=[
-  ['Cruise speed (yd/s)',150],['Boost speed (yd/s)',300],['Thrust',50],['Extra boost thrust',50],
+  ['Cruise speed (yd/s)',150],['Boost speed (yd/s)',1000],['Thrust',50],['Extra boost thrust',250],
   ['Braking',30],['Drag',.25],['Turn rate',2.2],['Turn response',10],['Grip',8],['Drift grip',1.5],
   ['Drift turn multiplier',1.3],['Hover height (yd)',3],['Spring',90],['Damping',18],
   ['Gravity',24],['Hop speed',7],['Air control',.9],

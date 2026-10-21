@@ -306,7 +306,7 @@ test('tuning accepts native physical domains without gameplay ceilings and retai
   assert.equal(record.values[1],500);
 });
 test('fresh Handling and Restore defaults use the user-provided values without migrating saved overrides',()=>{
-  assert.deepEqual(TUNING_FIELDS.map(f=>f[1]),[150,300,50,50,30,.25,2.2,10,8,1.5,1.3,3,90,18,24,7,.9]);
+  assert.deepEqual(TUNING_FIELDS.map(f=>f[1]),[150,1000,50,250,30,.25,2.2,10,8,1.5,1.3,3,90,18,24,7,.9]);
   const saved={version:1,values:[36,50,18,22,30,.25,2.2,10,8,1.5,1.3,1.1,90,18,24,7,.9],cameraSeconds:.7};
   assert.equal(validateTuningRecord(saved),saved);assert.equal(saved.values[0],36);assert.equal(saved.values[11],1.1);
 });

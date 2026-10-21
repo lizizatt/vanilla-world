@@ -508,10 +508,10 @@ immediately and expands with the selected damping. There is no accumulating
 speed-dependent follow distance. The 50-yard query bound is not a world draw-distance limit.
 
 Current browser defaults, requested from the user's Handling screenshot, are:
-cruise/boost **150/300 yd/s**, thrust/extra boost thrust **50/50**, braking 30,
+cruise/boost **150/1000 yd/s**, thrust/extra boost thrust **50/250** yd/s and yd/s² (boost was 300 and 50 before), braking 30,
 drag 0.25, turn rate 2.2, turn response 10, grip 8, drift grip 1.5, drift turn
 multiplier 1.3, hover height **3 yd**, spring 90, damping 18, gravity 24, hop speed
-7, air control 0.9 and chase damping **0.5 s**. Fresh Rust worlds and Restore
+7, air control 0.9 and chase damping **0.5 s**. Fresh Rust worlds (`voyage.rs` defaults) and Restore
 defaults agree. Existing saved handling overrides remain authoritative; Reset
 retains active handling. Shared native-client physics defaults are unchanged.
 Historical performance measurements below used the former 36/50 yd/s defaults,
@@ -1729,7 +1729,7 @@ A procedural cumulus slab drawn as one extra camera-following quad in a second, 
 
 ### Game Menu
 
-Only the HUD (speed, state, boost), race HUD, prompts, status text and an `Esc - Menu` hint stay on screen. Everything else lives in the Esc Game Menu (also the controller Back button), in tabs: **Game** (Resume, Restart/Abandon race, World map, Track editor, Fly/Drive, Overview, Reset), **Options** (Graphics, Sound and Music, Camera and handling), **Controls** (key and controller reference), **Diagnostics** (live telemetry, only refreshed while its tab is open) and **Data** (Save, Load, Retry loading, Forget/choose another folder). Before a Data folder is loaded the entry panel shows the folder pickers instead. All keyboard shortcuts (N, M, T, F, F9, V, Esc) are unchanged. The entry panel (before a Data folder is loaded) and the menu share an original stone-and-gold theme drawn only in CSS with system serif fonts (no game art, no logos, no downloaded fonts; a data: image would violate the page CSP, so there is none). Smoke scripts must open the menu (Esc, then the tab) before clicking moved controls such as `#sound`, `#save` or `#fly`.
+Only the HUD (speed, state, boost), race HUD, prompts, status text and an `Esc - Menu` hint stay on screen. Everything else lives in the Esc Game Menu (also the controller Back button), in tabs: **Game** (Resume, Restart/Abandon race, World map, Track editor, Fly/Drive, Overview, Reset), **Options** (Graphics, Sound and Music, Camera and handling), **Controls** (key and controller reference), **Diagnostics** (live telemetry, only refreshed while its tab is open) and **Data** (Save, Load, Retry loading, Forget/choose another folder). Before a Data folder is loaded the entry panel shows the folder pickers instead. All keyboard shortcuts (N, M, T, F, F9, V, Esc) are unchanged. The entry panel (before a Data folder is loaded) and the menu share an original stone-and-gold theme drawn only in CSS with system serif fonts (no game art, no logos, no downloaded fonts; a data: image would violate the page CSP, so there is none). Handling is an inline section under Options (a `<details>`, not a modal); `save-smoke`/`feel-smoke` still drive the old dialog. After a successful finish (not cancel/abandon) `Press F to race again` shows for 10 s; F in that window restarts the same track through the normal lineup/countdown, then F reverts to the cockpit toggle. Smoke scripts must open the menu (Esc, then the tab) before clicking moved controls such as `#sound`, `#save` or `#fly`.
 
 ### Race music and countdown sounds
 

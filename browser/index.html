@@ -35,7 +35,12 @@
 <section class="menu-page" data-page="options" role="tabpanel" hidden>
 <fieldset><legend>Graphics</legend><label><input id="night" type="checkbox"> Night (N)</label><label><input id="clouds" type="checkbox" checked> Clouds</label><label><input id="horizon" type="checkbox" checked> Distant terrain</label><label><input id="scenery" type="checkbox" checked> Scenery</label><label><input id="distant" type="checkbox" checked> Distant models</label></fieldset>
 <fieldset><legend>Sound</legend><label class="sound-control"><input id="sound" type="checkbox"> Sound</label><label class="sound-control"><input id="music-on" type="checkbox" checked> Music</label><label>Music volume <input id="music-volume" type="range" min="0" max="100" step="5" value="50" aria-label="Zone music volume"></label><button type="button" id="resume-sound" hidden>Resume sound</button><span id="sound-status" role="status"></span></fieldset>
-<fieldset><legend>Camera and handling</legend><label>Camera distance <input id="camera-distance" type="range" min="0" max="50" step="0.5" value="15" aria-label="Chase distance in yards"></label><label>Space key <select id="control-profile"><option value="native">Hop</option><option value="legacy">Brake</option></select></label><button type="button" id="cockpit" data-close disabled aria-pressed="false" title="F or right-stick click; wheel returns to chase">Cockpit (F)</button><button type="button" id="tuning" disabled>Handling</button></fieldset>
+<fieldset><legend>Camera and handling</legend><label>Camera distance <input id="camera-distance" type="range" min="0" max="50" step="0.5" value="15" aria-label="Chase distance in yards"></label><label>Space key <select id="control-profile"><option value="native">Hop</option><option value="legacy">Brake</option></select></label><button type="button" id="cockpit" data-close disabled aria-pressed="false" title="F or right-stick click; wheel returns to chase">Cockpit (F)</button></fieldset>
+<details id="tuning-panel"><summary>Handling</summary><div id="tuning-form">
+<p>Driving input is ignored while the menu is open.</p>
+<div id="tuning-fields"></div><p id="tuning-status" role="status"></p>
+<div class="toolbar"><button id="tuning-apply" type="button">Apply &amp; save</button><button id="tuning-defaults" type="button">Restore defaults</button></div>
+</div></details>
 </section>
 <section class="menu-page" data-page="controls" role="tabpanel" hidden>
 <p id="keyboard-guide" class="controls">W/S thrust/reverse · A/D steer · X/Space brake · J hop · Shift boost · Ctrl/C drift · F9 reset.</p>
@@ -53,11 +58,6 @@
 </section>
 </form></dialog>
     <dialog id="map-panel" aria-label="World map (M or Esc to close)"><div id="map-stage"><canvas id="map-canvas" width="1600" height="1000" aria-hidden="true"></canvas><button id="map-close" type="button" aria-label="Close map">Close (M)</button><p id="map-status" role="status"></p></div></dialog>
-    <dialog id="tuning-panel" aria-labelledby="tuning-title"><form id="tuning-form">
-      <h2 id="tuning-title">Handling</h2><p>Driving input is ignored while editing; the vehicle can coast.</p>
-      <div id="tuning-fields"></div><p id="tuning-status" role="status"></p>
-      <div class="toolbar"><button type="submit">Apply &amp; save</button><button id="tuning-defaults" type="button">Restore defaults</button><button id="tuning-close" type="button">Close</button></div>
-    </form></dialog>
     <p id="error" role="alert" hidden></p>
     </div>
   </main>
