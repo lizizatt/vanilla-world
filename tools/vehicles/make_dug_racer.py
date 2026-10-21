@@ -189,10 +189,10 @@ def build():
         cube("Landing skid", (x, -0.05, 0.08), (0.26, 3.3, 0.16), iron, engine)
         for y in (-1.05, 1.1):
             rod("Skid leg", (x, y, 0.16), (x, y, 0.47), 0.10, iron, engine)
-        rod("TowLine" + side, (sign * 0.26, 7.15, 1.45), (x, 2.35, 1.4),
+        rod("TowLine" + side, (sign * 0.26, -6.55, 1.18), (sign * 0.85, -1.05, 0.95),
             0.037, brass, body)
-        points = [(sign * 0.26, 7.15, 1.45), (x * 0.40, 5.5, 0.90),
-                  (x * 0.70, 3.8, 0.72), (x, 2.35, 1.15)]
+        points = [(sign * 0.26, -6.55, 1.18), (sign * 0.45, -4.8, 0.70),
+                  (sign * 0.65, -2.8, 0.62), (sign * 0.85, -1.05, 0.95)]
         for a, b in zip(points, points[1:]):
             rod("Suspended control cable", a, b, 0.037, dark, body)
 
@@ -203,7 +203,7 @@ def build():
            (0.83, 2.82, 1.10)]
     for start, end in zip(arc, arc[1:]):
         rod("Jade energy arc", start, end, 0.028, glow, body, 6)
-    cockpit = empty("Cockpit", body, (0, 8.5, 0.45))
+    cockpit = empty("Cockpit", body, (0, -6.1, 0.25))
     cockpit.scale = (0.7, 0.45, 0.7)
     shell("Cockpit belly", 0, 0.95,
           [(-3.0, 0.12), (-2.7, 0.38), (-2.1, 0.48), (-1.4, 0.43),
@@ -244,6 +244,11 @@ def build():
             cube("Gear tooth", (x, -2.08 + 0.22 * math.cos(angle),
                                1.47 + 0.22 * math.sin(angle)),
                  (0.075, 0.095, 0.095), brass, cockpit, (angle, 0, 0))
+    # Put the camera attachment at the seat without rotating the forward-facing chair.
+    seat = Vector((0, -1.99, 1.35))
+    for child in cockpit.children:
+        child.location -= seat
+    cockpit.location += Vector(tuple(seat[i] * cockpit.scale[i] for i in range(3)))
     return paint, shade, light
 
 
@@ -273,10 +278,10 @@ def verify(path, expected):
 
     pod = group_bounds("Cockpit")
     left, right = group_bounds("EngineL"), group_bounds("EngineR")
-    engine_front = max(v.y for v in left + right)
+    engine_rear = min(v.y for v in left + right)
     pod_rear, pod_front = min(v.y for v in pod), max(v.y for v in pod)
-    gap = pod_rear - engine_front
-    offset = (pod_rear + pod_front) / 2 - engine_front
+    gap = engine_rear - pod_front
+    offset = engine_rear - (pod_rear + pod_front) / 2
     inner_gap = min(v.x for v in right) - max(v.x for v in left)
     assert gap > 3.8 and 4 <= offset <= 5, (gap, offset)
     assert inner_gap >= max(v.x for v in pod) - min(v.x for v in pod)
@@ -287,8 +292,19 @@ def verify(path, expected):
                           max(v.co.z for v in arm.data.vertices))]
         delta = ends[1] - ends[0]
         angle = math.degrees(math.atan2(abs(delta.x), abs(delta.y)))
-        assert 10 <= angle <= 20 and delta.length > 4.5, (angle, delta.length)
-    print("Silhouette: gap {:.2f} m; center lead {:.2f} m; tow half-angle {:.1f} deg"
+        assert 5 <= angle <= 10 and delta.length > 4.5, (angle, delta.length)
+        nozzle = bpy.data.objects["Exhaust" + side].matrix_world.translation
+        # Reserve a 0.6 m radius rearward flame corridor, independent of flame length.
+        trailing = pod + [
+            obj.matrix_world @ vertex.co for obj in bpy.context.scene.objects
+            if obj.type == "MESH" and obj.name.startswith(("TowLine", "Suspended control cable"))
+            for vertex in obj.data.vertices]
+        assert all(abs(v.x - nozzle.x) > 0.6 for v in trailing if v.y < nozzle.y)
+    seat = bpy.data.objects["Seat cushion"].matrix_world.translation
+    assert (bpy.data.objects["Cockpit"].matrix_world.translation - seat).length < 0.001
+    assert bpy.data.objects["Tall seat back"].matrix_world.translation.y < seat.y
+    assert bpy.data.objects["Instrument cowl"].matrix_world.translation.y > seat.y
+    print("Silhouette: gap {:.2f} m; center trails {:.2f} m; tow half-angle {:.1f} deg"
           .format(gap, offset, angle))
     print("VERIFIED {}: {} triangles".format(path.name, count))
 
@@ -308,9 +324,9 @@ def preview(path):
         lamp.data.energy = power
         lamp.data.size = size
         lamp.rotation_euler = (Vector((0, 0, 1)) - lamp.location).to_track_quat("-Z", "Y").to_euler()
-    bpy.ops.object.camera_add(location=(9, 15, 11))
+    bpy.ops.object.camera_add(location=(11, 10, 12))
     camera = bpy.context.object
-    camera.rotation_euler = (Vector((0, 2.7, 1.3)) - camera.location).to_track_quat("-Z", "Y").to_euler()
+    camera.rotation_euler = (Vector((0, -2.2, 1.3)) - camera.location).to_track_quat("-Z", "Y").to_euler()
     camera.data.type = "ORTHO"
     camera.data.ortho_scale = 13.0
     scene.camera = camera
@@ -327,15 +343,15 @@ def preview(path):
     scene.render.image_settings.file_format = "PNG"
     scene.render.filepath = str(path)
     bpy.ops.render.render(write_still=True)
-    camera.location = (0, 2.95, 16)
+    camera.location = (0, -2.2, 16)
     camera.data.ortho_scale = 14
     camera.rotation_euler = (0, 0, 0)
     scene.render.filepath = str(path.with_name(path.stem + "-above" + path.suffix))
     bpy.ops.render.render(write_still=True)
-    camera.location = (0, 16, 2.8)
-    camera.rotation_euler = (Vector((0, 2.5, 1.45)) - camera.location).to_track_quat("-Z", "Y").to_euler()
-    camera.data.ortho_scale = 7.0
-    scene.render.filepath = str(path.with_name(path.stem + "-front" + path.suffix))
+    camera.location = (16, -2.2, 2)
+    camera.rotation_euler = (Vector((0, -2.2, 1.45)) - camera.location).to_track_quat("-Z", "Y").to_euler()
+    camera.data.ortho_scale = 12.0
+    scene.render.filepath = str(path.with_name(path.stem + "-side" + path.suffix))
     bpy.ops.render.render(write_still=True)
 
 
