@@ -22,7 +22,7 @@ test('worker replies immediately drain one coalesced latest-input frame with the
   assert.equal(calls.length,2);assert.deepEqual(client.state,{pose:1});
   const {sampleTime,...fields}=calls[1].fields;
   assert(Number.isFinite(sampleTime));
-  assert.deepEqual(fields,{dt:.05,throttle:-1,steer:.2,flags:2,focus:[4,5,6],distant:false,hop:0});
+  assert.deepEqual(fields,{dt:.05,throttle:-1,steer:.2,flags:2,focus:[4,5,6],distant:false,hop:0,pitch:0});
   client.frame(.09,1,0,0);client.frame(.09,0,0,1);
   calls[1].resolve({pose:2});await settle();
   assert.equal(calls.length,3);assert.equal(calls[2].fields.dt,.1);assert.equal(calls[2].fields.throttle,0);
@@ -182,7 +182,7 @@ test('reset and restore invalidate unsent input and block draining until the new
   }
 });
 
-const poseState=(time,x)=>({poseTime:time,telemetry:[x,10,20,0,0,36,1,1,0,0,0,0,0,0,36],
+const poseState=(time,x)=>({poseTime:time,telemetry:[x,10,20,0,0,36,1,1,0,0,0,0,0,0,36,0],
   scene:{waitingCollision:0}});
 test('confirmed interpolation removes 144Hz duplicate cadence without extrapolating 120Hz poses',()=>{
   const client=new WorldClient(()=>{},error=>{throw error;});
