@@ -133,6 +133,7 @@ impl PlaneState {
         s.pitch = clamp(s.pitch + (pitch_in * t.pitch_rate + level - (1.0 - flying) * 0.8) * dt, -t.max_pitch, t.max_pitch);
         // Coordinated turn: heading rate from bank, slower at speed so a 1000 yd/s boost stays controllable.
         s.yaw -= s.roll.tan() * t.gravity / s.speed.max(t.stall) * dt * flying;
+        s.yaw = (s.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
         let limit = if boosting { t.boost_speed } else { t.cruise };
         let thrust = if boosting { t.boost_thrust } else { t.thrust * throttle.max(0.0) };
         let accel = if s.speed < limit { thrust } else { 0.0 }
