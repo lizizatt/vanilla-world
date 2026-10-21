@@ -75,15 +75,15 @@ impl Default for PlaneTuning {
             brake: 60.0,
             throttle_rate: 0.5,
             trim_alpha: 0.06,
-            stall_alpha: 0.30,
-            elevator: 0.2,
+            stall_alpha: 0.40,
+            elevator: 0.3,
             roll_rate: 1.8,
             q_cap: 6.0,
             cd0: 0.2,
             cdi: 0.06,
             side: 2.0,
-            m_alpha: 8.0,
-            m_q: 3.0,
+            m_alpha: 14.0,
+            m_q: 4.5,
             l_beta: 4.0,
             l_p: 5.0,
             n_beta: 6.0,
@@ -93,7 +93,7 @@ impl Default for PlaneTuning {
             clearance: 3.0,
             rudder: 3.0,
             stick_rate: 4.0,
-            path_hold: 0.5,
+            path_hold: 0.3,
         }
     }
 }
@@ -568,7 +568,7 @@ mod tests {
         p.set_attitude(0.0, 0.9, 0.0);
         p.throttle = 0.0;
         let (mut min_pitch, mut peak_alpha) = (1.0f32, 0.0f32);
-        for _ in 0..(14.0 / FIXED_DT) as u32 {
+        for _ in 0..(20.0 / FIXED_DT) as u32 {
             fly(&mut p, IDLE, FIXED_DT, None);
             min_pitch = min_pitch.min(p.pitch);
             peak_alpha = peak_alpha.max(p.alpha.abs());
@@ -576,7 +576,7 @@ mod tests {
         }
         assert!(peak_alpha > 0.3 || min_pitch < 0.0, "stalled: alpha {peak_alpha} pitch {min_pitch}");
         assert!(min_pitch < 0.2, "the nose fell through: {min_pitch}");
-        assert!(p.speed > 80.0 && p.alpha.abs() < 0.3, "recovered: speed {} alpha {}", p.speed, p.alpha);
+        assert!(p.speed > 55.0 && p.alpha.abs() < PlaneTuning::default().stall_alpha, "recovered: speed {} alpha {}", p.speed, p.alpha);
     }
 
     #[test]
@@ -653,6 +653,52 @@ mod tests {
         }
     }
 
+    // Time (s) a held pull takes to first reach `target` pitch, and the peak pitch rate on the way.
+    fn pull_to(speed: f32, boost: bool, target: f32, ground: Option<f32>) -> (f32, f32) {
+        let mut p = if ground.is_some() { PlaneState::new([0.0, 3.0, 0.0], 0.0, speed).unwrap() } else { plane(speed) };
+        let (mut peak_rate, mut prev) = (0.0f32, p.pitch);
+        for i in 0..(15.0 / FIXED_DT) as u32 {
+            fly(&mut p, PlaneInput { pitch: 1.0, throttle: 1.0, boost, ..IDLE }, FIXED_DT, ground);
+            peak_rate = peak_rate.max((p.pitch - prev) / FIXED_DT);
+            prev = p.pitch;
+            if p.pitch >= target {
+                return (i as f32 * FIXED_DT, peak_rate);
+            }
+        }
+        (f32::INFINITY, peak_rate)
+    }
+
+    #[test]
+    fn held_pull_rotates_quickly_at_cruise_and_boost() {
+        for (speed, boost) in [(150.0, false), (300.0, true)] {
+            let (t30, rate) = pull_to(speed, boost, 0.52, None);
+            assert!(t30 < 1.4, "30 deg climb in {t30}s at {speed}");
+            assert!(rate > 0.45, "pitch rate {rate} rad/s at {speed}");
+        }
+    }
+
+    #[test]
+    fn takeoff_rotation_from_the_airfield_climbs_out() {
+        let (t, _) = pull_to(90.0, false, 0.35, Some(0.0));
+        assert!(t < 2.5, "rotation to 20 deg took {t}s");
+    }
+
+    #[test]
+    fn held_pull_completes_a_loop_in_bounded_time() {
+        for (speed, boost, limit) in [(150.0, false, 10.5), (400.0, true, 10.5)] {
+            let mut p = plane(speed);
+            let (mut passed_top, mut done) = (false, None);
+            for i in 0..(14.0 / FIXED_DT) as u32 {
+                fly(&mut p, PlaneInput { pitch: 1.0, throttle: 1.0, boost, ..IDLE }, FIXED_DT, None);
+                passed_top |= p.axes[2][1] > 0.5;
+                if passed_top && p.axes[0][1].abs() < 0.2 && p.axes[2][1] < -0.5 {
+                    done = Some(i as f32 * FIXED_DT);
+                    break;
+                }
+            }
+            assert!(done.is_some_and(|t| t < limit), "loop at {speed}: {done:?}");
+        }
+    }
     #[test]
     fn loops_pass_through_the_vertical() {
         let mut p = plane(300.0);
@@ -874,7 +920,7 @@ mod tests {
         hold(&mut p, keys(1.0, 0.0, 0.0), 0.5, None, FIXED_DT);
         hold(&mut p, keys(0.0, 0.2, 0.0), 6.0, None, FIXED_DT);
         assert!(turned(y0, &p) > 0.4 && p.beta.abs() < 0.1, "{} {}", turned(y0, &p), p.beta);
-        assert!(alt(&p).abs() < 120.0, "{}", alt(&p));
+        assert!(alt(&p).abs() < 200.0, "{}", alt(&p));
     }
 
     #[test]

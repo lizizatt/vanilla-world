@@ -16,14 +16,14 @@ import {loadTracks,nearestFlag,flagPosition} from './race-flags.js';
 import {loadVehicleModel} from './vehicle-model.js';
 import {planePayload} from './plane-model.js';
 import {planeKeys} from './plane-input.js';
-import {airfieldPose,readChoice,writeChoice,tracksFor,vehicleOf,VEHICLES,canSwitch,normalizeChoice,skinOf} from './vehicles.js';
+import {airfieldPose,bootChoice,writeChoice,tracksFor,vehicleOf,VEHICLES,canSwitch,normalizeChoice,skinOf} from './vehicles.js';
 
 const $=id=>document.getElementById(id),canvas=$('world'),keys=new Set();
 const input=new WorldInput(),audio=new WorldAudio();
 const cameraCollision=new CameraCollision();
 const evidence={ready:false,frames:0,errors:[],mode:'drive'};
 window.worldEvidence=evidence;
-let choice=readChoice(),tracks=[],race,raceBest,promptTrack,goUntil=0,boardTimer=0,againTrack,againUntil=0;
+let choice=bootChoice(),tracks=[],race,raceBest,promptTrack,goUntil=0,boardTimer=0,againTrack,againUntil=0;
 const raceAgain=()=>againTrack&&performance.now()<againUntil?againTrack:undefined;
 let renderer,folder,flight,running=false,busy=false,last=0,frames=0,hudTime=0,hudFrames=0,permissionNeeded=false;
 let orbit=[0,0],dragging=false,mouseButtons=0,soundAttempt=0,soundError='',soundTime=0,reportTimer,testPads,frozenPresentation=false,tuningValues=TUNING_FIELDS.map(f=>f[1]);
