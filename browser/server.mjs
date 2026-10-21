@@ -23,6 +23,7 @@ const server = http.createServer(async (request, response) => {
     }).end(bytes);
   } catch (error) {
     if(file==='/local/npc-spawns.json' && error.code==='ENOENT'){response.writeHead(404).end('No private local population pack');return;}
+    if(error.code==='ENOENT'&&!file.startsWith('/pkg/')){response.writeHead(404).end('Not found');return;}
     console.error(`Cannot serve ${file}: ${error.message}`);
     response.writeHead(500).end('Build the Wasm package first; see server log.');
   }
