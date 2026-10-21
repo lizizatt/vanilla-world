@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { appFiles } from './build-dist.mjs';
+import { appFiles, vehicleFiles } from './build-dist.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -18,4 +18,9 @@ test('hosted file list is app-only and covers every static import', async () => 
       assert.ok(set.has(spec.slice(2)), `${file} imports ${spec} which is not hosted`);
     }
   }
+});
+
+test('vehicle models are hosted by name pattern only', async () => {
+  assert.ok((await vehicleFiles()).every(f => /^vehicles\/[a-z0-9-]+\.glb$/.test(f)));
+  assert.ok(!(await appFiles()).some(f => f.endsWith('.glb')), 'optional models stay out of the precache list');
 });

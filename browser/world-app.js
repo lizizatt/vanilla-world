@@ -13,6 +13,7 @@ import {MapPanel} from './map-panel.js';
 import {Race,formatTime,bearing,addScore,validScores,validateTrack} from './race.js';
 import {createTrackEditor} from './track-editor.js';
 import {loadTracks,nearestFlag,flagPosition} from './race-flags.js';
+import {loadVehicleModel} from './vehicle-model.js';
 import {readChoice,writeChoice,tracksFor,vehicleOf,VEHICLES,canSwitch,normalizeChoice,skinOf} from './vehicles.js';
 
 const $=id=>document.getElementById(id),canvas=$('world'),keys=new Set();
@@ -210,7 +211,7 @@ async function open(selection,remember=false) {
       await new Promise(resolve=>setTimeout(resolve,16));
     }
     loading.close();
-    evidence.ready=true;report(restored?'Loaded.':'',restored);canvas.focus();
+    evidence.ready=true;report(restored?'Loaded.':'',restored);canvas.focus();applySkin();
   } catch(error) {
     fail(error);report('');
     if(opened){enabled(true);running=true;evidence.ready=true;}
@@ -367,12 +368,21 @@ raceMenu.addEventListener('click',event=>{if(event.target.closest('[data-close]'
 $('menu-map').addEventListener('click',()=>{raceMenu.close();if(running)mapPanel.toggle();});
 const garage=$('garage'),glbPresent=new Map();
 let garagePick;
+let skinToken=0,skinNote='';
+// Shipped GLB skins replace the Data rocket; any load failure keeps the Data rocket and says so in Diagnostics.
+async function applySkin() {
+  const token=++skinToken,skin=skinOf(choice);
+  if(!renderer)return;
+  if(skin.source!=='glb'){skinNote='';renderer.setCraftOverride(undefined);return;}
+  try{const model=await loadVehicleModel(skin);if(token===skinToken){renderer.setCraftOverride(model);skinNote='';}}
+  catch(error){if(token===skinToken){renderer.setCraftOverride(undefined);skinNote=`Skin ${skin.name} unavailable (${error.message}); using the default craft`;report(skinNote,true);}}
+}
 function selectVehicle(next) {
   if(!canSwitch({race,editing:editor.isOpen}))return false;
   const wasFree=choice.vehicle==='free-flight';choice=normalizeChoice(next);writeChoice(choice);
   if(choice.vehicle==='free-flight'){if(!flight&&client.state){const p=client.state.telemetry;flight=[p[0],p[1]+20,p[2]+20,p[3],-.25];}}
   else if(wasFree||flight){flight=undefined;renderer.camera=undefined;}
-  syncGates(true);return true;
+  syncGates(true);applySkin();return true;
 }
 function glbAvailable(skin) {
   if(skin.source!=='glb')return true;
@@ -572,8 +582,8 @@ function frame(now) {
       if(s.water)$('material-status').textContent+=` · authored water ${s.water.resident} tiles / ${(s.water.bytes/1048576).toFixed(1)} MiB (${s.water.pending} pending${s.water.deferred?`, ${s.water.deferred} background deferrals`:''}${s.water.limited?', nearest-water cache full':''})`;
       $('details').textContent=`${client.info.archiveCount} local archives · ${((scene?.bytes||0)/1048576).toFixed(1)} MiB scene cache · ${scene?.pending||0} pending assets${scene?.capacityBlocked?' · scene capacity reached':''}${!flight&&scene?.waitingCollision?` · waiting for ${scene.waitingCollision} nearby collision assets`:''}${stats.gpuOmittedInstances?` · ${stats.gpuOmittedInstances} meshes beyond GPU budget`:''}`;
       if(s.distant?.scene)$('details').textContent+=` · distant worker ${(s.distant.scene.bytes/1048576).toFixed(1)} MiB / ${s.distant.scene.pending} pending${s.distant.scene.capacityBlocked?' / visual cache full':''}`;
-      $('craft-status').textContent=stats.craftReady?`Authored racer display 10318 / ${stats.craftPose}`
-        :stats.craftStatus==='failed'?'Player craft failed to load; temporary body remains':'Loading authored player craft; temporary body shown';
+      $('craft-status').textContent=skinNote||(stats.craftSource==='model'?`Vehicle model `+skinOf(choice).name:stats.craftReady?`Authored racer display 10318 / ${stats.craftPose}`
+        :stats.craftStatus==='failed'?'Player craft failed to load; temporary body remains':'Loading authored player craft; temporary body shown');
       }
       const errors=[...s.failures,...(s.distant?.failures||[]),...(s.distant?.scene?.errors||[]),...(s.terrain?.errors||[]),...(scene?.errors||[]),
         ...(stats.craftError?[`Player craft: ${stats.craftError}`]:[])].map(e=>typeof e==='string'?e:JSON.stringify(e));
