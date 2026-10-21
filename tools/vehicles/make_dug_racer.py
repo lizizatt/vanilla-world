@@ -11,21 +11,45 @@ from mathutils import Vector
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "browser" / "vehicles"
 VARIANTS = (
-    ("dug_default", "dug-racer.glb", (0.58, 0.28, 0.055, 1)),
+    ("dug_default", "dug-racer.glb", (0.72, 0.035, 0.018, 1)),
     ("dug_goblin_green", "dug-racer-green.glb", (0.14, 0.38, 0.075, 1)),
     ("dug_crimson", "dug-racer-crimson.glb", (0.48, 0.055, 0.045, 1)),
 )
 REQUIRED = {"Body", "EngineL", "EngineR", "Cockpit", "ExhaustL", "ExhaustR"}
 
 
-def material(name, color, metallic=0):
+def material(name, color, metallic=0, pattern="paint"):
     mat = bpy.data.materials.new(name)
     mat.diffuse_color = color
     mat.use_nodes = True
     shader = mat.node_tree.nodes.get("Principled BSDF")
     shader.inputs["Base Color"].default_value = color
-    shader.inputs["Metallic"].default_value = metallic
-    shader.inputs["Roughness"].default_value = 0.78
+    shader.inputs["Metallic"].default_value = 0
+    shader.inputs["Roughness"].default_value = 1
+    shader.inputs["Specular"].default_value = 0
+    image = bpy.data.images.new(name + " painted 128", width=128, height=128)
+    pixels = []
+    for y in range(128):
+        for x in range(128):
+            u, v = x / 128, y / 128
+            grain = 0.025 * math.sin(x * 12.31 + y * 7.17)
+            if pattern == "rope":
+                ridge = (0.5 + 0.5 * math.cos(math.tau * (u * 12 - v * 3))) ** 0.6
+                value = 0.36 + 0.60 * ridge + grain
+            elif pattern == "wood":
+                seam = abs(math.sin(math.tau * u * 4))
+                value = 0.38 + 0.35 * min(1, seam * 7) + 0.12 * math.sin(u * 95 + math.sin(v * 15)) + grain
+            else:
+                value = (0.70 + 0.12 * math.sin(u * math.tau)
+                         + 0.07 * math.sin(u * 29 + math.sin(v * 13))
+                         + 0.04 * math.cos(v * 37 + u * 8) + grain)
+            pixels.extend((value * color[0], value * color[1], value * color[2], 1))
+    image.pixels = pixels
+    image.pack()
+    texture = mat.node_tree.nodes.new("ShaderNodeTexImage")
+    texture.image = image
+    texture.interpolation = "Linear"
+    mat.node_tree.links.new(texture.outputs["Color"], shader.inputs["Base Color"])
     return mat
 
 
@@ -70,6 +94,12 @@ def rod(name, start, end, radius, mat, parent, sides=8, tip=None):
     obj.rotation_euler = direction.to_track_quat("Z", "Y").to_euler()
     obj.data.materials.append(mat)
     obj.parent = parent
+    if mat.name == "Twisted hemp":
+        uv = obj.data.uv_layers.active or obj.data.uv_layers.new()
+        for loop in obj.data.loops:
+            co = obj.data.vertices[loop.vertex_index].co
+            uv.data[loop.index].uv = (math.atan2(co.y, co.x) / math.tau,
+                                      co.z / 0.35)
     return obj
 
 
@@ -84,11 +114,19 @@ def shell(name, x, z, profile, mats, parent, sides=16):
             b = j * sides + (i + 1) % sides
             faces.append((a, a + sides, b + sides, b))
     obj = mesh(name, verts, faces, mats[0], parent)
+    uv = obj.data.uv_layers.new()
+    for poly in obj.data.polygons:
+        j, i = divmod(poly.index, sides)
+        for loop, coord in zip(poly.loop_indices,
+                               ((i / sides, j / (len(profile) - 1)),
+                                (i / sides, (j + 1) / (len(profile) - 1)),
+                                ((i + 1) / sides, (j + 1) / (len(profile) - 1)),
+                                ((i + 1) / sides, j / (len(profile) - 1)))):
+            uv.data[loop].uv = coord
     for mat in mats[1:]:
         obj.data.materials.append(mat)
     for poly in obj.data.polygons:
-        # Alternating broad painted facets make lighting readable without textures.
-        poly.material_index = (poly.index % sides) % len(mats)
+        poly.material_index = 0
     return obj
 
 
@@ -112,8 +150,11 @@ def build():
     brass = material("Old brass", (0.52, 0.37, 0.13, 1), 0.4)
     dark = material("Soot and rubber", (0.024, 0.029, 0.027, 1))
     leather = material("Worn saddle", (0.20, 0.08, 0.034, 1))
+    rope = material("Twisted hemp", (0.60, 0.40, 0.18, 1), pattern="rope")
+    wood = material("Painted oak planks", (0.36, 0.18, 0.065, 1), pattern="wood")
+    ivory = material("Chalk grin", (0.92, 0.86, 0.65, 1))
     glow = material("Alchemical jade", (0.20, 0.72, 0.37, 1))
-    glow.node_tree.nodes["Principled BSDF"].inputs["Emission"].default_value = (0.30, 3, 1.14, 1)
+    glow.node_tree.nodes["Principled BSDF"].inputs["Emission"].default_value = (0.04, 0.28, 0.10, 1)
     body = empty("Body")
     # Author in Blender's Z-up coordinates; glTF exports Y-up and forward -Z.
     for side, x in (("L", -1.58), ("R", 1.58)):
@@ -129,13 +170,16 @@ def build():
         shell("Faceted engine casing", x, 1.02, profile, [paint, shade, light], engine)
         for y, r in ((-1.6, 0.48), (-0.92, 0.54), (1.62, 0.75), (2.34, 0.81)):
             shell("Riveted hoop", x, 1.02,
-                  [(y - 0.065, r), (y + 0.065, r)], [brass], engine)
+                  [(y - 0.16, r), (y - 0.12, r + 0.05),
+                   (y + 0.12, r + 0.05), (y + 0.16, r)],
+                  [iron if y < -1 else rope], engine)
             for i in range(12):
                 angle = i * math.tau / 12
                 start = (x + r * math.cos(angle), y, 1.02 + r * math.sin(angle))
                 end = (x + (r + 0.05) * math.cos(angle), y,
                        1.02 + (r + 0.05) * math.sin(angle))
-                rod("Square rivet", start, end, 0.041, iron, engine, 4)
+                if y < -1:
+                    rod("Square rivet", start, end, 0.055, iron, engine, 4)
         shell("Hollow exhaust", x, 1.02,
               [(-2.08, 0.36), (-2.40, 0.41), (-2.40, 0.54),
                (-1.85, 0.48)], [iron, dark], engine)
@@ -171,6 +215,14 @@ def build():
         face = (0, 1, 2, 3) if sign > 0 else (3, 2, 1, 0)
         mesh("Dark slanted intake", [cowl_point(u, h, -0.015) for u, h in vent],
              [face], dark, engine)
+        # An original crooked chalk grin, not a copied faction or character insignia.
+        for i in range(7):
+            u = -0.62 + i * 0.21
+            h = 0.52 * u - 0.30
+            tooth = [(u, h), (u + 0.16, h + 0.08),
+                     (u + 0.10, h - 0.10 - 0.035 * (i % 2))]
+            mesh("Painted crooked tooth", [cowl_point(a, b, -0.021) for a, b in tooth],
+                 [(0, 1, 2) if sign > 0 else (2, 1, 0)], ivory, engine)
         for i in range(10):
             u = -0.65 + i * 0.16
             rod("Vent louvre", cowl_point(u, 0.52 * u - 0.19, -0.04),
@@ -190,14 +242,14 @@ def build():
         for y in (-1.05, 1.1):
             rod("Skid leg", (x, y, 0.16), (x, y, 0.47), 0.10, iron, engine)
         rod("TowLine" + side, (sign * 0.26, -6.55, 1.18), (sign * 0.85, -1.05, 0.95),
-            0.037, brass, body)
+            0.075, rope, body)
         points = [(sign * 0.26, -6.55, 1.18), (sign * 0.45, -4.8, 0.70),
                   (sign * 0.65, -2.8, 0.62), (sign * 0.85, -1.05, 0.95)]
         for a, b in zip(points, points[1:]):
-            rod("Suspended control cable", a, b, 0.037, dark, body)
+            rod("Suspended control cable", a, b, 0.075, rope, body)
 
     rod("Rear cross brace", (-1.58, -1.05, 0.95), (1.58, -1.05, 0.95),
-        0.12, iron, body)
+        0.12, wood, body)
     arc = [(-0.83, 2.82, 1.10), (-0.60, 2.85, 1.19), (-0.30, 2.82, 1.02),
            (0, 2.88, 1.15), (0.26, 2.82, 0.98), (0.56, 2.85, 1.16),
            (0.83, 2.82, 1.10)]
@@ -207,15 +259,18 @@ def build():
     cockpit.scale = (0.7, 0.45, 0.7)
     shell("Cockpit belly", 0, 0.95,
           [(-3.0, 0.12), (-2.7, 0.38), (-2.1, 0.48), (-1.4, 0.43),
-           (-0.75, 0.31), (-0.45, 0.06)], [paint, shade, light], cockpit, 8)
+           (-0.75, 0.31), (-0.45, 0.06)], [wood], cockpit, 8)
+    for y, radius in ((-2.55, 0.43), (-1.35, 0.44)):
+        shell("Barrel iron binding", 0, 0.95,
+              [(y - 0.08, radius), (y + 0.08, radius)], [iron], cockpit, 8)
     cube("Seat cushion", (0, -1.99, 1.35), (0.60, 0.70, 0.18), leather, cockpit)
     cube("Tall seat back", (0, -2.42, 1.75), (0.63, 0.16, 0.95),
          leather, cockpit, (0.12, 0, 0))
     for x in (-0.43, 0.43):
         cube("Cockpit side armor", (x, -1.90, 1.43), (0.13, 1.5, 0.48),
-             paint, cockpit)
+             wood, cockpit)
         rod("Cockpit rim", (x, -2.65, 1.69), (x, -1.15, 1.69),
-            0.055, brass, cockpit)
+            0.07, iron, cockpit)
         rod("Roll cage upright", (x, -2.48, 1.46), (x, -2.58, 2.35),
             0.065, iron, cockpit)
         rod("Steering lever", (x * 0.53, -1.51, 1.36),
@@ -237,6 +292,10 @@ def build():
          [(0, 1, 2), (0, 2, 4), (2, 3, 4)], paint, cockpit)
     paint.use_backface_culling = False
     for x in (-0.53, 0.53):
+        rod("Iron wheel rim", (x, -2.08, 1.12), (x * 1.06, -2.08, 1.12),
+            0.35, iron, cockpit, 12)
+        rod("Wood wheel disc", (x * 1.065, -2.08, 1.12), (x * 1.08, -2.08, 1.12),
+            0.27, wood, cockpit, 12)
         rod("Gear medallion", (x, -2.08, 1.47), (x * 1.05, -2.08, 1.47),
             0.21, brass, cockpit, 12)
         for i in range(10):
@@ -249,6 +308,14 @@ def build():
     for child in cockpit.children:
         child.location -= seat
     cockpit.location += Vector(tuple(seat[i] * cockpit.scale[i] for i in range(3)))
+    for obj in bpy.context.scene.objects:
+        if obj.type == "MESH" and not obj.data.uv_layers:
+            uv = obj.data.uv_layers.new()
+            for poly in obj.data.polygons:
+                axes = sorted(range(3), key=lambda i: abs(poly.normal[i]))[:2]
+                for loop in poly.loop_indices:
+                    co = obj.data.vertices[obj.data.loops[loop].vertex_index].co
+                    uv.data[loop].uv = (co[axes[0]], co[axes[1]])
     return paint, shade, light
 
 
@@ -262,6 +329,16 @@ def verify(path, expected):
     bpy.ops.object.delete(use_global=False)
     bpy.ops.import_scene.gltf(filepath=str(path))
     assert REQUIRED <= set(bpy.data.objects.keys()), "Missing attachment nodes"
+    for obj in bpy.context.scene.objects:
+        if obj.type != "MESH":
+            continue
+        assert obj.data.uv_layers, obj.name
+        for mat in obj.data.materials:
+            shader = mat.node_tree.nodes.get("Principled BSDF")
+            assert shader.inputs["Metallic"].default_value == 0
+            assert shader.inputs["Roughness"].default_value == 1
+            textures = [n.image for n in mat.node_tree.nodes if n.type == "TEX_IMAGE"]
+            assert textures and all(tuple(image.size) == (128, 128) for image in textures)
     count = triangles()
     assert 3000 <= count <= 6000 and count == expected, (path, count, expected)
     for name in ("ExhaustL", "ExhaustR"):
@@ -312,6 +389,9 @@ def verify(path, expected):
 def preview(path):
     scene = bpy.context.scene
     floor = material("Preview floor", (0.085, 0.105, 0.115, 1))
+    shader = floor.node_tree.nodes["Principled BSDF"]
+    for link in list(shader.inputs["Base Color"].links):
+        floor.node_tree.links.remove(link)
     cube("Preview floor", (0, 0, -0.12), (200, 200, 0.20), floor, None)
     world = bpy.data.worlds.new("Studio") if scene.world is None else scene.world
     scene.world = world
@@ -364,8 +444,15 @@ def main():
     count = triangles()
     assert 3000 <= count <= 6000, count
     for name, filename, color in VARIANTS:
-        for mat, factor in ((paint, 1), (shade, 0.62), (light, 1.3)):
+        for mat, factor in ((paint, 1), (shade, 0.85), (light, 1.1)):
             rgba = tuple(min(channel * factor, 1) for channel in color[:3]) + (1,)
+            image = next(node.image for node in mat.node_tree.nodes if node.type == "TEX_IMAGE")
+            pixels = list(image.pixels[:])
+            for i in range(0, len(pixels), 4):
+                for channel in range(3):
+                    pixels[i + channel] *= rgba[channel] / mat.diffuse_color[channel]
+            image.pixels = pixels
+            image.pack()
             mat.diffuse_color = rgba
             mat.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = rgba
         paint.name = name
