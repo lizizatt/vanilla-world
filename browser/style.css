@@ -183,3 +183,19 @@ dialog h2 { color: #ffb34d; margin-top: 0; }
 #menu-hint { font-family: var(--serif); color: var(--gold); }
 
 .welcome-note { margin: 0.9rem 0 0; font-size: 0.72rem; line-height: 1.4; opacity: 0.7; }
+
+#garage { min-width: min(640px, 92vw); padding: 18px 22px; background: linear-gradient(#2b2013, #17100a); border: 2px solid #c8a24a; border-radius: 6px; color: #e8d9aa; font-family: Georgia, serif; }
+#garage::backdrop { background: rgba(0,0,0,.55); }
+#garage h2 { color: #ffd36a; text-align: center; letter-spacing: 3px; text-transform: uppercase; margin: 0 0 10px; }
+#garage h3 { margin: 10px 0 4px; color: #ffd36a; font-size: .9rem; }
+#garage button { background: linear-gradient(#4a3417, #2e200e); color: #ffd36a; border: 1px solid #a98836; border-radius: 4px; padding: 6px 12px; font: inherit; cursor: pointer; }
+#garage button:hover, #garage button:focus-visible { background: linear-gradient(#6a4a1e, #43300f); color: #fff3c4; }
+#garage [aria-selected=true], #garage [aria-checked=true] { outline: 2px solid #ffd36a; }
+#garage button[disabled] { opacity: .4; cursor: not-allowed; }
+#garage-body { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 10px; }
+#garage-skins { display: grid; gap: 6px; align-content: start; }
+#garage-stats div { display: grid; grid-template-columns: 70px 1fr; align-items: center; gap: 8px; margin: 3px 0; }
+#garage-stats i { display: block; height: 8px; background: #ffd36a; border-radius: 4px; }
+#garage-races { margin: 0; padding-left: 18px; }
+#garage footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+#garage-hint { font-size: .75rem; opacity: .7; margin: 8px 0 0; }

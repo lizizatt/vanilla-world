@@ -13,7 +13,7 @@ import {MapPanel} from './map-panel.js';
 import {Race,formatTime,bearing,addScore,validScores,validateTrack} from './race.js';
 import {createTrackEditor} from './track-editor.js';
 import {loadTracks,nearestFlag,flagPosition} from './race-flags.js';
-import {readChoice,tracksFor,vehicleOf} from './vehicles.js';
+import {readChoice,writeChoice,tracksFor,vehicleOf,VEHICLES,canSwitch,normalizeChoice,skinOf} from './vehicles.js';
 
 const $=id=>document.getElementById(id),canvas=$('world'),keys=new Set();
 const input=new WorldInput(),audio=new WorldAudio();
@@ -323,6 +323,7 @@ $('tuning-defaults').addEventListener('click',()=>{
 canvas.addEventListener('keydown',event=>{
   if(!event.repeat && event.code==='KeyN' && !event.ctrlKey && !event.altKey && !event.metaKey)setNight(!settings.night);
   if(!event.repeat && event.code==='KeyM' && !event.ctrlKey && !event.altKey && !event.metaKey && running){event.preventDefault();keys.clear();dragging=false;mouseButtons=0;mapPanel.toggle();}
+  if(!event.repeat && event.code==='KeyG' && !event.ctrlKey && !event.altKey && !event.metaKey && running){event.preventDefault();openGarage();return;}
   if(!event.repeat && event.code==='KeyT' && !event.ctrlKey && !event.altKey && !event.metaKey && running){event.preventDefault();toggleEditor();return;}
   if(!event.repeat && event.code==='Escape' && running && !raceMenu.open){event.preventDefault();openRaceMenu();return;}
   if(DRIVE_KEYS.has(event.code)) {
@@ -350,7 +351,7 @@ document.addEventListener('visibilitychange',()=>{keys.clear();last=0;if(documen
 const raceMenu=$('race-menu');
 function openRaceMenu() {
   keys.clear();dragging=false;mouseButtons=0;menuTab('game');
-  $('race-restart').hidden=$('race-abandon').hidden=!race;$('race-editor').hidden=!!race;
+  $('race-restart').hidden=$('race-abandon').hidden=!race;$('menu-garage').hidden=!!race;$('race-editor').hidden=!!race;
   race?.pause(performance.now()/1000);raceMenu.showModal();
 }
 raceMenu.addEventListener('close',()=>{race?.resume(performance.now()/1000);canvas.focus();});
@@ -364,6 +365,44 @@ function menuTab(name) {
 $('menu-tabs').addEventListener('click',event=>{const tab=event.target.closest('[data-tab]');if(tab)menuTab(tab.dataset.tab);});
 raceMenu.addEventListener('click',event=>{if(event.target.closest('[data-close]'))raceMenu.close();});
 $('menu-map').addEventListener('click',()=>{raceMenu.close();if(running)mapPanel.toggle();});
+const garage=$('garage'),glbPresent=new Map();
+let garagePick;
+function selectVehicle(next) {
+  if(!canSwitch({race,editing:editor.isOpen}))return false;
+  const wasFree=choice.vehicle==='free-flight';choice=normalizeChoice(next);writeChoice(choice);
+  if(choice.vehicle==='free-flight'){if(!flight&&client.state){const p=client.state.telemetry;flight=[p[0],p[1]+20,p[2]+20,p[3],-.25];}}
+  else if(wasFree||flight){flight=undefined;renderer.camera=undefined;}
+  syncGates(true);return true;
+}
+function glbAvailable(skin) {
+  if(skin.source!=='glb')return true;
+  if(!glbPresent.has(skin.id))glbPresent.set(skin.id,fetch(skin.model,{headers:{Range:'bytes=0-3'}}).then(async r=>r.ok&&new TextDecoder().decode(new Uint8Array(await r.arrayBuffer()).slice(0,4))==='glTF').catch(()=>false).then(ok=>{glbPresent.set(skin.id,ok);if(garage.open)renderGarage();return ok;}));
+  const known=glbPresent.get(skin.id);return known===true;
+}
+function renderGarage() {
+  const v=VEHICLES[garagePick.vehicle];
+  $('garage-tabs').replaceChildren(...Object.values(VEHICLES).map(x=>{
+    const b=document.createElement('button');b.type='button';b.role='tab';b.textContent=x.name;b.dataset.vehicle=x.id;b.setAttribute('aria-selected',String(x.id===v.id));return b;}));
+  $('garage-skins').replaceChildren(...v.skins.map(s=>{
+    const b=document.createElement('button');b.type='button';b.role='radio';b.textContent=s.name;b.dataset.skin=s.id;
+    b.setAttribute('aria-checked',String(s.id===garagePick.skin));b.disabled=!glbAvailable(s);if(b.disabled)b.title='Model file not installed';return b;}));
+  $('garage-note').textContent=v.note;
+  $('garage-stats').replaceChildren(...Object.entries(v.stats).map(([k,n])=>{
+    const row=document.createElement('div'),bar=document.createElement('i');row.append(k,bar);bar.style.width=`${Math.round(n*100)}%`;return row;}));
+  const list=tracksFor(tracks,v.id);
+  $('garage-races').replaceChildren(...(v.races?list.map(t=>{const li=document.createElement('li');li.textContent=t.name||t.id;return li;}):[]));
+  if(!list.length||!v.races){const li=document.createElement('li');li.textContent=v.races?'None yet':'No races';$('garage-races').append(li);}
+  $('garage-use').disabled=!skinOf(garagePick)||!glbAvailable(skinOf(garagePick));
+}
+function openGarage() {
+  if(!running||!canSwitch({race,editing:editor.isOpen}))return;
+  keys.clear();dragging=false;mouseButtons=0;garagePick={...choice};renderGarage();garage.showModal();
+}
+$('garage-tabs').addEventListener('click',event=>{const b=event.target.closest('[data-vehicle]');if(b){garagePick=normalizeChoice({vehicle:b.dataset.vehicle,skin:b.dataset.vehicle===choice.vehicle?choice.skin:undefined});renderGarage();}});
+$('garage-skins').addEventListener('click',event=>{const b=event.target.closest('[data-skin]');if(b&&!b.disabled){garagePick={...garagePick,skin:b.dataset.skin};renderGarage();}});
+$('garage-use').addEventListener('click',()=>{if(selectVehicle(garagePick))garage.close();});
+garage.addEventListener('close',()=>canvas.focus());
+$('menu-garage').addEventListener('click',()=>{raceMenu.close();openGarage();});
 let gateKey,editorFlight;
 const mergeTrack=(list,t)=>list.some(x=>x.id===t.id)?list.map(x=>x.id===t.id?t:x):[...list,t];
 async function withOverrides(found) {
@@ -407,6 +446,7 @@ function syncGates(force) {
 }
 function startRace(track) {
   if(race||busy||!running||!client.info)return;
+  if(vehicleOf(track)!==choice.vehicle)selectVehicle({vehicle:vehicleOf(track)});
   operation(async()=>{
     flight=undefined;
     const [x,y,z]=track.start.pos;
@@ -564,7 +604,7 @@ async function start() {
       else {permissionNeeded=true;showReconnect(true);
         $('permission').textContent='Click to allow reading your remembered folder.';}
     }
-    if(new URLSearchParams(location.search).has('test'))window.worldTest={startRace,
+    if(new URLSearchParams(location.search).has('test'))window.worldTest={startRace,selectVehicle,choice:()=>choice,
       focus:pose=>{flight=pose.slice();},
       instances:()=>renderer.instances.filter(i=>i.kind==='group').slice(0,8),
       npcs:()=>renderer.instances.filter(i=>i.id.includes(':npc:')).slice(0,5),
