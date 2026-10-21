@@ -1,11 +1,14 @@
 import {modelPath} from './scene-stream.js';
 
-export async function loadCraft(source,wasm,emit) {
+// `vehicle` loads another Data model (the plane) as a renderer override instead of the rocket.
+export async function loadCraft(source,wasm,emit,vehicle) {
  try {
   const models=await source.read('DBFilesClient\\CreatureModelData.dbc');
   const displays=await source.read('DBFilesClient\\CreatureDisplayInfo.dbc');
-  const display=JSON.parse(wasm.scene_craft_display(models,displays)),path=modelPath(display.path);
+  const display=JSON.parse(vehicle?wasm.scene_vehicle_display(models,displays,vehicle.path):wasm.scene_craft_display(models,displays)),
+    path=modelPath(display.path);
   const encoded=await source.read(path),metadata={...display,...JSON.parse(wasm.scene_craft_metadata(encoded))};
+  if(vehicle){metadata.display=0;metadata.exhausts=[];}
   const model=wasm.SceneModel.craft(encoded,path,JSON.stringify(display.skins));
   let asset;
   try{
@@ -29,10 +32,10 @@ export async function loadCraft(source,wasm,emit) {
     textures.push(texture);
   }
   const triangles=asset.indices.length/3;
-  emit({event:'craft',asset,textures,metadata},[asset.vertices.buffer,asset.indices.buffer,...textures.map(t=>t.rgba.buffer)]);
+  emit({event:vehicle?'plane-craft':'craft',asset,textures,metadata,...(vehicle&&{key:'data:'+path})},[asset.vertices.buffer,asset.indices.buffer,...textures.map(t=>t.rgba.buffer)]);
   return {ready:true,metadata,bytes,textureCount:textures.length,triangles};
  }catch(error){
-  emit({event:'craft-error',error:`Authored craft: ${error.message||error}`});
+  emit({event:vehicle?'plane-craft-error':'craft-error',error:`Authored craft: ${error.message||error}`});
   throw error;
  }
 }
