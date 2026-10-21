@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-// Long plane flight (SOAK_MIN minutes, default 4) sampling memory counters; opt-in: needs WOW_DATA and Edge.
+// Long boosted drive (SOAK_MIN minutes, default 4) sampling memory counters; opt-in: needs WOW_DATA and Edge.
 import {chromium} from 'playwright';
 const minutes=Number(process.env.SOAK_MIN||4),every=Number(process.env.SOAK_EVERY||5000);
 const browser=await chromium.launch({channel:'msedge',headless:true});
@@ -15,10 +15,6 @@ try{
   await page.locator('#files').setInputFiles(process.env.WOW_DATA);
   await page.waitForFunction(()=>worldEvidence.ready||worldEvidence.errors.length,null,{timeout:180000});
   await page.waitForTimeout(1500);
-  if(process.env.SOAK_PLANE!=='0'){
-    await page.keyboard.press('KeyG');await page.waitForTimeout(300);
-    await page.click('#garage-tabs [data-vehicle=plane]');await page.click('#garage-skins [data-skin='+(process.env.SOAK_SKIN||'procedural')+']');await page.click('#garage-use');await page.waitForTimeout(4000);
-  }
   await page.evaluate(()=>document.getElementById('world').focus());
   await page.keyboard.down('Shift');await page.keyboard.down('Space');
   if(process.env.SOAK_TURN){const [k,ms]=process.env.SOAK_TURN.split(':');await page.keyboard.down(k);await page.waitForTimeout(Number(ms));await page.keyboard.up(k);}
@@ -41,4 +37,6 @@ try{
     console.log(JSON.stringify(row));peak.heap=Math.max(peak.heap,row.heapMB);peak.wasm=Math.max(peak.wasm,row.wasmMB);peak.coast=Math.max(peak.coast,row.coast);peak.errs=Math.max(peak.errs,row.errs);
   }
   console.log('errors',JSON.stringify(await page.evaluate(()=>worldEvidence.errors)).slice(0,600));
-  console.log('peak',JSON.stringify(peak));\n  assert.ok(peak.heap<1500&&peak.wasm<1500&&peak.coast<300&&peak.errs===0,'soak memory/error ceiling exceeded: '+JSON.stringify(peak));\n}finally{await browser.close();}
+  console.log('peak',JSON.stringify(peak));
+  assert.ok(peak.heap<1500&&peak.wasm<1500&&peak.coast<300&&peak.errs===0,'soak memory/error ceiling exceeded: '+JSON.stringify(peak));
+}finally{await browser.close();}

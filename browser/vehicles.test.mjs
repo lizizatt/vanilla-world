@@ -14,11 +14,11 @@ test('every vehicle has an id matching its key and a first skin',()=>{
 });
 test('tracks default to the podracer and validate their vehicle',()=>{
   assert.equal(validateTrack(base).vehicle,'podracer');
-  assert.equal(validateTrack({...base,vehicle:'plane'}).vehicle,'plane');
+  assert.throws(()=>validateTrack({...base,vehicle:'plane'}),/vehicle/);
   assert.throws(()=>validateTrack({...base,vehicle:'hovercraft'}),/vehicle/);
 });
 test('only the active vehicle\'s tracks are offered, and free flight has none',()=>{
-  const list=[validateTrack(base),validateTrack({...base,id:'b',vehicle:'plane'})];
+  const list=[validateTrack(base),{...base,id:'b',vehicle:'plane'}];
   assert.deepEqual(tracksFor(list,'podracer').map(t=>t.id),['a']);
   assert.deepEqual(tracksFor(list,'plane').map(t=>t.id),['b']);
   assert.deepEqual(tracksFor(list,'free-flight'),[]);
@@ -27,8 +27,9 @@ test('only the active vehicle\'s tracks are offered, and free flight has none',(
 });
 test('choice round-trips and bad stored values fall back',()=>{
   const s=store();assert.deepEqual(readChoice(s),DEFAULT_CHOICE);
-  writeChoice({vehicle:'plane',skin:'procedural'},s);assert.deepEqual(readChoice(s),{vehicle:'plane',skin:'procedural'});
-  assert.deepEqual(normalizeChoice({vehicle:'plane',skin:'nope'}),{vehicle:'plane',skin:'gnomish'});
+  writeChoice({vehicle:'podracer',skin:'dug-racer'},s);assert.deepEqual(readChoice(s),{vehicle:'podracer',skin:'dug-racer'});
+  assert.deepEqual(normalizeChoice({vehicle:'plane',skin:'nope'}),DEFAULT_CHOICE);
+  assert.deepEqual(normalizeChoice({vehicle:'podracer',skin:'nope'}),DEFAULT_CHOICE);
   s.setItem('racer.vehicle','{bad');assert.deepEqual(readChoice(s),DEFAULT_CHOICE);
   assert.deepEqual(normalizeChoice({vehicle:'__proto__'}),DEFAULT_CHOICE);
 });
@@ -36,19 +37,11 @@ test('switching is blocked during a race or while editing',()=>{
   assert.equal(canSwitch({}),true);assert.equal(canSwitch({race:{}}),false);assert.equal(canSwitch({editing:true}),false);
 });
 
-test('airfieldPose maps WoW coordinates into the Eastern Kingdoms region',async()=>{
-  const {airfieldPose,AIRFIELD}=await import('./vehicles.js');
-  const m={regions:[{map:'Kalimdor',placement:[0,0],tile_origin:[32,32]},{map:'Azeroth',placement:[100,20000],tile_origin:[30,31]}]};
-  const p=airfieldPose(m);
-  assert.equal(p[0],100+2*1600/3-AIRFIELD.wowY);assert.equal(p[2],20000+1600/3-AIRFIELD.wowX);assert.equal(p[1],AIRFIELD.wowZ+AIRFIELD.above);
-  assert.equal(airfieldPose({regions:[m.regions[0]]}),undefined);
-});
-
-test('a fresh load boots the podracer even if the plane, free flight or junk was persisted',async()=>{
+test('a fresh load boots the podracer even if free flight or junk was persisted',async()=>{
   const {bootChoice,writeChoice,DEFAULT_CHOICE}=await import('./vehicles.js');
   const mem=()=>{const m=new Map();return {getItem:k=>m.get(k)??null,setItem:(k,v)=>m.set(k,v)};};
   assert.deepEqual(bootChoice(mem()),DEFAULT_CHOICE);assert.equal(DEFAULT_CHOICE.skin,'rocket');
-  for(const v of ['plane','free-flight']){const s=mem();writeChoice({vehicle:v,skin:'procedural'},s);assert.deepEqual(bootChoice(s),DEFAULT_CHOICE);}
+  for(const v of ['plane','free-flight']){const s=mem();s.setItem('racer.vehicle',JSON.stringify({vehicle:v,skin:'camera'}));assert.deepEqual(bootChoice(s),DEFAULT_CHOICE);}
   const s=mem();s.setItem('racer.vehicle','{bad');assert.deepEqual(bootChoice(s),DEFAULT_CHOICE);
   const g=mem();writeChoice({vehicle:'podracer',skin:'rocket'},g);assert.equal(bootChoice(g).vehicle,'podracer');
 });

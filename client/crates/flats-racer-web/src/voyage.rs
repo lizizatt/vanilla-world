@@ -4,7 +4,6 @@ use benilla_formats::{
     adt_to_tile_mesh, adt_to_tile_mesh_observed, triangle_z_at, LiquidKind, TerrainBuildPhase,
     TileMesh, TileMeshBuilder,
 };
-use flats_racer_physics::plane::{PlaneInput, PlaneState, PlaneTuning};
 use flats_racer_physics::{Input, State, Tuning, FIXED_DT, PROBE_OFFSETS};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -17,8 +16,6 @@ const HULL_HALF_HEIGHT: f64 = 0.5;
 const SUPPORT_RISE: f32 = 0.6;
 pub(crate) const FLOOR_CLEARANCE: f32 = 0.25;
 const MAX_SUPPORT_SUBSTEPS: u32 = 64;
-/// Plane sweeps stay under the 3 yd hover clearance per substep.
-const PLANE_SUBSTEP: f64 = 2.0;
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
@@ -328,12 +325,6 @@ pub struct Voyage {
     whirlpool: Option<[f64; 4]>,
     scene_parts: HashMap<u32, CollisionTree>,
     state: State,
-    /// Plane vehicle mode: attitude/speed live here and are mirrored into state so origin, rebasing, saves and telemetry stay shared.
-    plane: Option<PlaneState>,
-    plane_tuning: PlaneTuning,
-    plane_pitch: f32,
-    plane_yaw: f32,
-    plane_contact: bool,
     pub(crate) tuning: Tuning,
     origin: [f64; 2],
     rebases: u32,
@@ -371,11 +362,6 @@ impl Voyage {
                 air_control: 0.9,
                 ..Tuning::default()
             },
-            plane: None,
-            plane_tuning: PlaneTuning::default(),
-            plane_pitch: 0.0,
-            plane_yaw: 0.0,
-            plane_contact: false,
             origin: [manifest.spawn[0], manifest.spawn[2]],
             manifest,
             resident: HashMap::new(),
@@ -650,7 +636,6 @@ impl Voyage {
         self.origin = [pose[0], pose[2]];
         self.state = state;
         self.hold = 0;
-        self.sync_plane();
         Ok(())
     }
 
@@ -802,89 +787,6 @@ impl Voyage {
                 self.hold = result.err().unwrap_or(3);
             }
         }
-        Ok(())
-    }
-}
-
-impl Voyage {
-    fn mirror_plane(&mut self, plane: PlaneState) {
-        self.state.position = plane.position;
-        self.state.yaw = plane.yaw;
-        self.state.velocity = plane.velocity;
-        self.state.bank = plane.roll;
-        self.state.grounded = false;
-        self.state.boost_reserve = plane.boost_reserve;
-    }
-
-    /// Re-seats an active plane on the car state after a reset/restore teleport.
-    fn sync_plane(&mut self) {
-        if let Some(old) = self.plane {
-            let speed = old.speed.max(self.plane_tuning.cruise * 0.9);
-            let mut plane = PlaneState::new(self.state.position, self.state.yaw, speed).expect("finite pose");
-            plane.throttle = old.throttle;
-            self.plane = Some(plane);
-            self.mirror_plane(plane);
-        }
-    }
-
-    fn plane_support(surface: Surface) -> Result<f32, u8> {
-        // Impassable terrain flags are for the car; the plane only needs a surface to clear.
-        Surface { solid: false, ..surface }
-            .support()
-            .ok_or(if surface.availability == 1 { 1 } else { 2 })
-    }
-
-    /// One fixed tick: attitude/speed from the pure model, then support-sized substeps with the car's
-    /// terrain/water/WMO/M2 support and swept scenery guards. Unloaded ground holds; scenery strikes skim.
-    fn advance_plane(&mut self, input: PlaneInput) -> Result<(), String> {
-        let Some(saved) = self.plane else { return Ok(()) };
-        let t = self.plane_tuning;
-        let mut plane = saved;
-        let velocity = plane.step(input, FIXED_DT, &t).map_err(|e| e.to_string())?;
-        let travel = velocity.iter().map(|v| f64::from(*v).powi(2)).sum::<f64>().sqrt() * f64::from(FIXED_DT);
-        let steps = (travel / PLANE_SUBSTEP).ceil().clamp(1.0, f64::from(MAX_SUPPORT_SUBSTEPS)) as u32;
-        let dt = FIXED_DT / steps as f32;
-        let origin = self.origin;
-        let global = |p: [f32; 3]| [origin[0] + f64::from(p[0]), origin[1] + f64::from(p[2])];
-        let (mut hold, mut contact) = (0, false);
-        self.physics_stats[0] = self.physics_stats[0].saturating_add(1);
-        for _ in 0..steps {
-            self.physics_stats[1] = self.physics_stats[1].saturating_add(1);
-            let from = plane.position;
-            let to = [from[0] + velocity[0] * dt, from[1] + velocity[1] * dt, from[2] + velocity[2] * dt];
-            let support = match (
-                Self::plane_support(self.sample_at(global(from), from[1])),
-                Self::plane_support(self.sample_at(global(to), to[1])),
-            ) {
-                (Ok(a), Ok(b)) => a.max(b),
-                (a, b) => {
-                    let reason = a.err().or(b.err()).unwrap_or(2);
-                    let counter = if reason == 1 { 2 } else { 3 };
-                    self.physics_stats[counter] = self.physics_stats[counter].saturating_add(1);
-                    self.hold = reason;
-                    // Attitude keeps flying so the pilot can turn away from the edge of the loaded world.
-                    self.mirror_plane(plane);
-                    self.plane = Some(plane);
-                    return Ok(());
-                }
-            };
-            let (g0, g1) = (global(from), global(to));
-            let (p0, p1) = ([g0[0], f64::from(from[1]), g0[1]], [g1[0], f64::from(to[1]), g1[1]]);
-            if self.scene_bounds.iter().any(|b| swept_box(p0, p1, *b)) || self.scene_mesh.swept(p0, p1) {
-                self.physics_stats[4] = self.physics_stats[4].saturating_add(1);
-                plane.collide();
-                hold = 3;
-                break;
-            }
-            plane.position = to;
-            contact |= plane.settle(Some(support), &t, dt);
-        }
-        self.hold = hold;
-        self.plane_contact = contact;
-        self.mirror_plane(plane);
-        self.rebase();
-        plane.position = self.state.position;
-        self.plane = Some(plane);
         Ok(())
     }
 }
@@ -1606,49 +1508,7 @@ impl Voyage {
         self.resident.remove(&index);
     }
 
-    /// 0 = hover racer, 1 = plane. Switching keeps the position and heading; the plane starts 15 yd up.
-    pub fn set_vehicle(&mut self, kind: u32) -> Result<(), JsValue> {
-        match (kind, self.plane.is_some()) {
-            (0, true) => {
-                self.plane = None;
-                self.plane_contact = false;
-                self.state = State::new(self.state.position, self.state.yaw).map_err(|e| JsValue::from_str(&e.to_string()))?;
-                self.hold = 1;
-            }
-            (1, false) => {
-                let mut position = self.state.position;
-                position[1] += 30.0;
-                let plane = PlaneState::new(position, self.state.yaw, self.plane_tuning.cruise * 0.9)
-                    .map_err(|e| JsValue::from_str(&e.to_string()))?;
-                self.plane = Some(plane);
-                self.mirror_plane(plane);
-            }
-            (0 | 1, _) => {}
-            _ => return Err(JsValue::from_str("Unknown vehicle")),
-        }
-        Ok(())
-    }
-
-    /// Plane pitch input in [-1, 1] (positive pulls up); ignored for the racer. The tick throttle is the plane's throttle change rate.
-    pub fn set_plane_pitch(&mut self, pitch: f32) {
-        if pitch.is_finite() {
-            self.plane_pitch = pitch.clamp(-1.0, 1.0);
-        }
-    }
-
-    /// Plane rudder in [-1, 1] (positive yaws right); ignored for the racer.
-    pub fn set_plane_yaw(&mut self, yaw: f32) {
-        if yaw.is_finite() {
-            self.plane_yaw = yaw.clamp(-1.0, 1.0);
-        }
-    }
-
     pub fn tick(&mut self, throttle: f32, steer: f32, flags: u32) -> Result<(), JsValue> {
-        if self.plane.is_some() {
-            return self
-                .advance_plane(PlaneInput { throttle, roll: -steer, pitch: self.plane_pitch, yaw: self.plane_yaw, boost: flags & 2 != 0 })
-                .map_err(|e| JsValue::from_str(&e));
-        }
         self.advance(Input {
             throttle,
             steer,
@@ -1669,9 +1529,9 @@ impl Voyage {
             p[1],
             f64::from(self.state.yaw),
             f64::from(self.state.bank),
-            self.plane.map_or(f64::from(self.state.velocity[0].hypot(self.state.velocity[2])), |p| f64::from(p.speed)),
+            f64::from(self.state.velocity[0].hypot(self.state.velocity[2])),
             f64::from(self.state.boost_reserve),
-            f64::from(self.state.grounded || self.plane_contact),
+            f64::from(self.state.grounded),
             f64::from(self.hold),
             f64::from(surface.on_water()),
             f64::from(surface.region),
@@ -1682,7 +1542,6 @@ impl Voyage {
                 -self.state.velocity[0] * self.state.yaw.sin()
                     - self.state.velocity[2] * self.state.yaw.cos(),
             ),
-            self.plane.map_or(0.0, |p| f64::from(p.pitch)),
         ]
     }
 
@@ -1722,7 +1581,6 @@ impl Voyage {
         )
         .expect("validated spawn");
         self.hold = 1;
-        self.sync_plane();
     }
 
     /// Local positions, normal or water [ramp, 1, 1], then material (0 ground, 2 water).
@@ -2627,106 +2485,6 @@ pub(crate) mod tests {
         world.whirlpool = Some([1000.0, 200.0, 400.0, 100.0]);
         assert_eq!(world.sample(p).water, Some(-100.0));
         assert_eq!(world.sample([1500.0, 200.0]).water, Some(0.0));
-    }
-
-    fn plane_world(y: f32, speed: f32) -> Voyage {
-        let mut world = Voyage::from_manifest(fixture(0.0)).unwrap();
-        world.origin = [1000.0, 200.0];
-        world.state = State::new([0.0, y, 0.0], 0.0).unwrap();
-        world.set_vehicle(1).unwrap();
-        world.plane = Some(PlaneState::new([0.0, y, 0.0], 0.0, speed).unwrap());
-        world
-    }
-
-    #[test]
-    fn plane_skims_the_ocean_and_rides_down_the_whirlpool_dip() {
-        let sink = |dip: bool| {
-            let mut world = plane_world(20.0, 10.0);
-            if dip {
-                world.whirlpool = Some([1000.0, 200.0, 400.0, 100.0]);
-            }
-            for _ in 0..720 {
-                world.tick(0.0, 0.0, 0).unwrap();
-            }
-            (world.state.position[1], world.telemetry()[7])
-        };
-        let (flat, contact) = sink(false);
-        assert!((flat - 3.0).abs() < 1e-3 && contact == 1.0, "skims 3 yd over sea level: {flat}");
-        let (dipped, _) = sink(true);
-        assert!(dipped < -50.0 && dipped >= -97.0 - 1e-3, "rides down into the dip: {dipped}");
-    }
-
-    #[test]
-    fn worker_steer_axis_banks_the_plane_the_way_the_key_says() {
-        // Worker steer axis: +1 is A (left), -1 is D (right), as for the car.
-        for (steer, left) in [(1.0_f32, true), (-1.0, false)] {
-            let mut world = plane_world(400.0, 150.0);
-            for _ in 0..90 {
-                world.tick(0.0, steer, 0).unwrap();
-            }
-            let plane = world.plane.unwrap();
-            let right_wing_y = plane.axes[1][1];
-            assert_eq!(right_wing_y > 0.1, left, "left wing must be the low one for A: {right_wing_y}");
-            assert_eq!(right_wing_y < -0.1, !left);
-            let t = world.telemetry();
-            assert_eq!(t[4] < 0.0, left, "telemetry bank is negative for left roll: {}", t[4]);
-            assert_eq!(t[3] > 0.0, left, "heading turns left (yaw grows counter-clockwise) for A: {}", t[3]);
-        }
-    }
-    #[test]
-    fn plane_holds_on_unloaded_tiles_and_never_moves() {
-        let mut world = Voyage::from_manifest(fixture(0.0)).unwrap();
-        world.origin = [200.0, 64.0];
-        world.state = State::new([0.0, 50.0, 0.0], 0.0).unwrap();
-        world.set_vehicle(1).unwrap();
-        let before = world.state.position;
-        world.tick(1.0, 0.0, 0).unwrap();
-        assert_eq!(world.hold, 1);
-        assert_eq!(world.state.position, before);
-    }
-
-    #[test]
-    fn plane_held_at_the_world_edge_can_still_turn_away() {
-        let mut world = Voyage::from_manifest(fixture(0.0)).unwrap();
-        world.origin = [200.0, 64.0];
-        world.state = State::new([0.0, 50.0, 0.0], 0.0).unwrap();
-        world.set_vehicle(1).unwrap();
-        let before = world.state.position;
-        for _ in 0..120 {
-            world.tick(1.0, 1.0, 0).unwrap();
-        }
-        assert_eq!(world.hold, 1);
-        assert_eq!(world.state.position, before);
-        assert!(world.state.bank.abs() > 0.5, "attitude frozen at the edge");
-    }
-
-    #[test]
-    fn plane_skims_off_scenery_instead_of_crashing_through_it() {
-        let mut world = plane_world(20.0, 150.0);
-        world.scene_mesh = CollisionTree::new(&[
-            900.0, -50.0, 150.0, 1100.0, -50.0, 150.0, 1100.0, 200.0, 150.0,
-            900.0, -50.0, 150.0, 1100.0, 200.0, 150.0, 900.0, 200.0, 150.0,
-        ])
-        .unwrap();
-        let mut struck = false;
-        for _ in 0..240 {
-            world.tick(1.0, 0.0, 0).unwrap();
-            struck |= world.hold == 3;
-            assert!(world.global()[1] >= 150.0 - 1.0, "passed through the wall: {}", world.global()[1]);
-        }
-        assert!(struck);
-    }
-
-    #[test]
-    fn plane_mode_keeps_telemetry_shape_and_switches_back_to_the_racer() {
-        let mut world = plane_world(20.0, 100.0);
-        world.set_plane_pitch(0.5);
-        world.tick(1.0, 0.0, 2).unwrap();
-        let t = world.telemetry();
-        assert_eq!(t.len(), 16);
-        assert!(t[5] > 90.0 && t[15] != 0.0 && t[6] < 1.0);
-        world.set_vehicle(0).unwrap();
-        assert!(world.plane.is_none() && world.telemetry()[15] == 0.0);
     }
 
     #[test]
