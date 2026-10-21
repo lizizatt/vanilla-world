@@ -43,3 +43,12 @@ test('airfieldPose maps WoW coordinates into the Eastern Kingdoms region',async(
   assert.equal(p[0],100+2*1600/3-AIRFIELD.wowY);assert.equal(p[2],20000+1600/3-AIRFIELD.wowX);assert.equal(p[1],AIRFIELD.wowZ+AIRFIELD.above);
   assert.equal(airfieldPose({regions:[m.regions[0]]}),undefined);
 });
+
+test('a fresh load boots the podracer even if the plane, free flight or junk was persisted',async()=>{
+  const {bootChoice,writeChoice,DEFAULT_CHOICE}=await import('./vehicles.js');
+  const mem=()=>{const m=new Map();return {getItem:k=>m.get(k)??null,setItem:(k,v)=>m.set(k,v)};};
+  assert.deepEqual(bootChoice(mem()),DEFAULT_CHOICE);assert.equal(DEFAULT_CHOICE.skin,'rocket');
+  for(const v of ['plane','free-flight']){const s=mem();writeChoice({vehicle:v,skin:'procedural'},s);assert.deepEqual(bootChoice(s),DEFAULT_CHOICE);}
+  const s=mem();s.setItem('racer.vehicle','{bad');assert.deepEqual(bootChoice(s),DEFAULT_CHOICE);
+  const g=mem();writeChoice({vehicle:'podracer',skin:'rocket'},g);assert.equal(bootChoice(g).vehicle,'podracer');
+});

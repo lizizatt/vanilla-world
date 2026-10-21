@@ -36,6 +36,10 @@ export function normalizeChoice(raw) {
 export function readChoice(storage=globalThis.localStorage) {
   try{return normalizeChoice(JSON.parse(storage.getItem(STORAGE_KEY)));}catch{return {...DEFAULT_CHOICE};}
 }
+// A fresh page always starts as the rocket podracer at the car spawn; the plane and free flight only start from an explicit Garage switch.
+export function bootChoice(storage=globalThis.localStorage) {
+  const saved=readChoice(storage);return saved.vehicle==='podracer'?saved:{...DEFAULT_CHOICE};
+}
 export function writeChoice(choice,storage=globalThis.localStorage) {
   try{storage.setItem(STORAGE_KEY,JSON.stringify(normalizeChoice(choice)));}catch{}
 }
