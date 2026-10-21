@@ -4,6 +4,7 @@ import {MINIMAP_SIZE,TERRAIN_TEXTURE_SIZE} from './terrain-stream.js';
 import {cameraView,craftMatrix,cockpitAnchor} from './world-camera.js';
 import {COAST_GPU_LIMIT} from './water-stream.js';
 import {WATER_NORMAL_SIZE,waterNormalMips,waterShading,dayShading} from './water-shader.js';
+import {shadowShader,shadowUniform,shadowHalf} from './shadow.js';
 import {cloudShader,cloudUniform,maelstromCentre} from './clouds.js';
 import {oceanMesh} from './ocean-mesh.js';
 import {flagMesh,gateMesh} from './race-flags.js';
@@ -272,6 +273,11 @@ export class WorldRenderer {
     const cloudModule=await shader(cloudShader);
     this.cloudPipeline=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module:cloudModule,entryPoint:'vs'},
       fragment:{module:cloudModule,entryPoint:'fs',targets:[{format:this.format,blend:{color:{srcFactor:'src-alpha',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},
+      primitive:{topology:'triangle-list',cullMode:'none'}});
+    this.shadowBuffer=this.device.createBuffer({size:144,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
+    const shadowModule=await shader(shadowShader);
+    this.shadowPipeline=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module:shadowModule,entryPoint:'vs'},
+      fragment:{module:shadowModule,entryPoint:'fs',targets:[{format:this.format,blend:{color:{srcFactor:'src-alpha',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'zero',dstFactor:'one'}}}]},
       primitive:{topology:'triangle-list',cullMode:'none'}});
     this.skyBuffer=this.device.createBuffer({size:144,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
     const skyModule=await shader(skyShader);
@@ -671,6 +677,10 @@ export class WorldRenderer {
     const [x,z]=mapPosition(region,this.view.eye[0],this.view.eye[2]);
     return this.skyCatalog.sample(map,x,z,this.timeOfDay);
   }
+  drawShadow(pass,state,near) {
+    this.device.queue.writeBuffer(this.shadowBuffer,0,shadowUniform(this.view,state,shadowHalf(this.craft?.size),near));
+    pass.setPipeline(this.shadowPipeline);pass.setBindGroup(0,this.shadowGroup);pass.draw(3);
+  }
   drawClouds(pass,time,daylight,near) {
     this.device.queue.writeBuffer(this.cloudBuffer,0,cloudUniform(this.view,time,daylight,this.manifest,near,this.gameSky));
     pass.setPipeline(this.cloudPipeline);pass.setBindGroup(0,this.cloudGroup);pass.draw(3);
@@ -704,6 +714,8 @@ export class WorldRenderer {
       canvas.width=width;canvas.height=height;this.depth?.destroy();
       this.depth=this.device.createTexture({size:[width,height],format:'depth24plus',
         usage:GPUTextureUsage.RENDER_ATTACHMENT|GPUTextureUsage.TEXTURE_BINDING});
+      this.shadowGroup=this.device.createBindGroup({layout:this.shadowPipeline.getBindGroupLayout(0),
+        entries:[{binding:0,resource:{buffer:this.shadowBuffer}},{binding:1,resource:this.depth.createView()}]});
       this.cloudGroup=this.device.createBindGroup({layout:this.cloudPipeline.getBindGroupLayout(0),
         entries:[{binding:0,resource:{buffer:this.cloudBuffer}},{binding:1,resource:this.depth.createView()}]});
     }
@@ -814,6 +826,10 @@ export class WorldRenderer {
       this.drawTerrain(pass,terrain);this.drawScene(pass,draws);
     }
     pass.end();
+    if(!this.cameraBlocked&&!flight&&settings.shadows!==false) {
+      const shadowPass=encoder.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}]});
+      this.drawShadow(shadowPass,state,near);shadowPass.end();
+    }
     if(!this.cameraBlocked&&settings.clouds!==false) {
       // Clouds read the finished scene depth to clip their ray march, so they never need a depth-test bias.
       const cloudPass=encoder.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}]});
