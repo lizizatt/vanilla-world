@@ -117,6 +117,7 @@ def build():
     # Author in Blender's Z-up coordinates; glTF exports Y-up and forward -Z.
     for side, x in (("L", -1.58), ("R", 1.58)):
         engine = empty("Engine" + side, body)
+        engine.scale.y = 0.65
         profile = [
             (-2.25, 0.48), (-2.12, 0.58), (-1.85, 0.58), (-1.7, 0.68),
             (-1.55, 0.70), (-1.42, 0.63), (-1.10, 0.64), (-0.95, 0.70),
@@ -160,15 +161,17 @@ def build():
         cube("Landing skid", (x, -0.05, 0.08), (0.26, 3.3, 0.16), iron, engine)
         for y in (-1.05, 1.1):
             rod("Skid leg", (x, y, 0.16), (x, y, 0.47), 0.10, iron, engine)
-        for y in (-1.20, 0.35):
-            rod("Triangulated outrigger", (x, y, 0.78), (0, -1.55, 0.68),
-                0.105, brass, body)
-        points = [(x * 0.63, 0.9, 0.95), (x * 0.43, 0.2, 0.65),
-                  (x * 0.27, -0.55, 0.65), (x * 0.23, -1.35, 0.95)]
+        rod("VArm" + side, (0, 3.55, 1.55), (x * 1.2, 1.65, 1.25),
+            0.13, brass, body)
+        points = [(x * 0.22, 3.8, 1.75), (x * 0.40, 3.0, 0.90),
+                  (x * 0.70, 2.2, 0.62), (x, 1.25, 0.95)]
         for a, b in zip(points, points[1:]):
             rod("Suspended control cable", a, b, 0.037, dark, body)
 
-    cockpit = empty("Cockpit", body)
+    rod("Rear cross brace", (-1.58, -1.05, 0.95), (1.58, -1.05, 0.95),
+        0.12, iron, body)
+    cockpit = empty("Cockpit", body, (0, 5.6, 0.45))
+    cockpit.scale.y = 0.7
     shell("Cockpit belly", 0, 0.95,
           [(-3.0, 0.12), (-2.7, 0.38), (-2.1, 0.48), (-1.4, 0.43),
            (-0.75, 0.31), (-0.45, 0.06)], [paint, shade, light], cockpit, 8)
@@ -228,8 +231,32 @@ def verify(path, expected):
     coords = [obj.matrix_world @ Vector(corner) for obj in bpy.context.scene.objects
               if obj.type == "MESH" for corner in obj.bound_box]
     bounds = [max(v[i] for v in coords) - min(v[i] for v in coords) for i in range(3)]
-    assert 4.7 < bounds[0] < 5.3 and 5.5 < bounds[1] < 6.5, bounds
+    assert 4.7 < bounds[0] < 5.3 and 6 < bounds[1] < 7, bounds
     assert abs(min(v.z for v in coords)) < 0.001
+    def group_bounds(name):
+        return [obj.matrix_world @ Vector(corner)
+                for obj in bpy.data.objects[name].children if obj.type == "MESH"
+                for corner in obj.bound_box]
+
+    pod = group_bounds("Cockpit")
+    left, right = group_bounds("EngineL"), group_bounds("EngineR")
+    engine_front = max(v.y for v in left + right)
+    pod_rear, pod_front = min(v.y for v in pod), max(v.y for v in pod)
+    gap = pod_rear - engine_front
+    offset = (pod_rear + pod_front) / 2 - engine_front
+    inner_gap = min(v.x for v in right) - max(v.x for v in left)
+    assert gap > 1.5 and 2.5 <= offset <= 3.5, (gap, offset)
+    assert inner_gap >= max(v.x for v in pod) - min(v.x for v in pod)
+    for side in ("L", "R"):
+        arm = bpy.data.objects["VArm" + side]
+        ends = [arm.matrix_world @ Vector((0, 0, z))
+                for z in (min(v.co.z for v in arm.data.vertices),
+                          max(v.co.z for v in arm.data.vertices))]
+        delta = ends[1] - ends[0]
+        angle = math.degrees(math.atan2(abs(delta.x), abs(delta.y)))
+        assert 40 <= angle <= 60, angle
+    print("Silhouette: gap {:.2f} m; center lead {:.2f} m; V half-angle {:.1f} deg"
+          .format(gap, offset, angle))
     print("VERIFIED {}: {} triangles".format(path.name, count))
 
 
@@ -248,9 +275,9 @@ def preview(path):
         lamp.data.energy = power
         lamp.data.size = size
         lamp.rotation_euler = (Vector((0, 0, 1)) - lamp.location).to_track_quat("-Z", "Y").to_euler()
-    bpy.ops.object.camera_add(location=(8, 10, 7))
+    bpy.ops.object.camera_add(location=(8, 12, 9))
     camera = bpy.context.object
-    camera.rotation_euler = (Vector((0, -0.2, 1.3)) - camera.location).to_track_quat("-Z", "Y").to_euler()
+    camera.rotation_euler = (Vector((0, 1.8, 1.3)) - camera.location).to_track_quat("-Z", "Y").to_euler()
     camera.data.type = "ORTHO"
     camera.data.ortho_scale = 9.3
     scene.camera = camera
@@ -265,6 +292,10 @@ def preview(path):
     scene.view_settings.look = "Medium High Contrast"
     scene.render.image_settings.file_format = "PNG"
     scene.render.filepath = str(path)
+    bpy.ops.render.render(write_still=True)
+    camera.location = (0, 1.8, 14)
+    camera.rotation_euler = (0, 0, 0)
+    scene.render.filepath = str(path.with_name(path.stem + "-above" + path.suffix))
     bpy.ops.render.render(write_still=True)
 
 
