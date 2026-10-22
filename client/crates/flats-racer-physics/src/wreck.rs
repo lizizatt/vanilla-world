@@ -187,6 +187,7 @@ impl Wreck {
     /// `vel` the craft velocity. Part 0 is the pod; others are engines and each stays tethered by chance.
     pub fn new(pos: V, rot: [V; 3], scale: f32, vel: V, parts: &[PartSpec], seed: u32) -> Self {
         let q = quat_from_columns(rot);
+        let speed = dot(vel, vel).sqrt();
         let mut wreck = Self {
             bodies: vec![],
             connected: vec![],
@@ -197,7 +198,11 @@ impl Wreck {
             let center = add(pos, rotate(q, mul(part.center, scale)));
             let half = mul(part.half, scale).map(|h| h.max(0.02));
             let mut body = Body::new(center, q, half);
-            body.vel = mul(vel, 0.7);
+            // Inherit the craft's (pre-impact) velocity with some scatter.
+            body.vel = mul(vel, 0.85 + 0.3 * wreck.rand());
+            for a in 0..3 {
+                body.vel[a] += 0.08 * wreck.signed() * speed;
+            }
             if i > 0 {
                 let side = sub(center, wreck.bodies[0].pos);
                 let out = [side[0], 0.0, side[2]];
@@ -397,6 +402,22 @@ mod tests {
             }
         }
         assert!(ties > 10 && loose > 10, "{ties} tied, {loose} loose");
+    }
+
+    #[test]
+    fn parts_inherit_the_craft_velocity() {
+        for seed in 1..20 {
+            let w = Wreck::new([0.0, 50.0, 0.0], ID, 1.0, [100.0, 0.0, 0.0], &parts(), seed);
+            for b in &w.bodies {
+                assert!(b.vel[0] > 60.0 && b.vel[0] < 140.0, "seed {seed}: vx {}", b.vel[0]);
+            }
+            let mut w = w;
+            let mut g = flat(0.0);
+            for _ in 0..30 {
+                w.step(&mut g);
+            }
+            assert!(w.bodies.iter().all(|b| b.pos[0] > 15.0), "parts did not carry forward");
+        }
     }
 
     #[test]

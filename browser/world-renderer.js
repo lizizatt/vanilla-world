@@ -367,7 +367,7 @@ export class WorldRenderer {
         parts:data.metadata.exhausts.map((at,i)=>({at,instance:{id:`player-craft-flame:${i}`,key:'flame',craft:true}}))}:undefined};
   }
   // Debug crash: returns the Rust wreck_start inputs and, once frames arrive, replaces the craft with its pod/engine parts.
-  startWreck(state,seed=1) {
+  startWreck(state,seed=1,speed=state[5]) {
     const c=this.craft,src=c?.source;
     if(!src)return undefined;
     this.endWreck();
@@ -377,7 +377,6 @@ export class WorldRenderer {
     split.forEach((p,i)=>{if(!p.empty)parts.push({...p,asset:{vertices,indices:this.buffer(p.indices,GPUBufferUsage.INDEX),
       batches:this.prepareBatches(p.batches),count:p.indices.length},instance:{id:`player-craft-wreck:${i}`,key:'wreck',craft:true}});});
     this.wreck={parts,vertices,frames:[],connected:[],scale,t0:performance.now()/1000};
-    const speed=state[5];
     return {pos:[state[0],state[1],state[2]],rot:Array.from(rot),scale,vel:[m0[0]/scale*speed,m0[1]/scale*speed,m0[2]/scale*speed],
       parts:parts.flatMap(p=>[...p.center,...p.half]),seed,count:parts.length};
   }
