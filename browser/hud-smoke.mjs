@@ -58,6 +58,7 @@ assert.equal(await page.locator('#race-banner').textContent(), 'LAP RECORD - FIN
 assert.match(await page.locator('#race-laps').textContent(), /Last 0:35\.00 {2}Best lap 0:35\.00/);
 await shot('3-lap-record-final-lap');
 
+await page.evaluate(() => { window.fxSeen = {}; for (const id of ['hit-flash', 'boost-fx']) { const el = document.getElementById(id); new MutationObserver(() => { if (!el.hidden) fxSeen[id] = true; }).observe(el, { attributes: true, attributeFilter: ['hidden'] }); } });
 // Heat: boost on the ground until the pod blows up; gauge, klaxon stages and blast are sampled on the way.
 await page.locator('#world').focus();
 await page.keyboard.down('KeyW'); await page.keyboard.down('ShiftLeft');
@@ -72,7 +73,7 @@ for (let i = 0; i < 200 && !seen.exploded; i++) {
   if (h > .85 && !seen.shots.has('b')) { seen.shots.add('b'); await shot('5-heat-warning'); }
   seen.exploded = !!(await page.evaluate(() => worldTest.wreck()));
 }
-await shot('6-overheat-wreck');
+const fx = await page.evaluate(() => fxSeen); assert.ok(fx['hit-flash'], 'hit flash on wreck'); assert.ok(fx['boost-fx'], 'boost speed lines while boosting'); await shot('6-overheat-wreck');
 await page.keyboard.up('ShiftLeft'); await page.keyboard.up('KeyW');
 assert.ok(seen.exploded, 'boosting into max heat blows the pod up');
 assert.ok([...seen.klaxon].some(n => n.startsWith('sfx_klaxon')), `klaxon loop played (saw ${[...seen.klaxon]})`);
@@ -91,7 +92,10 @@ await page.keyboard.press('Escape'); await page.locator('[data-tab=options]').cl
 await page.locator('#overheat').uncheck();
 await page.keyboard.press('Escape'); await page.locator('#world').focus();
 await page.keyboard.down('KeyW'); await page.keyboard.down('ShiftLeft');
-await page.waitForFunction(() => worldEvidence.state.telemetry[6] <= 0, null, { timeout: 15000 });
+for (let i = 0; i < 300 && (await heat()) < 1; i++) {
+  await page.waitForTimeout(100);
+  if (i % 10 === 9) await page.evaluate(() => { const t = worldEvidence.state.telemetry; if (t[5] < 20) worldTest.request('restore', { pose: [t[0], t[1] + 12, t[2], t[3] + 1.3] }); });
+}
 await page.waitForTimeout(800);
 const calm = await page.evaluate(() => !!worldTest.wreck());
 await page.keyboard.up('ShiftLeft'); await page.keyboard.up('KeyW');
