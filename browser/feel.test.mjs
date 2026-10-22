@@ -413,3 +413,14 @@ test('drift plays the activate one-shot then loops until release; silent without
   audio.setDrift(false);audio.setDrift(false);
   assert.deepEqual(log.slice(2),[['stop','loop']]);
 });
+test('SWE1R one-shots fire from update on boost, airbrake and obstacle edges',()=>{
+  const played=[];
+  const node=()=>({gain:{value:0,setTargetAtTime(){}},playbackRate:{setTargetAtTime(){}},connect(){},buffer:null,start(){played.push(this.buffer);}});
+  const audio=new WorldAudio();
+  audio.context={state:'running',currentTime:10,createGain:node,createBufferSource:node};audio.master={gain:{setTargetAtTime(){}}};
+  audio.enabled=true;audio.active=true;audio.sampleOn=true;
+  audio.samples={buffers:{sfx_pod_flare_fire:'flare',sfx_pod_airbrakes_on:'on',sfx_pod_airbrakes_off:'off',sfx_crash_metal_med1:'crash'}};
+  const step=(flags,hit,now)=>{audio.context.currentTime=now;audio.update({telemetry:[0,0,0,0,0,50,1,1,hit?3:0,0]},{throttle:1,flags},.016,true);};
+  step(0,false,10);step(2,false,11);step(2,false,12);step(3,false,13);step(0,false,14);step(0,true,15);step(0,true,15.1);
+  assert.deepEqual(played,['flare','on','off','crash']);
+});

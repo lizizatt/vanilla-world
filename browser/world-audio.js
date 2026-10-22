@@ -182,13 +182,14 @@ export class WorldAudio {
     if(!this.enabled || this.context?.state!=='running')return;
     const now=this.context.currentTime;
     if(active!==this.active){
-      this.active=active;this.envelope.reset();
+      this.active=active;this.envelope.reset();if(this.was)this.was.boost=this.was.brake=this.was.hit=undefined;
       this.master.gain.setTargetAtTime(active?1:0,now,.06);
     }
     this.setDrift(active&&!!(input.flags&4));
     if(!active)return;
     const p=state.telemetry,held=!!p[8] || !!state.scene?.waitingCollision;
     const boosting=!!(input.flags&2) && input.throttle>0 && !!p[7] && p[6]>0 && !(input.flags&1);
+    this.edges(boosting,!!(input.flags&1),p[8]===3,now);
     const layers=this.envelope.advance(p[5],input.throttle,boosting,held,!!(input.flags&1),dt,!!p[7],!!p[9]);
     const s=this.samples,real=this.sampleOn && s?.engine;
     if(real) {
