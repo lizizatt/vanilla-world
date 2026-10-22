@@ -517,9 +517,9 @@ let lastCount=0,voiceMap,voiceReader,lastVoice,lastLap=1;
 let raceTune=null;
 // Debug crash (Ctrl+Alt+K): the Rust wreck sim runs in the worker in 0.5 s chunks; the renderer replays the recorded poses.
 let wreckBusy=false;
-async function testCrash(auto=false){
+async function testCrash(auto=false,speed){
   if(wreckBusy||!client.state)return;
-  const input=renderer.startWreck(client.state.telemetry,Math.floor(Math.random()*1e9));
+  const input=renderer.startWreck(client.state.telemetry,Math.floor(Math.random()*1e9),speed);
   if(!input)return;
   wreckBusy=true;
   if(auto&&audio.sampleOn){(audio.was??={}).crashAt=audio.context.currentTime;}
@@ -615,7 +615,7 @@ function frame(now) {
     $('camera-blocked').hidden=!cameraWarning;
     if($('camera-blocked').textContent!==cameraWarning)$('camera-blocked').textContent=cameraWarning;
     const audible=document.hasFocus()&&!flight&&!frozenPresentation;
-    if(gibTrigger(gibMem,client.state.telemetry,gib.on,gib.speed,now,!!flight||!!frozenPresentation||editor.isOpen||wreckBusy))void testCrash(true);
+    if(gibTrigger(gibMem,client.state.telemetry,gib.on,gib.speed,now,!!flight||!!frozenPresentation||editor.isOpen||wreckBusy))void testCrash(true,gibMem.speed);
     audio.update(client.state,controls,dt,audible);if(dial){const on=hudOn&&!flight;$('swe1r-hud').hidden=!on;if(on)dial(Math.min(1,client.state.telemetry[5]/tuningValues[1]),client.state.telemetry[6]);}if(!race)music.setBattle(false);music.update(client.state.area,audible);evidence.music=music.snapshot();
     frames++;Object.assign(evidence,{frames,state:client.state,mode:flight?'fly':'drive',camera:flight?.slice(),render:stats,adapter:renderer.adapter});
     evidence.input={...controls,device:input.device};evidence.view=renderer.camera?.slice();
