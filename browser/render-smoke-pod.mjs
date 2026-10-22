@@ -39,7 +39,7 @@ for (const skin of swe) {
 }
 
 const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(os.tmpdir(), 'edge-pods-')),
-  { channel: 'msedge', headless: true, viewport: { width: 640, height: 400 }, serviceWorkers: 'block' });
+  { channel: 'msedge', headless: true, args: ['--mute-audio'], viewport: { width: 640, height: 400 }, serviceWorkers: 'block' });
 const page = ctx.pages()[0] || await ctx.newPage();
 const errors = [];
 page.on('pageerror', e => errors.push(e.message));

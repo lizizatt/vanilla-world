@@ -6,7 +6,7 @@ import {fileURLToPath} from 'node:url';
 if(!process.env.WOW_DATA)throw new Error('Set WOW_DATA to your read-only Classic Data directory');
 const out=new URL('./test-results/feel/',import.meta.url);
 await mkdir(out,{recursive:true});
-const browser=await chromium.launch({channel:'msedge',headless:true,ignoreDefaultArgs:['--mute-audio','--autoplay-policy=no-user-gesture-required']});
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--mute-audio'],ignoreDefaultArgs:['--autoplay-policy=no-user-gesture-required']});
 const page=await browser.newPage({viewport:{width:1440,height:1000}});
 const errors=[],checks={};
 page.on('pageerror',e=>errors.push(e.message));

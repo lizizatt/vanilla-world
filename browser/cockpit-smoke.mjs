@@ -8,7 +8,7 @@ assert(process.env.WOW_DATA,'Set WOW_DATA to your local Classic Data folder');
 const output=new URL('./test-results/cockpit/',import.meta.url);
 await mkdir(output,{recursive:true});
 const browser=await chromium.launch({channel:'msedge',headless:true,
-  ignoreDefaultArgs:['--mute-audio','--autoplay-policy=no-user-gesture-required']});
+  args:['--mute-audio'],ignoreDefaultArgs:['--autoplay-policy=no-user-gesture-required']});
 const context=await browser.newContext({viewport:{width:676,height:1315}});
 await context.addInitScript(()=>{
   window.testPads=[];

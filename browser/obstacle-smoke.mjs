@@ -10,7 +10,7 @@ const output=new URL('./test-results/elevated-obstacles/',import.meta.url);
 await mkdir(output,{recursive:true});
 const requested=[150,300,50,50,30,.25,2.2,10,8,1.5,1.3,3,90,18,24,7,.9];
 const evidence={requested,cases:[],errors:[]};
-const browser=await chromium.launch({channel:'msedge',headless:true});
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--mute-audio']});
 try {
   for(const label of ['before','after']){
     const context=await browser.newContext({viewport:{width:1280,height:800},serviceWorkers:'block'});

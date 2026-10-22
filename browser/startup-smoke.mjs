@@ -8,7 +8,7 @@ import {createHash} from 'node:crypto';
 assert(process.env.WOW_DATA,'Set WOW_DATA to the local Classic Data folder');
 const output=new URL(`./test-results/startup/${process.env.LABEL||'cold-baseline'}/`,import.meta.url);
 await mkdir(output,{recursive:true});
-const browser=await chromium.launch({channel:'msedge',headless:false});
+const browser=await chromium.launch({channel:'msedge',headless:false,args:['--mute-audio']});
 const evidence={source:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),
   diffSha256:createHash('sha256').update(execFileSync('git',['diff','--binary','HEAD'])).digest('hex'),cases:[],errors:[]};
 const base=process.env.WORLD_URL||'http://127.0.0.1:4185/?test';

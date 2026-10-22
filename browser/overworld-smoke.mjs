@@ -6,7 +6,7 @@ import {fileURLToPath} from 'node:url';
 if(!process.env.WOW_DATA)throw new Error('Set WOW_DATA to your read-only Classic Data folder');
 const out=new URL('./test-results/overworld/',import.meta.url);
 await mkdir(out,{recursive:true});
-const browser=await chromium.launch({channel:'msedge',headless:true});
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--mute-audio']});
 const page=await browser.newPage({viewport:{width:1440,height:1000}});
 const errors=[];
 const checkpoints=[];

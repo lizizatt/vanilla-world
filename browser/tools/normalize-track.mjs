@@ -23,7 +23,7 @@ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'edge-norm-'));
 let ctx,failed=false;
 try {
   await new Promise(r=>setTimeout(r,2000));
-  ctx=await chromium.launchPersistentContext(dir,{channel:'msedge',headless:true,viewport:{width:1100,height:700},serviceWorkers:'block'});
+  ctx=await chromium.launchPersistentContext(dir,{channel:'msedge',headless:true,args:['--mute-audio'],viewport:{width:1100,height:700},serviceWorkers:'block'});
   const page=ctx.pages()[0]||await ctx.newPage();
   await page.goto(`http://127.0.0.1:${PORT}/?test`);
   await page.waitForFunction(()=>!document.getElementById('select').disabled,null,{timeout:60000});

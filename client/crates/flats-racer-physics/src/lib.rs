@@ -13,6 +13,9 @@ pub const FIXED_DT: f32 = 1.0 / 120.0;
 /// Boost reserve fraction per second: 7.5 s of full boost, 10 s to recharge from empty.
 pub const BOOST_DRAIN_PER_SEC: f32 = 0.4 / 3.0;
 pub const BOOST_RECHARGE_PER_SEC: f32 = 0.1;
+/// Engine heat is the boost reserve inverted: boosting heats at the drain rate, cooling follows the recharge rate.
+/// Heat at or above this fraction is the warning zone (about 6 s of continuous boost); 1.0 is overheated.
+pub const HEAT_WARN: f32 = 0.8;
 /// Equilibrium distance in world units from body center to a level support surface.
 pub const HOVER_HEIGHT: f32 = 1.1;
 /// Downward probe length measured from body center, not from the bottom of the collision shape.
@@ -216,6 +219,11 @@ impl State {
             jump_held: false,
             support_lockout: 0.0,
         })
+    }
+
+    /// Engine heat in [0, 1]; boost cuts out at 1.0 until it cools.
+    pub fn heat(&self) -> f32 {
+        1.0 - self.boost_reserve
     }
 
     /// Atomically clears momentum, jump latch, all timers, bank and reserve depletion.
@@ -994,6 +1002,29 @@ mod tests {
                 assert_eq!(state.boost_reserve, 1.0);
             }
         }
+    }
+
+    #[test]
+    fn heat_mirrors_the_boost_reserve_with_the_same_rates() {
+        let mut state = racer();
+        assert_eq!(state.heat(), 0.0);
+        let held = Input {
+            throttle: 1.0,
+            boost: true,
+            ..Input::default()
+        };
+        for _ in 0..720 {
+            tick(&mut state, held);
+        }
+        assert!(state.heat() >= HEAT_WARN - 0.001 && state.heat() < 0.85, "6 s of boost reaches the warning zone");
+        for _ in 0..180 {
+            tick(&mut state, held);
+        }
+        assert!((state.heat() - 1.0).abs() < 0.00001, "7.5 s of boost overheats");
+        for _ in 0..600 {
+            tick(&mut state, Input::default());
+        }
+        assert!((state.heat() - BOOST_RECHARGE_PER_SEC * 5.0).abs() < 0.001, "cooling is 10 s from full");
     }
 
     #[test]

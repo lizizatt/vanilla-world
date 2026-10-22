@@ -4,7 +4,7 @@ import {mkdir,writeFile} from 'node:fs/promises';
 
 const out=new URL('./test-results/audio/',import.meta.url);
 await mkdir(out,{recursive:true});
-const browser=await chromium.launch({channel:'msedge',headless:true,args:['--disable-gpu']});
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--mute-audio','--disable-gpu']});
 try {
   const page=await browser.newPage();
   await page.goto(`${process.env.BASE_URL || 'http://127.0.0.1:4173'}/world-audio.js`);

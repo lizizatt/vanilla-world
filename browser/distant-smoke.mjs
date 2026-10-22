@@ -8,7 +8,7 @@ const base=process.env.BASE_URL||'http://127.0.0.1:4183';
 assert(new URL(base).port!=='4173','Do not use the protected user preview');
 const out=new URL('./test-results/distant/',import.meta.url);
 await mkdir(out,{recursive:true});
-const browser=await chromium.launch({channel:'msedge',headless:true});
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--mute-audio']});
 const page=await browser.newPage({viewport:{width:1440,height:1000}});
 const errors=[];
 page.on('pageerror',error=>errors.push(error.message));

@@ -168,7 +168,7 @@ const server=createServer((req,res)=>{
 await new Promise(r=>server.listen(0,'127.0.0.1',r));
 let browser;
 try{
-  browser=await chromium.launch({channel:'msedge',headless:true});
+  browser=await chromium.launch({channel:'msedge',headless:true,args:['--mute-audio']});
   const page=await browser.newPage({viewport:{width:1280,height:720},deviceScaleFactor:1});
   const pageErrors=[];page.on('pageerror',e=>pageErrors.push(String(e)));
   await page.goto('http://127.0.0.1:'+server.address().port);

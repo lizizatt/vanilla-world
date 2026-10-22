@@ -6,7 +6,7 @@ import {fileURLToPath} from 'node:url';
 assert(process.env.WOW_DATA,'Set WOW_DATA to your local Classic Data folder');
 const output=new URL('./test-results/viewport/',import.meta.url);
 await mkdir(output,{recursive:true});
-const browser=await chromium.launch({channel:'msedge',headless:true});
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--mute-audio']});
 const evidence={sizes:[],errors:[]};
 const url=process.env.BASE_URL||'http://127.0.0.1:4183';
 async function open(viewport,deviceScaleFactor) {

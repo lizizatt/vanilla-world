@@ -9,7 +9,7 @@ const label=process.env.LABEL||'water-shader';
 assert(/^[\w-]+$/.test(label));
 const out=new URL(`./test-results/${label}/`,import.meta.url);
 await mkdir(out,{recursive:true});
-const browser=await chromium.launch({channel:'msedge',headless:true});
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--mute-audio']});
 const result={views:[],errors:[]},baseline=process.env.WATER_BASELINE==='1';
 try{
   const context=await browser.newContext({viewport:{width:1280,height:800},serviceWorkers:'block'});

@@ -23,6 +23,19 @@ export async function loadCountdownSprites(reader) {
   return out;
 }
 
+// Persistent in-race lap readout; the lap number never exceeds the total.
+export const lapText = (lap, laps) => `Lap ${Math.min(Math.max(1, lap), laps)}/${laps}`;
+
+// Last and best completed lap, only meaningful for multi-lap races.
+export const lapTimesText = (times, fmt) => times.length ? `Last ${fmt(times.at(-1))}  Best lap ${fmt(Math.min(...times))}` : '';
+
+// Banner for a lap just started: LAP RECORD when it beat every earlier lap, FINAL LAP on the last one.
+export function lapBanner(lap, laps, times) {
+  const record = times.length > 1 && times.at(-1) < Math.min(...times.slice(0, -1));
+  return [record && 'LAP RECORD', lap === laps ? 'FINAL LAP' : !record && `LAP ${lap}`].filter(Boolean).join(' - ');
+}
+export const finishBanner = beatBest => beatBest ? 'NEW BEST TIME' : 'FINISH';
+
 // 270 degree sweep from lower-left (225 deg, canvas clockwise) around the top to lower-right.
 export const needleAngle = f => (0.75 + 1.5 * Math.min(1, Math.max(0, Number.isFinite(f) ? f : 0))) * Math.PI;
 
