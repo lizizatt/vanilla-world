@@ -354,7 +354,7 @@ export class WorldRenderer {
   releaseCraft(){this.destroyCraft(this.dataCraft);this.dataCraft=undefined;this.craft=this.override;}
   buildCraft(data,display,key,maxIndices=60000) {
     if(data.metadata.display!==display||!Number.isFinite(data.metadata.scale)||data.metadata.scale<=0||
-      data.asset.indices.length>maxIndices||data.textures.length>16)throw Error('Invalid craft payload');
+      data.asset.indices.length>maxIndices||data.textures.length>64)throw Error('Invalid craft payload');
     const bytes=data.asset.vertices.byteLength+data.asset.indices.byteLength+data.textures.reduce((n,t)=>n+t.rgba.byteLength,0);
     if(bytes>32*1024*1024)throw Error('Craft exceeds GPU budget');
     const build=asset=>({vertices:this.buffer(asset.vertices,GPUBufferUsage.VERTEX),
