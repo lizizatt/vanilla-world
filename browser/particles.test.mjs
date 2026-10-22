@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {ParticlePool, QUALITY, KINDS, gradient, exhaustPoints, emitPlumes, particleUniform, particleShader} from './particles.js';
+import {ParticlePool, QUALITY, KINDS, gradient, exhaustPoints, emitPlumes, emitBurst, emitDebris, emitHeatSmoke, emitGroundDust, particleUniform, particleShader} from './particles.js';
 
 test('ring buffer overwrites the oldest particle when full', () => {
   const pool = new ParticlePool(4);
@@ -78,4 +78,36 @@ test('plumes spawn at the exhaust in world space, trail backwards, and boost emi
   const out = new Float32Array(8 * 64); calm.fill(out, [0, 0, 0]);
   assert.ok(Math.abs(out[0] - 102 - 100 + 100) < .5 && Math.abs(out[1] - 1) < .5 && Math.abs(out[2] - 50) < .5);
   assert.ok(calm.data[3] < 0, 'exhaust leaves rearwards (-x)');
+});
+const kinds = pool => { const c = {}; for (let i = 0; i < pool.capacity; i++) if (pool.data[i * 12 + 6] < pool.data[i * 12 + 7]) { const k = Object.keys(KINDS)[pool.data[i * 12 + 10]]; c[k] = (c[k] || 0) + 1; } return c; };
+
+test('explosion burst spawns fire, burst and smoke particles', () => {
+  const pool = new ParticlePool(512, () => .5); pool.quality = 1;
+  emitBurst(pool, [0, 0, 0], 1);
+  const c = kinds(pool); assert.ok(c.burst > 5 && c.fire > 0 && c.smoke > 0);
+});
+
+test('debris burns for the first 1.4 s, smokes throughout and kicks up dust only when it lands', () => {
+  const run = (age, ys) => {
+    const pool = new ParticlePool(512, () => .5), memo = {}; pool.quality = 1;
+    ys.forEach(y => emitDebris(pool, memo, [0, y, 0], age, .05, 1, 'p'));
+    return kinds(pool);
+  };
+  assert.ok(run(.2, [5, 5, 5]).fire > 0 && !run(2, [5, 5, 5]).fire);
+  assert.ok(run(2, [5, 5, 5]).smoke > 0);
+  assert.ok(!run(.5, [10, 9, 8]).dust, 'falling is not landing');
+  assert.ok(run(.5, [10, 9, 8, 8]).dust > 0, 'losing the downward speed raises dust');
+});
+
+test('heat smoke only appears past the warning level and grows with heat', () => {
+  const m = new Float32Array(16); m[0] = m[5] = m[10] = m[15] = 1;
+  const run = heat => { const pool = new ParticlePool(512, () => .5); pool.quality = 1; emitHeatSmoke(pool, { points: [[0, 0, 0]], matrix: m, origin: [0, 0], length: 4, heat, dt: .5 }); return pool.count; };
+  assert.equal(run(.79), 0); assert.ok(run(.9) > 0 && run(1) > run(.9));
+});
+test('ground dust needs a grounded craft, thickens when drifting and goes behind the craft', () => {
+  const m = new Float32Array(16); m[0] = m[5] = m[10] = m[15] = 1;
+  const run = o => { const pool = new ParticlePool(512, () => .5); pool.quality = 1; emitGroundDust(pool, { matrix: m, origin: [0, 0], scale: 1, length: 4, speed: 100, drift: false, grounded: true, dt: .5, ...o }); return pool; };
+  assert.equal(run({ grounded: false }).count, 0); assert.equal(run({ speed: 10 }).count, 0);
+  assert.ok(run({ drift: true }).count > run({}).count && run({}).count > 0);
+  assert.ok(run({}).data[0] < 0, 'spawned behind the craft (-x)');
 });

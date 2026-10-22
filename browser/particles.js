@@ -128,3 +128,50 @@ export function emitPlumes(pool, { points, matrix: m, origin, scale, length, spe
     }
   });
 }
+/** Explosion at the moment the pod breaks up: fireballs, sparks flung outwards and a smoke column. size is craft length / 3.5. */
+export function emitBurst(pool, [x, y, z], size) {
+  const r = pool.rand, n = Math.round(14 * Math.max(.3, pool.quality) + 4);
+  for (let i = 0; i < n; i++) {
+    const a = r() * 6.2832, up = r() * 8, out = 4 + r() * 14;
+    pool.emit('burst', x, y, z, Math.cos(a) * out, up, Math.sin(a) * out, size * (.6 + r() * .8), size * .3);
+    if (i % 2) pool.emit('fire', x, y, z, Math.cos(a) * out * .5, up * .5, Math.sin(a) * out * .5, size * 1.5, size * .3);
+    if (i % 3 === 0) pool.emit('smoke', x, y + size, z, Math.cos(a) * 3, 5 + r() * 6, Math.sin(a) * 3, size * 2, size * .5);
+  }
+}
+
+/**
+ * Per-frame debris effects for one wreck part: fire that dies out in the first 1.4 s, smoke for the whole wreck, and a dust puff when it
+ * lands (downward speed lost in one frame). memo {x, y, z, vy} is the part's last pose and is updated in place.
+ */
+export function emitDebris(pool, memo, [x, y, z], age, dt, size, key, seconds = 2.6) {
+  const vy = memo.has ? (y - memo.y) / dt : 0, land = memo.has && memo.vy < -5 && vy > memo.vy * .4;
+  const vx = memo.has ? (x - memo.x) / dt : 0, vz = memo.has ? (z - memo.z) / dt : 0;
+  Object.assign(memo, { x, y, z, vy, has: true });
+  const fire = pool.budget(`${key}f`, age < 1.4 ? 55 * (1 - age / 1.4) : 0, dt), smoke = pool.budget(`${key}s`, 22 * (1 - .6 * age / seconds), dt);
+  for (let i = 0; i < fire; i++) pool.emit('fire', x, y, z, vx * .2, vy * .2, vz * .2, size, size * .3);
+  for (let i = 0; i < smoke; i++) pool.emit('smoke', x, y, z, vx * .15, vy * .15, vz * .15, size * 1.2, size * .3);
+  if (land) for (let i = 0, n = Math.round(8 * Math.max(.4, pool.quality)); i < n; i++) {
+    const a = pool.rand() * 6.2832, s = 3 + pool.rand() * 5;
+    pool.emit('dust', x, y, z, Math.cos(a) * s, 1 + pool.rand() * 2, Math.sin(a) * s, size * 1.6, size * .3);
+  }
+}
+
+/** Smoke curling off each engine as heat climbs past the warning level (0 below warn, full at 1). */
+export function emitHeatSmoke(pool, { points, matrix: m, origin, length, heat, warn = .8, dt }) {
+  const k = Math.max(0, (heat - warn) / (1 - warn)); if (!k) return;
+  points.forEach((p, i) => {
+    const n = pool.budget(`heat${i}`, 10 + 40 * k, dt);
+    for (let j = 0; j < n; j++) pool.emit('smoke', m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12] + origin[0], m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13] + .1 * length,
+      m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14] + origin[1], 0, 2, 0, length / 3.5 * (.8 + k), length * .03);
+  });
+}
+/** Dust kicked up behind a grounded craft: a thin stream at speed, a heavy cloud while drifting (sideways slip throws it out). */
+export function emitGroundDust(pool, { matrix: m, origin, scale, length, speed, drift, grounded, dt }) {
+  const rate = !grounded ? 0 : drift && speed > 25 ? 70 : speed > 40 ? 14 * Math.min(1, speed / 150) : 0;
+  const n = rate ? pool.budget('dust', rate, dt) : 0, size = length / 3.5;
+  for (let j = 0; j < n; j++) {
+    const side = (pool.rand() - .5) * 2, back = .3 + pool.rand() * .2;
+    pool.emit('dust', m[12] + origin[0] - m[0] / scale * length * .45 + m[4] / scale * side * length * .2, m[13] - length * .05, m[14] + origin[1] - m[2] / scale * length * .45 + m[6] / scale * side * length * .2,
+      -m[0] / scale * speed * back + m[4] / scale * side * (drift ? 8 : 2), 1 + pool.rand() * 2, -m[2] / scale * speed * back + m[6] / scale * side * (drift ? 8 : 2), size * (drift ? 1.4 : .8), size * .3);
+  }
+}

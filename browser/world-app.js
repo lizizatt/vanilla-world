@@ -615,7 +615,7 @@ function frame(now) {
     syncGates();
     if(!frozenPresentation)client.frame(dt,controls.throttle,controls.steer,controls.flags,flight?.slice(0,3),settings.distant,renderer.view);
     cameraCollision.frame(client.state,renderer.sceneRegion ?? client.state.telemetry[10]);
-    renderer.fxInput={throttle:Math.max(0,controls.throttle),boosting:(controls.flags&2)!==0&&client.state.telemetry[6]>0};
+    renderer.fxInput={throttle:Math.max(0,controls.throttle),boosting:(controls.flags&2)!==0&&client.state.telemetry[6]>0,heat:dial?1-client.state.telemetry[6]:0,drifting:(controls.flags&4)!==0};
     const stats=renderer.draw(frozenPresentation || flight?client.state.telemetry:client.presentation(),flight,dt,frozenPresentation?0:now/1000,
       {...settings,cameraLook:controls.look,cameraOrbit,cameraSteer:right,cameraRecentre:keyDrive&&!dragging},keys.has('KeyV')&&!keys.has('AltLeft')&&!keys.has('AltRight'));
     editor.frame();
