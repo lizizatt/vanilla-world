@@ -6,7 +6,7 @@ import { readBlock } from './block.js';
 import { decompress, isComp } from './comp.js';
 import { decodePixels, decodeSprite, FMT, rgba5551 } from './image.js';
 import { findLev, listModels } from './cli.mjs';
-import { buildPod, decodeTriangles } from './pod.js';
+import { alphaMode, buildPod, decodeTriangles } from './pod.js';
 import { toCraft, podSkinList, loadPodModel } from './skin.js';
 import { loadSfx, SFX } from './sfx.js';
 import { loadHudSprites, needleAngle } from './hud.js';
@@ -158,6 +158,16 @@ test('real install: every listed pod is a Part model with plausible size (name t
     const v = asset.vertices, ext = a => { let lo = 1e9, hi = -1e9; for (let i = a; i < v.length; i += 12) { lo = Math.min(lo, v[i]); hi = Math.max(hi, v[i]); } return (hi - lo) * skin.scale; };
     assert.ok(ext(0) > 3 && ext(0) < 20, `${skin.name} length ${ext(0)}`);
   }
+});
+
+test('alphaMode: opaque, cutout and blended textures', () => {
+  const mk = a => ({ rgba: Uint8Array.from(a.flatMap(v => [9, 9, 9, v])) });
+  const rep = (v, n) => Array(n).fill(v);
+  assert.deepEqual(alphaMode(mk(rep(255, 16))), { blend: 'opaque', alphaCutoff: 0 });
+  assert.deepEqual(alphaMode(mk([...rep(255, 8), ...rep(0, 8)])), { blend: 'opaque', alphaCutoff: 0.5 });
+  assert.equal(alphaMode(mk([...rep(255, 8), ...rep(128, 8)])).blend, 'alpha');
+  assert.equal(alphaMode(mk(rep(0, 16))).blend, 'opaque');
+  assert.equal(alphaMode(null).blend, 'opaque');
 });
 
 test('loadSfx keeps present wavs, drops missing or empty ones', async () => {
