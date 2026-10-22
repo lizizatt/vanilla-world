@@ -16,7 +16,8 @@ import {clampTrack} from './track-edit.js';
 import {loadTracks,nearestFlag,flagPosition} from './race-flags.js';
 import {loadVehicleModel} from './vehicle-model.js';
 import {bootChoice,writeChoice,tracksFor,vehicleOf,VEHICLES,canSwitch,normalizeChoice,skinOf,setRuntimeSkins,stepSkin} from './vehicles.js';
-import {initSwe1rRow,onSwe1r,getSwe1r} from './swe1r/ui.js';
+import {initSwe1rRow,onSwe1r,getSwe1r,attachSwe1r} from './swe1r/ui.js';
+import {classifyPickError} from './swe1r/attach.js';
 import {podSkinList,loadPodModel} from './swe1r/skin.js';
 import {SFX,loadSfx} from './swe1r/sfx.js';
 import {loadHudSprites,createDial} from './swe1r/hud.js';
@@ -103,7 +104,7 @@ const client=new WorldClient(data=>{
 },error=>{running=false;fail(error);},()=>running&&!busy&&!document.hidden&&!frozenPresentation);
 function dockFolderButtons(inMenu) {
   const host=$(inMenu?'data-folder':'folder-extras');
-  for(const id of ['different','fallback','forget'])if($(id).parentNode!==host)host.append($(id));
+  for(const id of ['different','fallback','forget','swe1r-row'])if($(id).parentNode!==host)host.append($(id));
 }
 function enabled(value) {
   document.querySelector('.meters').hidden=!value;$('menu-hint').hidden=!value;dockFolderButtons(value);
@@ -240,7 +241,10 @@ async function select() {
     if(!window.showDirectoryPicker){$('files').click();return;}
     const handle=await showDirectoryPicker({id:'vanilla-world-data',mode:'read'});
     folder=handle;await open(handle,true);
-  } catch(error){fail(error);}
+  } catch(error){
+    if(error.name==='AbortError')$('permission').textContent='No folder chosen. If your browser said it "contains system files", use Choose folder as files, or copy the Data folder outside Program Files/AppData.';
+    else fail(classifyPickError(error).kind==='blocked'?new Error('Your browser refuses this folder (Program Files, Windows, AppData). Use Choose folder as files, or copy the Data folder elsewhere.'):error);
+  }
 }
 $('select').addEventListener('click',select);
 $('fallback').addEventListener('click',()=>$('files').click());
@@ -418,6 +422,7 @@ function renderGarage() {
   $('garage-races').replaceChildren(...(v.races?list.map(t=>{const li=document.createElement('li');li.textContent=t.name||t.id;return li;}):[]));
   if(!list.length||!v.races){const li=document.createElement('li');li.textContent=v.races?'None yet':'No races';$('garage-races').append(li);}
   $('garage-use').disabled=!skinOf(garagePick)||!glbAvailable(skinOf(garagePick));
+  $('garage-attach').hidden=garagePick.vehicle!=='podracer'||!!getSwe1r();
 }
 function openGarage() {
   if(!running||!canSwitch({race,editing:editor.isOpen}))return;
@@ -428,6 +433,7 @@ function stepGarage(dir){const skins=VEHICLES[garagePick.vehicle].skins;garagePi
 $('garage-skins').addEventListener('click',event=>{const b=event.target.closest('[data-step]');if(b&&!b.disabled)stepGarage(+b.dataset.step);});
 garage.addEventListener('keydown',event=>{const dir={ArrowLeft:-1,KeyA:-1,ArrowRight:1,KeyD:1}[event.code];if(dir&&!event.ctrlKey&&!event.altKey&&!event.metaKey){event.preventDefault();stepGarage(dir);}});
 $('garage-use').addEventListener('click',()=>{if(selectVehicle(garagePick))garage.close();});
+$('garage-attach').addEventListener('click',attachSwe1r);
 garage.addEventListener('close',()=>canvas.focus());
 $('menu-garage').addEventListener('click',()=>{raceMenu.close();openGarage();});
 let gateKey,editorFlight,shipped=[];
@@ -643,7 +649,9 @@ async function start() {
       $('offline').textContent='Offline ready.';
     }
     initSwe1rRow();
-    onSwe1r(async r=>{setRuntimeSkins('swe1r',podSkinList());if(garage.open)renderGarage();
+    onSwe1r(async r=>{
+      if(!r){setRuntimeSkins('swe1r',[]);if(choice.skin.startsWith('swe1r-')){choice=normalizeChoice({...choice,skin:'rocket'});writeChoice(choice);applySkin();}garagePick=normalizeChoice(garagePick);dial=undefined;$('swe1r-hud').hidden=true;syncHud();$('swe1r-hud-row').hidden=true;$('swe1r-sfx-row').hidden=true;audio.sampleOn=false;if(garage.open)renderGarage();return;}
+      setRuntimeSkins('swe1r',podSkinList());if(garage.open)renderGarage();
       const raw=await loadSfx(r).catch(()=>new Map());
       loadHudSprites(r).then(s=>{if(!s)return;dial=createDial(s,$('swe1r-hud'));$('swe1r-hud-row').hidden=false;syncHud();}).catch(e=>console.error('SWE1R HUD',e));
       if(raw.size){audio.sampleOn=$('swe1r-sfx').checked;$('swe1r-sfx-row').hidden=false;await audio.useSamples(raw);}});
