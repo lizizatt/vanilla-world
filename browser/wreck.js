@@ -95,6 +95,14 @@ export function wreckFrame(wreck, seconds) {
   return wreck.frames[Math.min(wreck.frames.length - 1, Math.max(0, Math.floor(seconds * 60)))];
 }
 
+// Overheat: engine heat just reached 1.0 (boost reserve 0, telemetry 6) while boost is held. Shares the gib cooldown (mem.at).
+export function overheatTrigger(mem, p, boosting, on, now, blocked = false, cooldown = 5000) {
+  const hot = p[6] <= 0, fire = hot && !mem.hot && boosting && on && !blocked && now - (mem.at ?? -1e9) > cooldown;
+  mem.hot = hot;
+  if (fire) mem.at = now;
+  return fire;
+}
+
 // Gib on the rising edge of obstacle contact (telemetry 8 === 3) when the last pre-contact speed reaches minSpeed; cooldown in ms.
 export function gibTrigger(mem, p, on, minSpeed, now, blocked = false, cooldown = 5000) {
   const hit = p[8] === 3, fire = hit && !mem.hit && on && !blocked && mem.speed >= minSpeed && now - (mem.at ?? -1e9) > cooldown;

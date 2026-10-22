@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {gibTrigger,splitParts,crumple,partMatrix,craftFrame,appendWreckChunk,wreckFrame} from './wreck.js';
+import {gibTrigger,overheatTrigger,splitParts,crumple,partMatrix,craftFrame,appendWreckChunk,wreckFrame} from './wreck.js';
 
 // Body triangle at the rear, plus left (+y) and right (-y) engine triangles far forward; stride 12.
 const tri = (x, y) => [[x, y, 0], [x + 1, y, 0], [x, y, 1]].flatMap(p => [...p, 0, 0, 1, 0, 0, 1, 1, 1, 1]);
@@ -65,4 +65,21 @@ test('gibTrigger fires on a fast contact edge only, once, with cooldown',()=>{
   assert.equal(gibTrigger(mem,at(true,10),true,100,12000),false);
   gibTrigger(mem,at(false,200),true,100,12010);
   assert.equal(gibTrigger(mem,at(true,10),true,100,12020,true),false);
+});
+test('overheatTrigger fires once when heat maxes while boosting, honours option, cooldown and gib cooldown',()=>{
+  const mem={},at=reserve=>[0,0,0,0,0,150,reserve];
+  assert.equal(overheatTrigger(mem,at(.5),true,true,0),false);
+  assert.equal(overheatTrigger(mem,at(0),true,true,10000),true);
+  assert.equal(overheatTrigger(mem,at(0),true,true,10100),false,'held at max: no repeat');
+  overheatTrigger(mem,at(.3),true,true,10200);
+  assert.equal(overheatTrigger(mem,at(0),true,true,12000),false,'5 s cooldown');
+  overheatTrigger(mem,at(.3),true,true,20000);
+  assert.equal(overheatTrigger(mem,at(0),false,true,21000),false,'not boosting');
+  overheatTrigger(mem,at(.3),true,true,30000);
+  assert.equal(overheatTrigger(mem,at(0),true,false,31000),false,'option off');
+  overheatTrigger(mem,at(.3),true,true,40000);
+  assert.equal(overheatTrigger(mem,at(0),true,true,41000,true),false,'blocked');
+  overheatTrigger(mem,at(.3),true,true,50000);
+  mem.at=49000;
+  assert.equal(overheatTrigger(mem,at(0),true,true,51000),false,'shares the gib cooldown');
 });
