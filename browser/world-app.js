@@ -20,8 +20,8 @@ import {initSwe1rRow,onSwe1r,getSwe1r,attachSwe1r} from './swe1r/ui.js';
 import {classifyPickError} from './swe1r/attach.js';
 import {podSkinList,loadPodModel} from './swe1r/skin.js';
 import {SFX,loadSfx} from './swe1r/sfx.js';
-import {loadHudSprites,createDial} from './swe1r/hud.js';
-let dial,hudOn=false;
+import {loadHudSprites,loadCountdownSprites,createDial} from './swe1r/hud.js';
+let dial,hudOn=false,countdownSprites;
 
 const $=id=>document.getElementById(id),canvas=$('world'),keys=new Set();
 const input=new WorldInput(),audio=new WorldAudio();
@@ -513,11 +513,12 @@ function raceFrame(controls,t) {
   else if(race.state==='countdown'&&count!==lastCount){lastCount=count;music.playCue('click');audio.cue(SFX.beep);}
   const text=race.state==='countdown'?String(count):t<goUntil?'GO!':'';
   const box=$('race-countdown');
-  if(box.textContent!==text){box.textContent=text;box.hidden=!text;}
+  const sprite=hudOn&&race.state==='countdown'&&countdownSprites?.[count];
+  if(box.dataset.key!==text+(sprite?'s':'')){box.dataset.key=text+(sprite?'s':'');box.textContent=sprite?'':text;if(sprite){const c=sprite.cloneNode();c.getContext('2d').drawImage(sprite,0,0);box.append(c);}box.hidden=!text;}
   if(race.state==='finished'||race.state==='cancelled'){
     const finished=race.state==='finished',run=finished&&{time:race.time,splits:race.splits.slice(),date:new Date().toISOString()};
     const track=race.track;race=undefined;$('race-hud').hidden=true;
-    if(finished){recordRun(track,run);againTrack=track;againUntil=performance.now()+10000;}else report(`Race ${track.name||track.id} cancelled.`,true);
+    if(finished){audio.cue(SFX.finish,.8);recordRun(track,run);againTrack=track;againUntil=performance.now()+10000;}else report(`Race ${track.name||track.id} cancelled.`,true);
   } else raceHud(t);
 }
 const setText=(id,value)=>{const e=$(id);if(e.textContent!==value)e.textContent=value;};
@@ -650,10 +651,11 @@ async function start() {
     }
     initSwe1rRow();
     onSwe1r(async r=>{
-      if(!r){setRuntimeSkins('swe1r',[]);if(choice.skin.startsWith('swe1r-')){choice=normalizeChoice({...choice,skin:'rocket'});writeChoice(choice);applySkin();}garagePick=normalizeChoice(garagePick);dial=undefined;$('swe1r-hud').hidden=true;syncHud();$('swe1r-hud-row').hidden=true;$('swe1r-sfx-row').hidden=true;audio.sampleOn=false;if(garage.open)renderGarage();return;}
+      if(!r){setRuntimeSkins('swe1r',[]);if(choice.skin.startsWith('swe1r-')){choice=normalizeChoice({...choice,skin:'rocket'});writeChoice(choice);applySkin();}garagePick=normalizeChoice(garagePick);dial=undefined;countdownSprites=undefined;$('swe1r-hud').hidden=true;syncHud();$('swe1r-hud-row').hidden=true;$('swe1r-sfx-row').hidden=true;audio.sampleOn=false;if(garage.open)renderGarage();return;}
       setRuntimeSkins('swe1r',podSkinList());if(garage.open)renderGarage();
       const raw=await loadSfx(r).catch(()=>new Map());
-      loadHudSprites(r).then(s=>{if(!s)return;dial=createDial(s,$('swe1r-hud'));$('swe1r-hud-row').hidden=false;syncHud();}).catch(e=>console.error('SWE1R HUD',e));
+      loadCountdownSprites(r).then(s=>{countdownSprites=s||undefined;}).catch(e=>console.error('SWE1R countdown',e));
+  loadHudSprites(r).then(s=>{if(!s)return;dial=createDial(s,$('swe1r-hud'));$('swe1r-hud-row').hidden=false;syncHud();}).catch(e=>console.error('SWE1R HUD',e));
       if(raw.size){audio.sampleOn=$('swe1r-sfx').checked;$('swe1r-sfx-row').hidden=false;await audio.useSamples(raw);}});
     folder=await restoreDataFolder().catch(()=>undefined);
     if(folder) {

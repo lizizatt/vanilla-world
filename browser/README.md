@@ -1768,6 +1768,10 @@ The Garage skin picker is a compact carousel (◀ name · n / N ▶; Left/Right 
 
 **HUD dial (S4).** A small canvas dial replaces our speed readout while the folder is attached and the Sound menu's "Racer HUD dial" box is ticked (untick for our original HUD, which is also the hosted/no-folder default). It is drawn from spriteblock entries 28 (ring) and 29 (face), the left half of a circle each, mirrored, with a code-drawn needle (270 deg sweep to boost speed) and boost bar. Honest limits: this is an approximation, not the original layout (the spriteblock has no assembled speedometer; names in community lists drift, so swe1r/hud.js checks 64x64 dims), the gauge halves are placed by eye, our state and boost readouts stay, and no menu/countdown/lap sprites are used yet. Sprites are decoded in memory only.
 
+**Race SFX and countdown (S5a/b).** With the folder attached, one-shots fire on edges: boost ignition (`sfx_pod_flare_fire`), airbrake on/off, obstacle contact (`sfx_crash_metal_med1`, 0.5 s cooldown) and the finish (`sfx_payoff_bell`); they follow the Sound menu's Racer-sounds box. The `Racer HUD` box also swaps the 3-2-1 countdown text for SWE1R sprites 19-21 (GO stays text; there is no GO sprite). Surface loops are not wired.
+
+**Voice lines (S5c).** `node swe1r/audition.mjs` (with `SWE1R_DATA` set) serves a local tagging page at http://127.0.0.1:4184/ for `wavs\22K\Voice`: space plays, n/p step, 1-9 assign a recent tag, prefix filter, autoplay. Tags save to git-ignored `runtime/voice-tags.json`; Export writes ids only to `swe1r/voice-map.json` (no audio).
+
 ## Public static hosting (GitHub Pages / Cloudflare Pages)
 
 The app is static: it needs no server, and the player's own Data folder never leaves their machine.

@@ -128,6 +128,14 @@ export class WorldAudio {
     const source=this.context.createBufferSource(),node=this.context.createGain();
     source.buffer=buffer;node.gain.value=gain;source.connect(node);node.connect(this.master);source.start();
   }
+  // One-shot SWE1R effects on rising/falling edges of boost, airbrake and obstacle contact.
+  edges(boost,brake,hit,now) {
+    const was=this.was??={};
+    if(boost&&!was.boost)this.cue('sfx_pod_flare_fire',.5);
+    if(brake!==was.brake&&was.brake!==undefined)this.cue(brake?'sfx_pod_airbrakes_on':'sfx_pod_airbrakes_off',.4);
+    if(hit&&!was.hit&&now>(was.crashAt??0)+.5){was.crashAt=now;this.cue('sfx_crash_metal_med1',.7);}
+    was.boost=boost;was.brake=brake;was.hit=hit;
+  }
   update(state,input,dt,active) {
     if(!this.enabled || this.context?.state!=='running')return;
     const now=this.context.currentTime;

@@ -2,6 +2,7 @@
 export const SFX = {
   engine: 'sfx_pod_varipitch_d_loop', boost: 'sfx_pod_jet_steady_loop',
   beep: 'sfx_start_beep', go: 'sfx_start_game', gate: 'sfx_pod_switch_a',
+  finish: 'sfx_payoff_bell', crash: 'sfx_crash_metal_med1', ignite: 'sfx_pod_flare_fire', brakeOn: 'sfx_pod_airbrakes_on', brakeOff: 'sfx_pod_airbrakes_off',
 };
 
 export async function loadSfx(reader, names = Object.values(SFX)) {
