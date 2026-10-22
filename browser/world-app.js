@@ -19,7 +19,7 @@ import {bootChoice,writeChoice,tracksFor,vehicleOf,VEHICLES,canSwitch,normalizeC
 import {initSwe1rRow,onSwe1r,getSwe1r,attachSwe1r} from './swe1r/ui.js';
 import {classifyPickError} from './swe1r/attach.js';
 import {podSkinList,loadPodModel} from './swe1r/skin.js';
-import {SFX,STINGER,loadSfx} from './swe1r/sfx.js';
+import {SFX,STINGER,pickRaceMusic,loadSfx} from './swe1r/sfx.js';
 import {pickVoice,raceEndEvents} from './swe1r/voice-map.js';
 import {loadHudSprites,loadCountdownSprites,createDial} from './swe1r/hud.js';
 let dial,hudOn=false,countdownSprites;
@@ -506,13 +506,14 @@ function startRace(track) {
   });
 }
 let lastCount=0,voiceMap,voiceReader,lastVoice,lastLap=1;
-async function stinger(name){if(!voiceReader)return;music.setBattle(false);const b=await voiceReader.wav(Array.isArray(name)?name[Math.floor(Math.random()*name.length)]:name).catch(()=>null);if(b)audio.stinger(b);}
+let raceTune=null;
+async function stinger(name){if(!voiceReader)return;music.setBattle(false);audio.stopLoop();const b=await voiceReader.wav(Array.isArray(name)?name[Math.floor(Math.random()*name.length)]:name).catch(()=>null);if(b)audio.stinger(b);}
 async function say(...events){const event=events.find(e=>voiceMap?.[e]?.length),id=event&&pickVoice(voiceMap,event,lastVoice);if(!id||!voiceReader)return;lastVoice=id;const b=await voiceReader.wav('Voice/'+id).catch(()=>null);if(b)audio.say(b);}
 function raceFrame(controls,t) {
   if(race.state==='lineup'||race.state==='countdown'){controls.throttle=0;controls.steer=0;}
   const count=Math.ceil(race.countdown(t)),event=race.update(client.state.telemetry,t);
   if(race.lap>lastLap){lastLap=race.lap;say(race.lap===race.track.laps?'final-lap':'lap-new');}
-  if(event==='go'){say('countdown-go');goUntil=t+.8;music.setBattle(true,true);music.playCue('quest');audio.cue(SFX.go);}
+  if(event==='go'){say('countdown-go');goUntil=t+.8;raceTune=voiceReader&&audio.sampleOn?pickRaceMusic():null;music.setBattle(true,!raceTune);if(raceTune)voiceReader.wav(raceTune).then(b=>b?audio.loopMusic(b):music.setBattle(true,true)).catch(()=>music.setBattle(true,true));music.playCue('quest');audio.cue(SFX.go);}
   else if(event==='gate')audio.cue(SFX.gate,.5);
   else if(race.state==='countdown'&&count!==lastCount){lastCount=count;say('countdown-'+count);music.playCue('click');audio.cue(SFX.beep);}
   const text=race.state==='countdown'?String(count):t<goUntil?'GO!':'';

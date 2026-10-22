@@ -6,7 +6,21 @@ export const SFX = {
 };
 
 // Race-end stingers from data\wavs\Music (not cached; available via the picked folder or files).
-export const STINGER = { win: 'Music/m099awards2', wipeout: ['Music/m032wipeout2', 'Music/m032wipeout3'] };
+export const STINGER = { win: 'Music/m010podanni', wipeout: ['Music/m032wipeout2', 'Music/m032wipeout3'] };
+
+// Race music pool; null = keep our own battle music.
+export const RACE_MUSIC = ['Music/PodLoop1', 'Music/PsycheLoop', 'Music/SebulbaLoop', null];
+export const pickRaceMusic = (random = Math.random) => RACE_MUSIC[Math.floor(random() * RACE_MUSIC.length)];
+
+// Wipeout blast (not wired yet): one gas explosion layered with a metal or fiery crash, resolved against the 22K listing.
+// The install spells the fiery family 'firey'.
+export function wipeoutBlast(names, random = Math.random) {
+  const has = prefix => [...names].filter(n => n.startsWith(prefix));
+  const gas = has('sfx_explo_gas_');
+  const crash = has(random() < .5 ? 'sfx_crash_metal_' : 'sfx_crash_firey_');
+  const pick = list => list[Math.floor(random() * list.length)];
+  return [gas, crash].filter(l => l.length).map(pick);
+}
 
 export async function loadSfx(reader, names = Object.values(SFX)) {
   const out = new Map();
