@@ -2,7 +2,7 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.json':'application/json', '.svg':'image/svg+xml', '.glb':'model/gltf-binary' };
-const allowed = /^\/(?:index\.html|world-(?:app|client|worker|store|renderer|camera|input|audio|music|tuning|view)\.js|far-(?:worker|stream|channel)\.js|asset-(?:source|folder|channel|worker)\.js|(?:scene|terrain|water|craft)-stream\.js|loading-art\.js|water-shader\.js|clouds\.js|shadow\.js|race(?:-flags)?\.js|track-edit(?:or)?\.js|vehicles\.js|swe1r\/(?:folder|ui|block|comp|image|names)\.js|glb\.js|vehicle-model\.js|vehicles\/[a-z0-9-]+\.glb|tracks\/[a-z0-9-]+\.json|ocean-mesh\.js|worldmap\.js|map-panel\.js|music\.js|sky\.js|camera-collision\.js|flight\.js|style\.css|icon\.svg|sw\.js|local\/npc-spawns\.json|pkg\/flats_racer_web(?:_bg\.wasm|\.js))$/;
+const allowed = /^\/(?:index\.html|world-(?:app|client|worker|store|renderer|camera|input|audio|music|tuning|view)\.js|far-(?:worker|stream|channel)\.js|asset-(?:source|folder|channel|worker)\.js|(?:scene|terrain|water|craft)-stream\.js|loading-art\.js|water-shader\.js|clouds\.js|shadow\.js|race(?:-flags)?\.js|track-edit(?:or)?\.js|vehicles\.js|swe1r\/(?:folder|ui|block|comp|image|names|model|pod|skin)\.js|glb\.js|vehicle-model\.js|vehicles\/[a-z0-9-]+\.glb|tracks\/[a-z0-9-]+\.json|ocean-mesh\.js|worldmap\.js|map-panel\.js|music\.js|sky\.js|camera-collision\.js|flight\.js|style\.css|icon\.svg|sw\.js|local\/npc-spawns\.json|pkg\/flats_racer_web(?:_bg\.wasm|\.js))$/;
 const server = http.createServer(async (request, response) => {
   let path;
   try { path = new URL(request.url, 'http://localhost').pathname; }

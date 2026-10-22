@@ -15,8 +15,9 @@ import {createTrackEditor} from './track-editor.js';
 import {clampTrack} from './track-edit.js';
 import {loadTracks,nearestFlag,flagPosition} from './race-flags.js';
 import {loadVehicleModel} from './vehicle-model.js';
-import {bootChoice,writeChoice,tracksFor,vehicleOf,VEHICLES,canSwitch,normalizeChoice,skinOf} from './vehicles.js';
-import {initSwe1rRow} from './swe1r/ui.js';
+import {bootChoice,writeChoice,tracksFor,vehicleOf,VEHICLES,canSwitch,normalizeChoice,skinOf,setRuntimeSkins} from './vehicles.js';
+import {initSwe1rRow,onSwe1r,getSwe1r} from './swe1r/ui.js';
+import {podSkinList,loadPodModel} from './swe1r/skin.js';
 
 const $=id=>document.getElementById(id),canvas=$('world'),keys=new Set();
 const input=new WorldInput(),audio=new WorldAudio();
@@ -375,8 +376,8 @@ let skinToken=0,skinNote='';
 async function applySkin() {
   const token=++skinToken,skin=skinOf(choice);
   if(!renderer)return;
-  if(skin.source!=='glb'){skinNote='';renderer.setCraftOverride(undefined);return;}
-  try{const model=await loadVehicleModel(skin);if(token===skinToken){renderer.setCraftOverride(model);skinNote='';}}
+  if(skin.source!=='glb'&&skin.source!=='swe1r'){skinNote='';renderer.setCraftOverride(undefined);return;}
+  try{const model=skin.source==='swe1r'?await loadPodModel(getSwe1r(),skin):await loadVehicleModel(skin);if(token===skinToken){renderer.setCraftOverride(model);skinNote='';}}
   catch(error){if(token===skinToken){renderer.setCraftOverride(undefined);skinNote=`Skin ${skin.name} unavailable (${error.message}); using the default craft`;report(skinNote,true);}}
 }
 const MiB=v=>((v||0)/1048576).toFixed(0);
@@ -632,6 +633,7 @@ async function start() {
       $('offline').textContent='Offline ready.';
     }
     initSwe1rRow();
+    onSwe1r(()=>{setRuntimeSkins('swe1r',podSkinList());if(garage.open)renderGarage();});
     folder=await restoreDataFolder().catch(()=>undefined);
     if(folder) {
       if(await authorizeDataFolder(folder))await open(folder);
