@@ -5,6 +5,9 @@ export const SFX = {
   finish: 'sfx_payoff_bell', crash: 'sfx_crash_metal_med1', ignite: 'sfx_pod_flare_fire', brakeOn: 'sfx_pod_airbrakes_on', brakeOff: 'sfx_pod_airbrakes_off',
 };
 
+// Race-end stingers from data\wavs\Music (not cached; available via the picked folder or files).
+export const STINGER = { win: 'Music/m099awards2', wipeout: ['Music/m032wipeout2', 'Music/m032wipeout3'] };
+
 export async function loadSfx(reader, names = Object.values(SFX)) {
   const out = new Map();
   for (const n of names) { const b = await reader.wav?.(n); if (b?.length > 44) out.set(n, b); }

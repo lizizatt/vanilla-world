@@ -30,10 +30,20 @@ export async function wavsFromHandle(handle) {
   return null;
 }
 
-export function readerFromHandle(lev, label, wavs) {
+// data\wavs\Music sibling of 22K; null when absent.
+export async function musicFromHandle(handle) {
+  for (const path of [['wavs', 'Music'], ['data', 'wavs', 'Music']]) {
+    let d = handle;
+    for (const p of path) d = d && await sub(d, p);
+    if (d) return d;
+  }
+  return null;
+}
+
+export function readerFromHandle(lev, label, wavs, music) {
   const file = name => lev.getFileHandle(name).then(h => h.getFile());
-  const wav = async n => { try { let d = wavs; const parts = n.split("/"); for (const p of parts.slice(0, -1)) d = await d.getDirectoryHandle(p); return new Uint8Array(await (await (await d.getFileHandle(`${parts.at(-1)}.wav`)).getFile()).arrayBuffer()); } catch { return null; } };
-  return { name: label ?? lev.name, wav: wavs ? wav : async () => null, size: async n => (await file(n)).size, read: async n => new Uint8Array(await (await file(n)).arrayBuffer()), slice: async (n, a, b) => new Uint8Array(await (await file(n)).slice(a, b).arrayBuffer()) };
+  const wav = async n => { try { const isMusic = n.startsWith('Music/'); let d = isMusic ? music : wavs; const parts = n.split('/').slice(isMusic ? 1 : 0); for (const p of parts.slice(0, -1)) d = await d.getDirectoryHandle(p); return new Uint8Array(await (await (await d.getFileHandle(`${parts.at(-1)}.wav`)).getFile()).arrayBuffer()); } catch { return null; } };
+  return { name: label ?? lev.name, wav: wavs || music ? wav : async () => null, size: async n => (await file(n)).size, read: async n => new Uint8Array(await (await file(n)).arrayBuffer()), slice: async (n, a, b) => new Uint8Array(await (await file(n)).slice(a, b).arrayBuffer()) };
 }
 
 export function readerFromFiles(files) {
@@ -45,7 +55,7 @@ export function readerFromFiles(files) {
   const find = n => [...byName].find(([p]) => p.toLowerCase().replace(/\\/g, '/').endsWith(`/${n}`) || p === n)?.[1];
   if (!find(BLOCKS[0])) return null;
   const need = n => find(n) ?? (() => { throw new Error(`missing ${n}`); })();
-  const wav = async n => { const f = find(`22k/${n.toLowerCase()}.wav`); return f ? new Uint8Array(await f.arrayBuffer()) : null; };
+  const wav = async n => { const f = find(n.startsWith('Music/') ? `${n.toLowerCase()}.wav` : `22k/${n.toLowerCase()}.wav`); return f ? new Uint8Array(await f.arrayBuffer()) : null; };
   return { name: 'selected files', wav, size: async n => need(n).size, read: async n => new Uint8Array(await need(n).arrayBuffer()), slice: async (n, a, b) => new Uint8Array(await need(n).slice(a, b).arrayBuffer()) };
 }
 

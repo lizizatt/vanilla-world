@@ -132,6 +132,14 @@ export class WorldAudio {
       source.onended=()=>{this.talking=false;};source.start();
     } catch {this.talking=false;}
   }
+  // Plays a music stinger once, independent of voice lines.
+  async stinger(bytes,gain=.7) {
+    if(!bytes || !this.sampleOn || !this.enabled || !this.active || this.context.state!=='running')return;
+    try {
+      const source=this.context.createBufferSource(),node=this.context.createGain();
+      source.buffer=await this.context.decodeAudioData(bytes.slice().buffer);node.gain.value=gain;source.connect(node);node.connect(this.master);source.start();
+    } catch {}
+  }
   cue(name,gain=.8) {
     const buffer=this.samples?.buffers[name];
     if(!buffer || !this.sampleOn || !this.enabled || !this.active || this.context.state!=='running')return;
