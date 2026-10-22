@@ -1,53 +1,33 @@
-// Welcome-panel row for the optional SWE1R folder. Exposes the current reader via getSwe1r() for later phases.
+// Welcome/Data-tab row for the optional SWE1R folder. DOM wiring only; the logic lives in attach.js. Exposes the current reader via getSwe1r().
 import { levFromHandle, wavsFromHandle, readerFromHandle, readerFromFiles, describe, remember, restore, forget, authorize } from './folder.js';
+import { createAttach } from './attach.js';
+import { idbBackend, cacheFiles } from './cache.js';
 
-let reader = null;
 const listeners = new Set();
-export const getSwe1r = () => reader;
-export const onSwe1r = fn => { listeners.add(fn); if (reader) fn(reader); };
+let attach = null;
+export const getSwe1r = () => attach?.reader ?? null;
+// fn(reader) on every attach, fn(null) when forgotten.
+export const onSwe1r = fn => { listeners.add(fn); if (attach?.reader) fn(attach.reader); };
+export const attachSwe1r = () => document.getElementById('swe1r-pick')?.click();
 
 export function initSwe1rRow(root = document) {
   const $ = id => root.getElementById(id);
-  const status = $('swe1r-status'), pick = $('swe1r-pick'), forgetBtn = $('swe1r-forget'), files = $('swe1r-files');
+  const status = $('swe1r-status'), pick = $('swe1r-pick'), forgetBtn = $('swe1r-forget'), files = $('swe1r-files'), asFiles = $('swe1r-as-files');
   if (!status || !pick) return;
-  const show = (text, ok = false) => { status.textContent = text; status.dataset.ok = ok ? '1' : ''; forgetBtn.hidden = !ok && !reader; };
-
-  async function use(r, handle) {
-    const info = await describe(r);
-    reader = r;
-    if (handle) await remember(handle).catch(() => {});
-    show(`Racer data ready: ${info.models} models, ${info.textures} textures, ${info.sprites} sprites`, true);
-    for (const fn of listeners) fn(r);
-  }
-  async function fromHandle(handle) {
-    const lev = await levFromHandle(handle);
-    if (!lev) throw new Error('No data\\lev01\\out_modelblock.bin found in that folder');
-    await use(readerFromHandle(lev, handle.name, await wavsFromHandle(handle)), handle);
-  }
-
-  let pending = null;
+  attach = createAttach({
+    cache: idbBackend(), cacheFiles, describe,
+    handles: { remember, restore, forget, authorize },
+    fromHandle: async handle => { const lev = await levFromHandle(handle); return lev && readerFromHandle(lev, handle.name, await wavsFromHandle(handle)); },
+    fromFiles: list => readerFromFiles(list),
+    onChange: r => { forgetBtn.hidden = !r; for (const fn of listeners) fn(r); },
+    onStatus: (text, ok, extra) => { status.textContent = text; status.dataset.ok = ok ? '1' : ''; asFiles.hidden = !extra.fallback; forgetBtn.hidden = !attach?.reader; },
+  });
   pick.addEventListener('click', async () => {
-    try {
-      if (pending) {
-        if (!await authorize(pending, true)) throw new Error('read permission was not granted');
-        const h = pending; pending = null; await fromHandle(h);
-      } else if (window.showDirectoryPicker) await fromHandle(await window.showDirectoryPicker({ id: 'swe1r-data', mode: 'read' }));
-      else files.click();
-    } catch (e) { if (e.name !== 'AbortError') show(`Racer folder: ${e.message}`); }
+    const picker = window.showDirectoryPicker && (() => window.showDirectoryPicker({ id: 'swe1r-data', mode: 'read' }));
+    if (await attach.pick(picker) === 'files') files.click();
   });
-  files.addEventListener('change', async () => {
-    try {
-      const r = readerFromFiles([...files.files]);
-      if (!r) throw new Error('No out_modelblock.bin in the selected files');
-      await use(r);
-    } catch (e) { show(`Racer folder: ${e.message}`); }
-    files.value = '';
-  });
-  forgetBtn.addEventListener('click', async () => { await forget().catch(() => {}); reader = null; show('Optional: Star Wars Episode I: Racer data folder'); });
-
-  restore().then(async handle => {
-    if (!handle) return;
-    if (await authorize(handle, false).catch(() => false)) await fromHandle(handle).catch(() => show('Racer folder moved or unreadable; pick it again'));
-    else { pending = handle; show('Racer folder remembered; click to re-grant access'); }
-  });
+  asFiles.addEventListener('click', () => files.click());
+  files.addEventListener('change', async () => { const list = [...files.files]; files.value = ''; await attach.pickFiles(list); });
+  forgetBtn.addEventListener('click', () => attach.forget());
+  attach.restore();
 }
