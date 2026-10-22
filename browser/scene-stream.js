@@ -882,7 +882,7 @@ export class SceneStream {
 
 export function validatePopulation(pack) {
   if (!pack || pack.version !== 1 || !pack.provenance || typeof pack.provenance.source !== 'string'
-      || !pack.provenance.source || pack.provenance.source.length > 4096 || pack.provenance.redistribution !== 'private-local-only'
+      || !pack.provenance.source || pack.provenance.source.length > 4096 || !['private-local-only', 'public-trimmed'].includes(pack.provenance.redistribution)
       || !pack.models || Array.isArray(pack.models) || Object.keys(pack.models).length > 16000
       || !Array.isArray(pack.spawns) || pack.spawns.length > 200000) throw new Error('Invalid local NPC pack/provenance');
   for (const model of Object.values(pack.models)) {

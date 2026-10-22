@@ -3,6 +3,7 @@ import argparse
 import csv
 import hashlib
 import json
+import math
 import re
 from pathlib import Path
 
@@ -97,12 +98,36 @@ def export(path):
     }
 
 
+def trim(pack):
+    """Public pack: only where a creature model stands. No names, entries, guids, stats or other DB columns; the display
+    id is resolved to a model by the viewer from the user's own Data. Quantised (0.1 yd, 0.01 rad, 0.01 scale) and
+    sorted so JSON gzips well."""
+    two_pi = 2 * math.pi
+    rows = sorted(
+        (s["map"], s["displayId"], round(s["position"][0] * 10), round(s["position"][1] * 10), round(s["position"][2] * 10),
+         round((s["orientation"] % two_pi) * 100) % 629, round(s["scale"] * 100))
+        for s in pack["spawns"])
+    return {
+        "version": 1, "format": "npc-trimmed-v1",
+        "provenance": {
+            "source": "derived-from-vmangos-world-database", "kind": "trimmed-public", "redistribution": "public-trimmed",
+            "patch": pack["provenance"]["patch"],
+            "fields": "[map, displayId, x*10, y*10, z*10, orientation*100, scale*100] per spawn; index = id",
+            "limitations": "Static positions only; no names, entries, stats, movement or live state",
+        },
+        "spawns": [list(r) for r in rows],
+    }
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("snapshot", type=Path)
     parser.add_argument("output", type=Path, help="Private ignored output path, never committed")
+    parser.add_argument("--public", action="store_true", help="Write the trimmed, de-identified pack instead of the private full one")
     args = parser.parse_args()
     result = export(args.snapshot)
+    if args.public:
+        result = trim(result)
     with args.output.open("x", encoding="utf-8") as target:
         json.dump(result, target, separators=(",", ":"), allow_nan=False)
-    print(f"Exported {len(result['spawns'])} static local spawns; unresolved templates {result['provenance']['unresolvedTemplates']}")
+    print(f"Exported {len(result['spawns'])} static spawns ({result['provenance']['redistribution']})")

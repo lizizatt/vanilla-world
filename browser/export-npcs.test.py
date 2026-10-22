@@ -65,6 +65,17 @@ class ExportTests(unittest.TestCase):
             self.assertEqual(pack["provenance"]["patch"], 10)
             self.assertEqual(pack["provenance"]["redistribution"], "private-local-only")
 
+    def test_public_trim_drops_identifying_fields_and_quantises(self):
+        pack = {"provenance": {"patch": 10}, "spawns": [
+            {"id": 99, "entry": 7, "map": 1, "displayId": 5, "position": [1.26, -2.34, 3.0], "orientation": -0.5, "scale": 1.25},
+            {"id": 98, "entry": 8, "map": 0, "displayId": 9, "position": [0, 0, 0], "orientation": 0, "scale": 1}]}
+        out = module.trim(pack)
+        self.assertEqual(out["spawns"], [[0, 9, 0, 0, 0, 0, 100], [1, 5, 13, -23, 30, 578, 125]])
+        self.assertEqual(out["provenance"]["redistribution"], "public-trimmed")
+        text = str(out["spawns"]) + str(sorted(out))
+        for leaked in ("entry", "guid", "private-local-only"):
+            self.assertNotIn(leaked, text)
+
     def test_invalid_event_metadata_does_not_silently_guess_visibility(self):
         for extra, error in [
             (insert("game_event_creature", "guid event", [(1, 99)]), "Unknown creature event"),

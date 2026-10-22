@@ -131,3 +131,12 @@ Optional `NPC_SPAWNS` points to a private companion for that check or
 `driving-smoke.mjs`; the latter intercepts only its isolated browser context's
 population request without replacing the server's pack. This is not a
 substitute for the integrated renderer's GPU and collision acceptance.
+
+
+## NPC pack provenance (read before publishing anything)
+
+- **Source.** The private pack is derived offline from a local VMaNGOS world-database dump (`world_full_14_june_2021.sql`, patch-10 / 1.12 rows; sha256 recorded in the pack). The dump is not in this repository; `server/` is the VMaNGOS core (GPL-2.0, `server/LICENSE`), and its README points to a development database dump as a release asset. Checked: neither `server/LICENSE`, `server/README.md` nor `CONTRIBUTING.md` contains a data-use or redistribution statement for database contents. The GPL-2.0 covers the emulator code; it does not clearly cover the game-world data.
+- **Origin of the data.** Spawn rows are community research reconstructing Blizzard's 1.x world (positions, display ids, scale). Legal status is unclear; Blizzard retains rights to the game world and its content. This repo has no verified licence to redistribute it.
+- **What the public pack contains.** `export-npcs.py <sql> <out> --public` writes `[map, displayId, x*10, y*10, z*10, orientation*100, scale*100]` per spawn only (index = id). No creature names, entries/guids, stats, loot, scripts, SQL or any other column; no model paths (the viewer resolves display ids to models from the user's own local Data via `scene_resolve_displays`). About 1.75 MB raw (about 0.55 MB gzip, 0.41 MB brotli) for 51,561 spawns versus 7.4 MB private. `provenance.redistribution` is `public-trimmed`.
+- **Risk.** Coordinates are still derived from a database of uncertain licensing; trimming reduces what is exposed, not the origin. Publishing is the maintainer's decision. The file lives only at `runtime/browser/npc-pack.json` (git-ignored). `build-dist.mjs` copies it into the hosted build only when `INCLUDE_NPC_PACK=1` is set *and* the file is the trimmed format (a private pack is refused); `pages.yml` does not set it. Locally, `server.mjs` serves it at `/npc-pack.json`.
+- **Loading.** The worker tries the private pack on loopback, then `./npc-pack.json`; a 404 or HTML fallback means no creatures. NPCs still need the user's own WoW Data to render.
