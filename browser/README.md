@@ -1772,6 +1772,8 @@ The Garage skin picker is a compact carousel (◀ name · n / N ▶; Left/Right 
 
 **Sound browser.** `node swe1r/sound-browser.mjs` (`SWE1R_DATA` set) serves http://127.0.0.1:4185/ listing all 2479 wavs (22K, 11K, Music, Voice) with durations, a text filter, play and autoplay-next; read-only, nothing copied.
 
+**Crash prototype (design only, not in the game).** `node tools/crash-proto-dump.mjs 255` writes a pod to git-ignored `runtime/crash-proto/pod.json`; from `browser/` `node crash-proto-capture.mjs` renders `tools/crash-proto.html` for four break-apart techniques (shatter, parts, crumple, voronoi) in Edge and saves screenshots next to it.
+
 **Voice lines (S5c).** `node swe1r/audition.mjs` (with `SWE1R_DATA` set) serves a local tagging page at http://127.0.0.1:4184/ for `wavs\22K\Voice`: space plays, n/p step, 1-9 assign a recent tag, prefix filter, autoplay. Tags save to git-ignored `runtime/voice-tags.json`; Export writes ids only to `swe1r/voice-map.json` (no audio). The race wires countdown-3/2/1/go, lap-new, final-lap, personal-best, finish and cancelled to a random tagged id (never the same twice running, one line at a time; silent when untagged or no folder).
 
 
