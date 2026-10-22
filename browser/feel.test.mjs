@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {cameraView} from './world-camera.js';
 import {WorldInput} from './world-input.js';
-import {SFX} from './swe1r/sfx.js';
+import {SFX,HEAT,heatStage} from './swe1r/sfx.js';
+import {heatColor} from './swe1r/hud.js';
 import {fillEngineBuffer,EngineEnvelope,WorldAudio} from './world-audio.js';
 import {TUNING_FIELDS,validateTuningRecord,migrateTuning} from './world-tuning.js';
 import {CameraCollision,prepareDetail} from './camera-collision.js';
@@ -439,4 +440,26 @@ test('holding boost plays the start once even if grounding or the meter flickers
   audio.update({telemetry:[0,0,0,0,0,50,1,1,0,0]},{throttle:1,flags:0},.016,true);
   audio.update({telemetry:[0,0,0,0,0,50,1,1,0,0]},{throttle:1,flags:2},.016,true);
   assert.deepEqual(played,['start','start']);
+});
+test('engine heat: klaxon by stage, coolant one-shot then loop only while venting after a hot run, silent without samples',()=>{
+  const log=[];
+  const node=()=>({gain:{value:0},connect(){},buffer:null,loop:false,start(){log.push(['start',this.buffer.name,this.loop]);},stop(){log.push(['stop',this.buffer.name]);}});
+  const audio=new WorldAudio();
+  audio.context={state:'running',currentTime:1,createGain:node,createBufferSource:node};audio.master={};
+  audio.enabled=true;audio.active=true;audio.sampleOn=true;
+  audio.setHeat(.85,true);assert.deepEqual(log,[]);
+  const names=[...HEAT.klaxon,HEAT.coolOn,HEAT.cool];audio.samples={buffers:Object.fromEntries(names.map(n=>[n,{name:n}]))};
+  audio.setHeat(.5,true);audio.setHeat(.85,true);audio.setHeat(.85,true);
+  assert.deepEqual(log,[['start','sfx_klaxon1_loop',true]]);
+  audio.setHeat(.99,true);
+  assert.deepEqual(log.slice(1),[['stop','sfx_klaxon1_loop'],['start','sfx_klaxon3_loop',true]]);
+  audio.setHeat(.9,false);
+  assert.deepEqual(log.slice(3),[['stop','sfx_klaxon3_loop'],['start','sfx_klaxon2_loop',true],['start','sfx_pod_coolant_spray_on',false],['start','sfx_pod_coolant_spray_loop',true]]);
+  audio.setHeat(.04,false);
+  assert.deepEqual(log.slice(7),[['stop','sfx_klaxon2_loop'],['stop','sfx_pod_coolant_spray_loop']]);
+  audio.setHeat(.3,false);assert.equal(log.length,9,'a cold engine does not trigger coolant');
+});
+test('heat stages and gauge colour follow the warning thresholds',()=>{
+  assert.deepEqual([0,.79,.8,.9,.97,1].map(heatStage),[0,0,1,2,3,3]);
+  assert.equal(heatColor(0),'hsl(170 90% 55%)');assert.equal(heatColor(1),'hsl(0 90% 55%)');assert.equal(heatColor(NaN),heatColor(0));
 });
