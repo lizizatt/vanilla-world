@@ -31,9 +31,9 @@ try {
   await page.waitForFunction(()=>worldEvidence.input.flags===1 && worldEvidence.input.throttle===0 && worldEvidence.state.telemetry[5]<.3);
   await page.keyboard.up('KeyX');checks.separateBrake=true;
   const floor=await page.evaluate(()=>worldEvidence.state.telemetry[1]);
-  await page.keyboard.down('Space');
+  await page.keyboard.down('KeyJ');
   await page.waitForFunction(y=>worldEvidence.state.telemetry[1]>y+.4,floor,{timeout:10000});
-  await page.keyboard.up('Space');checks.nativeHop=true;
+  await page.keyboard.up('KeyJ');checks.nativeHop=true;
   await page.waitForFunction(()=>worldEvidence.state.telemetry[7]===1);
   await page.locator('#preferences > summary').click();
   await page.locator('#control-profile').selectOption('legacy');await page.locator('#world').focus();
