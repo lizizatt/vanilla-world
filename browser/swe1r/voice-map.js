@@ -19,3 +19,10 @@ export function pickVoice(map, event, last, random = Math.random) {
   const pool = ids.length > 1 ? ids.filter(i => i !== last) : ids;
   return pool[Math.floor(random() * pool.length)];
 }
+
+// Ordered event candidates for a finished/cancelled race; the first one with tagged ids is played.
+// Solo racing has no positions, so a cancelled race counts as the loss.
+export function raceEndEvents(finished, beatBest) {
+  if (!finished) return ['lose', 'cancelled'];
+  return beatBest ? ['lap-record', 'personal-best', 'finish'] : ['finish'];
+}

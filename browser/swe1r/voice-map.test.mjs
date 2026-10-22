@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildMap, filterIds, pickVoice, EVENTS } from './voice-map.js';
+import { buildMap, filterIds, pickVoice, EVENTS, raceEndEvents } from './voice-map.js';
 
 test('buildMap groups ids by event, sorted, dropping unknown tags', () => {
   const m = buildMap({ rali003a: 'lap-new', rali001: 'lap-new', raac002: 'finish', x: 'bogus' });
@@ -20,4 +20,10 @@ test('pickVoice avoids an immediate repeat and handles empty events', () => {
   assert.equal(pickVoice(map, 'one', 'x'), 'x');
   assert.equal(pickVoice(map, 'none'), null);
   assert.equal(pickVoice(undefined, 'finish'), null);
+});
+
+test('raceEndEvents orders candidates', () => {
+  assert.deepEqual(raceEndEvents(true, true), ['lap-record', 'personal-best', 'finish']);
+  assert.deepEqual(raceEndEvents(true, false), ['finish']);
+  assert.deepEqual(raceEndEvents(false, false), ['lose', 'cancelled']);
 });

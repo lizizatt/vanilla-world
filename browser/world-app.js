@@ -20,7 +20,7 @@ import {initSwe1rRow,onSwe1r,getSwe1r,attachSwe1r} from './swe1r/ui.js';
 import {classifyPickError} from './swe1r/attach.js';
 import {podSkinList,loadPodModel} from './swe1r/skin.js';
 import {SFX,loadSfx} from './swe1r/sfx.js';
-import {pickVoice} from './swe1r/voice-map.js';
+import {pickVoice,raceEndEvents} from './swe1r/voice-map.js';
 import {loadHudSprites,loadCountdownSprites,createDial} from './swe1r/hud.js';
 let dial,hudOn=false,countdownSprites;
 
@@ -506,7 +506,7 @@ function startRace(track) {
   });
 }
 let lastCount=0,voiceMap,voiceReader,lastVoice,lastLap=1;
-async function say(event){const id=pickVoice(voiceMap,event,lastVoice);if(!id||!voiceReader)return;lastVoice=id;const b=await voiceReader.wav('Voice/'+id).catch(()=>null);if(b)audio.say(b);}
+async function say(...events){const event=events.find(e=>voiceMap?.[e]?.length),id=event&&pickVoice(voiceMap,event,lastVoice);if(!id||!voiceReader)return;lastVoice=id;const b=await voiceReader.wav('Voice/'+id).catch(()=>null);if(b)audio.say(b);}
 function raceFrame(controls,t) {
   if(race.state==='lineup'||race.state==='countdown'){controls.throttle=0;controls.steer=0;}
   const count=Math.ceil(race.countdown(t)),event=race.update(client.state.telemetry,t);
@@ -521,7 +521,7 @@ function raceFrame(controls,t) {
   if(race.state==='finished'||race.state==='cancelled'){
     const finished=race.state==='finished',run=finished&&{time:race.time,splits:race.splits.slice(),date:new Date().toISOString()};
     const track=race.track;race=undefined;$('race-hud').hidden=true;
-    if(finished){audio.cue(SFX.finish,.8);say(raceBest&&run.time<raceBest.time?'personal-best':'finish');recordRun(track,run);againTrack=track;againUntil=performance.now()+10000;}else{say('cancelled');report(`Race ${track.name||track.id} cancelled.`,true);}
+    if(finished){audio.cue(SFX.finish,.8);say(...raceEndEvents(true,!raceBest||run.time<raceBest.time));recordRun(track,run);againTrack=track;againUntil=performance.now()+10000;}else{say(...raceEndEvents(false));report(`Race ${track.name||track.id} cancelled.`,true);}
   } else raceHud(t);
 }
 const setText=(id,value)=>{const e=$(id);if(e.textContent!==value)e.textContent=value;};
