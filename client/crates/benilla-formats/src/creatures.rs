@@ -229,6 +229,12 @@ impl CreatureCatalog {
         })
     }
 
+    /// Attach humanoid appearance rows parsed from CreatureDisplayInfoExtra.
+    pub fn with_extra(mut self, extra: HashMap<u32, NpcAppearance>) -> Self {
+        self.extra = extra;
+        self
+    }
+
     /// Resolve an NPC display id to its model.
     pub fn model(&self, display_id: u32) -> Option<CreatureModel> {
         let row = self.display.get(&display_id)?;
@@ -427,8 +433,13 @@ fn load_creature_display_info_extra(chain: &mut Chain) -> Result<HashMap<u32, Np
     let bytes = chain
         .read_file(CREATURE_DISPLAY_INFO_EXTRA)
         .with_context(|| format!("reading {CREATURE_DISPLAY_INFO_EXTRA}"))?;
+    parse_creature_display_info_extra(&bytes)
+}
+
+/// Parse CreatureDisplayInfoExtra.dbc bytes without IO.
+pub fn parse_creature_display_info_extra(bytes: &[u8]) -> Result<HashMap<u32, NpcAppearance>> {
     let rs = parse(
-        &bytes,
+        bytes,
         creature_display_info_extra_schema(),
         "CreatureDisplayInfoExtra",
     )?;

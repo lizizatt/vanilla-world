@@ -55,6 +55,33 @@ pub fn scene_craft_display(models: &[u8], displays: &[u8]) -> Result<String, JsV
     craft_display(models, displays).map_err(js)
 }
 
+/// Display id -> model map for a trimmed public NPC pack, resolved from the user's own DBCs (same shape resolve_npcs writes).
+fn resolve_displays(models: &[u8], displays: &[u8], extra: &[u8], ids: &[u32]) -> Result<String, String> {
+    bounded(models)?;
+    bounded(displays)?;
+    bounded(extra)?;
+    let catalog = benilla_formats::parse_creature_catalog(models, displays)
+        .map_err(|e| e.to_string())?
+        .with_extra(benilla_formats::parse_creature_display_info_extra(extra).unwrap_or_default());
+    let mut out = serde_json::Map::new();
+    for &id in ids {
+        let Some(model) = catalog.model(id) else { continue };
+        let mut skins = model.textures.to_vec();
+        skins.push(
+            model.npc_appearance.as_ref().and_then(|a| a.bake_name.as_ref())
+                .map(|name| format!("Textures\\BakedNpcTextures\\{name}")),
+        );
+        out.insert(id.to_string(), json!({"path": model.model_path, "scale": model.scale, "skins": skins,
+            "appearance": if model.npc_appearance.is_some() { "baked-body-no-equipment" } else { "creature-bind-pose" }}));
+    }
+    Ok(serde_json::Value::Object(out).to_string())
+}
+
+#[wasm_bindgen]
+pub fn scene_resolve_displays(models: &[u8], displays: &[u8], extra: &[u8], ids: &[u32]) -> Result<String, JsValue> {
+    resolve_displays(models, displays, extra, ids).map_err(js)
+}
+
 fn craft_metadata(bytes: &[u8]) -> Result<String, String> {
     bounded(bytes)?;
     let attachments = benilla_formats::parse_m2_attachments(bytes).map_err(|e| e.to_string())?;

@@ -4,6 +4,7 @@ import {openAssetSource} from './asset-channel.js';
 import {SceneStream,SCENE_LIMITS,transformedBounds,globalCollisionVertices,boundsWithin,boundsDistance,sceneReady} from './scene-stream.js';
 import {TerrainStream} from './terrain-stream.js';
 import {loadCraft} from './craft-stream.js';
+import {loadPopulation} from './npc-pack.js';
 import {WaterStream} from './water-stream.js';
 import {FarChannel} from './far-channel.js';
 import {FAR_LIMITS} from './far-stream.js';
@@ -724,11 +725,9 @@ async function handle(message) {
     water=new WaterStream(source,wasmTypes,manifest,(message,transfers)=>postMessage(message,transfers));
     void terrain.init(manifest);
     const loopback=/^(localhost|127\.0\.0\.1|\[::1\])$/.test(self.location.hostname);
-    const population=loopback?await fetch('./local/npc-spawns.json').catch(()=>undefined):undefined;
-    // Static hosts omit the private pack (404, or an HTML fallback with 200): no creatures, no error.
-    const pack=population?.ok&&/json/.test(population.headers.get('content-type')||'')?await population.json().catch(()=>undefined):undefined;
+    // Static hosts without a pack (404, or an HTML fallback with 200) simply get no creatures.
+    const pack=await loadPopulation({loopback,source,wasm:wasmTypes});
     if(pack)scene.setPopulation(pack);
-    else if(population&&population.status>=500)throw new Error(`Private NPC companion failed: HTTP ${population.status}`);
     // Horizon initialization is synchronous before its first yield; required near work can then overlap publication.
     const horizonReady=buildHorizon(wdls);
     await Promise.all([horizonReady,(async()=>{
