@@ -137,6 +137,18 @@ test('real install: Lod1 pod loads as a textured craft payload', { skip: !proces
   assert.ok(payload.textures.length > 16 && payload.textures.length <= 64); // no longer capped at 16
   assert.ok(payload.asset.vertices.every(Number.isFinite));
 });
+test('real install: texture UVs are normalised by 4096, so a 16x128 strip is not tiled', { skip: !process.env.SWE1R_DATA && 'SWE1R_DATA not set' }, async () => {
+  const lev = findLev(process.env.SWE1R_DATA);
+  const reader = { read: async n => new Uint8Array(fs.readFileSync(path.join(lev, n))) };
+  const { asset } = await loadPodModel(reader, podSkinList().find(s => s.name === 'Teemto Pagalies'));
+  const strip = asset.batches.find(b => b.texture === 'swe1r\\107');
+  assert.ok(strip);
+  for (let i = strip.firstIndex; i < strip.firstIndex + strip.indexCount; i++) {
+    const u = asset.vertices[asset.indices[i] * 12 + 6];
+    assert.ok(u > -0.1 && u < 1.1, `u ${u}`);
+  }
+});
+
 test('loadSfx keeps present wavs, drops missing or empty ones', async () => {
   const wav = new Uint8Array(100);
   const reader = { wav: async n => n === 'a' ? wav : n === 'b' ? new Uint8Array(10) : null };
