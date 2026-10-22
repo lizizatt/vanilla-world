@@ -16,6 +16,7 @@ import {clampTrack} from './track-edit.js';
 import {loadTracks,nearestFlag,flagPosition} from './race-flags.js';
 import {loadVehicleModel} from './vehicle-model.js';
 import {bootChoice,writeChoice,tracksFor,vehicleOf,VEHICLES,canSwitch,normalizeChoice,skinOf} from './vehicles.js';
+import {initSwe1rRow} from './swe1r/ui.js';
 
 const $=id=>document.getElementById(id),canvas=$('world'),keys=new Set();
 const input=new WorldInput(),audio=new WorldAudio();
@@ -630,6 +631,7 @@ async function start() {
       await navigator.serviceWorker.register('./sw.js');
       $('offline').textContent='Offline ready.';
     }
+    initSwe1rRow();
     folder=await restoreDataFolder().catch(()=>undefined);
     if(folder) {
       if(await authorizeDataFolder(folder))await open(folder);

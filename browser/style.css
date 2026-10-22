@@ -169,6 +169,9 @@ dialog h2 { color: #ffb34d; margin-top: 0; }
 #welcome #select:hover:not(:disabled), #welcome #select:focus-visible { filter: brightness(1.12); text-decoration: none; }
 #welcome #select:disabled { filter: grayscale(.8) brightness(.7); cursor: wait; }
 #folder-extras { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+#swe1r-row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: center; margin: 8px 0; font: 13px var(--serif); color: var(--gold-dim); }
+#swe1r-row button { font: 13px var(--serif); color: var(--gold); background: rgba(0,0,0,.35); border: 1px solid var(--gold-dim); border-radius: 3px; }
+#swe1r-status[data-ok="1"] { color: #9fd89f; }
 #folder-extras button, #data-folder button { font: 13px var(--serif); color: var(--gold); background: rgba(0,0,0,.35); border: 1px solid var(--gold-dim); border-radius: 3px; }
 #folder-extras button:hover, #data-folder button:hover { border-color: var(--gold); color: #fff3c4; text-decoration: none; }
 .welcome-help { margin: 18px 0 0; font-size: 13px; line-height: 1.5; color: #bda878; }
