@@ -1,0 +1,116 @@
+<!doctype html><meta charset="utf-8"><title>Crash prototype</title>
+<!-- Local prototype: loads pod.json (dumped from the user's SWE1R install, git-ignored). Techniques: ?m=shatter|parts|crumple|voronoi&t=seconds -->
+<style>html,body{margin:0;background:#1d2530;color:#ddd;font:13px sans-serif}canvas{display:block}#hud{position:absolute;left:8px;top:6px;white-space:pre}</style>
+<canvas id="c" width="900" height="520"></canvas><div id="hud"></div>
+<script>
+const q = new URLSearchParams(location.search), mode = q.get('m') || 'shatter', T = +(q.get('t') || 0);
+const gl = document.getElementById('c').getContext('webgl2');
+const prog = gl.createProgram();
+for (const [type, src] of [[gl.VERTEX_SHADER, `#version 300 es
+in vec3 p; in vec3 n; in vec3 col; uniform mat4 M; out vec3 c;
+void main(){ float l = .35 + .65*max(dot(normalize(n), normalize(vec3(.4,.5,.8))), 0.); c = col*l; gl_Position = M*vec4(p,1); }`],
+  [gl.FRAGMENT_SHADER, `#version 300 es
+precision mediump float; in vec3 c; out vec4 o; void main(){ o = vec4(c,1); }`]]) {
+  const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); gl.attachShader(prog, s);
+}
+gl.linkProgram(prog); gl.useProgram(prog);
+const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+[['p', 0], ['n', 3], ['col', 6]].forEach(([nm, o]) => { const l = gl.getAttribLocation(prog, nm); gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, 3, gl.FLOAT, false, 36, o * 4); });
+gl.enable(gl.DEPTH_TEST);
+
+// tiny seeded RNG so captures are deterministic
+let seed = 12345; const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
+const v3 = { sub: (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], add: (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]], mul: (a, k) => a.map(x => x * k), len: a => Math.hypot(...a) };
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+function rotate(v, w) { // rotate v about axis w by |w| (Rodrigues)
+  const a = v3.len(w); if (a < 1e-9) return v; const k = w.map(x => x / a), c = Math.cos(a), s = Math.sin(a), d = k[0] * v[0] + k[1] * v[1] + k[2] * v[2], kx = cross(k, v);
+  return [0, 1, 2].map(i => v[i] * c + kx[i] * s + k[i] * d * (1 - c));
+}
+const GROUND = -740; // pod lowest point
+
+fetch('pod.json').then(r => r.json()).then(pod => {
+  const tris = pod.tris, centroid = t => [0, 1, 2].map(i => (t[i] + t[3 + i] + t[6 + i]) / 3);
+  const cls = (c) => c[0] < -500 ? 0 : c[0] > 500 ? (c[1] > 0 ? 1 : 2) : 3; // pod, engine L, engine R, cables
+  const PARTCOL = [[.85, .7, .2], [.3, .55, .9], [.9, .35, .3], [.6, .6, .6]];
+  // bodies: { tris:[index], com, pos(offset from origin), rot(axis-angle accumulated as matrix-free vec), vel, w, col, tether }
+  let bodies = [];
+  const groupBy = keyFn => { const g = new Map(); tris.forEach((t, i) => { const k = keyFn(t, i); if (!g.has(k)) g.set(k, []); g.get(k).push(i); }); return [...g.values()]; };
+  const IMPACT = [2600, 0, -200], V0 = [-1, 0, 0]; // craft ran into a wall ahead (+x): shards fly back/out, ground-bounce
+  function mk(list, col, extra = {}) {
+    const com = list.reduce((s, i) => v3.add(s, centroid(tris[i])), [0, 0, 0]).map(x => x / list.length);
+    const away = v3.sub(com, IMPACT), d = v3.len(away) || 1;
+    return { list, com, off: [0, 0, 0], ang: [0, 0, 0], vel: v3.add(v3.mul(away, 2.2 / d * 380 * (.6 + rnd() * .8) / 380 * 380), [0, (rnd() - .5) * 600, 500 * rnd()]).map(x => x * 1), w: [(rnd() - .5) * 14, (rnd() - .5) * 14, (rnd() - .5) * 14], col, ...extra };
+  }
+  const sparks = [];
+  if (mode === 'shatter') bodies = tris.map((t, i) => mk([i], PARTCOL[cls(centroid(t))]));
+  if (mode === 'parts') {
+    bodies = groupBy(t => cls(centroid(t))).map(list => mk(list, PARTCOL[cls(centroid(tris[list[0]]))], { tether: cls(centroid(tris[list[0]])) !== 0 }));
+    bodies.forEach(b => b.vel = b.vel.map(x => x * .45)); // heavier lumps
+  }
+  if (mode === 'voronoi') {
+    const seeds = Array.from({ length: 24 }, () => [pod.lo[0] + rnd() * (pod.hi[0] - pod.lo[0]), pod.lo[1] + rnd() * (pod.hi[1] - pod.lo[1]), pod.lo[2] + rnd() * (pod.hi[2] - pod.lo[2])]);
+    bodies = groupBy(t => { const c = centroid(t); let b = 0, bd = 1e18; seeds.forEach((s, k) => { const d = v3.len(v3.sub(c, s)); if (d < bd) { bd = d; b = k; } }); return b; })
+      .map((list, k) => mk(list, PARTCOL[cls(centroid(tris[list[0]]))].map(x => x * (.75 + .25 * ((k * 37) % 7) / 7))));
+  }
+  if (mode === 'crumple') { bodies = groupBy(t => cls(centroid(t))).map(list => mk(list, PARTCOL[cls(centroid(tris[list[0]]))])); bodies.forEach((b, i) => { if (i === 0) { b.vel = [-300, 0, 80]; b.w = [0, 0, 0]; } else b.vel = b.vel.map(x => x * .4); }); }
+  const tether = bodies.find(b => b.tether); void tether;
+
+  const dt = 1 / 60; let time = 0, cpu = 0, steps = 0;
+  function step() {
+    const t0 = performance.now();
+    for (const b of bodies) {
+      b.vel[2] -= 2400 * dt; // gravity (model units/s^2)
+      b.off = v3.add(b.off, v3.mul(b.vel, dt)); b.ang = v3.add(b.ang, v3.mul(b.w, dt));
+      const low = b.com[2] + b.off[2] - 60;
+      if (low < GROUND) { b.off[2] += GROUND - low; b.vel[2] *= -.35; b.vel[0] *= .8; b.vel[1] *= .8; b.w = b.w.map(x => x * .7); if (Math.abs(b.vel[2]) > 300 && sparks.length < 300) for (let k = 0; k < 2; k++) sparks.push({ p: v3.add(b.com, b.off), v: [(rnd() - .5) * 900, (rnd() - .5) * 900, rnd() * 900], life: .5 }); }
+      if (b.tether) { const pod = bodies[0], rest = v3.sub(b.com, pod.com), d = v3.sub(v3.add(pod.com, pod.off), v3.add(b.com, b.off)), target = v3.add(d, rest); const dist = v3.len(v3.sub(target, [0, 0, 0])); void dist; const stretch = v3.sub(v3.add(b.com, b.off), v3.add(pod.com, pod.off)); const L = v3.len(stretch); if (L > v3.len(rest) * 1.6 + 500) b.vel = v3.add(b.vel, v3.mul(stretch, -6 * dt)); }
+    }
+    for (const s of sparks) { s.v[2] -= 2400 * dt; s.p = v3.add(s.p, v3.mul(s.v, dt)); s.life -= dt; }
+    for (let i = sparks.length - 1; i >= 0; i--) if (sparks[i].life <= 0) sparks.splice(i, 1);
+    cpu += performance.now() - t0; steps++; time += dt;
+  }
+  function crumple(p, t) { // vertex noise dent around the impact point, grows over ~.4 s
+    const d = v3.len(v3.sub(p, IMPACT)), k = Math.min(1, t / .4) * Math.max(0, 1 - d / 2200);
+    const n = Math.sin(p[0] * .013 + p[1] * .021) * Math.cos(p[2] * .017 + p[1] * .011);
+    return [p[0] - k * (500 + 220 * n), p[1] + k * 160 * n, p[2] + k * 120 * Math.sin(p[0] * .02)];
+  }
+  function build() {
+    const out = [];
+    const push = (p, n, c) => out.push(p[0], p[1], p[2], n[0], n[1], n[2], c[0], c[1], c[2]);
+    const tri = (a, b, c, col) => { const nn = cross(v3.sub(b, a), v3.sub(c, a)); push(a, nn, col); push(b, nn, col); push(c, nn, col); };
+    for (const b of bodies) for (const i of b.list) {
+      const t = tris[i], P = [0, 3, 6].map(o => { let p = [t[o], t[o + 1], t[o + 2]]; if (mode === 'crumple' && b !== bodies[0] ? false : mode === 'crumple') p = crumple(p, time); p = v3.sub(p, b.com); p = rotate(p, b.ang); return v3.add(v3.add(p, b.com), b.off); });
+      tri(P[0], P[1], P[2], b.col); tri(P[2], P[1], P[0], b.col.map(x => x * .5));
+    }
+    const g = 6000; // ground
+    const gc = [.25, .3, .28]; tri([-g, -g, GROUND - 1], [g, -g, GROUND - 1], [g, g, GROUND - 1], gc); tri([-g, -g, GROUND - 1], [g, g, GROUND - 1], [-g, g, GROUND - 1], gc);
+    for (const s of sparks) { const a = s.p, r = 25; tri(a, [a[0] + r, a[1], a[2]], [a[0], a[1] + r, a[2] + r], [1, .8, .2]); }
+    return new Float32Array(out);
+  }
+  // camera: 3/4 view, simple perspective
+  function proj() {
+    const f = 1 / Math.tan(.5), asp = 900 / 520, n = 100, fa = 30000, cx = 3800, cy = -4000, cz = 2200;
+    const eye = [cx, cy, cz], z = (() => { const d = v3.sub(eye, [0, 0, -300]); const l = v3.len(d); return d.map(x => x / l); })();
+    let x = cross([0, 0, 1], z); const xl = v3.len(x); x = x.map(v => v / xl); const y = cross(z, x);
+    const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const A = -(fa + n) / (fa - n), B = -2 * fa * n / (fa - n), m = [];
+    const rows = [[x, f / asp, 0], [y, f, 0], [z, 0, 0]];
+    const R0 = x.map(v => v * f / asp), R1 = y.map(v => v * f), R2 = z.map(v => v * A), R3 = z.map(v => -v);
+    const T = [-dot(R0.map((_, i) => i), [0, 0, 0]), 0, 0, 0]; void rows; void T;
+    const tr = r => -(r[0] * eye[0] + r[1] * eye[1] + r[2] * eye[2]);
+    return new Float32Array([R0[0], R1[0], R2[0], R3[0], R0[1], R1[1], R2[1], R3[1], R0[2], R1[2], R2[2], R3[2], tr(R0), tr(R1), tr(R2) + B, tr(R3)]);
+  }
+  const loc = gl.getUniformLocation(prog, 'M');
+  let tris3 = 0, bytes = 0;
+  function draw() {
+    const data = build(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW); bytes = data.byteLength;
+    gl.viewport(0, 0, 900, 520); gl.clearColor(.11, .15, .2, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.uniformMatrix4fv(loc, false, proj()); gl.drawArrays(gl.TRIANGLES, 0, data.length / 9); tris3 = data.length / 27;
+    document.getElementById('hud').textContent = `${mode}  t=${time.toFixed(2)}s  bodies=${bodies.length}  tris=${tris3}  physics ${(cpu / Math.max(1, steps)).toFixed(3)} ms/step  upload ${(bytes / 1024).toFixed(0)} KB/frame`;
+  }
+  // deterministic capture mode: advance to T then freeze; otherwise animate live
+  if (q.has('t')) { for (let i = 0; i < Math.round(T / dt); i++) step(); draw(); window.result = { mode, t: time, bodies: bodies.length, tris: tris3, msPerStep: cpu / Math.max(1, steps), uploadKB: bytes / 1024 }; }
+  else (function loop() { step(); draw(); requestAnimationFrame(loop); })();
+});
+</script>
