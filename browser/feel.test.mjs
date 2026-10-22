@@ -400,3 +400,16 @@ test('old boost defaults migrate once; customised values are kept',()=>{
   assert.equal(migrateTuning(moved),moved);
   assert.equal(migrateTuning(undefined),undefined);
 });
+test('drift plays the activate one-shot then loops until release; silent without samples',()=>{
+  const log=[];
+  const node=()=>({gain:{value:0},connect(){},buffer:null,loop:false,start(t){log.push(['start',this.buffer.name,this.loop,t]);},stop(){log.push(['stop',this.buffer.name]);}});
+  const audio=new WorldAudio();
+  audio.context={state:'running',currentTime:1,createGain:node,createBufferSource:node};audio.master={};
+  audio.enabled=true;audio.active=true;audio.sampleOn=true;
+  audio.setDrift(true);assert.deepEqual(log,[]);
+  audio.samples={buffers:{sfx_pod_binder_activate_a:{name:'a',duration:.5},sfx_pod_binder_steady_loop:{name:'loop'}}};
+  audio.setDrift(true);audio.setDrift(true);
+  assert.deepEqual(log,[['start','loop',true,1.5],['start','a',false,undefined]]);
+  audio.setDrift(false);audio.setDrift(false);
+  assert.deepEqual(log.slice(2),[['stop','loop']]);
+});

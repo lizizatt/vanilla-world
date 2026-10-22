@@ -94,7 +94,7 @@ export class WorldAudio {
   }
   mute() {
     this.activation++;
-    this.enabled=false;this.active=false;
+    this.enabled=false;this.active=false;this.setDrift(false);
     clearTimeout(this.release);
     const context=this.context;
     if(!context || context.state==='closed')return;
@@ -160,6 +160,16 @@ export class WorldAudio {
     const source=this.context.createBufferSource(),node=this.context.createGain();
     source.buffer=buffer;node.gain.value=gain;source.connect(node);node.connect(this.master);source.start();
   }
+  // Drift: activate one-shot, then the steady loop until released (silent without the SWE1R samples).
+  setDrift(on) {
+    const b=this.samples?.buffers,start=b?.sfx_pod_binder_activate_a,loop=b?.sfx_pod_binder_steady_loop;
+    on=on&&!!start&&!!loop&&this.sampleOn&&this.enabled&&this.context?.state==='running';
+    if(on===!!this.drifting)return;
+    if(!on){try{this.drifting.stop();}catch{}this.drifting=undefined;return;}
+    const t=this.context.currentTime,gain=this.context.createGain(),source=this.context.createBufferSource();
+    gain.gain.value=.5;gain.connect(this.master);source.buffer=loop;source.loop=true;source.connect(gain);source.start(t+start.duration);
+    this.cue('sfx_pod_binder_activate_a',.6);this.drifting=source;
+  }
   // One-shot SWE1R effects on rising/falling edges of boost, airbrake and obstacle contact.
   edges(boost,brake,hit,now) {
     const was=this.was??={};
@@ -175,6 +185,7 @@ export class WorldAudio {
       this.active=active;this.envelope.reset();
       this.master.gain.setTargetAtTime(active?1:0,now,.06);
     }
+    this.setDrift(active&&!!(input.flags&4));
     if(!active)return;
     const p=state.telemetry,held=!!p[8] || !!state.scene?.waitingCollision;
     const boosting=!!(input.flags&2) && input.throttle>0 && !!p[7] && p[6]>0 && !(input.flags&1);
