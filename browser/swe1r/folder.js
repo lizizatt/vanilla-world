@@ -32,7 +32,7 @@ export async function wavsFromHandle(handle) {
 
 export function readerFromHandle(lev, label, wavs) {
   const file = name => lev.getFileHandle(name).then(h => h.getFile());
-  const wav = async n => { try { return new Uint8Array(await (await (await wavs.getFileHandle(`${n}.wav`)).getFile()).arrayBuffer()); } catch { return null; } };
+  const wav = async n => { try { let d = wavs; const parts = n.split("/"); for (const p of parts.slice(0, -1)) d = await d.getDirectoryHandle(p); return new Uint8Array(await (await (await d.getFileHandle(`${parts.at(-1)}.wav`)).getFile()).arrayBuffer()); } catch { return null; } };
   return { name: label ?? lev.name, wav: wavs ? wav : async () => null, size: async n => (await file(n)).size, read: async n => new Uint8Array(await (await file(n)).arrayBuffer()), slice: async (n, a, b) => new Uint8Array(await (await file(n)).slice(a, b).arrayBuffer()) };
 }
 

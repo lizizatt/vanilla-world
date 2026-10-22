@@ -20,6 +20,7 @@ import {initSwe1rRow,onSwe1r,getSwe1r,attachSwe1r} from './swe1r/ui.js';
 import {classifyPickError} from './swe1r/attach.js';
 import {podSkinList,loadPodModel} from './swe1r/skin.js';
 import {SFX,loadSfx} from './swe1r/sfx.js';
+import {pickVoice} from './swe1r/voice-map.js';
 import {loadHudSprites,loadCountdownSprites,createDial} from './swe1r/hud.js';
 let dial,hudOn=false,countdownSprites;
 
@@ -501,16 +502,18 @@ function startRace(track) {
     client.state=await client.request('restore',{pose:[x,y+2,z,track.start.yaw]});
     renderer.camera=undefined;running=true;$('error').hidden=true;
     const board=validScores(await raceScores(track.id).catch(()=>undefined));raceBest=board.runs[0];
-    $('race-board').hidden=true;race=new Race(track);lastCount=0;music.setBattle(true,false);music.loadCue('click');music.loadCue('quest');const t=performance.now()/1000;race.start(t);race.lined(t);promptTrack=undefined;
+    $('race-board').hidden=true;race=new Race(track);lastCount=0;lastLap=1;music.setBattle(true,false);music.loadCue('click');music.loadCue('quest');const t=performance.now()/1000;race.start(t);race.lined(t);promptTrack=undefined;
   });
 }
-let lastCount=0;
+let lastCount=0,voiceMap,voiceReader,lastVoice,lastLap=1;
+async function say(event){const id=pickVoice(voiceMap,event,lastVoice);if(!id||!voiceReader)return;lastVoice=id;const b=await voiceReader.wav('Voice/'+id).catch(()=>null);if(b)audio.say(b);}
 function raceFrame(controls,t) {
   if(race.state==='lineup'||race.state==='countdown'){controls.throttle=0;controls.steer=0;}
   const count=Math.ceil(race.countdown(t)),event=race.update(client.state.telemetry,t);
-  if(event==='go'){goUntil=t+.8;music.setBattle(true,true);music.playCue('quest');audio.cue(SFX.go);}
+  if(race.lap>lastLap){lastLap=race.lap;say(race.lap===race.track.laps?'final-lap':'lap-new');}
+  if(event==='go'){say('countdown-go');goUntil=t+.8;music.setBattle(true,true);music.playCue('quest');audio.cue(SFX.go);}
   else if(event==='gate')audio.cue(SFX.gate,.5);
-  else if(race.state==='countdown'&&count!==lastCount){lastCount=count;music.playCue('click');audio.cue(SFX.beep);}
+  else if(race.state==='countdown'&&count!==lastCount){lastCount=count;say('countdown-'+count);music.playCue('click');audio.cue(SFX.beep);}
   const text=race.state==='countdown'?String(count):t<goUntil?'GO!':'';
   const box=$('race-countdown');
   const sprite=hudOn&&race.state==='countdown'&&countdownSprites?.[count];
@@ -518,7 +521,7 @@ function raceFrame(controls,t) {
   if(race.state==='finished'||race.state==='cancelled'){
     const finished=race.state==='finished',run=finished&&{time:race.time,splits:race.splits.slice(),date:new Date().toISOString()};
     const track=race.track;race=undefined;$('race-hud').hidden=true;
-    if(finished){audio.cue(SFX.finish,.8);recordRun(track,run);againTrack=track;againUntil=performance.now()+10000;}else report(`Race ${track.name||track.id} cancelled.`,true);
+    if(finished){audio.cue(SFX.finish,.8);say(raceBest&&run.time<raceBest.time?'personal-best':'finish');recordRun(track,run);againTrack=track;againUntil=performance.now()+10000;}else{say('cancelled');report(`Race ${track.name||track.id} cancelled.`,true);}
   } else raceHud(t);
 }
 const setText=(id,value)=>{const e=$(id);if(e.textContent!==value)e.textContent=value;};
@@ -651,8 +654,9 @@ async function start() {
     }
     initSwe1rRow();
     onSwe1r(async r=>{
-      if(!r){setRuntimeSkins('swe1r',[]);if(choice.skin.startsWith('swe1r-')){choice=normalizeChoice({...choice,skin:'rocket'});writeChoice(choice);applySkin();}garagePick=normalizeChoice(garagePick);dial=undefined;countdownSprites=undefined;$('swe1r-hud').hidden=true;syncHud();$('swe1r-hud-row').hidden=true;$('swe1r-sfx-row').hidden=true;audio.sampleOn=false;if(garage.open)renderGarage();return;}
+      if(!r){setRuntimeSkins('swe1r',[]);if(choice.skin.startsWith('swe1r-')){choice=normalizeChoice({...choice,skin:'rocket'});writeChoice(choice);applySkin();}garagePick=normalizeChoice(garagePick);dial=undefined;countdownSprites=undefined;voiceReader=undefined;$('swe1r-hud').hidden=true;syncHud();$('swe1r-hud-row').hidden=true;$('swe1r-sfx-row').hidden=true;audio.sampleOn=false;if(garage.open)renderGarage();return;}
       setRuntimeSkins('swe1r',podSkinList());if(garage.open)renderGarage();
+      voiceReader=r;fetch('./swe1r/voice-map.json').then(x=>x.ok?x.json():{}).then(m=>{voiceMap=m;}).catch(()=>{});
       const raw=await loadSfx(r).catch(()=>new Map());
       loadCountdownSprites(r).then(s=>{countdownSprites=s||undefined;}).catch(e=>console.error('SWE1R countdown',e));
   loadHudSprites(r).then(s=>{if(!s)return;dial=createDial(s,$('swe1r-hud'));$('swe1r-hud-row').hidden=false;syncHud();}).catch(e=>console.error('SWE1R HUD',e));
