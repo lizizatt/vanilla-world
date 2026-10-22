@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {cameraView} from './world-camera.js';
 import {WorldInput} from './world-input.js';
 import {fillEngineBuffer,EngineEnvelope,WorldAudio} from './world-audio.js';
-import {TUNING_FIELDS,validateTuningRecord} from './world-tuning.js';
+import {TUNING_FIELDS,validateTuningRecord,migrateTuning} from './world-tuning.js';
 import {CameraCollision,prepareDetail} from './camera-collision.js';
 
 test('local chase distance damping is time-based, rebases precisely, and clips after filtering',()=>{
@@ -306,7 +306,7 @@ test('tuning accepts native physical domains without gameplay ceilings and retai
   assert.equal(record.values[1],500);
 });
 test('fresh Handling and Restore defaults use the user-provided values without migrating saved overrides',()=>{
-  assert.deepEqual(TUNING_FIELDS.map(f=>f[1]),[150,1000,50,250,30,.25,2.2,10,8,1.5,1.3,3,90,18,24,7,.9]);
+  assert.deepEqual(TUNING_FIELDS.map(f=>f[1]),[150,300,50,30,30,.25,2.2,10,8,1.5,1.3,3,90,18,24,7,.9]);
   const saved={version:1,values:[36,50,18,22,30,.25,2.2,10,8,1.5,1.3,1.1,90,18,24,7,.9],cameraSeconds:.7};
   assert.equal(validateTuningRecord(saved),saved);assert.equal(saved.values[0],36);assert.equal(saved.values[11],1.1);
 });
@@ -390,4 +390,13 @@ test('mouse steer keeps the camera world heading while the craft turns toward it
   const offset=rig.chase[0];assert(offset>.3);
   cameraView(rig,[0,2,0,.2],undefined,.016,[0,0],{cameraSteer:true});
   assert(Math.abs(rig.chase[0]-(offset-.2))<1e-9);
+});
+test('old boost defaults migrate once; customised values are kept',()=>{
+  const old={version:1,cameraSeconds:0,values:TUNING_FIELDS.map(f=>f[1])};old.values[1]=1000;old.values[3]=250;
+  const moved=migrateTuning(old);
+  assert.deepEqual([moved.values[1],moved.values[3],moved.defaults],[300,30,2]);
+  const custom=migrateTuning({...old,values:old.values.map((v,i)=>i===1?600:v)});
+  assert.deepEqual([custom.values[1],custom.values[3]],[600,30]);
+  assert.equal(migrateTuning(moved),moved);
+  assert.equal(migrateTuning(undefined),undefined);
 });
