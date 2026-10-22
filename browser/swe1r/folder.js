@@ -20,9 +20,20 @@ export async function levFromHandle(handle) {
   return null;
 }
 
-export function readerFromHandle(lev, label) {
+// data\wavs\22K next to lev01 (picked root or its data\ folder); null when absent.
+export async function wavsFromHandle(handle) {
+  for (const path of [['wavs', '22K'], ['data', 'wavs', '22K']]) {
+    let d = handle;
+    for (const p of path) d = d && await sub(d, p);
+    if (d) return d;
+  }
+  return null;
+}
+
+export function readerFromHandle(lev, label, wavs) {
   const file = name => lev.getFileHandle(name).then(h => h.getFile());
-  return { name: label ?? lev.name, size: async n => (await file(n)).size, read: async n => new Uint8Array(await (await file(n)).arrayBuffer()), slice: async (n, a, b) => new Uint8Array(await (await file(n)).slice(a, b).arrayBuffer()) };
+  const wav = async n => { try { return new Uint8Array(await (await (await wavs.getFileHandle(`${n}.wav`)).getFile()).arrayBuffer()); } catch { return null; } };
+  return { name: label ?? lev.name, wav: wavs ? wav : async () => null, size: async n => (await file(n)).size, read: async n => new Uint8Array(await (await file(n)).arrayBuffer()), slice: async (n, a, b) => new Uint8Array(await (await file(n)).slice(a, b).arrayBuffer()) };
 }
 
 export function readerFromFiles(files) {
@@ -34,7 +45,8 @@ export function readerFromFiles(files) {
   const find = n => [...byName].find(([p]) => p.toLowerCase().replace(/\\/g, '/').endsWith(`/${n}`) || p === n)?.[1];
   if (!find(BLOCKS[0])) return null;
   const need = n => find(n) ?? (() => { throw new Error(`missing ${n}`); })();
-  return { name: 'selected files', size: async n => need(n).size, read: async n => new Uint8Array(await need(n).arrayBuffer()), slice: async (n, a, b) => new Uint8Array(await need(n).slice(a, b).arrayBuffer()) };
+  const wav = async n => { const f = find(`22k/${n.toLowerCase()}.wav`); return f ? new Uint8Array(await f.arrayBuffer()) : null; };
+  return { name: 'selected files', wav, size: async n => need(n).size, read: async n => new Uint8Array(await need(n).arrayBuffer()), slice: async (n, a, b) => new Uint8Array(await need(n).slice(a, b).arrayBuffer()) };
 }
 
 // Cheap validation: item counts come from each block's first u32.

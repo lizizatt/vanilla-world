@@ -8,6 +8,8 @@ import { decodePixels, decodeSprite, FMT, rgba5551 } from './image.js';
 import { findLev, listModels } from './cli.mjs';
 import { buildPod } from './pod.js';
 import { toCraft, podSkinList, loadPodModel } from './skin.js';
+import { loadSfx, SFX } from './sfx.js';
+import { readerFromFiles } from './folder.js';
 import { VEHICLES, normalizeChoice, setRuntimeSkins } from '../vehicles.js';
 
 const be32 = n => [n >>> 24, (n >> 16) & 255, (n >> 8) & 255, n & 255];
@@ -133,4 +135,25 @@ test('real install: Lod1 pod loads as a textured craft payload', { skip: !proces
   assert.ok(payload.asset.indices.length >= 900 && payload.asset.indices.length < 120000);
   assert.ok(payload.textures.length <= 16);
   assert.ok(payload.asset.vertices.every(Number.isFinite));
+});
+test('loadSfx keeps present wavs, drops missing or empty ones', async () => {
+  const wav = new Uint8Array(100);
+  const reader = { wav: async n => n === 'a' ? wav : n === 'b' ? new Uint8Array(10) : null };
+  assert.deepEqual([...(await loadSfx(reader, ['a', 'b', 'c'])).keys()], ['a']);
+  assert.equal((await loadSfx({}, ['a'])).size, 0);
+});
+
+test('readerFromFiles serves wavs from a 22K folder case-insensitively', async () => {
+  const f = (p, bytes) => ({ name: p.split('/').pop(), webkitRelativePath: p, size: bytes.length, arrayBuffer: async () => bytes.buffer });
+  const r = readerFromFiles([f('data/lev01/out_modelblock.bin', new Uint8Array(4)), f('data/wavs/22K/SFX_X.wav', new Uint8Array(60))]);
+  assert.equal((await r.wav('sfx_x')).length, 60);
+  assert.equal(await r.wav('nope'), null);
+});
+
+test('real install: SFX wavs are plain PCM and load', { skip: !process.env.SWE1R_DATA && 'SWE1R_DATA not set' }, async () => {
+  const dir = path.join(process.env.SWE1R_DATA, 'wavs', '22K');
+  const reader = { wav: async n => fs.existsSync(path.join(dir, `${n}.wav`)) ? new Uint8Array(fs.readFileSync(path.join(dir, `${n}.wav`))) : null };
+  const got = await loadSfx(reader);
+  assert.equal(got.size, Object.keys(SFX).length);
+  for (const b of got.values()) assert.equal(String.fromCharCode(...b.slice(0, 4)), 'RIFF');
 });
