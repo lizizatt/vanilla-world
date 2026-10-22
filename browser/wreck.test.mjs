@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {splitParts,crumple,partMatrix,craftFrame,appendWreckChunk,wreckFrame} from './wreck.js';
+import {gibTrigger,splitParts,crumple,partMatrix,craftFrame,appendWreckChunk,wreckFrame} from './wreck.js';
 
 // Body triangle at the rear, plus left (+y) and right (-y) engine triangles far forward; stride 12.
 const tri = (x, y) => [[x, y, 0], [x + 1, y, 0], [x, y, 1]].flatMap(p => [...p, 0, 0, 1, 0, 0, 1, 1, 1, 1]);
@@ -50,4 +50,19 @@ test('recorded chunks replay and hold the last frame', () => {
   assert.deepEqual(w.connected, [true, false]);
   assert.equal(wreckFrame(w, 0)[0], 1);
   assert.equal(wreckFrame(w, 99)[0], 2);
+});
+
+test('gibTrigger fires on a fast contact edge only, once, with cooldown',()=>{
+  const mem={},at=(hit,speed)=>[0,0,0,0,0,speed,0,0,hit?3:0];
+  assert.equal(gibTrigger(mem,at(false,200),true,100,0),false);
+  assert.equal(gibTrigger(mem,at(true,10),true,100,10),true);
+  assert.equal(gibTrigger(mem,at(true,10),true,100,20),false);
+  gibTrigger(mem,at(false,200),true,100,30);
+  assert.equal(gibTrigger(mem,at(true,10),true,100,40),false);
+  gibTrigger(mem,at(false,200),true,100,6000);
+  assert.equal(gibTrigger(mem,at(true,10),false,100,6010),false);
+  gibTrigger(mem,at(false,50),true,100,6020);
+  assert.equal(gibTrigger(mem,at(true,10),true,100,12000),false);
+  gibTrigger(mem,at(false,200),true,100,12010);
+  assert.equal(gibTrigger(mem,at(true,10),true,100,12020,true),false);
 });

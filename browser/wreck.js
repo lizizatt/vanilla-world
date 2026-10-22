@@ -94,3 +94,12 @@ export function wreckFrame(wreck, seconds) {
   if (!wreck.frames.length) return undefined;
   return wreck.frames[Math.min(wreck.frames.length - 1, Math.max(0, Math.floor(seconds * 60)))];
 }
+
+// Gib on the rising edge of obstacle contact (telemetry 8 === 3) when the last pre-contact speed reaches minSpeed; cooldown in ms.
+export function gibTrigger(mem, p, on, minSpeed, now, blocked = false, cooldown = 5000) {
+  const hit = p[8] === 3, fire = hit && !mem.hit && on && !blocked && mem.speed >= minSpeed && now - (mem.at ?? -1e9) > cooldown;
+  if (!hit) mem.speed = p[5];
+  mem.hit = hit;
+  if (fire) mem.at = now;
+  return fire;
+}

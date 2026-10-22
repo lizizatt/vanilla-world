@@ -2,7 +2,7 @@
 export const SFX = {
   engine: 'sfx_pod_varipitch_d_loop', boost: 'sfx_pod_jet_steady_loop',
   beep: 'sfx_start_beep', go: 'sfx_start_game', gate: 'sfx_pod_switch_a',
-  finish: 'sfx_payoff_bell', crash: 'sfx_crash_metal_med1', ignite: 'sfx_pod_flare_fire', brakeOn: 'sfx_pod_airbrakes_on', brakeOff: 'sfx_pod_airbrakes_off',
+  finish: 'sfx_payoff_bell', crash: 'sfx_crash_metal_med1', ignite: 'sfx_pod_flare_fire', brakeOn: 'sfx_pod_airbrakes_on', brakeOff: 'sfx_pod_airbrakes_off', drift: 'sfx_pod_binder_activate_a', driftLoop: 'sfx_pod_binder_steady_loop',
 };
 
 // Race-end stingers from data\wavs\Music (not cached; available via the picked folder or files).
@@ -12,7 +12,7 @@ export const STINGER = { win: 'Music/m010podanni', wipeout: ['Music/m032wipeout2
 export const RACE_MUSIC = ['Music/PodLoop1', 'Music/PsycheLoop', 'Music/SebulbaLoop', null];
 export const pickRaceMusic = (random = Math.random) => RACE_MUSIC[Math.floor(random() * RACE_MUSIC.length)];
 
-// Wipeout blast (not wired yet): one gas explosion layered with a metal or fiery crash, resolved against the 22K listing.
+// Wipeout blast (played when the craft gibs): one gas explosion layered with a metal or fiery crash, resolved against the 22K listing.
 // The install spells the fiery family 'firey'.
 export function wipeoutBlast(names, random = Math.random) {
   const has = prefix => [...names].filter(n => n.startsWith(prefix));
@@ -21,6 +21,8 @@ export function wipeoutBlast(names, random = Math.random) {
   const pick = list => list[Math.floor(random() * list.length)];
   return [gas, crash].filter(l => l.length).map(pick);
 }
+
+export const WIPEOUT_NAMES = ['sfx_explo_gas_01', 'sfx_explo_gas_02', 'sfx_explo_gas_03', 'sfx_crash_metal_boomy', 'sfx_crash_metal_med2', 'sfx_crash_metal_scrape', 'sfx_crash_metal_short', 'sfx_crash_firey_a', 'sfx_crash_firey_b', 'sfx_crash_firey_c'];
 
 export async function loadSfx(reader, names = Object.values(SFX)) {
   const out = new Map();
