@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {ParticlePool, QUALITY, KINDS, gradient, particleUniform, particleShader} from './particles.js';
+import {ParticlePool, QUALITY, KINDS, gradient, exhaustPoints, emitPlumes, particleUniform, particleShader} from './particles.js';
 
 test('ring buffer overwrites the oldest particle when full', () => {
   const pool = new ParticlePool(4);
@@ -49,4 +49,33 @@ test('uniform packs camera axes, aspect, near and far; shader compiles to expect
   const u = particleUniform({right: [1, 0, 0], up: [0, 1, 0], look: [0, 0, 1], aspect: 2}, .5, 100);
   assert.deepEqual([...u], [1, 0, 0, 2, 0, 1, 0, .5, 0, 0, 1, 100]);
   assert.match(particleShader, /fn vs/); assert.match(particleShader, /fn fs/);
+});
+
+// Synthetic craft (+x forward): a central body plus a left and right engine box far forward.
+function craft() {
+  const v = [], idx = [], box = (x0, x1, y0, y1) => { const b = v.length / 12; for (const x of [x0, x1]) for (const y of [y0, y1]) v.push(x, y, 0, 0, 0, 1, 0, 0, 1, 1, 1, 1); for (const q of [[0, 1, 2], [1, 3, 2]]) idx.push(...q.map(i => b + i)); };
+  box(0, 4, -.5, .5); box(6, 9, 1, 2); box(6, 9, -2, -1);
+  return { vertices: Float32Array.from(v), indices: Uint32Array.from(idx) };
+}
+
+test('exhaust points sit at the rear of each engine; metadata overrides; no engines falls back to the tail', () => {
+  const { vertices, indices } = craft();
+  assert.deepEqual(exhaustPoints(vertices, indices).map(p => p.map(Math.round)), [[6, 1.5 * 1, 0], [6, -1.5, 0]].map(p => p.map(Math.round)));
+  assert.deepEqual(exhaustPoints(vertices, indices, { exhausts: [[1, 2, 3]] }), [[1, 2, 3]]);
+  const body = craft(); body.indices = body.indices.slice(0, 6);
+  assert.deepEqual(exhaustPoints(body.vertices, body.indices), [[0, 0, 0]]);
+});
+
+test('plumes spawn at the exhaust in world space, trail backwards, and boost emits more', () => {
+  const m = new Float32Array(16); m[0] = m[5] = m[10] = m[15] = 1; m[12] = 2;
+  const run = boosting => {
+    const pool = new ParticlePool(512, () => .5); pool.quality = 1;
+    emitPlumes(pool, { points: [[0, 1, 0]], matrix: m, origin: [100, 50], scale: 1, length: 4, speed: 0, thrust: 1, boosting, dt: .1 });
+    return pool;
+  };
+  const calm = run(false), hot = run(true);
+  assert.ok(calm.count > 5 && hot.count > calm.count);
+  const out = new Float32Array(8 * 64); calm.fill(out, [0, 0, 0]);
+  assert.ok(Math.abs(out[0] - 102 - 100 + 100) < .5 && Math.abs(out[1] - 1) < .5 && Math.abs(out[2] - 50) < .5);
+  assert.ok(calm.data[3] < 0, 'exhaust leaves rearwards (-x)');
 });

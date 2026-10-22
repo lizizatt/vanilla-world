@@ -1,5 +1,6 @@
 // Shared particle layer: a CPU ring buffer of billboards drawn in one instanced pass. Colours are premultiplied, so one
 // blend state (one, one-minus-src-alpha) gives both additive fire (alpha 0) and normal smoke/dust (alpha > 0).
+import { classifyTriangles } from './wreck.js';
 export const CAPACITY = 2048;
 export const QUALITY = { off: 0, low: .35, medium: .7, high: 1 };
 export const INSTANCE_FLOATS = 8;
@@ -7,7 +8,7 @@ const STRIDE = 12; // x y z vx vy vz age life size0 size1 kind seed
 
 // stops: [u, r, g, b, alpha, glow]; glow 1 = purely additive, 0 = ordinary alpha blend.
 export const KINDS = {
-  plume: { life: [.18, .34], size: [.28, .12], drag: 2.5, lift: 0, stops: [[0, .75, .88, 1, .95, 1], [.25, 1, .72, .28, .8, 1], [.7, .9, .28, .05, .35, 1], [1, .3, .08, .02, 0, 1]] },
+  plume: { life: [.18, .34], size: [.28, .12], drag: 2.5, lift: 0, stops: [[0, .6, .78, 1, .5, 1], [.25, 1, .6, .2, .42, 1], [.7, .85, .22, .04, .18, 1], [1, .3, .08, .02, 0, 1]] },
   fire: { life: [.4, .9], size: [.5, .15], drag: 1.2, lift: 3, stops: [[0, 1, .9, .5, .9, 1], [.35, 1, .45, .08, .7, .9], [1, .35, .05, .02, 0, .8]] },
   smoke: { life: [1.2, 2.4], size: [.4, 1.8], drag: 1.5, lift: 2.5, stops: [[0, .35, .35, .37, .0, 0], [.12, .3, .3, .32, .5, 0], [1, .2, .2, .22, 0, 0]] },
   dust: { life: [.6, 1.3], size: [.4, 1.6], drag: 2.2, lift: 1.2, stops: [[0, .62, .55, .42, .4, 0], [1, .62, .55, .42, 0, 0]] },
@@ -89,3 +90,41 @@ struct V {@builtin(position) clip:vec4f,@location(0) q:vec2f,@location(1) c:vec4
   let f=max(1.0-dot(v.q,v.q),0.0);
   return v.c*(f*f);
 }`;
+
+/** Engine exhaust points in craft space: metadata.exhausts if present, else the rear centre of each engine group, else one at the tail. */
+export function exhaustPoints(vertices, indices, metadata) {
+  if (metadata?.exhausts?.length) return metadata.exhausts.map(p => [...p]);
+  const { part, lo, hi } = classifyTriangles(vertices, indices), points = [];
+  for (const id of [1, 2]) {
+    let min = 1e9, n = 0, sy = 0, sz = 0;
+    for (let t = 0; t < part.length; t++) if (part[t] === id) for (let k = 0; k < 3; k++) min = Math.min(min, vertices[indices[t * 3 + k] * STRIDE_V]);
+    if (min === 1e9) continue;
+    const rear = min + (hi[0] - lo[0]) * .05;
+    for (let t = 0; t < part.length; t++) if (part[t] === id) for (let k = 0; k < 3; k++) {
+      const v = indices[t * 3 + k] * STRIDE_V; if (vertices[v] > rear) continue;
+      sy += vertices[v + 1]; sz += vertices[v + 2]; n++;
+    }
+    points.push([min, sy / n, sz / n]);
+  }
+  return points.length ? points : [[lo[0], (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2]];
+}
+const STRIDE_V = 12;
+
+/**
+ * Emit this frame's thrust plume. matrix is the origin-relative craft matrix (scale included, column-major), origin [x, z] its global offset, length the craft's world length;
+ * thrust 0..1. Hot blue-white core, longer and denser when boosting. Particles keep the craft's velocity so they trail in the world.
+ */
+export function emitPlumes(pool, { points, matrix: m, origin, scale, length, speed, thrust, boosting, dt, key = 'plume' }) {
+  const fwd = [m[0] / scale, m[1] / scale, m[2] / scale], boost = boosting ? 1 : 0;
+  const rate = (12 + 70 * thrust) * (1 + .9 * boost), push = 6 + 22 * thrust + 28 * boost, size = length / 3.5 * (1 + .5 * boost + .4 * thrust);
+  points.forEach((p, i) => {
+    const n = pool.budget(`${key}${i}`, rate, dt); if (!n) return;
+    const x = m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12] + origin[0], y = m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
+      z = m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14] + origin[1];
+    for (let j = 0; j < n; j++) {
+      const u = pool.rand() * dt, back = push * (.7 + .6 * pool.rand()) - speed * .9;
+      pool.emit('plume', x - fwd[0] * speed * u, y - fwd[1] * speed * u, z - fwd[2] * speed * u,
+        -fwd[0] * back, -fwd[1] * back + 1.5, -fwd[2] * back, size, length * .04);
+    }
+  });
+}

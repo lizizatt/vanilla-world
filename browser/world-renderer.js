@@ -8,7 +8,7 @@ import {WATER_NORMAL_SIZE,waterNormalMips,waterShading,dayShading} from './water
 import {shadowShader,shadowUniform,shadowHalf} from './shadow.js';
 import {cloudShader,cloudUniform,maelstromCentre} from './clouds.js';
 import {oceanMesh} from './ocean-mesh.js';
-import {ParticlePool,QUALITY,INSTANCE_FLOATS,CAPACITY,particleShader,particleUniform} from './particles.js';
+import {ParticlePool,exhaustPoints,emitPlumes,QUALITY,INSTANCE_FLOATS,CAPACITY,particleShader,particleUniform} from './particles.js';
 import {flagMesh,gateMesh} from './race-flags.js';
 import {SkyCatalog,mapPosition,skyShader,skyDomeShader,skyUniform,advanceTime,nightAlpha,nightAngle,DAY} from './sky.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
@@ -871,6 +871,13 @@ export class WorldRenderer {
     }
     const fx=this.particles,quality=QUALITY[settings.particles]??QUALITY.medium;
     if(fx)fx.quality=quality;
+    const craft=this.craft;
+    if(fx&&quality>0&&craft?.source&&!this.wreck&&!this.cameraBlocked&&(!flight||this.showCraftInFlight)&&this.cameraMode!=='cockpit') {
+      const input=this.fxInput||{},speed=Math.abs(state[5]),scale=craft.metadata.scale;
+      craft.fx??={points:exhaustPoints(craft.source.vertices,craft.source.indices,craft.metadata),length:craft.size[0]};
+      emitPlumes(fx,{points:craft.fx.points,matrix:craftMatrix(state,origin,scale),origin,scale,length:craft.fx.length,speed,
+        thrust:input.throttle??Math.min(1,speed/150),boosting:!!input.boosting,dt:Math.min(dt,.1)});
+    }
     if(fx&&quality>0&&!this.cameraBlocked){
       fx.update(Math.min(dt,.1));
       const count=fx.fill(this.particleInstances,this.view.eye);
