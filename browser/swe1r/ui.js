@@ -1,7 +1,8 @@
 // Welcome/Data-tab row for the optional SWE1R folder. DOM wiring only; the logic lives in attach.js. Exposes the current reader via getSwe1r().
 import { levFromHandle, wavsFromHandle, musicFromHandle, readerFromHandle, readerFromFiles, describe, remember, restore, forget, authorize } from './folder.js';
 import { createAttach } from './attach.js';
-import { idbBackend, cacheFiles } from './cache.js';
+import { STINGER, RACE_MUSIC } from './sfx.js';
+import { idbBackend, cacheFiles, cacheMusic } from './cache.js';
 
 const listeners = new Set();
 let attach = null;
@@ -15,7 +16,7 @@ export function initSwe1rRow(root = document) {
   const status = $('swe1r-status'), pick = $('swe1r-pick'), forgetBtn = $('swe1r-forget'), files = $('swe1r-files'), asFiles = $('swe1r-as-files');
   if (!status || !pick) return;
   attach = createAttach({
-    cache: idbBackend(), cacheFiles, describe,
+    cache: idbBackend(), cacheFiles, cacheMusic, musicNames: [...Object.values(STINGER).flat(), ...RACE_MUSIC.filter(Boolean)], describe,
     handles: { remember, restore, forget, authorize },
     fromHandle: async handle => { const lev = await levFromHandle(handle); return lev && readerFromHandle(lev, handle.name, await wavsFromHandle(handle), await musicFromHandle(handle)); },
     fromFiles: list => readerFromFiles(list),

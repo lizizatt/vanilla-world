@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAttach, classifyPickError, BLOCKED_HELP } from './attach.js';
-import { cacheKey, cacheFiles, readerFromCache } from './cache.js';
+import { cacheKey, cacheFiles, cacheMusic, readerFromCache } from './cache.js';
 
 const memory = () => { const bytes = new Map(), idx = new Map(); return { bytes, idx,
   put: async (n, b, m) => { bytes.set(n, b); idx.set(n, m); }, get: async n => bytes.get(n), index: async () => new Map(idx),
@@ -20,18 +20,18 @@ function rig(over = {}) {
   return { a: createAttach(deps), log, status, cache, stored, reader };
 }
 
-test('cache keys keep only what we use: blocks and 22K wavs (Voice included), not Music', () => {
+test('cache keys keep only what we use: blocks, 22K wavs (Voice included) and Music', () => {
   assert.equal(cacheKey('X/data/lev01/out_modelblock.bin'), 'out_modelblock.bin');
   assert.equal(cacheKey('X\\data\\wavs\\22K\\Voice\\raac001.wav'), '22k/voice/raac001.wav');
-  assert.equal(cacheKey('X/data/wavs/Music/a.wav'), null);
+  assert.equal(cacheKey('X/data/wavs/Music/PodLoop1.wav'), 'music/podloop1.wav');
   assert.equal(cacheKey('X/data/images/a.TGA'), null);
 });
 
 test('cacheFiles writes wanted files, skips unchanged ones, then a reader serves them', async () => {
   const b = memory(), seen = [];
   const out = await cacheFiles(racerFiles(), b, (n, t) => seen.push([n, t]));
-  assert.deepEqual(out, { files: 4, written: 82 });
-  assert.deepEqual(seen.at(-1), [4, 4]);
+  assert.deepEqual(out, { files: 5, written: 1081 });
+  assert.deepEqual(seen.at(-1), [5, 5]);
   assert.equal((await cacheFiles(racerFiles(), b)).written, 0);
   const changed = racerFiles(); changed[2] = file('Racer/data/wavs/22K/SFX_a.wav', 60, 2);
   assert.equal((await cacheFiles(changed, b)).written, 60);
@@ -40,6 +40,7 @@ test('cacheFiles writes wanted files, skips unchanged ones, then a reader serves
   assert.equal((await r.slice('out_modelblock.bin', 2, 4)).length, 2);
   assert.equal((await r.wav('sfx_A')).length, 60);
   assert.equal(await r.wav('nope'), null);
+  assert.equal((await r.wav('Music/podloop1')).length, 999);
   assert.equal(await readerFromCache(memory()), null);
 });
 
@@ -93,7 +94,7 @@ test('files path attaches immediately and caches; a fresh page restores from the
   const first = rig();
   await first.a.pickFiles(racerFiles());
   assert.equal(first.a.source, 'selected files');
-  assert.match(first.status.at(-1).t, /cached locally \(4 files\)/);
+  assert.match(first.status.at(-1).t, /cached locally \(5 files\)/);
   const later = rig({ cache: first.cache, handles: { restore: async () => undefined, forget: async () => {}, remember: async () => {}, authorize: async () => false } });
   await later.a.restore();
   assert.equal(later.a.source, 'local cache');
@@ -125,4 +126,20 @@ test('attaching a second time replaces the reader and notifies again', async () 
   await a.pick(async () => ({}));
   assert.deepEqual(log, [r1, r2]);
   assert.equal(a.reader, r2);
+});
+
+test('music over budget keeps the smallest tracks; handle attach caches named music; reader falls back to the cache; forget clears', async () => {
+  const b = memory(), big = 60 * 1024 * 1024;
+  const out = await cacheFiles([file('R/data/wavs/Music/a.wav', big), file('R/data/wavs/Music/b.wav', big), file('R/data/wavs/Music/c.wav', 5)], b);
+  assert.equal(out.files, 2); assert.ok(b.bytes.has('music/c.wav') && b.bytes.has('music/a.wav') && !b.bytes.has('music/b.wav'));
+  const live = { name: 'h', wav: async n => (n === 'Music/PodLoop1' ? new Uint8Array(7) : null) };
+  const r = rig({ fromHandle: async () => live, cacheMusic, musicNames: ['Music/PodLoop1', 'Music/Gone'] });
+  await r.a.pick(async () => ({}));
+  await new Promise(x => setTimeout(x, 20));
+  assert.equal(r.cache.bytes.get('music/podloop1.wav').length, 7);
+  assert.equal(r.cache.bytes.has('music/gone.wav'), false);
+  await r.cache.put('music/later.wav', new Uint8Array(3), { size: 3 });
+  assert.equal((await r.a.reader.wav('Music/Later')).length, 3);
+  await r.a.forget();
+  assert.equal((await r.cache.index()).size, 0);
 });

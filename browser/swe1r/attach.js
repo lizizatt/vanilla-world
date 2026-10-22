@@ -1,4 +1,4 @@
-import { readerFromCache } from './cache.js';
+import { readerFromCache, cachedWavKey } from './cache.js';
 
 // Attach state machine for the optional Racer folder: pick / re-grant / restore / forget, valid in any order relative to
 // the WoW Data folder and while the world is running. DOM-free; ui.js wires it. All collaborators are injected.
@@ -15,11 +15,12 @@ export function classifyPickError(e) {
   return { kind: 'other', message: e?.message ?? String(e) };
 }
 
-export function createAttach({ cache, handles, fromHandle, fromFiles, describe, cacheFiles, onChange, onStatus }) {
+export function createAttach({ cache, handles, fromHandle, fromFiles, describe, cacheFiles, cacheMusic, musicNames = [], onChange, onStatus }) {
   let reader = null, source = null, pending = null;
   const say = (text, ok = false, extra = {}) => onStatus(text, ok, { fallback: false, ...extra });
   const keep = () => (reader ? ' Keeping the current Racer data.' : '');
   async function commit(r, from, note = '') {
+    if (r.wav && !r.cachedMusic) { const w = r.wav; r.cachedMusic = true; r.wav = async n => (await w(n)) ?? (n.startsWith('Music/') ? cache.get(cachedWavKey(n)).catch(() => null) : null); }
     const info = await describe(r);
     reader = r; source = from;
     say(`Racer data ready (${from}): ${info.models} models, ${info.textures} textures, ${info.sprites} sprites${note}`, true);
@@ -30,6 +31,7 @@ export function createAttach({ cache, handles, fromHandle, fromFiles, describe, 
     if (!r) throw new Error('No data\\lev01\\out_modelblock.bin found in that folder.');
     await commit(r, 'folder');
     await handles.remember(handle).catch(() => {});
+    if (cacheMusic) cacheMusic(r, musicNames, cache, (n, t) => say(`Caching music ${n}/${t}...`, true)).then(o => say(`Racer data ready (folder); music cached (${o.files} tracks).`, true), () => {});
     pending = null;
   }
   async function useFiles(files) {
