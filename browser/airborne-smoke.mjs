@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdir,writeFile} from 'node:fs/promises';
 
 assert(process.env.WOW_DATA,'Set WOW_DATA to the read-only local Data directory');
-const browser=await chromium.launch({channel:'msedge',headless:true});
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--mute-audio']});
 const context=await browser.newContext({serviceWorkers:'block'});
 const page=await context.newPage(),errors=[];
 await context.addInitScript(()=>{delete Navigator.prototype.serviceWorker;});

@@ -8,7 +8,7 @@ const label=process.env.LABEL||'music-smoke';
 assert(/^[\w-]+$/.test(label));
 const out=new URL(`./test-results/${label}/`,import.meta.url);
 await mkdir(out,{recursive:true});
-const browser=await chromium.launch({channel:'msedge',headless:true,args:['--autoplay-policy=no-user-gesture-required']});
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--mute-audio','--autoplay-policy=no-user-gesture-required']});
 const result={steps:[],errors:[]};
 try{
   const context=await browser.newContext({viewport:{width:1280,height:800},serviceWorkers:'block'});

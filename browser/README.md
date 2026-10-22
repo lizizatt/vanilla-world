@@ -25,7 +25,10 @@ and is not fixed by material ordering.
 
 ## Run locally
 
-Use a current hardware-accelerated Edge or Chrome. From the repository root:
+Use a current hardware-accelerated Edge or Chrome. Every Edge test/probe script launches with
+`--mute-audio` so runs never reach the speakers; the AudioContext still runs, so analyser-based
+checks (`sound-smoke.mjs`, `hud-smoke.mjs`) keep working. Pass it in any new script too.
+From the repository root:
 
 ```powershell
 .\browser\Build.ps1

@@ -10,7 +10,7 @@ assert(process.env.WOW_DATA,'Set WOW_DATA to the local read-only install');
 const out=new URL(`./test-results/scenery/${process.env.LABEL||'before'}/`,import.meta.url);
 const coast=process.env.SCENERY_CASE==='coast';
 await mkdir(out,{recursive:true});
-const browser=await chromium.launch({channel:'msedge',headless:true});
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--mute-audio']});
 const result={browser:browser.version(),views:[],errors:[]};
 async function workerHeaps() {
   const root=await browser.newBrowserCDPSession(),heaps=[];

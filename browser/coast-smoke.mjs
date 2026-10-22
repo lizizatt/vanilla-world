@@ -7,7 +7,7 @@ assert(process.env.WOW_DATA,'Set WOW_DATA to the local Classic Data folder');
 const output=new URL(`./test-results/coast/${process.env.LABEL||'before'}/`,import.meta.url);
 const after=process.env.LABEL==='after';
 await mkdir(output,{recursive:true});
-const browser=await chromium.launch({channel:'msedge',headless:true});
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--mute-audio']});
 const evidence={views:[],errors:[]};
 try {
   const context=await browser.newContext({viewport:{width:1280,height:800}});

@@ -8,7 +8,7 @@ const baseline=process.env.EXPECT_SUSPEND_BUG==='1';
 const output=new URL(`./test-results/sound-onboarding/${baseline?'before':'after'}/`,import.meta.url);
 await mkdir(output,{recursive:true});
 const browser=await chromium.launch({channel:'msedge',headless:true,
-  ignoreDefaultArgs:['--mute-audio','--autoplay-policy=no-user-gesture-required']});
+  args:['--mute-audio'],ignoreDefaultArgs:['--autoplay-policy=no-user-gesture-required']});
 const context=await browser.newContext({viewport:{width:1280,height:800}});
 await context.addInitScript(()=>{
   const Native=AudioContext;
@@ -49,7 +49,7 @@ const signal=()=>page.waitForFunction(()=>readSound().state==='running'&&readSou
 try {
   const session=await browser.newBrowserCDPSession();
   const {arguments:launchArguments}=await session.send('Browser.getBrowserCommandLine');await session.detach();
-  assert(!launchArguments.includes('--mute-audio'));
+  assert(launchArguments.includes('--mute-audio'));
   assert(!launchArguments.includes('--autoplay-policy=no-user-gesture-required'));
   await page.goto(process.env.BASE_URL||'http://127.0.0.1:4183/');
   await ready();

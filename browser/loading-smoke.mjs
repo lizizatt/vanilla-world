@@ -8,7 +8,7 @@ const base=process.env.WORLD_URL||'http://127.0.0.1:4183/?test';
 assert.equal(new URL(base).port,'4183','Startup probes use the isolated server only');
 const output=new URL(`./test-results/loading/${process.env.LABEL||'current'}/`,import.meta.url);
 await mkdir(output,{recursive:true});
-const browser=await chromium.launch({channel:'msedge',headless:true});
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--mute-audio']});
 const results=[];
 const checkArt=process.env.CHECK_ART==='1';
 try {

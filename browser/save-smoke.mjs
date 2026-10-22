@@ -5,7 +5,7 @@ import {mkdir,writeFile} from 'node:fs/promises';
 assert(process.env.WOW_DATA,'Set WOW_DATA to your local Classic Data folder');
 const output=new URL('./test-results/save-contract/',import.meta.url);
 await mkdir(output,{recursive:true});
-const browser=await chromium.launch({channel:'msedge',headless:true});
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--mute-audio']});
 const context=await browser.newContext({viewport:{width:1280,height:800}});
 await context.addInitScript(()=>{
   window.saveRequests=[];

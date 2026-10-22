@@ -24,7 +24,7 @@ const warmSeconds=Number(process.env.WARM_SECONDS || 0);
 assert(Number.isFinite(warmSeconds)&&warmSeconds>=0,'WARM_SECONDS must be nonnegative');
 const output=new URL(`./test-results/driving/${label}/`,import.meta.url);
 await mkdir(output,{recursive:true});
-const browser=await chromium.launch({channel:'msedge',headless:true});
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--mute-audio']});
 const context=await browser.newContext({viewport:{width:1280,height:800},serviceWorkers:'block',
   ...(video?{recordVideo:{dir:fileURLToPath(output),size:{width:960,height:600}}}:{})});
 const page=await context.newPage(),errors=[];

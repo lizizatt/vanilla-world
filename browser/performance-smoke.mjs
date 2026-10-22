@@ -8,7 +8,7 @@ assert(Number.isFinite(seconds) && seconds >= 40, 'Sample at least 40 seconds to
 const url = process.env.WORLD_URL || 'http://127.0.0.1:4173/?test';
 const out = new URL(`./test-results/performance/${process.env.RUN_LABEL || 'run'}.json`, import.meta.url);
 await mkdir(new URL('.', out), {recursive: true});
-const browser = await chromium.launch({channel: 'msedge', headless: true});
+const browser = await chromium.launch({channel: 'msedge', headless: true, args: ['--mute-audio']});
 const page = await browser.newPage({viewport: {width: 1440, height: 1000}});
 const errors = [], results = [];
 page.on('pageerror', e => errors.push(e.message));

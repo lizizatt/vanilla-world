@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 // Long boosted drive (SOAK_MIN minutes, default 4) sampling memory counters; opt-in: needs WOW_DATA and Edge.
 import {chromium} from 'playwright';
 const minutes=Number(process.env.SOAK_MIN||4),every=Number(process.env.SOAK_EVERY||5000);
-const browser=await chromium.launch({channel:'msedge',headless:true});
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--mute-audio']});
 try{
   const ctx=await browser.newContext({viewport:{width:1100,height:700},serviceWorkers:'block'});
   const page=await ctx.newPage();

@@ -7,7 +7,7 @@ import {fileURLToPath} from 'node:url';
 assert(process.env.WOW_DATA,'Set WOW_DATA to the read-only local Data directory');
 const out=new URL('./test-results/daynight/',import.meta.url);
 await mkdir(out,{recursive:true});
-const browser=await chromium.launch({channel:'msedge',headless:true}),result={errors:[]};
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--mute-audio']}),result={errors:[]};
 try{
   const context=await browser.newContext({viewport:{width:1280,height:800},serviceWorkers:'block'});
   await context.addInitScript(()=>{delete Navigator.prototype.serviceWorker;});
