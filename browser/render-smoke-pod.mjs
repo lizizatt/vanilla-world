@@ -1,6 +1,6 @@
 // Repeatable podracer render check. Needs SWE1R_DATA (SWE1R data dir) and WOW_DATA (WoW Data dir); skips without them.
 //   $env:SWE1R_DATA=...; $env:WOW_DATA=...; $env:PORT=4183; node server.mjs   (separate shell), then: node render-smoke-pod.mjs
-// For every pod skin (Rocket, dug-racer GLBs, all SWE1R pods) it screenshots five fixed views of the parked craft, checks the model
+// For every pod skin (Rocket, all SWE1R pods) it screenshots five fixed views of the parked craft, checks the model
 // and pixels, and writes runtime/pod-renders/{report.json,index.html,*.png}. Output is git-ignored; never commit or share it.
 import fs from 'node:fs';
 import path from 'node:path';
