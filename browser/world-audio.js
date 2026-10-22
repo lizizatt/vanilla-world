@@ -82,6 +82,7 @@ export class WorldAudio {
         source.connect(filter);filter.connect(gain);gain.connect(this.master);source.start();
         this.voices.push({source,gain,filter});
       }
+      this.buildSamples();
     }
     clearTimeout(this.release);
     await this.context.resume();
@@ -102,6 +103,31 @@ export class WorldAudio {
       if(context.state!=='closed')context.suspend().catch(error=>console.error('Engine audio suspension failed',error));
     },200);
   }
+  async useSamples(raw) {this.raw=raw;this.samples=undefined;await this.buildSamples();}
+  // SWE1R wav engine/boost loops replace the synthetic layers when the optional folder is attached.
+  async buildSamples() {
+    const raw=this.raw,context=this.context;
+    if(!raw || !context || this.samples || this.building)return;
+    this.building=true;
+    try {
+      const buffers={};
+      for(const [name,bytes] of raw)buffers[name]=await context.decodeAudioData(bytes.slice().buffer);
+      const loop=name=>{
+        if(!buffers[name])return;
+        const source=context.createBufferSource(),gain=context.createGain();
+        source.buffer=buffers[name];source.loop=true;gain.gain.value=0;source.connect(gain);gain.connect(this.master);source.start();
+        return {source,gain};
+      };
+      this.samples={buffers,engine:loop('sfx_pod_varipitch_d_loop'),jet:loop('sfx_pod_jet_steady_loop')};
+    } catch(error) {console.error('SWE1R sound decode failed',error);}
+    this.building=false;
+  }
+  cue(name,gain=.8) {
+    const buffer=this.samples?.buffers[name];
+    if(!buffer || !this.sampleOn || !this.enabled || !this.active || this.context.state!=='running')return;
+    const source=this.context.createBufferSource(),node=this.context.createGain();
+    source.buffer=buffer;node.gain.value=gain;source.connect(node);node.connect(this.master);source.start();
+  }
   update(state,input,dt,active) {
     if(!this.enabled || this.context?.state!=='running')return;
     const now=this.context.currentTime;
@@ -113,9 +139,19 @@ export class WorldAudio {
     const p=state.telemetry,held=!!p[8] || !!state.scene?.waitingCollision;
     const boosting=!!(input.flags&2) && input.throttle>0 && !!p[7] && p[6]>0 && !(input.flags&1);
     const layers=this.envelope.advance(p[5],input.throttle,boosting,held,!!(input.flags&1),dt,!!p[7],!!p[9]);
+    const s=this.samples,real=this.sampleOn && s?.engine;
+    if(real) {
+      const e=this.envelope;
+      s.engine.gain.gain.setTargetAtTime(.12+.25*e.thrust,now,.05);
+      s.engine.source.playbackRate.setTargetAtTime(.7+1.1*e.speed+.3*e.thrust,now,.08);
+      if(s.jet){s.jet.gain.gain.setTargetAtTime(.3*e.boost,now,.05);s.jet.source.playbackRate.setTargetAtTime(.9+.2*e.speed,now,.08);}
+    } else if(s?.engine) {
+      s.engine.gain.gain.setTargetAtTime(0,now,.05);
+      if(s.jet)s.jet.gain.gain.setTargetAtTime(0,now,.05);
+    }
     for(let i=0;i<this.voices.length;i++) {
       const voice=this.voices[i],layer=layers[i];
-      voice.gain.gain.setTargetAtTime(layer[0],now,.03);
+      voice.gain.gain.setTargetAtTime(real?0:layer[0],now,.03);
       voice.source.playbackRate.setTargetAtTime(layer[1],now,.06);
       voice.filter.frequency.setTargetAtTime(layer[2],now,.08);
     }

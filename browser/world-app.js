@@ -18,6 +18,7 @@ import {loadVehicleModel} from './vehicle-model.js';
 import {bootChoice,writeChoice,tracksFor,vehicleOf,VEHICLES,canSwitch,normalizeChoice,skinOf,setRuntimeSkins} from './vehicles.js';
 import {initSwe1rRow,onSwe1r,getSwe1r} from './swe1r/ui.js';
 import {podSkinList,loadPodModel} from './swe1r/skin.js';
+import {SFX,loadSfx} from './swe1r/sfx.js';
 
 const $=id=>document.getElementById(id),canvas=$('world'),keys=new Set();
 const input=new WorldInput(),audio=new WorldAudio();
@@ -298,6 +299,7 @@ $('camera-distance').addEventListener('input',()=>{
   settings.cameraDistance=Number($('camera-distance').value);
   if(settings.cockpit){settings.cockpit=false;renderer.camera=undefined;}
 });
+$('swe1r-sfx').addEventListener('change',()=>{audio.sampleOn=$('swe1r-sfx').checked;});
 $('music-on').addEventListener('change',()=>{settings.music=$('music-on').checked;music.setEnabled(settings.music);try{localStorage.setItem('racer.music',settings.music?'1':'0');}catch{}});
 $('music-volume').addEventListener('input',()=>music.setVolume(Number($('music-volume').value)/100));
 $('sound').addEventListener('change',()=>{settings.sound=$('sound').checked;if(settings.sound)resumeAudio(true);else pauseAudio();canvas.focus();});
@@ -493,8 +495,9 @@ let lastCount=0;
 function raceFrame(controls,t) {
   if(race.state==='lineup'||race.state==='countdown'){controls.throttle=0;controls.steer=0;}
   const count=Math.ceil(race.countdown(t)),event=race.update(client.state.telemetry,t);
-  if(event==='go'){goUntil=t+.8;music.setBattle(true,true);music.playCue('quest');}
-  else if(race.state==='countdown'&&count!==lastCount){lastCount=count;music.playCue('click');}
+  if(event==='go'){goUntil=t+.8;music.setBattle(true,true);music.playCue('quest');audio.cue(SFX.go);}
+  else if(event==='gate')audio.cue(SFX.gate,.5);
+  else if(race.state==='countdown'&&count!==lastCount){lastCount=count;music.playCue('click');audio.cue(SFX.beep);}
   const text=race.state==='countdown'?String(count):t<goUntil?'GO!':'';
   const box=$('race-countdown');
   if(box.textContent!==text){box.textContent=text;box.hidden=!text;}
@@ -633,7 +636,9 @@ async function start() {
       $('offline').textContent='Offline ready.';
     }
     initSwe1rRow();
-    onSwe1r(()=>{setRuntimeSkins('swe1r',podSkinList());if(garage.open)renderGarage();});
+    onSwe1r(async r=>{setRuntimeSkins('swe1r',podSkinList());if(garage.open)renderGarage();
+      const raw=await loadSfx(r).catch(()=>new Map());
+      if(raw.size){audio.sampleOn=$('swe1r-sfx').checked;$('swe1r-sfx-row').hidden=false;await audio.useSamples(raw);}});
     folder=await restoreDataFolder().catch(()=>undefined);
     if(folder) {
       if(await authorizeDataFolder(folder))await open(folder);

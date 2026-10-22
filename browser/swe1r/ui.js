@@ -1,5 +1,5 @@
 // Welcome-panel row for the optional SWE1R folder. Exposes the current reader via getSwe1r() for later phases.
-import { levFromHandle, readerFromHandle, readerFromFiles, describe, remember, restore, forget, authorize } from './folder.js';
+import { levFromHandle, wavsFromHandle, readerFromHandle, readerFromFiles, describe, remember, restore, forget, authorize } from './folder.js';
 
 let reader = null;
 const listeners = new Set();
@@ -22,7 +22,7 @@ export function initSwe1rRow(root = document) {
   async function fromHandle(handle) {
     const lev = await levFromHandle(handle);
     if (!lev) throw new Error('No data\\lev01\\out_modelblock.bin found in that folder');
-    await use(readerFromHandle(lev, handle.name), handle);
+    await use(readerFromHandle(lev, handle.name, await wavsFromHandle(handle)), handle);
   }
 
   let pending = null;
