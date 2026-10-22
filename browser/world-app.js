@@ -19,6 +19,8 @@ import {bootChoice,writeChoice,tracksFor,vehicleOf,VEHICLES,canSwitch,normalizeC
 import {initSwe1rRow,onSwe1r,getSwe1r} from './swe1r/ui.js';
 import {podSkinList,loadPodModel} from './swe1r/skin.js';
 import {SFX,loadSfx} from './swe1r/sfx.js';
+import {loadHudSprites,createDial} from './swe1r/hud.js';
+let dial,hudOn=false;
 
 const $=id=>document.getElementById(id),canvas=$('world'),keys=new Set();
 const input=new WorldInput(),audio=new WorldAudio();
@@ -299,6 +301,8 @@ $('camera-distance').addEventListener('input',()=>{
   settings.cameraDistance=Number($('camera-distance').value);
   if(settings.cockpit){settings.cockpit=false;renderer.camera=undefined;}
 });
+function syncHud(){hudOn=$('swe1r-hud-on').checked;document.querySelector('.speed-instrument').style.visibility=hudOn?'hidden':'';}
+$('swe1r-hud-on').addEventListener('change',syncHud);
 $('swe1r-sfx').addEventListener('change',()=>{audio.sampleOn=$('swe1r-sfx').checked;});
 $('music-on').addEventListener('change',()=>{settings.music=$('music-on').checked;music.setEnabled(settings.music);try{localStorage.setItem('racer.music',settings.music?'1':'0');}catch{}});
 $('music-volume').addEventListener('input',()=>music.setVolume(Number($('music-volume').value)/100));
@@ -572,7 +576,7 @@ function frame(now) {
     $('camera-blocked').hidden=!cameraWarning;
     if($('camera-blocked').textContent!==cameraWarning)$('camera-blocked').textContent=cameraWarning;
     const audible=document.hasFocus()&&!flight&&!frozenPresentation;
-    audio.update(client.state,controls,dt,audible);if(!race)music.setBattle(false);music.update(client.state.area,audible);evidence.music=music.snapshot();
+    audio.update(client.state,controls,dt,audible);if(dial){const on=hudOn&&!flight;$('swe1r-hud').hidden=!on;if(on)dial(Math.min(1,client.state.telemetry[5]/tuningValues[1]),client.state.telemetry[6]);}if(!race)music.setBattle(false);music.update(client.state.area,audible);evidence.music=music.snapshot();
     frames++;Object.assign(evidence,{frames,state:client.state,mode:flight?'fly':'drive',camera:flight?.slice(),render:stats,adapter:renderer.adapter});
     evidence.input={...controls,device:input.device};evidence.view=renderer.camera?.slice();
     evidence.cockpit={requested:settings.cockpit,active:renderer.cameraMode==='cockpit',available:stats.cockpitAvailable};
@@ -638,6 +642,7 @@ async function start() {
     initSwe1rRow();
     onSwe1r(async r=>{setRuntimeSkins('swe1r',podSkinList());if(garage.open)renderGarage();
       const raw=await loadSfx(r).catch(()=>new Map());
+      loadHudSprites(r).then(s=>{if(!s)return;dial=createDial(s,$('swe1r-hud'));$('swe1r-hud-row').hidden=false;syncHud();}).catch(e=>console.error('SWE1R HUD',e));
       if(raw.size){audio.sampleOn=$('swe1r-sfx').checked;$('swe1r-sfx-row').hidden=false;await audio.useSamples(raw);}});
     folder=await restoreDataFolder().catch(()=>undefined);
     if(folder) {
