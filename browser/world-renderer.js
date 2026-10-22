@@ -803,7 +803,7 @@ export class WorldRenderer {
         append(asset,instance,this.sceneMatrix(instance,r,origin),this.textures,this.items);
       }
     }
-    if(!flight&&this.craft&&this.cameraMode!=='cockpit')append(this.craft.asset,this.craft.instance,
+    if((!flight||this.showCraftInFlight)&&this.craft&&this.cameraMode!=='cockpit')append(this.craft.asset,this.craft.instance,
       craftMatrix(state,origin,this.craft.metadata.scale),this.craft.textures,this.craft.items);
     if(!flight&&this.craft?.flame&&this.cameraMode!=='cockpit') {
       const m=craftMatrix(state,origin,this.craft.metadata.scale),k=(.35+.9*Math.min(1,Math.abs(state[5])/150))*(1+.08*Math.sin(time*45));
