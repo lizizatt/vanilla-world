@@ -62,7 +62,7 @@ function fail(error) {
 const mapPanel=new MapPanel({dialog:$('map-panel'),canvas:$('map-canvas'),stage:$('map-stage'),status:$('map-status'),close:$('map-close')},{
   requestArt:names=>client.worldmap(names),pose:()=>client.state?.telemetry,
   teleport:icon=>operation(async()=>{
-    flight=undefined;client.state=await client.request(icon.reset?'reset':'restore',icon.reset?undefined:{pose:icon.pose});
+    flight=undefined;client.state=await client.request(icon.reset?'reset':'restore',icon.reset?undefined:{pose:icon.pose});race?.jump();
     renderer.camera=undefined;running=true;$('error').hidden=true;report(`Teleported to ${icon.label}.`,true);
   }),
 });
@@ -164,7 +164,7 @@ async function applyTuning(record) {
 async function restore(save) {
   validateWorldSave(save,client.info.id);
   if(!save)return false;
-  client.state=await client.request('restore',{pose:save.vehicle});
+  client.state=await client.request('restore',{pose:save.vehicle});race?.jump();
   Object.assign(settings,{distant:true,controls:'legacy',cameraDistance:15,sound:true,cockpit:false,clouds:true},save.settings);syncSettings();
   if(!settings.sound)pauseAudio();else resumeAudio();
   flight=save.mode==='fly'?save.camera.slice():undefined;
@@ -271,7 +271,7 @@ $('load').addEventListener('click',()=>operation(async()=>{
   report('Loaded.',true);running=true;
 }));
 $('reset').addEventListener('click',()=>operation(async()=>{
-  flight=undefined;client.state=await client.request('reset');renderer.camera=undefined;running=true;
+  flight=undefined;client.state=await client.request('reset');race?.jump();renderer.camera=undefined;running=true;
   $('error').hidden=true;report('Reset. Save unchanged.',true);
 }));
 $('retry').addEventListener('click',()=>operation(async()=>{
@@ -469,7 +469,7 @@ function syncGates(force) {
   const racing=!editor.isOpen&&race;
   // The editor draws only the draft being edited; every other track shows as its flag.
   const items=editor.isOpen?editor.draft.gates.map((gate,i)=>({gate,next:i===editor.selected})):
-    racing?[{gate:race.track.gates[race.gateIndex],next:true,finish:race.next===race.totalGates-1}]:[];
+    racing?[{gate:race.track.gates[race.gateIndex],next:true,finish:race.finishing}]:[];
   renderer.setGates(items);
   const own=editor.isOpen?editor.draft.id:racing?race.track.id:undefined;
   const spots=live.filter(t=>t.id!==own).map(flagPosition),fk=JSON.stringify(spots);

@@ -30,17 +30,18 @@ export function breakoffDistance(t) {
   return max+BREAKOFF_MARGIN;
 }
 
-// True when the segment a->b crosses the gate's vertical plane inside its width (and within `height` yd vertically).
-export function crossesGate(gate,a,b,height=200) {
+// Fraction u in [0,1) along a->b where the segment crosses the gate's vertical plane (forward direction only) inside its
+// width and within `height` yd vertically, else -1. Swept, so any speed or frame gap works.
+export function crossingAt(gate,a,b,height=200) {
   const fx=-Math.sin(gate.yaw),fz=-Math.cos(gate.yaw),rx=Math.cos(gate.yaw),rz=-Math.sin(gate.yaw);
   const side=p=>(p[0]-gate.pos[0])*fx+(p[2]-gate.pos[2])*fz;
   const sa=side(a),sb=side(b);
-  if(!(sa<0&&sb>=0))return false;
+  if(!(sa<0&&sb>=0))return -1;
   const u=sa/(sa-sb),x=a[0]+(b[0]-a[0])*u,y=a[1]+(b[1]-a[1])*u,z=a[2]+(b[2]-a[2])*u;
   const lateral=(x-gate.pos[0])*rx+(z-gate.pos[2])*rz;
-  return Math.abs(lateral)<=gate.width/2&&Math.abs(y-gate.pos[1])<=height;
+  return Math.abs(lateral)<=gate.width/2&&Math.abs(y-gate.pos[1])<=height?u:-1;
 }
-
+export const crossesGate=(gate,a,b,height)=>crossingAt(gate,a,b,height)>=0;
 export class Race {
   constructor(track) {
     this.track=validateTrack(track);
@@ -65,21 +66,34 @@ export class Race {
     if(this.state==='countdown')this.cd+=d;else if(this.state==='running')this.t0+=d;
   }
   cancel(reason='cancelled') { if(this.state!=='idle'&&this.state!=='finished'){this.state='cancelled';this.reason=reason;} }
-  // Advance with the craft's latest position. Returns 'go', 'gate', 'finish' or null.
+  // True while the gate being approached is the last of the last lap (drawn with the checkered finish banner).
+  get finishing() { return this.state==='running'&&this.next===this.totalGates-1; }
+  // Call after any teleport/respawn/restore so the jump is not treated as a movement through gates.
+  jump() { this.last=null; }
+  // Advance with the craft's latest position. Returns 'go', 'gate', 'finish' or null. The crossing test is swept over
+  // the segment since the previous call, so one step may pass several gates in order; split times interpolate to the crossing.
   update(pos,now) {
     let event=null;
-    if(this.state==='countdown'&&now-this.cd>=COUNTDOWN_SECONDS){this.state='running';this.t0=now;this.last=pos;return 'go';}
-    if(this.state!=='running'){this.last=pos;return null;}
-    if(this.last&&crossesGate(this.track.gates[this.gateIndex],this.last,pos)){
-      this.splits.push(now-this.t0);this.next++;event='gate';
-      if(this.next>=this.totalGates){this.state='finished';this.time=now-this.t0;event='finish';}
-      else if(this.gateIndex===0)this.lap++;
+    if(this.state==='countdown'&&now-this.cd>=COUNTDOWN_SECONDS){this.state='running';this.t0=now;this.last=pos;this.lastT=now;return 'go';}
+    if(this.state!=='running'){this.last=pos;this.lastT=now;return null;}
+    if(this.last) {
+      const a=this.last,t0=this.lastT??now;
+      let from=a,done=0;
+      while(this.state==='running') {
+        const u=crossingAt(this.track.gates[this.gateIndex],from,pos);
+        if(u<0)break;
+        const total=done+(1-done)*u,at=t0+(now-t0)*total;
+        this.splits.push(at-this.t0);this.next++;event='gate';
+        if(this.next>=this.totalGates){this.state='finished';this.time=at-this.t0;event='finish';}
+        else if(this.gateIndex===0)this.lap++;
+        done=Math.min(1,total+1e-6);if(done>=1)break; // step past the plane so the same gate cannot re-trigger
+        from=[a[0]+(pos[0]-a[0])*done,a[1]+(pos[1]-a[1])*done,a[2]+(pos[2]-a[2])*done];
+      }
     }
-    this.last=pos;
+    this.last=pos;this.lastT=now;
     if(this.state==='running'&&this.farFromCourse(pos))this.cancel('breakoff');
     return event;
-  }
-  farFromCourse(pos) { return this.track.gates.every(g=>dist(pos,g.pos)>this.breakoff)&&dist(pos,this.track.start.pos)>this.breakoff; }
+  }  farFromCourse(pos) { return this.track.gates.every(g=>dist(pos,g.pos)>this.breakoff)&&dist(pos,this.track.start.pos)>this.breakoff; }
 }
 
 export function formatTime(seconds) {

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {Race,crossesGate,breakoffDistance,validateTrack,BREAKOFF_MARGIN,formatTime,bearing,addScore,validScores,SCORE_LIMIT} from './race.js';
+import {Race,crossesGate,crossingAt,breakoffDistance,validateTrack,BREAKOFF_MARGIN,formatTime,bearing,addScore,validScores,SCORE_LIMIT} from './race.js';
 
 // Gates face -z (yaw 0), spaced 100 yd apart northward.
 const gate=z=>({pos:[0,0,z],yaw:0,width:40});
@@ -99,4 +99,39 @@ test('shipped tracks validate and gates are reachable in order from the start po
     assert.ok(breakoffDistance(t)>BREAKOFF_MARGIN,f);
     for(const g of t.gates)assert.ok(Math.hypot(g.pos[0]-t.start.pos[0],g.pos[2]-t.start.pos[2])<breakoffDistance(t),f);
   }
+});
+
+const mk=(over={})=>({id:'t',start:{pos:[0,0,0],yaw:0},gates:[{pos:[0,0,-100],yaw:0,width:20},{pos:[0,0,-300],yaw:0,width:20}],...over});
+const go=r=>{r.start(0);r.lined(0);r.update([0,0,0],3);return r;};
+test('finish gate is the last gate of the last lap (1 lap, p2p, multi-lap)',()=>{
+  const r=go(new Race(mk()));
+  assert.equal(r.finishing,false);r.update([0,0,-50],4);r.update([0,0,-150],5);
+  assert.equal(r.finishing,true);
+  const l=go(new Race(mk({mode:'lap',laps:2})));
+  const seen=[];for(let i=0;i<4;i++){seen.push(l.finishing);l.update([0,0,-100-(i%2)*200+50],4+i*2);l.update([0,0,-100-(i%2)*200-50],5+i*2);}
+  assert.deepEqual(seen,[false,false,false,true]);
+  const one=go(new Race(mk({gates:[{pos:[0,0,-100],yaw:0,width:20}]})));
+  assert.equal(one.finishing,true);
+});
+test('swept crossing: 1000+ yd/s step and hitch gaps count once, with interpolated time',()=>{
+  const r=go(new Race(mk()));
+  assert.equal(r.update([0,0,-1500],4),'finish');           // one step passes both gates
+  assert.equal(r.splits.length,2);
+  assert.ok(Math.abs(r.splits[0]-(100/1500))<1e-6);       // t=3 -> 4 interpolated
+  assert.equal(r.update([0,0,-3000],5),null);                // finished: no recount
+});
+test('grazing, outside width, wrong direction and teleports do not or only validly count',()=>{
+  const g={pos:[0,0,0],yaw:0,width:20};
+  assert.ok(crossingAt(g,[10,0,10],[10,0,-10])>=0);          // exactly on the edge
+  assert.equal(crossingAt(g,[10.5,0,10],[10.5,0,-10]),-1);
+  assert.equal(crossingAt(g,[0,0,-10],[0,0,10]),-1);
+  assert.equal(crossingAt(g,[0,0,10],[0,0,5]),-1);
+  const r=go(new Race(mk()));
+  r.jump();assert.equal(r.update([0,0,-150],4),null);        // respawn past the gate is not a crossing
+  assert.equal(r.update([0,0,-350],5),null);                 // gate 1 still pending (needs a real pass)
+  assert.equal(r.next,0);
+});
+test('same gate cannot trigger twice in one step',()=>{
+  const r=go(new Race(mk({mode:'lap',laps:3,gates:[{pos:[0,0,-100],yaw:0,width:20}]})));
+  assert.equal(r.update([0,0,-200],4),'gate');assert.equal(r.next,1);
 });
