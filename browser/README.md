@@ -1777,6 +1777,10 @@ The Garage skin picker is a compact carousel (◀ name · n / N ▶; Left/Right 
 **Voice lines (S5c).** `node swe1r/audition.mjs` (with `SWE1R_DATA` set) serves a local tagging page at http://127.0.0.1:4184/ for `wavs\22K\Voice`: space plays, n/p step, 1-9 assign a recent tag, prefix filter, autoplay. Tags save to git-ignored `runtime/voice-tags.json`; Export writes ids only to `swe1r/voice-map.json` (no audio). The race wires countdown-3/2/1/go, lap-new, final-lap, personal-best, finish and cancelled to a random tagged id (never the same twice running, one line at a time; silent when untagged or no folder).
 
 
+## Crash wreck (proof of concept, debug only)
+
+`Ctrl+Alt+K` (or `worldTest.testCrash()` with `?test`) wrecks the current craft for ~2.6 s: the front is dented, then pod, left engine and right engine become box rigid bodies that fall and bounce on the real ground/water height. Each engine is randomly tethered to the pod or loose. The sim is `flats-racer-physics/src/wreck.rs` (shared with native, cargo-tested), run by the worker in 0.5 s chunks (`wreck-start`/`wreck-run`) and replayed by the renderer. It never fires automatically and does not change race flow. Rough: no tether/spark visuals, normals not recomputed after the dent, parts split by a spatial heuristic, the real craft keeps simulating underneath.
+
 ## Public static hosting (GitHub Pages / Cloudflare Pages)
 
 The app is static: it needs no server, and the player's own Data folder never leaves their machine.

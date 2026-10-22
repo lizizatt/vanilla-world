@@ -6,6 +6,8 @@
 
 use std::{error::Error, fmt};
 
+pub mod wreck;
+
 
 pub const FIXED_DT: f32 = 1.0 / 120.0;
 /// Boost reserve fraction per second: 7.5 s of full boost, 10 s to recharge from empty.

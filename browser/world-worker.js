@@ -811,6 +811,12 @@ async function handle(message) {
     return Array.from(world.tuning());
   } else if(message.action==='probe') {
     return message.points.map(p=>Array.from(world.surface(p[0],p[1])));
+  } else if(message.action==='wreck-start') {
+    const {pos,rot,scale,vel,parts,seed}=message;
+    world.wreck_start(Float64Array.from(pos),Float32Array.from(rot),scale,Float32Array.from(vel),Float32Array.from(parts),seed>>>0);
+    return true;
+  } else if(message.action==='wreck-run') {
+    return world.wreck_run(Math.min(240,message.steps|0));
   } else if(message.action!=='snapshot')throw new Error('Unknown world operation');
   if(message.action==='restore' || message.action==='reset' || message.action==='retry') {
     const body=world.telemetry();
