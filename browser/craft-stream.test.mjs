@@ -14,6 +14,16 @@ test('craft model forward, scale, banking and floating origin match the physics 
   assert(Math.abs(Math.hypot(...turned.slice(8,11))-2)<1e-6);
 });
 
+// Craft model space is +x forward, +y left, +z up for every skin (rocket, GLB, SWE1R via toCraft), so one
+// EngineL/EngineR pair at y=+/-1 covers them all. Bank signs come from the real physics for A (steer +1) and D.
+test('steering banks every skin into the turn: left steer puts the left engine lower, right steer the right',()=>{
+  const engine=(m,y)=>m[13]+m[5]*y; // world Y of the model point (0,y,0)
+  for(const [steer,wantLeftLower] of [[1,true],[-1,false]]) {
+    const m=craftMatrix([0,0,0,0,-steer*.3],[0,0],1); // physics: bank_target = -steer * ...
+    assert.equal(engine(m,1)<engine(m,-1),wantLeftLower);
+  }
+});
+
 function fixture() {
   let freed=0;
   const wasm={
