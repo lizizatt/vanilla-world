@@ -22,7 +22,7 @@ import {podSkinList,loadPodModel} from './swe1r/skin.js';
 import {SFX,STINGER,WIPEOUT_NAMES,wipeoutBlast,pickRaceMusic,loadSfx} from './swe1r/sfx.js';
 import {pickVoice,raceEndEvents} from './swe1r/voice-map.js';
 import {WRECK_CHUNK,WRECK_CHUNKS,gibTrigger} from './wreck.js';
-import {loadHudSprites,loadCountdownSprites,createDial,lapText,lapTimesText} from './swe1r/hud.js';
+import {loadHudSprites,loadCountdownSprites,createDial,lapText,lapTimesText,lapBanner,finishBanner} from './swe1r/hud.js';
 let dial,hudOn=false,countdownSprites;
 
 const $=id=>document.getElementById(id),canvas=$('world'),keys=new Set();
@@ -535,7 +535,7 @@ async function say(...events){const event=events.find(e=>voiceMap?.[e]?.length),
 function raceFrame(controls,t) {
   if(race.state==='lineup'||race.state==='countdown'){controls.throttle=0;controls.steer=0;}
   const count=Math.ceil(race.countdown(t)),event=race.update(client.state.telemetry,t);
-  if(race.lap>lastLap){lastLap=race.lap;say(race.lap===race.track.laps?'final-lap':'lap-new');}
+  if(race.lap>lastLap){lastLap=race.lap;banner(lapBanner(race.lap,race.track.laps,lapTimes(race.splits,race.track.gates.length)));say(race.lap===race.track.laps?'final-lap':'lap-new');}
   if(event==='go'){say('countdown-go');goUntil=t+.8;raceTune=voiceReader&&audio.sampleOn?pickRaceMusic():null;music.setBattle(true,!raceTune);if(raceTune)voiceReader.wav(raceTune).then(b=>b?audio.loopMusic(b):music.setBattle(true,true)).catch(()=>music.setBattle(true,true));music.playCue('quest');audio.cue(SFX.go);}
   else if(event==='gate')audio.cue(SFX.gate,.5);
   else if(race.state==='countdown'&&count!==lastCount){lastCount=count;say('countdown-'+count);music.playCue('click');audio.cue(SFX.beep);}
@@ -546,9 +546,11 @@ function raceFrame(controls,t) {
   if(race.state==='finished'||race.state==='cancelled'){
     const finished=race.state==='finished',run=finished&&{time:race.time,splits:race.splits.slice(),date:new Date().toISOString()};
     const track=race.track;race=undefined;$('race-hud').hidden=true;
-    if(finished){stinger(STINGER.win);audio.cue(SFX.finish,.8);say(...raceEndEvents(true,!raceBest||run.time<raceBest.time));recordRun(track,run);againTrack=track;againUntil=performance.now()+10000;}else{stinger(STINGER.wipeout);say(...raceEndEvents(false));report(`Race ${track.name||track.id} cancelled.`,true);}
+    if(finished){stinger(STINGER.win);audio.cue(SFX.finish,.8);say(...raceEndEvents(true,!raceBest||run.time<raceBest.time));recordRun(track,run);banner(finishBanner(!raceBest||run.time<raceBest.time));againTrack=track;againUntil=performance.now()+10000;}else{stinger(STINGER.wipeout);say(...raceEndEvents(false));report(`Race ${track.name||track.id} cancelled.`,true);}
   } else raceHud(t);
 }
+let bannerTimer;
+function banner(text,ms=2500){if(!hudOn||!dial)return;const b=$('race-banner');b.textContent=text;b.hidden=false;clearTimeout(bannerTimer);bannerTimer=setTimeout(()=>{b.hidden=true;},ms);}
 const setText=(id,value)=>{const e=$(id);if(e.textContent!==value)e.textContent=value;};
 function raceHud(t) {
   $('race-hud').hidden=false;
