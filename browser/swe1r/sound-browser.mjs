@@ -1,5 +1,5 @@
 // Local sound browser: lists/plays every wav under the Racer install's wavs\ folder (22K, 11K, Music, Voice). Nothing is copied or saved.
-//   $env:SWE1R_DATA='...\Star Wars Episode I Racer\data'; node swe1r/sound-browser.mjs   ->  http://127.0.0.1:4185/
+//   $env:SWE1R_DATA='...\Star Wars Episode I Racer\data'; node swe1r/sound-browser.mjs   ->  http://127.0.0.1:4185/ (top bar: Boost A/B pairs)
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -17,7 +17,7 @@ const page = `<!doctype html><meta charset=utf-8><title>Racer sounds</title>
 #bar{padding:8px;border-bottom:1px solid #333;display:flex;gap:12px;align-items:center}#list{overflow:auto;flex:1}
 .row{padding:3px 10px;cursor:pointer;display:flex;gap:12px}.row.cur{background:#335}.row b{margin-left:auto;font-weight:normal;color:#999}</style>
 <div id=bar><input id=q placeholder="filter (e.g. music, crash, voice/ra)" size=34><label><input type=checkbox id=auto> autoplay next</label>
-<span id=now></span><span>space play/pause, n/p next/prev</span></div><div id=list></div>
+<span id=now></span><span>space play/pause, n/p next/prev</span></div><div id=pairs style='padding:6px 8px;border-bottom:1px solid #333'></div><div id=list></div>
 <script>
 var items=[],view=[],at=0,a=new Audio();function $(i){return document.getElementById(i)}
 function draw(){$('list').innerHTML='';view.forEach(function(x,i){var d=document.createElement('div');d.className='row'+(i===at?' cur':'');
@@ -28,6 +28,11 @@ function go(d){at=Math.max(0,Math.min(view.length-1,at+d));play()}
 function filt(){var q=$('q').value.toLowerCase();view=items.filter(function(x){return x.id.toLowerCase().indexOf(q)>=0});at=0;draw()}
 a.onended=function(){if($('auto').checked)go(1)};$('q').oninput=filt;
 document.addEventListener('keydown',function(e){if(e.target.id==='q')return;if(e.key===' '){e.preventDefault();a.paused?a.play():a.pause()}else if(e.key==='n')go(1);else if(e.key==='p')go(-1)});
+var PAIRS=[['flamethrower_on','flamethrower_loop'],['flare_fire','jet_steady_loop'],['flare_fire','flamethrower_loop'],['ani_thrusters_a','jet_steady_loop'],['ani_thrusters_b','steady_hi_a_loop'],['ani_thrusters_a','steady_hi_b_loop'],['binder_activate_a','binder_steady_loop']],bs=null,bl=null;
+function stopPair(){if(bs)bs.pause();if(bl)bl.pause();bs=bl=null}
+function playPair(p){stopPair();bs=new Audio('/wav/22K/sfx_pod_'+p[0]+'.wav');bl=new Audio('/wav/22K/sfx_pod_'+p[1]+'.wav');bl.loop=true;bs.onended=function(){if(bl)bl.play()};bs.play();}
+(function(){var h='Boost A/B (start, then loop until Stop): ';PAIRS.forEach(function(p,i){h+='<button data-i='+i+'>'+p[0]+' + '+p[1]+'</button> '});h+='<button id=stopb>Stop</button>';pairs.innerHTML=h;
+ pairs.onclick=function(e){var i=e.target.getAttribute('data-i');if(i!==null)playPair(PAIRS[+i]);else if(e.target.id==='stopb')stopPair()}})();
 fetch('/list').then(function(r){return r.json()}).then(function(l){items=l;filt()});
 </script>`;
 
