@@ -85,3 +85,10 @@ export function createDial(sprites, canvas) {
     ctx.fillStyle = '#4ddbcc'; ctx.fillRect(S * .2, S - 8, S * .6 * Math.min(1, Math.max(0, boost01)), 5);
   };
 }
+
+// Red hit flash: a rising obstacle contact (or a wreck, via mem.at) starts a 0.45 s fade; strength follows impact speed.
+export function hitFlash(mem,contact,speed,now,floor=30){
+  if(contact===3&&!mem.was&&speed>=floor){mem.at=now;mem.strength=Math.min(1,speed/200);}
+  mem.was=contact===3;
+  return mem.at===undefined?0:Math.max(0,1-(now-mem.at)/.45)*(mem.strength??1);
+}

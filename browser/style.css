@@ -209,4 +209,5 @@ dialog h2 { color: #ffb34d; margin-top: 0; }
 #garage-stats i { display: block; height: 8px; background: #ffd36a; border-radius: 4px; }
 #garage-races { margin: 0; padding-left: 18px; }
 #garage footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
-#garage-hint { font-size: .75rem; opacity: .7; margin: 8px 0 0; }
+#garage-hint { font-size: .75rem; opacity: .7; margin: 8px 0 0; }#hit-flash { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, transparent 40%, rgba(220,20,20,.85) 100%); }
+#hit-flash[hidden] { display: none; }

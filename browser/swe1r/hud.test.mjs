@@ -23,3 +23,13 @@ test('banners: lap number, final lap, lap record, finish', () => {
   assert.equal(finishBanner(true), 'NEW BEST TIME');
   assert.equal(finishBanner(false), 'FINISH');
 });
+
+import {hitFlash} from './hud.js';
+test('hitFlash fires on a fast contact edge, fades, and ignores slow or held contact',()=>{
+  const m={};
+  assert.equal(hitFlash(m,0,100,0),0);
+  assert.ok(hitFlash(m,3,100,1)>.4);
+  assert.equal(hitFlash(m,3,100,1.2)<hitFlash({at:1,strength:.5},3,100,1),true);
+  assert.equal(hitFlash(m,3,100,2),0);
+  const s={};hitFlash(s,0,0,0);assert.equal(hitFlash(s,3,10,1),0);
+}); 
