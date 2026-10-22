@@ -35,7 +35,7 @@ let choice=bootChoice(),tracks=[],race,raceBest,promptTrack,goUntil=0,boardTimer
 const raceAgain=()=>againTrack&&performance.now()<againUntil?againTrack:undefined;
 let renderer,folder,flight,running=false,busy=false,last=0,frames=0,hudTime=0,hudFrames=0,permissionNeeded=false;
 let orbit=[0,0],dragging=false,mouseButtons=0,soundAttempt=0,soundError='',soundTime=0,reportTimer,testPads,frozenPresentation=false,tuningValues=TUNING_FIELDS.map(f=>f[1]);
-const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:true,cockpit:false,night:false,clouds:true,music:true};
+const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:true,cockpit:false,night:false,clouds:true,music:true,particles:'medium'};
 const settings={...defaults};
 const gib={on:true,speed:100,overheat:true},gibMem={};
 try{gib.on=localStorage.getItem('racer.gib')!=='0';gib.overheat=localStorage.getItem('racer.overheat')!=='0';gib.speed=Math.max(20,Math.min(400,Number(localStorage.getItem('racer.gibSpeed'))||100));}catch{}
@@ -119,6 +119,7 @@ function enabled(value) {
 }
 function syncSettings() {
   for(const key of ['horizon','scenery','distant','sound','night','clouds'])$(key).checked=settings[key];
+  $('particles').value=settings.particles;
   music.setNight(settings.night);music.setEnabled(settings.music);$('music-on').checked=settings.music;
   $('control-profile').value=settings.controls;$('camera-distance').value=settings.cameraDistance;
   $('keyboard-guide').textContent=settings.controls==='legacy'
@@ -299,6 +300,7 @@ $('drive').addEventListener('click',()=>{flight=undefined;renderer.camera=undefi
 $('horizon').addEventListener('change',()=>{settings.horizon=$('horizon').checked;});
 $('scenery').addEventListener('change',()=>{settings.scenery=$('scenery').checked;});
 $('clouds').addEventListener('change',()=>{settings.clouds=$('clouds').checked;});
+$('particles').addEventListener('change',()=>{settings.particles=$('particles').value;});
 $('distant').addEventListener('change',()=>{settings.distant=$('distant').checked;});
 function setNight(night) {
   settings.night=night;syncSettings();
@@ -702,7 +704,7 @@ async function start() {
       else {permissionNeeded=true;showReconnect(true);
         $('permission').textContent='Click to allow reading your remembered folder.';}
     }
-    if(new URLSearchParams(location.search).has('test'))window.worldTest={testCrash,wreck:()=>renderer.wreck&&{frames:renderer.wreck.frames.length,connected:renderer.wreck.connected,parts:renderer.wreck.parts.length},startRace,selectVehicle,tracks:()=>tracks,raceObj:()=>race,heldLoops:()=>Object.values(audio.held||{}).map(h=>h?.name).filter(Boolean),raceInfo:()=>race&&{state:race.state,next:race.next,finishing:race.finishing,gates:race.track.gates.length},choice:()=>choice,
+    if(new URLSearchParams(location.search).has('test'))window.worldTest={particles:()=>renderer.particles,testCrash,wreck:()=>renderer.wreck&&{frames:renderer.wreck.frames.length,connected:renderer.wreck.connected,parts:renderer.wreck.parts.length},startRace,selectVehicle,tracks:()=>tracks,raceObj:()=>race,heldLoops:()=>Object.values(audio.held||{}).map(h=>h?.name).filter(Boolean),raceInfo:()=>race&&{state:race.state,next:race.next,finishing:race.finishing,gates:race.track.gates.length},choice:()=>choice,
       focus:pose=>{flight=pose.slice();},settings:o=>Object.assign(settings,o),showCraft:v=>{renderer.showCraftInFlight=v;},
       instances:()=>renderer.instances.filter(i=>i.kind==='group').slice(0,8),
       npcs:()=>renderer.instances.filter(i=>i.id.includes(':npc:')).slice(0,5),

@@ -8,6 +8,7 @@ import {WATER_NORMAL_SIZE,waterNormalMips,waterShading,dayShading} from './water
 import {shadowShader,shadowUniform,shadowHalf} from './shadow.js';
 import {cloudShader,cloudUniform,maelstromCentre} from './clouds.js';
 import {oceanMesh} from './ocean-mesh.js';
+import {ParticlePool,QUALITY,INSTANCE_FLOATS,CAPACITY,particleShader,particleUniform} from './particles.js';
 import {flagMesh,gateMesh} from './race-flags.js';
 import {SkyCatalog,mapPosition,skyShader,skyDomeShader,skyUniform,advanceTime,nightAlpha,nightAngle,DAY} from './sky.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
@@ -275,6 +276,16 @@ export class WorldRenderer {
     this.cloudPipeline=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module:cloudModule,entryPoint:'vs'},
       fragment:{module:cloudModule,entryPoint:'fs',targets:[{format:this.format,blend:{color:{srcFactor:'src-alpha',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},
       primitive:{topology:'triangle-list',cullMode:'none'}});
+    this.particles=new ParticlePool();
+    this.particleInstances=new Float32Array(CAPACITY*INSTANCE_FLOATS);
+    this.particleBuffer=this.device.createBuffer({size:this.particleInstances.byteLength,usage:GPUBufferUsage.VERTEX|GPUBufferUsage.COPY_DST});
+    this.particleUniformBuffer=this.device.createBuffer({size:48,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
+    const particleModule=await shader(particleShader);
+    this.particlePipeline=await this.device.createRenderPipelineAsync({layout:'auto',
+      vertex:{module:particleModule,entryPoint:'vs',buffers:[{arrayStride:32,stepMode:'instance',attributes:[{shaderLocation:0,offset:0,format:'float32x4'},{shaderLocation:1,offset:16,format:'float32x4'}]}]},
+      fragment:{module:particleModule,entryPoint:'fs',targets:[{format:this.format,blend:{color:{srcFactor:'one',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},
+      primitive:{topology:'triangle-list',cullMode:'none'},depthStencil:{format:'depth24plus',depthWriteEnabled:false,depthCompare:'less'}});
+    this.particleGroup=this.device.createBindGroup({layout:this.particlePipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:this.particleUniformBuffer}}]});
     this.shadowBuffer=this.device.createBuffer({size:144,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
     const shadowModule=await shader(shadowShader);
     this.shadowPipeline=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module:shadowModule,entryPoint:'vs'},
@@ -858,6 +869,21 @@ export class WorldRenderer {
       const cloudPass=encoder.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}]});
       this.drawClouds(cloudPass,time,daylight,near);cloudPass.end();
     }
+    const fx=this.particles,quality=QUALITY[settings.particles]??QUALITY.medium;
+    if(fx)fx.quality=quality;
+    if(fx&&quality>0&&!this.cameraBlocked){
+      fx.update(Math.min(dt,.1));
+      const count=fx.fill(this.particleInstances,this.view.eye);
+      if(count){
+        this.device.queue.writeBuffer(this.particleBuffer,0,this.particleInstances,0,count*INSTANCE_FLOATS);
+        this.device.queue.writeBuffer(this.particleUniformBuffer,0,particleUniform(this.view,near));
+        const fxPass=encoder.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}],
+          depthStencilAttachment:{view:this.depth.createView(),depthReadOnly:true}});
+        fxPass.setPipeline(this.particlePipeline);fxPass.setBindGroup(0,this.particleGroup);fxPass.setVertexBuffer(0,this.particleBuffer);
+        fxPass.draw(6,count);fxPass.end();
+      }
+    }
+    this.particleCount=fx?.count||0;
     this.device.queue.submit([encoder.finish()]);
     return {horizonTiles:distant.length,detailedTiles:this.tiles.size,sceneInstances:this.instances.length,
       culledTerrainDraws:allTerrain.length-terrain.length,
