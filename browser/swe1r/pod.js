@@ -19,7 +19,7 @@ export function decodeTriangles(body, mesh) {
   const dv = new DataView(body.buffer, body.byteOffset, body.byteLength);
   const slots = new Array(64).fill(null);
   const tris = [];
-  let mode = 0;
+  let mode = 0x20000; // pod display lists never set G_GEOMETRYMODE, and their vertex bytes are signed normals (0x82/0x7e/0x00 patterns), not colours
   for (let o = mesh.cl; o + 8 <= body.length; o += 8) {
     const op = body[o], w0 = dv.getUint32(o), w1 = dv.getUint32(o + 4);
     if (op === 0xdf) break;
