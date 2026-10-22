@@ -24,7 +24,7 @@ export class MapPanel {
   show() {
     if(!this.manifest)return;
     if(!this.requested){this.requested=true;this.requestArt(this.manifest.regions.map(r=>r.map));}
-    this.dialog.showModal();this.render();this.stage.querySelector('.map-icon')?.focus();
+    const was=document.activeElement;this.dialog.show();was?.focus?.();this.render();
     this.timer=setInterval(()=>this.marker(),100);
   }
   stop() {clearInterval(this.timer);}
@@ -43,10 +43,10 @@ export class MapPanel {
     for(const old of this.stage.querySelectorAll('.map-icon'))old.remove();
     for(const icon of mapIcons(manifest,centre)) {
       const [u,v]=toMap(this.frame,...icon.position),button=this.stage.ownerDocument.createElement('button');
-      button.type='button';button.className='map-icon';button.dataset.icon=icon.id;button.textContent=icon.id==='raceway'?'Raceway':'Maelstrom';
+      button.type='button';button.className='map-icon';button.dataset.icon=icon.id;button.textContent={raceway:'Raceway',maelstrom:'Maelstrom',airport:'Airport'}[icon.id];
       button.title=button.ariaLabel=`Teleport to ${icon.label}`;
       button.style.left=`${u*100}%`;button.style.top=`${v*100}%`;
-      button.addEventListener('click',()=>{this.dialog.close();this.teleport(icon);});
+      button.addEventListener('click',()=>{this.dialog.close();this.teleport(icon);});button.addEventListener('pointerdown',e=>e.preventDefault());
       this.stage.append(button);
     }
     this.stage.append(this.you);

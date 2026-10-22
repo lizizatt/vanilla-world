@@ -75,7 +75,7 @@ const mapPanel=new MapPanel({dialog:$('map-panel'),canvas:$('map-canvas'),stage:
     renderer.camera=undefined;running=true;$('error').hidden=true;report(`Teleported to ${icon.label}.`,true);
   }),
 });
-mapPanel.dialog.addEventListener('close',()=>{keys.clear();dragging=false;mouseButtons=0;canvas.focus();});
+mapPanel.dialog.addEventListener('close',()=>canvas.focus());
 mapPanel.dialog.addEventListener('keydown',event=>{if(event.code==='KeyM'&&!event.repeat){event.preventDefault();mapPanel.toggle();}});
 const music=new MusicPlayer({request:fields=>client.music(fields),context:()=>audio.context});
 const client=new WorldClient(data=>{
@@ -344,9 +344,10 @@ $('tuning-defaults').addEventListener('click',()=>{
 canvas.addEventListener('keydown',event=>{
   if(!event.repeat && event.code==='KeyK' && event.ctrlKey && event.altKey && running){event.preventDefault();testCrash();return;}
   if(!event.repeat && event.code==='KeyN' && !event.ctrlKey && !event.altKey && !event.metaKey)setNight(!settings.night);
-  if(!event.repeat && event.code==='KeyM' && !event.ctrlKey && !event.altKey && !event.metaKey && running){event.preventDefault();keys.clear();dragging=false;mouseButtons=0;mapPanel.toggle();}
+  if(!event.repeat && event.code==='KeyM' && !event.ctrlKey && !event.altKey && !event.metaKey && running){event.preventDefault();mapPanel.toggle();}
   if(!event.repeat && event.code==='KeyG' && !event.ctrlKey && !event.altKey && !event.metaKey && running){event.preventDefault();openGarage();return;}
   if(!event.repeat && event.code==='KeyT' && !event.ctrlKey && !event.altKey && !event.metaKey && running){event.preventDefault();toggleEditor();return;}
+  if(!event.repeat && event.code==='Escape' && mapPanel.open){event.preventDefault();mapPanel.dialog.close();return;}
   if(!event.repeat && event.code==='Escape' && running && !raceMenu.open){event.preventDefault();openRaceMenu();return;}
   if(DRIVE_KEYS.has(event.code)) {
     event.preventDefault();keys.add(event.code);if(!event.repeat)input.keyboard();
@@ -366,7 +367,7 @@ canvas.addEventListener('lostpointercapture',()=>{dragging=false;mouseButtons=0;
 canvas.addEventListener('contextmenu',event=>event.preventDefault());
 canvas.addEventListener('wheel',event=>{if(running){event.preventDefault();zoom(-Math.sign(event.deltaY));}},{passive:false});
 window.addEventListener('keyup',event=>keys.delete(event.code));
-canvas.addEventListener('blur',()=>{keys.clear();orbit=[0,0];dragging=false;mouseButtons=0;});
+canvas.addEventListener('blur',()=>{if(mapPanel.open)return;keys.clear();orbit=[0,0];dragging=false;mouseButtons=0;});
 window.addEventListener('blur',()=>{keys.clear();pauseAudio();});
 window.addEventListener('focus',()=>resumeAudio());
 document.addEventListener('visibilitychange',()=>{keys.clear();last=0;if(document.hidden)pauseAudio();else resumeAudio();});
@@ -586,7 +587,7 @@ function frame(now) {
     return;
   }
   try {
-    const focused=document.hasFocus(),editing=mapPanel.open||raceMenu.open||editor.isOpen;
+    const focused=document.hasFocus(),editing=raceMenu.open||editor.isOpen;
     const accepts=document.activeElement===canvas && focused && !editing;
     const controls={...input.sample(keys,testPads || Array.from(navigator.getGamepads?.() || []),accepts,settings.controls,!focused||!editing)};
     if(controls.reset)$('reset').click();
