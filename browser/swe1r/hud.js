@@ -92,3 +92,10 @@ export function hitFlash(mem,contact,speed,now,floor=30){
   mem.was=contact===3;
   return mem.at===undefined?0:Math.max(0,1-(now-mem.at)/.45)*(mem.strength??1);
 }
+
+// Boost speed-line overlay intensity 0..1: ramps up while boosting with reserve left, fades when not.
+export function boostFx(mem,boosting,reserve,dt){
+  const target=boosting&&reserve>0?1:0;
+  mem.v=Math.max(0,Math.min(1,(mem.v??0)+Math.sign(target-(mem.v??0))*dt*5));
+  return mem.v;
+}

@@ -33,3 +33,12 @@ test('hitFlash fires on a fast contact edge, fades, and ignores slow or held con
   assert.equal(hitFlash(m,3,100,2),0);
   const s={};hitFlash(s,0,0,0);assert.equal(hitFlash(s,3,10,1),0);
 }); 
+
+import {boostFx} from './hud.js';
+test('boostFx ramps while boosting with reserve and fades otherwise',()=>{
+  const m={};
+  assert.equal(boostFx(m,true,.5,.1),.5);
+  assert.equal(boostFx(m,true,.5,1),1);
+  assert.equal(boostFx(m,true,0,.1),.5);
+  assert.equal(boostFx(m,false,.5,1),0);
+}); 

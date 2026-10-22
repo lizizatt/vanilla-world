@@ -21,10 +21,10 @@ import {classifyPickError} from './swe1r/attach.js';
 import {podSkinList,loadPodModel} from './swe1r/skin.js';
 import {SFX,HEAT,STINGER,WIPEOUT_NAMES,wipeoutBlast,pickRaceMusic,loadSfx} from './swe1r/sfx.js';
 import {pickVoice,raceEndEvents} from './swe1r/voice-map.js';
-import {hitFlash} from './swe1r/hud.js';
+import {hitFlash,boostFx} from './swe1r/hud.js';
 import {WRECK_CHUNK,WRECK_CHUNKS,gibTrigger,overheatTrigger} from './wreck.js';
 import {loadHudSprites,loadCountdownSprites,createDial,createHeatGauge,lapText,lapTimesText,lapBanner,finishBanner} from './swe1r/hud.js';
-const flashMem={};let dial,heatGauge,hudOn=false,countdownSprites;
+const flashMem={},boostMem={};let dial,heatGauge,hudOn=false,countdownSprites;
 
 const $=id=>document.getElementById(id),canvas=$('world'),keys=new Set();
 const input=new WorldInput(),audio=new WorldAudio();
@@ -623,7 +623,7 @@ function frame(now) {
     const audible=document.hasFocus()&&!flight&&!frozenPresentation;
     if(gibTrigger(gibMem,client.state.telemetry,gib.on,gib.speed,now,!!flight||!!frozenPresentation||editor.isOpen||wreckBusy)){flashMem.at=now/1000;flashMem.strength=1;void testCrash(true,gibMem.speed);}
     else if(dial&&overheatTrigger(gibMem,client.state.telemetry,(controls.flags&2)!==0,gib.overheat,now,!!flight||!!frozenPresentation||editor.isOpen||wreckBusy)){flashMem.at=now/1000;flashMem.strength=1;void testCrash(true,client.state.telemetry[5]);}
-    const flash=dial&&hudOn&&!flight?hitFlash(flashMem,client.state.telemetry[8],client.state.telemetry[5],now/1000):0;$('hit-flash').hidden=flash<=0;if(flash>0)$('hit-flash').style.opacity=flash.toFixed(2);
+    const flash=dial&&hudOn&&!flight?hitFlash(flashMem,client.state.telemetry[8],client.state.telemetry[5],now/1000):0;$('boost-fx').hidden=!(dial&&hudOn&&!flight&&(boostFx(boostMem,(controls.flags&2)!==0,client.state.telemetry[6],dt)>0));if(!$('boost-fx').hidden)$('boost-fx').style.opacity=(boostMem.v*.8).toFixed(2);$('hit-flash').hidden=flash<=0;if(flash>0)$('hit-flash').style.opacity=flash.toFixed(2);
     audio.update(client.state,controls,dt,audible);if(dial){const on=hudOn&&!flight;$('swe1r-hud').hidden=!on;if(on)dial(Math.min(1,client.state.telemetry[5]/tuningValues[1]),client.state.telemetry[6]);$('swe1r-heat').hidden=!(on&&heatGauge);if(on&&heatGauge)heatGauge(1-client.state.telemetry[6],now/1000);}audio.setHeat(dial?1-client.state.telemetry[6]:0,(controls.flags&2)!==0);if(!race)music.setBattle(false);music.update(client.state.area,audible);evidence.music=music.snapshot();
     frames++;Object.assign(evidence,{frames,state:client.state,mode:flight?'fly':'drive',camera:flight?.slice(),render:stats,adapter:renderer.adapter});
     evidence.input={...controls,device:input.device};evidence.view=renderer.camera?.slice();
