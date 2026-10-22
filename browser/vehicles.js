@@ -23,6 +23,12 @@ export const vehicleOf=track=>track?.vehicle??'podracer';
 export const tracksFor=(tracks,vehicle)=>tracks.filter(t=>vehicleOf(t)===vehicle);
 export const isVehicle=id=>typeof id==='string'&&Object.hasOwn(VEHICLES,id);
 
+// Runtime skins from the user's own SWE1R folder ('swe1r' source); replaced wholesale, removed with an empty list.
+export function setRuntimeSkins(source,skins,vehicle='podracer') {
+  const list=VEHICLES[vehicle].skins,keep=list.filter(s=>s.source!==source);
+  list.splice(0,list.length,...keep,...skins);
+}
+
 // Anything unreadable or unknown falls back to the default; an unknown skin falls back to the type's first skin.
 export function normalizeChoice(raw) {
   const vehicle=isVehicle(raw?.vehicle)?raw.vehicle:DEFAULT_CHOICE.vehicle;

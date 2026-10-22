@@ -6,6 +6,9 @@ import { readBlock } from './block.js';
 import { decompress, isComp } from './comp.js';
 import { decodePixels, decodeSprite, FMT, rgba5551 } from './image.js';
 import { findLev, listModels } from './cli.mjs';
+import { buildPod } from './pod.js';
+import { toCraft, podSkinList, loadPodModel } from './skin.js';
+import { VEHICLES, normalizeChoice, setRuntimeSkins } from '../vehicles.js';
 
 const be32 = n => [n >>> 24, (n >> 16) & 255, (n >> 8) & 255, n & 255];
 
@@ -27,7 +30,7 @@ test('readBlock rejects truncated or bogus containers', () => {
 });
 
 // Encodes: literal "abc", then a back-reference copying "abc" (window offset 1, length 3), then the offset-0 end token.
-test('Comp decompressor: literals, window back-references, terminator', () => {
+test('Comp decompressor (synthetic only; bit order unverified on real data): literals, window back-references, terminator', () => {
   const body = [0b00000111, 97, 98, 99, /* token: len 3 => (3-2)<<4, offset 1 */ 0x10, 0x01, 0x00, 0x00];
   const src = Uint8Array.from([0x43, 0x6f, 0x6d, 0x70, 0x57, 0x6f, 0x6c, 0x66, ...be32(6), ...body]);
   assert.ok(isComp(src));
@@ -82,4 +85,52 @@ test('real install: container, models and sprites parse', { skip: !dataDir && 'S
   assert.deepEqual([s.w, s.h], [320, 240]);
   const tex = readBlock(fs.readFileSync(path.join(lev, 'out_textureblock.bin')), 'texture');
   assert.equal(tex.length, 1648);
+});
+
+// Minimal Part: MeshGroup node -> one mesh -> G_VTX(3) + G_TRI1 + G_ENDDL over three vertices.
+function fixtureBody() {
+  const b = new Uint8Array(0x100), dv = new DataView(b.buffer);
+  b.set([0x50, 0x61, 0x72, 0x74]); dv.setUint32(4, 0x10); dv.setUint32(8, 0xffffffff);
+  dv.setUint32(0x10, 0x3064); dv.setUint32(0x24, 1); dv.setUint32(0x28, 0x60);
+  dv.setUint32(0x60, 0x70);
+  dv.setUint32(0x70 + 0x30, 0xb0); dv.setUint32(0x70 + 0x34, 0xd0); dv.setInt16(0x70 + 0x3a, 3);
+  dv.setUint32(0xb0, 0x01003006); dv.setUint32(0xb4, 0xd0); dv.setUint32(0xb8, 0x05000204); dv.setUint32(0xc0, 0xdf000000);
+  [[0, 0, 0], [100, 0, 0], [0, 100, 50]].forEach((p, i) => { p.forEach((c, k) => dv.setInt16(0xd0 + 16 * i + 2 * k, c)); dv.setUint32(0xd0 + 16 * i + 12, 0xffffffff); });
+  return b;
+}
+
+test('buildPod decodes a synthetic display list into triangles with flat normals', () => {
+  const pod = buildPod(fixtureBody(), new Uint8Array(0));
+  assert.equal(pod.meshCount, 1);
+  assert.deepEqual([...pod.asset.indices], [0, 1, 2]);
+  assert.deepEqual(pod.bounds.hi, [100, 100, 50]);
+  const v = pod.asset.vertices;
+  assert.ok(v[4] < 0 && v[5] > 0);
+  assert.deepEqual([...v.subarray(8, 12)], [1, 1, 1, 1]);
+});
+
+test('toCraft maps model axes to +x forward, +y left, +z up', () => {
+  const pod = buildPod(fixtureBody(), new Uint8Array(0));
+  toCraft(pod.asset, pod.bounds, 1);
+  assert.deepEqual([...pod.asset.vertices.subarray(12, 15)], [0, -100, 0]);
+});
+
+test('runtime skins are replaced wholesale and removable', () => {
+  const base = VEHICLES.podracer.skins.length;
+  setRuntimeSkins('swe1r', podSkinList());
+  assert.ok(VEHICLES.podracer.skins.length > base);
+  assert.equal(normalizeChoice({ vehicle: 'podracer', skin: 'swe1r-255' }).skin, 'swe1r-255');
+  setRuntimeSkins('swe1r', []);
+  assert.equal(VEHICLES.podracer.skins.length, base);
+  assert.equal(normalizeChoice({ vehicle: 'podracer', skin: 'swe1r-255' }).skin, 'rocket');
+});
+
+test('real install: Lod1 pod loads as a textured craft payload', { skip: !process.env.SWE1R_DATA && 'SWE1R_DATA not set' }, async () => {
+  const lev = findLev(process.env.SWE1R_DATA);
+  const reader = { read: async n => new Uint8Array(fs.readFileSync(path.join(lev, n))) };
+  const skin = podSkinList().find(s => s.name === 'Anakin Skywalker');
+  const payload = await loadPodModel(reader, skin);
+  assert.ok(payload.asset.indices.length >= 900 && payload.asset.indices.length < 120000);
+  assert.ok(payload.textures.length <= 16);
+  assert.ok(payload.asset.vertices.every(Number.isFinite));
 });
