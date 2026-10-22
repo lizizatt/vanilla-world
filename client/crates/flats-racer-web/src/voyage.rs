@@ -2757,7 +2757,7 @@ pub(crate) mod tests {
         let mut world=Voyage::from_manifest(fixture(0.0)).unwrap();
         let tile=&world.manifest.tiles[0];
         world.resident.insert(0,crate::world::tests::flat_tile(tile.x,tile.y));
-        assert_eq!(world.tuning(),vec![150.0,300.0,50.0,30.0,30.0,0.25,2.2,10.0,8.0,1.5,1.3,3.0,90.0,18.0,24.0,7.0,0.9]);
+        assert_eq!(world.tuning(),vec![150.0,300.0,50.0,30.0,30.0,0.25,2.2,10.0,8.0,1.5,1.3,3.0,90.0,18.0,48.0,7.0,0.9]);
         world.initialize_spawn().unwrap();
         assert_eq!(world.state.position[1],3.0);
         world.tuning.hover_height=7.0;

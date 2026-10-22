@@ -27,7 +27,7 @@ pub const PROBE_OFFSETS: [[f32; 3]; 4] = [
 ];
 pub const MAX_SPEED: f32 = 36.0;
 pub const BOOST_MAX_SPEED: f32 = 50.0;
-pub const GRAVITY: f32 = 24.0;
+pub const GRAVITY: f32 = 48.0;
 
 /// Runtime dynamics without gameplay range limits.
 ///
@@ -754,7 +754,7 @@ mod tests {
             assert!(state.boost_reserve < 1.0);
         }
         assert!((state.boost_reserve - (1.0 - 0.2 / 3.0)).abs() < 0.00001);
-        assert!(state.velocity[1].abs() < 0.0001);
+        assert!((state.velocity[1] - (12.0 - GRAVITY * 60.0 * FIXED_DT)).abs() < 0.001);
         for _ in 0..600 {
             tick(&mut state, Input::default());
         }
@@ -899,7 +899,7 @@ mod tests {
             peak = peak.max(state.position[1]);
         }
         assert_eq!(hops, 1);
-        assert!(peak > HOVER_HEIGHT + 0.5 && peak < HOVER_HEIGHT + 1.2);
+        assert!(peak > HOVER_HEIGHT + 0.3 && peak < HOVER_HEIGHT + 1.2);
         assert!((state.position[1] - HOVER_HEIGHT).abs() < 0.001);
         assert!(state.grounded);
         tick(&mut state, Input::default());

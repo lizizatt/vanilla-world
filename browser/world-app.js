@@ -163,7 +163,7 @@ function fillTuning(values,seconds) {
 async function applyTuning(record) {
   validateTuningRecord(record);
   const values=await client.request('tuning',{values:record.values,validateOnly:true});
-  const canonical={version:1,defaults:2,values:Array.from(values),cameraSeconds:Math.fround(record.cameraSeconds)};
+  const canonical={version:1,defaults:3,values:Array.from(values),cameraSeconds:Math.fround(record.cameraSeconds)};
   await worldTuning(client.info.id,canonical);
   await client.request('tuning',{values:canonical.values});
   tuningValues=canonical.values;settings.cameraSeconds=canonical.cameraSeconds;

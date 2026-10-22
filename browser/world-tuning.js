@@ -2,15 +2,15 @@ export const TUNING_FIELDS=[
   ['Cruise speed (yd/s)',150],['Boost speed (yd/s)',300],['Thrust',50],['Extra boost thrust',30],
   ['Braking',30],['Drag',.25],['Turn rate',2.2],['Turn response',10],['Grip',8],['Drift grip',1.5],
   ['Drift turn multiplier',1.3],['Hover height (yd)',3],['Spring',90],['Damping',18],
-  ['Gravity',24],['Hop speed',7],['Air control',.9],
+  ['Gravity',48],['Hop speed',7],['Air control',.9],
 ];
-// Records saved before defaults v2 get the new boost defaults only where they still hold the old default value.
+// Older records get the new defaults only where they still hold the old default value (v2: boost 300/30, v3: gravity 48).
 export function migrateTuning(record) {
-  if(!record || record.defaults===2 || !Array.isArray(record.values))return record;
+  if(!record || record.defaults===3 || !Array.isArray(record.values))return record;
   const values=record.values.slice();
-  if(values[1]===1000)values[1]=300;
-  if(values[3]===250)values[3]=30;
-  return {...record,values,defaults:2};
+  if(record.defaults!==2){if(values[1]===1000)values[1]=300;if(values[3]===250)values[3]=30;}
+  if(values[14]===24)values[14]=48;
+  return {...record,values,defaults:3};
 }
 export function validateTuningRecord(record) {
   if(!record || record.version!==1 || !Array.isArray(record.values) || record.values.length!==17
