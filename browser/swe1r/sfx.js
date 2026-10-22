@@ -7,6 +7,10 @@ export const SFX = {
   finish: 'sfx_payoff_bell', crash: 'sfx_crash_metal_med1', ignite: BOOST.start, brakeOn: 'sfx_pod_airbrakes_on', brakeOff: 'sfx_pod_airbrakes_off', drift: 'sfx_pod_binder_activate_a', driftLoop: 'sfx_pod_binder_steady_loop',
 };
 
+// Engine heat: graduated klaxon loops from the warning zone up, coolant spray while venting after a hot run.
+export const HEAT = { klaxon: ['sfx_klaxon1_loop', 'sfx_klaxon2_loop', 'sfx_klaxon3_loop'], coolOn: 'sfx_pod_coolant_spray_on', cool: 'sfx_pod_coolant_spray_loop' };
+export const heatStage = heat => heat >= .97 ? 3 : heat >= .9 ? 2 : heat >= .8 ? 1 : 0; // 0.8 = flats-racer-physics HEAT_WARN
+
 // Race-end stingers from data\wavs\Music (not cached; available via the picked folder or files).
 export const STINGER = { win: 'Music/m010podanni', wipeout: ['Music/m032wipeout2', 'Music/m032wipeout3'] };
 

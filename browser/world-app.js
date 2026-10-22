@@ -19,11 +19,11 @@ import {bootChoice,writeChoice,tracksFor,vehicleOf,VEHICLES,canSwitch,normalizeC
 import {initSwe1rRow,onSwe1r,getSwe1r,attachSwe1r} from './swe1r/ui.js';
 import {classifyPickError} from './swe1r/attach.js';
 import {podSkinList,loadPodModel} from './swe1r/skin.js';
-import {SFX,STINGER,WIPEOUT_NAMES,wipeoutBlast,pickRaceMusic,loadSfx} from './swe1r/sfx.js';
+import {SFX,HEAT,STINGER,WIPEOUT_NAMES,wipeoutBlast,pickRaceMusic,loadSfx} from './swe1r/sfx.js';
 import {pickVoice,raceEndEvents} from './swe1r/voice-map.js';
 import {WRECK_CHUNK,WRECK_CHUNKS,gibTrigger,overheatTrigger} from './wreck.js';
-import {loadHudSprites,loadCountdownSprites,createDial,lapText,lapTimesText,lapBanner,finishBanner} from './swe1r/hud.js';
-let dial,hudOn=false,countdownSprites;
+import {loadHudSprites,loadCountdownSprites,createDial,createHeatGauge,lapText,lapTimesText,lapBanner,finishBanner} from './swe1r/hud.js';
+let dial,heatGauge,hudOn=false,countdownSprites;
 
 const $=id=>document.getElementById(id),canvas=$('world'),keys=new Set();
 const input=new WorldInput(),audio=new WorldAudio();
@@ -622,7 +622,7 @@ function frame(now) {
     const audible=document.hasFocus()&&!flight&&!frozenPresentation;
     if(gibTrigger(gibMem,client.state.telemetry,gib.on,gib.speed,now,!!flight||!!frozenPresentation||editor.isOpen||wreckBusy))void testCrash(true,gibMem.speed);
     else if(dial&&overheatTrigger(gibMem,client.state.telemetry,(controls.flags&2)!==0,gib.overheat,now,!!flight||!!frozenPresentation||editor.isOpen||wreckBusy))void testCrash(true,client.state.telemetry[5]);
-    audio.update(client.state,controls,dt,audible);if(dial){const on=hudOn&&!flight;$('swe1r-hud').hidden=!on;if(on)dial(Math.min(1,client.state.telemetry[5]/tuningValues[1]),client.state.telemetry[6]);}if(!race)music.setBattle(false);music.update(client.state.area,audible);evidence.music=music.snapshot();
+    audio.update(client.state,controls,dt,audible);if(dial){const on=hudOn&&!flight;$('swe1r-hud').hidden=!on;if(on)dial(Math.min(1,client.state.telemetry[5]/tuningValues[1]),client.state.telemetry[6]);$('swe1r-heat').hidden=!(on&&heatGauge);if(on&&heatGauge)heatGauge(1-client.state.telemetry[6],now/1000);}audio.setHeat(dial?1-client.state.telemetry[6]:0,(controls.flags&2)!==0);if(!race)music.setBattle(false);music.update(client.state.area,audible);evidence.music=music.snapshot();
     frames++;Object.assign(evidence,{frames,state:client.state,mode:flight?'fly':'drive',camera:flight?.slice(),render:stats,adapter:renderer.adapter});
     evidence.input={...controls,device:input.device};evidence.view=renderer.camera?.slice();
     evidence.cockpit={requested:settings.cockpit,active:renderer.cameraMode==='cockpit',available:stats.cockpitAvailable};
@@ -687,12 +687,12 @@ async function start() {
     }
     initSwe1rRow();
     onSwe1r(async r=>{
-      if(!r){setRuntimeSkins('swe1r',[]);if(choice.skin.startsWith('swe1r-')){choice=normalizeChoice({...choice,skin:'rocket'});writeChoice(choice);applySkin();}garagePick=normalizeChoice(garagePick);dial=undefined;countdownSprites=undefined;voiceReader=undefined;$('swe1r-hud').hidden=true;syncHud();$('swe1r-hud-row').hidden=true;$('overheat-row').hidden=true;$('swe1r-sfx-row').hidden=true;audio.sampleOn=false;if(garage.open)renderGarage();return;}
+      if(!r){setRuntimeSkins('swe1r',[]);if(choice.skin.startsWith('swe1r-')){choice=normalizeChoice({...choice,skin:'rocket'});writeChoice(choice);applySkin();}garagePick=normalizeChoice(garagePick);dial=undefined;heatGauge=undefined;$('swe1r-heat').hidden=true;countdownSprites=undefined;voiceReader=undefined;$('swe1r-hud').hidden=true;syncHud();$('swe1r-hud-row').hidden=true;$('overheat-row').hidden=true;$('swe1r-sfx-row').hidden=true;audio.sampleOn=false;if(garage.open)renderGarage();return;}
       setRuntimeSkins('swe1r',podSkinList());if(garage.open)renderGarage();
       voiceReader=r;fetch('./swe1r/voice-map.json').then(x=>x.ok?x.json():{}).then(m=>{voiceMap=m;}).catch(()=>{});
-      const raw=await loadSfx(r,[...Object.values(SFX),...WIPEOUT_NAMES]).catch(()=>new Map());
+      const raw=await loadSfx(r,[...Object.values(SFX),...WIPEOUT_NAMES,...HEAT.klaxon,HEAT.coolOn,HEAT.cool]).catch(()=>new Map());
       loadCountdownSprites(r).then(s=>{countdownSprites=s||undefined;}).catch(e=>console.error('SWE1R countdown',e));
-  loadHudSprites(r).then(s=>{if(!s)return;dial=createDial(s,$('swe1r-hud'));$('swe1r-hud-row').hidden=false;$('overheat-row').hidden=false;syncHud();}).catch(e=>console.error('SWE1R HUD',e));
+  loadHudSprites(r).then(s=>{if(!s)return;dial=createDial(s,$('swe1r-hud'));heatGauge=s.heat&&createHeatGauge(s.heat,$('swe1r-heat'));$('swe1r-hud-row').hidden=false;$('overheat-row').hidden=false;syncHud();}).catch(e=>console.error('SWE1R HUD',e));
       if(raw.size){audio.sampleOn=$('swe1r-sfx').checked;$('swe1r-sfx-row').hidden=false;await audio.useSamples(raw);}});
     folder=await restoreDataFolder().catch(()=>undefined);
     if(folder) {
@@ -700,7 +700,7 @@ async function start() {
       else {permissionNeeded=true;showReconnect(true);
         $('permission').textContent='Click to allow reading your remembered folder.';}
     }
-    if(new URLSearchParams(location.search).has('test'))window.worldTest={testCrash,wreck:()=>renderer.wreck&&{frames:renderer.wreck.frames.length,connected:renderer.wreck.connected,parts:renderer.wreck.parts.length},startRace,selectVehicle,tracks:()=>tracks,raceInfo:()=>race&&{state:race.state,next:race.next,finishing:race.finishing,gates:race.track.gates.length},choice:()=>choice,
+    if(new URLSearchParams(location.search).has('test'))window.worldTest={testCrash,wreck:()=>renderer.wreck&&{frames:renderer.wreck.frames.length,connected:renderer.wreck.connected,parts:renderer.wreck.parts.length},startRace,selectVehicle,tracks:()=>tracks,raceObj:()=>race,heldLoops:()=>Object.values(audio.held||{}).map(h=>h?.name).filter(Boolean),raceInfo:()=>race&&{state:race.state,next:race.next,finishing:race.finishing,gates:race.track.gates.length},choice:()=>choice,
       focus:pose=>{flight=pose.slice();},settings:o=>Object.assign(settings,o),showCraft:v=>{renderer.showCraftInFlight=v;},
       instances:()=>renderer.instances.filter(i=>i.kind==='group').slice(0,8),
       npcs:()=>renderer.instances.filter(i=>i.id.includes(':npc:')).slice(0,5),

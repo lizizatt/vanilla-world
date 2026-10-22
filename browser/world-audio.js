@@ -1,4 +1,4 @@
-import {SFX} from './swe1r/sfx.js';
+import {SFX,HEAT,heatStage} from './swe1r/sfx.js';
 const unit=n=>Number.isFinite(n)?Math.max(0,Math.min(1,n)):0;
 const tone=(hz,t)=>Math.sin(2*Math.PI*hz*t);
 const engine=(hz,t)=>.56*tone(hz,t)+.17*tone(hz*2,t)+.06*tone(hz*3,t);
@@ -95,7 +95,7 @@ export class WorldAudio {
   }
   mute() {
     this.activation++;
-    this.enabled=false;this.active=false;this.setDrift(false);
+    this.enabled=false;this.active=false;this.setDrift(false);this.setHeat(0,false);
     clearTimeout(this.release);
     const context=this.context;
     if(!context || context.state==='closed')return;
@@ -170,6 +170,29 @@ export class WorldAudio {
     const t=this.context.currentTime,gain=this.context.createGain(),source=this.context.createBufferSource();
     gain.gain.value=.5;gain.connect(this.master);source.buffer=loop;source.loop=true;source.connect(gain);source.start(t+start.duration);
     this.cue('sfx_pod_binder_activate_a',.6);this.drifting=source;
+  }
+  // Looping sample that follows a condition (klaxon, coolant); name undefined stops it.
+  holdLoop(key,name,gain) {
+    const held=this.held??={},b=name&&this.samples?.buffers[name];
+    const want=b&&this.sampleOn&&this.enabled&&this.active&&this.context?.state==='running'?name:undefined;
+    if(held[key]?.name===want)return;
+    try{held[key]?.source.stop();}catch{}
+    delete held[key];
+    if(!want)return;
+    const gainNode=this.context.createGain(),source=this.context.createBufferSource();
+    gainNode.gain.value=gain;gainNode.connect(this.master);source.buffer=b;source.loop=true;source.connect(gainNode);source.start();
+    held[key]={name,source};
+  }
+  // Engine heat 0..1: klaxon by stage; coolant one-shot then loop while venting after a hot run (heat was >= .5).
+  setHeat(heat,boosting) {
+    const was=this.heatMem??={};
+    this.holdLoop('klaxon',HEAT.klaxon[heatStage(heat)-1],.3);
+    if(heat>=.5)was.hot=true;
+    const cooling=!!was.hot&&!boosting&&heat>.05;
+    if(cooling&&!was.cooling)this.cue(HEAT.coolOn,.5);
+    was.cooling=cooling;
+    if(heat<=.05)was.hot=false;
+    this.holdLoop('coolant',cooling?HEAT.cool:undefined,.25);
   }
   // One-shot SWE1R effects on rising/falling edges of boost, airbrake and obstacle contact.
   edges(boost,brake,hit,now,charged=true) {

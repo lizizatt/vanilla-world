@@ -3,12 +3,15 @@
 import { readBlock } from './block.js';
 import { decodeSprite } from './image.js';
 
-const RING = 28, FACE = 29, COUNTDOWN = { 1: 19, 2: 20, 3: 21 };
+const RING = 28, FACE = 29, HEAT_RING = 32, HEAT_FACE = 30, COUNTDOWN = { 1: 19, 2: 20, 3: 21 };
 
 export async function loadHudSprites(reader) {
   const items = readBlock(await reader.read('out_spriteblock.bin'), 'sprite');
   const [ring, face] = [RING, FACE].map(i => items[i] && decodeSprite(items[i][0]));
-  return ring?.w === 64 && ring.h === 64 && face?.w === 64 && face.h === 64 ? { ring, face } : null;
+  if (!(ring?.w === 64 && ring.h === 64 && face?.w === 64 && face.h === 64)) return null;
+  const [heatRing, heatFace] = [HEAT_RING, HEAT_FACE].map(i => items[i] && decodeSprite(items[i][0]));
+  const heat = heatRing?.w === 64 && heatRing.h === 64 && heatFace?.w === 64 && heatFace.h === 64 ? { ring: heatRing, face: heatFace } : null;
+  return { ring, face, heat };
 }
 
 // Race countdown digits (sprites 19-21, 64x64). Returns { 1: canvas, 2: canvas, 3: canvas } or null if the sprites don't match.
@@ -46,15 +49,36 @@ function bitmap(sprite) {
   return c;
 }
 
+// Left half sprite drawn as the left half of the circle, or mirrored as the right half.
+function half(ctx, S, img, flip) { ctx.save(); if (flip) { ctx.translate(S, 0); ctx.scale(-1, 1); } ctx.drawImage(img, 0, 0, 32, 64, 0, 0, S / 2, S); ctx.restore(); }
+
+// Cool teal -> amber -> red as engine heat (0..1) rises.
+export const heatColor = heat => { const h = Math.min(1, Math.max(0, Number.isFinite(heat) ? heat : 0)); return `hsl(${Math.round(170 - 170 * h)} 90% 55%)`; };
+
+// Engine heat gauge from sprites 32 (ring) and 30 (face): face tinted by heat, needle sweeps like the speed dial, ring pulses red in the warning zone.
+export function createHeatGauge(sprites, canvas) {
+  const ring = bitmap(sprites.ring), face = bitmap(sprites.face), ctx = canvas.getContext('2d'), S = canvas.width, h = S / 2;
+  return (heat, now = 0) => {
+    ctx.clearRect(0, 0, S, S); ctx.imageSmoothingEnabled = false;
+    ctx.globalAlpha = .6; half(ctx, S, face, false); half(ctx, S, face, true); ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-atop'; ctx.globalAlpha = .55; ctx.fillStyle = heatColor(heat); ctx.fillRect(0, 0, S, S);
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+    half(ctx, S, ring, false); half(ctx, S, ring, true);
+    if (heat >= .8 && Math.floor(now * 4) % 2 === 0) { ctx.strokeStyle = '#ff3b30'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(h, h, h - 2, 0, 2 * Math.PI); ctx.stroke(); }
+    const a = needleAngle(heat);
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(h, h); ctx.lineTo(h + Math.cos(a) * h * .8, h + Math.sin(a) * h * .8); ctx.stroke();
+  };
+}
+
 export function createDial(sprites, canvas) {
   const ring = bitmap(sprites.ring), face = bitmap(sprites.face), ctx = canvas.getContext('2d');
   const S = canvas.width, h = S / 2;
-  const half = (img, flip) => { ctx.save(); if (flip) { ctx.translate(S, 0); ctx.scale(-1, 1); } ctx.drawImage(img, 0, 0, 32, 64, 0, 0, h, S); ctx.restore(); };
   return (speed01, boost01) => {
     ctx.clearRect(0, 0, S, S);
     ctx.imageSmoothingEnabled = false;
-    ctx.globalAlpha = .55; half(face, false); half(face, true); ctx.globalAlpha = 1;
-    half(ring, false); half(ring, true);
+    ctx.globalAlpha = .55; half(ctx, S, face, false); half(ctx, S, face, true); ctx.globalAlpha = 1;
+    half(ctx, S, ring, false); half(ctx, S, ring, true);
     const a = needleAngle(speed01);
     ctx.strokeStyle = '#ffb34d'; ctx.lineWidth = 3; ctx.lineCap = 'round';
     ctx.beginPath(); ctx.moveTo(h, h); ctx.lineTo(h + Math.cos(a) * h * .8, h + Math.sin(a) * h * .8); ctx.stroke();
