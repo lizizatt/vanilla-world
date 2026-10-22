@@ -1748,6 +1748,10 @@ Outside a race only each track's start flag is drawn. During a race only the nex
 
 **Craft shadow.** There was no shadow map or blob shadow before. `browser/shadow.js` adds one fullscreen pass after the scene (like clouds) that reads the scene depth, rebuilds each pixel's world position and darkens it where it lies under the craft along a fixed sun direction: an ellipse oriented to the craft yaw, sized from the model bounds (fallback 5x3 yd half-extents), sliding along the sun, softening and fading with height above the surface and gone beyond 500 yd. It follows any surface (terrain, water, scenery) without a ground probe and applies to every skin; settings.shadows=false disables it. The sun direction is fixed, not the time-of-day sun.
 
+## Star Wars Episode I: Racer data (optional, local only)
+
+The welcome panel has an optional **Star Wars Episode I: Racer folder** row (game root, `data`, or `data\lev01`; remembered like the WoW folder under its own IndexedDB key, Firefox re-picks). Nothing from that game is shipped, committed, or uploaded; the hosted build contains only the parser code and works without the folder. `browser/swe1r/` is a clean-room reader: `block.js` (big-endian `out_*block.bin` containers), `comp.js` (the `Comp` LZ77 stream; this Steam v1.0 install stores every model uncompressed, so it is only covered by a synthetic test), `image.js` (sprite/texture pixel formats, sprites are 64x32 tiles laid out row-major with rows bottom-up inside each tile), `names.js` (item names derived from the MIT-licensed `akopetsch/swe1r-assets` metadata, Copyright (c) 2024 Alexander Kopetsch; names drift from index ~230 in this install, so the CLI only trusts a name whose tag matches the file). Debug: `node browser/swe1r/cli.mjs "<...>\Star Wars Episode I Racer\data" list|sprites [outDir]` (previews default to git-ignored `runtime/swe1r`). Tests: `SWE1R_DATA="<...>\data" node --test browser/swe1r` runs the real-install cases; they skip when unset.
+
 ## Public static hosting (GitHub Pages / Cloudflare Pages)
 
 The app is static: it needs no server, and the player's own Data folder never leaves their machine.

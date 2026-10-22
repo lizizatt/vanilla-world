@@ -21,12 +21,12 @@ async function store(mode, action) {
     throw new AssetError('STORAGE', 'Cannot persist the Data folder handle', error);
   } finally { db?.close(); }
 }
-export const rememberDataFolder = handle => {
+export const rememberDataFolder = (handle, key = 'data') => {
   if (handle?.kind !== 'directory') throw new AssetError('INVALID_FOLDER', 'Expected a Data directory handle');
-  return store('readwrite', records => records.put(handle, 'data'));
+  return store('readwrite', records => records.put(handle, key));
 };
-export const restoreDataFolder = () => store('readonly', records => records.get('data'));
-export const forgetDataFolder = () => store('readwrite', records => records.delete('data'));
+export const restoreDataFolder = (key = 'data') => store('readonly', records => records.get(key));
+export const forgetDataFolder = (key = 'data') => store('readwrite', records => records.delete(key));
 
 // request=true must be called directly from a main-thread user gesture, never a worker.
 export async function authorizeDataFolder(handle, { request = false } = {}) {

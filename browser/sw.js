@@ -1,7 +1,7 @@
-const CACHE = 'racer-shell-v84';
+const CACHE = 'racer-shell-v85';
 const FILES = ['./', './index.html', './world-app.js', './world-client.js', './world-worker.js', './world-renderer.js',
   './world-store.js', './world-camera.js', './world-view.js', './camera-collision.js', './world-input.js', './world-audio.js', './world-tuning.js',
-  './asset-source.js', './asset-folder.js', './scene-stream.js', './terrain-stream.js', './water-stream.js', './craft-stream.js', './flight.js',
+  './asset-source.js', './asset-folder.js', './swe1r/folder.js', './swe1r/ui.js', './swe1r/block.js', './swe1r/comp.js', './swe1r/image.js', './swe1r/names.js', './scene-stream.js', './terrain-stream.js', './water-stream.js', './craft-stream.js', './flight.js',
   './far-worker.js', './far-stream.js', './far-channel.js', './asset-worker.js', './asset-channel.js', './loading-art.js',
   './water-shader.js', './music.js', './sky.js', './clouds.js','./shadow.js', './race.js', './race-flags.js', './track-edit.js', './track-editor.js', './vehicles.js', './glb.js', './vehicle-model.js', './tracks/steamwheedle.json', './world-music.js', './ocean-mesh.js', './worldmap.js', './map-panel.js', './style.css', './icon.svg', './pkg/flats_racer_web.js', './pkg/flats_racer_web_bg.wasm'];
 self.addEventListener('install', event => {
