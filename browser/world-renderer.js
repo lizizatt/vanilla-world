@@ -224,7 +224,8 @@ export class WorldRenderer {
   // Animated NPC poses replace the vertex buffer only when it matches the bind mesh; the wrapper stays stable per base asset.
   posedAsset(instance,base) {
     if(!base||instance.distant||!this.poses?.size||!instance.id.includes(':npc:'))return base;
-    const entry=this.poses.get(poseKey(instance.key,actorPhase(instance.id)));
+    const ph=actorPhase(instance.id),mv=this.moves?.get(instance.id);
+    const entry=(mv&&(mv.vx||mv.vy)&&this.poses.get(poseKey(instance.key,ph+ACTOR.phases)))||this.poses.get(poseKey(instance.key,ph));
     if(!entry||entry.size!==base.vertices.size)return base;
     if(!entry.asset||entry.asset.base!==base)entry.asset={...base,vertices:entry.buffer,base};
     return entry.asset;

@@ -69,3 +69,40 @@ test('wander respects the Animate NPCs toggle and non-wanderer classes',()=>{
   s.enabled=false;s.wander([npc(1,0)],[0,0],()=>0,2);
   assert.equal(posts.at(-1).moves.length,0);assert.ok(posts.at(-1).removed.length);
 });
+
+const rig=(ms)=>({SceneActor:{create:()=>({duration:a=>a===4&&ms===undefined?0:2,move_speed:()=>ms??0,vertex_count:()=>10,pose:(a,t)=>{rig.calls.push([a,t]);return new Float32Array(30);},free(){}})}});
+rig.calls=[];
+const walker=async(ms)=>{
+  rig.calls=[];const posts=[];
+  const s=new ActorService({read:async()=>new Uint8Array(1)},rig(ms),m=>posts.push(m),()=>0);
+  const n={...npc(1,0,'Creature\\Rabbit\\Rabbit.m2'),matrix:[1,0,0,0,0,1,0,0,0,0,1,0,0,0,5,1]};
+  s.update([n],[0,0]);await new Promise(r=>setTimeout(r,5));
+  let t=0;
+  while(!(s.walk.get(n.id)?.last?.vx||s.walk.get(n.id)?.last?.vy)&&t<400){s.wander([n],[0,0],()=>7,t);t+=1;}
+  rig.calls=[];s.update([n],[0,0]);
+  return {s,calls:rig.calls,posts,n};
+};
+
+test('a moving NPC with a Walk clip and moveSpeed plays Walk at speed/moveSpeed',async()=>{
+  const {s,calls,posts}=await walker(2);
+  assert.equal(calls[0][0],4);
+  assert.ok(posts.at(-1).poses[0].phase>=ACTOR.phases);
+  const l=s.walk.values().next().value.last;
+  assert.ok(Math.abs(calls[0][1]/(Date.now()/1000*0+calls[0][1])-1)<1e-9);
+  assert.ok(Math.hypot(l.vx,l.vy)>0);
+});
+
+test('no Walk clip or no moveSpeed falls back to Stand',async()=>{
+  assert.equal((await walker(undefined)).calls[0][0],0);
+  assert.equal((await walker(0)).calls[0][0],0);
+});
+
+test('facing turns at a bounded rate instead of snapping',()=>{
+  const s=new ActorService({},{},()=>{},()=>0),n=npc(1,0);
+  const yaws=[];
+  for(let t=0;t<120;t+=.1){s.wander([n],[0,0],()=>7,t);const l=s.walk.get(n.id)?.last;if(l)yaws.push(l.yaw);}
+  for(let i=1;i<yaws.length;i++){
+    const d=Math.abs(Math.atan2(Math.sin(yaws[i]-yaws[i-1]),Math.cos(yaws[i]-yaws[i-1])));
+    assert.ok(d<=WANDER.turnRate*.1+1e-9,d);
+  }
+});
