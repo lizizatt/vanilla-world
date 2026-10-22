@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {VEHICLES,DEFAULT_CHOICE,normalizeChoice,readChoice,writeChoice,tracksFor,vehicleOf,canSwitch,skinOf} from './vehicles.js';
+import {VEHICLES,DEFAULT_CHOICE,normalizeChoice,readChoice,writeChoice,tracksFor,vehicleOf,canSwitch,skinOf,stepSkin} from './vehicles.js';
 import {validateTrack} from './race.js';
 import {nearestFlag} from './race-flags.js';
 
@@ -44,4 +44,13 @@ test('a fresh load boots the podracer even if free flight or junk was persisted'
   for(const v of ['plane','free-flight']){const s=mem();s.setItem('racer.vehicle',JSON.stringify({vehicle:v,skin:'camera'}));assert.deepEqual(bootChoice(s),DEFAULT_CHOICE);}
   const s=mem();s.setItem('racer.vehicle','{bad');assert.deepEqual(bootChoice(s),DEFAULT_CHOICE);
   const g=mem();writeChoice({vehicle:'podracer',skin:'rocket'},g);assert.equal(bootChoice(g).vehicle,'podracer');
+});
+
+test('stepSkin carousel wraps, skips unusable skins, and tolerates empty/one-skin lists',()=>{
+  const s=['a','b','c'].map(id=>({id}));
+  assert.equal(stepSkin(s,'c',1),'a');assert.equal(stepSkin(s,'a',-1),'c');assert.equal(stepSkin(s,'a',1),'b');
+  assert.equal(stepSkin(s,'a',1,x=>x.id!=='b'),'c');
+  assert.equal(stepSkin(s,'a',1,()=>false),'a');
+  assert.equal(stepSkin([{id:'x'}],'x',1),'x');
+  assert.equal(stepSkin([],'x',1),'x');
 });

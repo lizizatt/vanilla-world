@@ -197,7 +197,7 @@ dialog h2 { color: #ffb34d; margin-top: 0; }
 #garage [aria-selected=true], #garage [aria-checked=true] { outline: 2px solid #ffd36a; }
 #garage button[disabled] { opacity: .4; cursor: not-allowed; }
 #garage-body { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 10px; }
-#garage-skins { display: grid; gap: 6px; align-content: start; }
+#garage-skins { display: grid; grid-template-columns: auto 1fr auto; gap: 6px; align-items: center; align-content: start; text-align: center; }
 #garage-stats div { display: grid; grid-template-columns: 70px 1fr; align-items: center; gap: 8px; margin: 3px 0; }
 #garage-stats i { display: block; height: 8px; background: #ffd36a; border-radius: 4px; }
 #garage-races { margin: 0; padding-left: 18px; }
