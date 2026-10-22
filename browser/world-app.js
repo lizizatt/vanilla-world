@@ -35,11 +35,11 @@ let choice=bootChoice(),tracks=[],race,raceBest,promptTrack,goUntil=0,boardTimer
 const raceAgain=()=>againTrack&&performance.now()<againUntil?againTrack:undefined;
 let renderer,folder,flight,running=false,busy=false,last=0,frames=0,hudTime=0,hudFrames=0,permissionNeeded=false;
 let orbit=[0,0],dragging=false,mouseButtons=0,soundAttempt=0,soundError='',soundTime=0,reportTimer,testPads,frozenPresentation=false,tuningValues=TUNING_FIELDS.map(f=>f[1]);
-const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:true,cockpit:false,night:false,clouds:true,music:true,particles:'medium'};
+const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:true,cockpit:false,night:false,clouds:true,music:true,particles:'medium',animateNpcs:true};
 const settings={...defaults};
 const gib={on:true,speed:100,overheat:true},gibMem={};
 try{gib.on=localStorage.getItem('racer.gib')!=='0';gib.overheat=localStorage.getItem('racer.overheat')!=='0';gib.speed=Math.max(20,Math.min(400,Number(localStorage.getItem('racer.gibSpeed'))||100));}catch{}
-try{settings.night=localStorage.getItem('racer.night')==='1';settings.music=localStorage.getItem('racer.music')!=='0';}catch{}
+try{settings.night=localStorage.getItem('racer.night')==='1';settings.music=localStorage.getItem('racer.music')!=='0';settings.animateNpcs=localStorage.getItem('racer.animateNpcs')!=='0';}catch{}
 const loading=$('loading-screen');
 const loadingArt=new LoadingArt($('loading-art'),$('loading-bar-art'),loading);
 loading.addEventListener('cancel',event=>event.preventDefault());
@@ -119,7 +119,7 @@ function enabled(value) {
 }
 function syncSettings() {
   for(const key of ['horizon','scenery','distant','sound','night','clouds'])$(key).checked=settings[key];
-  $('particles').value=settings.particles;
+  $('particles').value=settings.particles;$('animate-npcs').checked=settings.animateNpcs;
   music.setNight(settings.night);music.setEnabled(settings.music);$('music-on').checked=settings.music;
   $('control-profile').value=settings.controls;$('camera-distance').value=settings.cameraDistance;
   $('keyboard-guide').textContent=settings.controls==='legacy'
@@ -193,7 +193,7 @@ async function open(selection,remember=false) {
     const loadingMap=renderer.manifest?.regions[renderer.sceneRegion]?.map;
     renderer.reset();renderer.clipCamera=undefined;cameraCollision.reset();flight=undefined;pauseAudio();music.stop();Object.assign(settings,defaults);syncSettings();
     const result=await client.open(selection,loadingMap);
-    renderer.configure(result.info.manifest);client.sky();mapPanel.configure(result.info.manifest);
+    renderer.configure(result.info.manifest);client.sky();client.animate(settings.animateNpcs);mapPanel.configure(result.info.manifest);
     void loadTracks().then(async found=>{shipped=found;tracks=await withOverrides(found);gateKey=undefined;});
     cameraCollision.configure(result.info.manifest);
     tuningValues=Array.isArray(result.info.tuning)?result.info.tuning.slice():TUNING_FIELDS.map(f=>f[1]);
@@ -300,6 +300,7 @@ $('drive').addEventListener('click',()=>{flight=undefined;renderer.camera=undefi
 $('horizon').addEventListener('change',()=>{settings.horizon=$('horizon').checked;});
 $('scenery').addEventListener('change',()=>{settings.scenery=$('scenery').checked;});
 $('clouds').addEventListener('change',()=>{settings.clouds=$('clouds').checked;});
+$('animate-npcs').addEventListener('change',()=>{settings.animateNpcs=$('animate-npcs').checked;client.animate(settings.animateNpcs);try{localStorage.setItem('racer.animateNpcs',settings.animateNpcs?'1':'0');}catch{}});
 $('particles').addEventListener('change',()=>{settings.particles=$('particles').value;});
 $('distant').addEventListener('change',()=>{settings.distant=$('distant').checked;});
 function setNight(night) {

@@ -379,6 +379,82 @@ impl SceneModel {
     }
 }
 
+const ACTOR_MAX_VERTICES: usize = 20_000;
+
+/// A bind-pose creature that can be re-posed (Stand `0`, Walk `4`) for the browser's bounded
+/// nearby animation. It shares `SceneModel`'s vertex order and 12-float layout.
+#[wasm_bindgen]
+pub struct SceneActor {
+    bind: Vec<RenderSubmesh>,
+    rig: benilla_formats::M2Rig,
+    vertices: Vec<f32>,
+}
+
+impl SceneActor {
+    fn decode(bytes: &[u8], path: &str, skins: &str) -> Result<Self, String> {
+        bounded(bytes)?;
+        let skins: Vec<Option<String>> = serde_json::from_str(skins).map_err(|e| e.to_string())?;
+        if skins.len() > 4 || path.len() > 1024 {
+            return Err("Invalid actor skin/path metadata".into());
+        }
+        let dir = path.rsplit_once(['\\', '/']).map_or("", |(dir, _)| dir);
+        let bind = parse_m2_render_submeshes(bytes, dir, &skins).map_err(|e| e.to_string())?;
+        let mut vertices = Vec::new();
+        for sub in &bind {
+            let n = sub.positions.len();
+            if sub.normals.len() != n
+                || sub.uvs.len() != n
+                || sub.joints.len() != n
+                || sub.weights.len() != n
+                || (!sub.vertex_colors.is_empty() && sub.vertex_colors.len() != n)
+                || vertices.len() / 12 + n > ACTOR_MAX_VERTICES
+            {
+                return Err("Actor streams are inconsistent or too large".into());
+            }
+            for i in 0..n {
+                vertices.extend(sub.positions[i]);
+                vertices.extend(sub.normals[i]);
+                vertices.extend(sub.uvs[i]);
+                vertices.extend(sub.vertex_colors.get(i).copied().unwrap_or([1.0; 4]));
+            }
+        }
+        let rig = benilla_formats::M2Rig::new(bytes, &bind, &[0, 4]).map_err(|e| e.to_string())?;
+        if rig.duration(0).is_none() {
+            return Err("Actor has no Stand clip".into());
+        }
+        Ok(Self {
+            bind,
+            rig,
+            vertices,
+        })
+    }
+}
+
+#[wasm_bindgen]
+impl SceneActor {
+    pub fn create(bytes: &[u8], path: &str, skins: &str) -> Result<SceneActor, JsValue> {
+        Self::decode(bytes, path, skins).map_err(js)
+    }
+
+    /// Clip length in seconds; `0` when the model lacks it.
+    pub fn duration(&self, anim_id: u16) -> f32 {
+        self.rig.duration(anim_id).unwrap_or(0.0)
+    }
+
+    pub fn vertex_count(&self) -> usize {
+        self.vertices.len() / 12
+    }
+
+    /// The complete interleaved vertices posed `seconds` into `anim_id` (looped).
+    pub fn pose(&self, anim_id: u16, seconds: f32) -> Result<Vec<f32>, JsValue> {
+        let mut out = self.vertices.clone();
+        self.rig
+            .pose_into(&self.bind, anim_id, seconds, &mut out)
+            .map_err(js)?;
+        Ok(out)
+    }
+}
+
 #[wasm_bindgen]
 pub struct SceneRoot {
     root: WmoRoot,
@@ -720,6 +796,41 @@ impl Voyage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn actual_creature_actor_poses_stand_loop_finitely_and_moves() {
+        let data = benilla_formats::wow_data_or_skip!();
+        let mut chain = benilla_formats::Chain::open(&data).unwrap();
+        let mut built = 0;
+        for path in [
+            "Creature\\Wolf\\Wolf.m2",
+            "Creature\\Boar\\Boar.m2",
+            "Creature\\Rabbit\\Rabbit.m2",
+            "Creature\\Deer\\Deer.m2",
+            "Creature\\HumanMaleGuard\\HumanMaleGuard.m2",
+        ] {
+            let Ok(bytes) = chain.read_file(path) else { continue };
+            let Ok(actor) = SceneActor::decode(&bytes, path, "[]") else { continue };
+            built += 1;
+            let model = SceneModel::from_m2(&bytes, path, "[]").unwrap();
+            assert_eq!(actor.vertices.len(), model.vertices.len());
+            let duration = actor.rig.duration(0).unwrap();
+            let mut first = actor.vertices.clone();
+            actor.rig.pose_into(&actor.bind, 0, 0.0, &mut first).unwrap();
+            let mut mid = actor.vertices.clone();
+            actor.rig.pose_into(&actor.bind, 0, duration * 0.5, &mut mid).unwrap();
+            let mut wrapped = actor.vertices.clone();
+            actor.rig.pose_into(&actor.bind, 0, duration * 3.0, &mut wrapped).unwrap();
+            assert!(first.iter().chain(&mid).all(|v| v.is_finite()));
+            assert!(first.iter().zip(&wrapped).all(|(a, b)| (a - b).abs() < 1e-3));
+            // UVs and colours are never touched.
+            for v in 0..first.len() / 12 {
+                assert_eq!(first[v * 12 + 6..v * 12 + 12], model.vertices[v * 12 + 6..v * 12 + 12]);
+            }
+            assert!(first.iter().zip(&mid).any(|(a, b)| (a - b).abs() > 1e-4), "{path} did not move");
+        }
+        assert!(built > 0, "no probe creature produced an actor");
+    }
 
     #[test]
     fn actual_racer_display_keeps_complete_model_and_authored_seat_without_inventing_rider() {

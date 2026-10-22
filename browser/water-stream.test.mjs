@@ -157,7 +157,7 @@ test('GPU water replacements release old resources and use exact detailed-tile p
   assert.throws(()=>rig.event({event:'coast-water',index:1,removed:[1],vertices:new Float32Array(42)}));
   assert.equal(rig.coastBytes,168);
   Object.assign(rig,{tiles:new Map(),seams:new Map(),horizon:[],water:[],flags:[],gates:[],indices:new Map(),assets:new Map(),
-    textures:new Map(),items:new Map(),materialPending:new Map(),minimapAtlases:[]});
+    textures:new Map(),items:new Map(),poses:new Map(),materialPending:new Map(),minimapAtlases:[]});
   rig.reset();
   assert.equal(rig.coastBytes,0);assert.equal(rig.coast.size,0);assert.equal(released.length,2);
 });

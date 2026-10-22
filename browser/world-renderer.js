@@ -11,6 +11,7 @@ import {oceanMesh} from './ocean-mesh.js';
 import {ParticlePool,exhaustPoints,emitPlumes,emitBurst,emitDebris,emitHeatSmoke,emitGroundDust,QUALITY,INSTANCE_FLOATS,CAPACITY,particleShader,particleUniform} from './particles.js';
 import {flagMesh,gateMesh} from './race-flags.js';
 import {SkyCatalog,mapPosition,skyShader,skyDomeShader,skyUniform,advanceTime,nightAlpha,nightAngle,DAY} from './sky.js';
+import {ACTOR,actorPhase,poseKey} from './actors.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
 export {sceneVisible} from './world-view.js';
 export {craftMatrix} from './world-camera.js';
@@ -215,10 +216,44 @@ export class WorldRenderer {
     this.admissionFade=new AdmissionFade();
     this.assets=new Map();this.textures=new Map();this.items=new Map();this.instances=[];this.pipelines=new Map();
     this.materialPending=new Map();this.minimapAtlases=[];
-    this.pendingEvents=[];
+    this.pendingEvents=[];this.poses=new Map();this.moves=new Map();
     this.terrainBundleBuilds=0;this.sceneBundleBuilds=0;
     this.uniformData=new Float32Array(16384*64);
     this.frameUniforms=device.createBuffer({size:this.uniformData.byteLength,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
+  }
+  // Animated NPC poses replace the vertex buffer only when it matches the bind mesh; the wrapper stays stable per base asset.
+  posedAsset(instance,base) {
+    if(!base||instance.distant||!this.poses?.size||!instance.id.includes(':npc:'))return base;
+    const entry=this.poses.get(poseKey(instance.key,actorPhase(instance.id)));
+    if(!entry||entry.size!==base.vertices.size)return base;
+    if(!entry.asset||entry.asset.base!==base)entry.asset={...base,vertices:entry.buffer,base};
+    return entry.asset;
+  }
+  npcMoves(data) {
+    for(const id of data.removed)this.moves.delete(id);
+    for(const [id,x,y,z,yaw,vx,vy] of data.moves)this.moves.set(id,{x,y,z,yaw,vx,vy,t:data.t});
+  }
+  // Wandering NPC: authored matrix with the worker's position (extrapolated by velocity) and facing swapped in.
+  moveMatrix(instance,mv,region,origin) {
+    const b=instance.matrix,dt=Math.min(.5,Math.max(0,Date.now()/1000-mv.t)),d=mv.yaw-Math.atan2(b[1],b[0]);
+    const c=Math.cos(d),s=Math.sin(d),m=Array.from(b);
+    for(let k=0;k<3;k++){const x=b[k*4],y=b[k*4+1];m[k*4]=c*x-s*y;m[k*4+1]=s*x+c*y;}
+    m[12]=mv.x+mv.vx*dt;m[13]=mv.y+mv.vy*dt;m[14]=mv.z;
+    return renderMatrix(m,region,origin);
+  }
+  pose(data) {
+    for(const id of data.removed){this.poses.get(id)?.buffer.destroy();this.poses.delete(id);}
+    for(const p of data.poses){
+      const id=poseKey(p.key,p.phase);let entry=this.poses.get(id);
+      if(!entry||entry.size!==p.vertices.byteLength){
+        const bytes=[...this.poses.values()].reduce((n,e)=>n+(e===entry?0:e.size),0)+p.vertices.byteLength;
+        if(bytes>ACTOR.maxBytes)continue;
+        entry?.buffer.destroy();
+        entry={size:p.vertices.byteLength,buffer:this.device.createBuffer({size:p.vertices.byteLength,usage:GPUBufferUsage.VERTEX|GPUBufferUsage.COPY_DST})};
+        this.poses.set(id,entry);
+      }
+      this.device.queue.writeBuffer(entry.buffer,0,p.vertices.buffer,p.vertices.byteOffset,p.vertices.byteLength);
+    }
   }
   buffer(data,usage) {
     const buffer=this.device.createBuffer({size:Math.max(4,data.byteLength),usage,mappedAtCreation:true});
@@ -413,6 +448,7 @@ export class WorldRenderer {
     for(const asset of this.assets.values()){asset.vertices.destroy();asset.indices.destroy();}this.assets.clear();
     for(const texture of this.textures.values())texture.destroy();this.textures.clear();
     this.items.clear();
+    for(const e of this.poses.values())e.buffer.destroy();this.poses.clear();this.moves?.clear();
     this.instances=[];this.nearInstances=[];this.farInstances=[];this.farRegion=undefined;
     this.camera=undefined;this.origin=[0,0];
     this.view=undefined;this.terrainView=undefined;
@@ -438,6 +474,8 @@ export class WorldRenderer {
       if(this.pendingEvents.length>=16384)throw Error('World startup event budget exceeded');
       this.pendingEvents.push(data);return;
     }
+    if(data.event==='pose'){this.pose(data);return;}
+    if(data.event==='npc-moves'){this.npcMoves(data);return;}
     if(data.event==='craft'){
       const craft=this.buildCraft(data,10318,'10318');
       this.releaseCraft();
@@ -832,8 +870,9 @@ export class WorldRenderer {
     if(settings.scenery && this.sceneRegion!==undefined) {
       const r=this.manifest.regions[this.sceneRegion];
       for(const instance of selection.selected) {
-        const asset=this.assets.get(instance.key);if(!asset)continue;
-        append(asset,instance,this.sceneMatrix(instance,r,origin),this.textures,this.items);
+        const asset=this.posedAsset(instance,this.assets.get(instance.key));if(!asset)continue;
+        const mv=this.moves?.size&&instance.id.includes(':npc:')?this.moves.get(instance.id):undefined;
+        append(asset,instance,mv?this.moveMatrix(instance,mv,r,origin):this.sceneMatrix(instance,r,origin),this.textures,this.items);
       }
     }
     const wreckAge=this.wreck?performance.now()/1000-this.wreck.t0:0;
