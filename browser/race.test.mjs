@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {Race,crossesGate,crossingAt,breakoffDistance,validateTrack,BREAKOFF_MARGIN,formatTime,bearing,addScore,validScores,SCORE_LIMIT} from './race.js';
+import {lapTimes,Race,crossesGate,crossingAt,breakoffDistance,validateTrack,BREAKOFF_MARGIN,formatTime,bearing,addScore,validScores,SCORE_LIMIT} from './race.js';
 
 // Gates face -z (yaw 0), spaced 100 yd apart northward.
 const gate=z=>({pos:[0,0,z],yaw:0,width:40});
@@ -134,4 +134,9 @@ test('grazing, outside width, wrong direction and teleports do not or only valid
 test('same gate cannot trigger twice in one step',()=>{
   const r=go(new Race(mk({mode:'lap',laps:3,gates:[{pos:[0,0,-100],yaw:0,width:20}]})));
   assert.equal(r.update([0,0,-200],4),'gate');assert.equal(r.next,1);
+});
+test('lapTimes splits cumulative gate times into per-lap durations',()=>{
+  assert.deepEqual(lapTimes([5,10,20,25,30,45],3),[20,25]);
+  assert.deepEqual(lapTimes([5,10],3),[]);
+  assert.deepEqual(lapTimes([4,9],1),[4,5]);
 });

@@ -10,7 +10,7 @@ import {CameraCollision} from './camera-collision.js';
 import {LoadingArt} from './loading-art.js';
 import {MusicPlayer} from './world-music.js';
 import {MapPanel} from './map-panel.js';
-import {Race,formatTime,bearing,addScore,validScores,validateTrack} from './race.js';
+import {Race,formatTime,lapTimes,bearing,addScore,validScores,validateTrack} from './race.js';
 import {createTrackEditor} from './track-editor.js';
 import {clampTrack} from './track-edit.js';
 import {loadTracks,nearestFlag,flagPosition} from './race-flags.js';
@@ -22,7 +22,7 @@ import {podSkinList,loadPodModel} from './swe1r/skin.js';
 import {SFX,STINGER,WIPEOUT_NAMES,wipeoutBlast,pickRaceMusic,loadSfx} from './swe1r/sfx.js';
 import {pickVoice,raceEndEvents} from './swe1r/voice-map.js';
 import {WRECK_CHUNK,WRECK_CHUNKS,gibTrigger} from './wreck.js';
-import {loadHudSprites,loadCountdownSprites,createDial,lapText} from './swe1r/hud.js';
+import {loadHudSprites,loadCountdownSprites,createDial,lapText,lapTimesText} from './swe1r/hud.js';
 let dial,hudOn=false,countdownSprites;
 
 const $=id=>document.getElementById(id),canvas=$('world'),keys=new Set();
@@ -558,6 +558,7 @@ function raceHud(t) {
   if(done&&reference!==undefined){const d=race.splits[done-1]-reference;setText('race-delta',`${d<0?'-':'+'}${Math.abs(d).toFixed(2)}`);$('race-delta').dataset.ahead=String(d<0);}
   else setText('race-delta','');
   setText('race-lap',hudOn&&dial?lapText(race.lap,race.track.laps):'');
+  setText('race-laps',hudOn&&dial&&race.track.laps>1?lapTimesText(lapTimes(race.splits,race.track.gates.length),formatTime):'');
   setText('race-gate',`Gate ${Math.min(done+1,race.totalGates)}/${race.totalGates}`);
   const gate=race.nextGate,arrow=$('race-arrow');
   arrow.hidden=!gate;

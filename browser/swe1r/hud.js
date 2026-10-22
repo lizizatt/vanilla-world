@@ -26,6 +26,9 @@ export async function loadCountdownSprites(reader) {
 // Persistent in-race lap readout; the lap number never exceeds the total.
 export const lapText = (lap, laps) => `Lap ${Math.min(Math.max(1, lap), laps)}/${laps}`;
 
+// Last and best completed lap, only meaningful for multi-lap races.
+export const lapTimesText = (times, fmt) => times.length ? `Last ${fmt(times.at(-1))}  Best lap ${fmt(Math.min(...times))}` : '';
+
 // 270 degree sweep from lower-left (225 deg, canvas clockwise) around the top to lower-right.
 export const needleAngle = f => (0.75 + 1.5 * Math.min(1, Math.max(0, Number.isFinite(f) ? f : 0))) * Math.PI;
 

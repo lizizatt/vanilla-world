@@ -96,6 +96,13 @@ export class Race {
   }  farFromCourse(pos) { return this.track.gates.every(g=>dist(pos,g.pos)>this.breakoff)&&dist(pos,this.track.start.pos)>this.breakoff; }
 }
 
+// Per-lap durations from cumulative gate split times (the last gate of each lap closes it).
+export function lapTimes(splits,gatesPerLap) {
+  const out=[];
+  for(let i=gatesPerLap-1;i<splits.length;i+=gatesPerLap)out.push(splits[i]-(i>=gatesPerLap?splits[i-gatesPerLap]:0));
+  return out;
+}
+
 export function formatTime(seconds) {
   const ms=Math.round(Math.max(0,seconds)*1000),m=Math.floor(ms/60000),s=(ms%60000)/1000;
   return `${m}:${s.toFixed(2).padStart(5,'0')}`;

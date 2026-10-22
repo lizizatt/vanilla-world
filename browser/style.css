@@ -102,7 +102,8 @@ dialog h2 { color: #ffb34d; margin-top: 0; }
 #race-countdown canvas { display: block; margin: 0 auto; width: 160px; height: 160px; image-rendering: pixelated; }
 #race-prompt[hidden], #race-countdown[hidden] { display: none; }
 #race-hud { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); min-width: 180px; padding: 6px 14px; text-align: center; background: rgba(0,0,0,.5); border-radius: 6px; color: #fff; pointer-events: none; }
-#race-lap:empty { display: none; }
+#race-laps { font-size: 14px; font-variant-numeric: tabular-nums; }
+#race-laps:empty, #race-lap:empty { display: none; }
 #race-lap { font-size: 18px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #ffd27a; }
 #race-time { font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; }
 #race-delta { font-size: 18px; font-weight: 700; color: #ff6b6b; min-height: 22px; }
