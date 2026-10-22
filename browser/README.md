@@ -1771,3 +1771,6 @@ The app is static: it needs no server, and the player's own Data folder never le
 - **Verified locally:** `dist/` served by a plain static server under `/vanilla-world/` (404 and SPA-fallback variants, plain and with a non-loopback host name) in Edge: entry panel, Data-folder pick, driving, service worker scope.
 - **Audit notes:** tracked `browser/` files contain no game art, credentials or absolute local paths. `export-npcs.py` and `runtime/` stay local and ignored; the repository also contains the upstream VMaNGOS `server/` tree and SQL, which is separate from the hosted build.
 
+
+**HUD dial (S4).** A small canvas dial replaces our speed readout while the folder is attached and the Sound menu's "Racer HUD dial" box is ticked (untick for our original HUD, which is also the hosted/no-folder default). It is drawn from spriteblock entries 28 (ring) and 29 (face), the left half of a circle each, mirrored, with a code-drawn needle (270 deg sweep to boost speed) and boost bar. Honest limits: this is an approximation, not the original layout (the spriteblock has no assembled speedometer; names in community lists drift, so swe1r/hud.js checks 64x64 dims), the gauge halves are placed by eye, our state and boost readouts stay, and no menu/countdown/lap sprites are used yet. Sprites are decoded in memory only.
+

@@ -9,6 +9,7 @@ import { findLev, listModels } from './cli.mjs';
 import { buildPod } from './pod.js';
 import { toCraft, podSkinList, loadPodModel } from './skin.js';
 import { loadSfx, SFX } from './sfx.js';
+import { loadHudSprites, needleAngle } from './hud.js';
 import { readerFromFiles } from './folder.js';
 import { VEHICLES, normalizeChoice, setRuntimeSkins } from '../vehicles.js';
 
@@ -156,4 +157,16 @@ test('real install: SFX wavs are plain PCM and load', { skip: !process.env.SWE1R
   const got = await loadSfx(reader);
   assert.equal(got.size, Object.keys(SFX).length);
   for (const b of got.values()) assert.equal(String.fromCharCode(...b.slice(0, 4)), 'RIFF');
+});
+test('needleAngle sweeps 270 degrees and clamps bad input', () => {
+  assert.equal(needleAngle(0), 0.75 * Math.PI);
+  assert.ok(Math.abs(needleAngle(1) - 2.25 * Math.PI) < 1e-12);
+  assert.equal(needleAngle(5), needleAngle(1));
+  assert.equal(needleAngle(NaN), needleAngle(0));
+});
+
+test('real install: HUD ring/face sprites decode as 64x64', { skip: !process.env.SWE1R_DATA && 'SWE1R_DATA not set' }, async () => {
+  const lev = findLev(process.env.SWE1R_DATA);
+  const s = await loadHudSprites({ read: async n => new Uint8Array(fs.readFileSync(path.join(lev, n))) });
+  assert.ok(s && s.ring.rgba.some((v, i) => i % 4 === 3 && v > 0) && s.face.rgba.some((v, i) => i % 4 === 3 && v > 0));
 });
