@@ -6,7 +6,7 @@ import { readBlock } from './block.js';
 import { decompress, isComp } from './comp.js';
 import { decodePixels, decodeSprite, FMT, rgba5551 } from './image.js';
 import { findLev, listModels } from './cli.mjs';
-import { buildPod } from './pod.js';
+import { buildPod, decodeTriangles } from './pod.js';
 import { toCraft, podSkinList, loadPodModel } from './skin.js';
 import { loadSfx, SFX } from './sfx.js';
 import { loadHudSprites, needleAngle } from './hud.js';
@@ -169,4 +169,12 @@ test('real install: HUD ring/face sprites decode as 64x64', { skip: !process.env
   const lev = findLev(process.env.SWE1R_DATA);
   const s = await loadHudSprites({ read: async n => new Uint8Array(fs.readFileSync(path.join(lev, n))) });
   assert.ok(s && s.ring.rgba.some((v, i) => i % 4 === 3 && v > 0) && s.face.rgba.some((v, i) => i % 4 === 3 && v > 0));
+});
+test('pod vertex bytes are normals, not colours (no G_GEOMETRYMODE -> lit)', () => {
+  const body = new Uint8Array(256), dv = new DataView(body.buffer);
+  dv.setUint32(0, 0x01003006); dv.setUint32(4, 64);       // G_VTX n=3 at 64
+  dv.setUint32(8, 0x05000204); dv.setUint32(12, 0); body[16] = 0xdf;      // G_TRI1 0,1,2
+  for (let i = 0; i < 3; i++) body.set([0x82, 0xee, 0x00, 0xff], 64 + i * 16 + 12);
+  const [tri] = decodeTriangles(body, { cl: 0 });
+  assert.deepEqual([tri[0].r, tri[0].g, tri[0].b], [1, 1, 1]);
 });
