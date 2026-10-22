@@ -871,7 +871,7 @@ export class WorldRenderer {
       const r=this.manifest.regions[this.sceneRegion];
       for(const instance of selection.selected) {
         const asset=this.posedAsset(instance,this.assets.get(instance.key));if(!asset)continue;
-        const mv=this.moves.size&&instance.id.includes(':npc:')?this.moves.get(instance.id):undefined;
+        const mv=this.moves?.size&&instance.id.includes(':npc:')?this.moves.get(instance.id):undefined;
         append(asset,instance,mv?this.moveMatrix(instance,mv,r,origin):this.sceneMatrix(instance,r,origin),this.textures,this.items);
       }
     }
