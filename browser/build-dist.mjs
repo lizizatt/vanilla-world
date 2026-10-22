@@ -22,8 +22,8 @@ export async function vehicleFiles() {
 }
 
 // The trimmed public NPC pack is published only when explicitly requested (INCLUDE_NPC_PACK=1) and only if the local file is
-// the de-identified format; a private full pack is refused. It is git-ignored: runtime/browser/npc-pack.json.
-export async function npcPack(env = process.env, path = join(here, '..', 'runtime', 'browser', 'npc-pack.json')) {
+// the de-identified format; a private full pack is refused. Source: browser/npc-pack.public.json (tracked).
+export async function npcPack(env = process.env, path = join(here, 'npc-pack.public.json')) {
   if (env.INCLUDE_NPC_PACK !== '1') return null;
   const text = await readFile(path, 'utf8').catch(() => null);
   if (text === null) return null;

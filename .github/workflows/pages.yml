@@ -35,7 +35,7 @@ jobs:
       - name: Test and build dist
         run: |
           node --test browser
-          node browser/build-dist.mjs dist
+          INCLUDE_NPC_PACK=1 node browser/build-dist.mjs dist
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
