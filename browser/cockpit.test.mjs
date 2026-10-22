@@ -19,7 +19,7 @@ test('cockpit uses the posed model seat and body basis, without velocity-depende
   }
   p[3]=Math.PI/2;p[4]=Math.PI/6;
   view=cameraView(r,p,undefined,.016,origin,settings);
-  near(view.look,[-1,0,0]);near(view.up,[0,Math.cos(Math.PI/6),Math.sin(Math.PI/6)]);
+  near(view.look,[-1,0,0]);near(view.up,[0,Math.cos(Math.PI/6),-Math.sin(Math.PI/6)]);
   const world=r.camera.map((n,i)=>n+(i===0?origin[0]:i===2?origin[1]:0));
   const moved=[origin[0]+256,origin[1]-256];
   cameraView(r,p,undefined,.016,moved,settings);

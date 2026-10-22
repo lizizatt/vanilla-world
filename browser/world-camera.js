@@ -3,7 +3,7 @@ const unit=v=>{const length=Math.hypot(...v);return length?v.map(n=>n/length):[0
 const PITCH_LIMIT=89*Math.PI/180;
 
 export function craftMatrix(state,origin,scale) {
-  const c=Math.cos(state[3]),s=Math.sin(state[3]),cb=Math.cos(state[4]),sb=Math.sin(state[4]);
+  const c=Math.cos(state[3]),s=Math.sin(state[3]),cb=Math.cos(state[4]),sb=-Math.sin(state[4]); // physics bank is negative for a left steer; render left side down
   const m=new Float32Array(16);
   for(const [column,v] of [[0,[0,0,-1]],[1,[-1,0,0]],[2,[0,1,0]]]){
     const bx=v[0]*cb-v[1]*sb,by=v[0]*sb+v[1]*cb,x=bx,y=by,z=v[2];
