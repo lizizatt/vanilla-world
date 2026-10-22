@@ -441,6 +441,11 @@ impl SceneActor {
         self.rig.duration(anim_id).unwrap_or(0.0)
     }
 
+    /// Authored yd/s of a locomotion clip;   when unset.
+    pub fn move_speed(&self, anim_id: u16) -> f32 {
+        self.rig.move_speed(anim_id)
+    }
+
     pub fn vertex_count(&self) -> usize {
         self.vertices.len() / 12
     }

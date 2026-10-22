@@ -15,6 +15,11 @@ export const ACTOR = Object.freeze({
   retryMs: 5000,
 });
 
+const turnToward = (a, b, max) => {
+  const d = Math.atan2(Math.sin(b - a), Math.cos(b - a));
+  return Math.abs(d) <= max ? b : a + Math.sign(d) * max;
+};
+
 export const actorPhase = id => {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (Math.imul(h, 31) + id.charCodeAt(i)) | 0;
@@ -46,13 +51,22 @@ export class ActorService {
     for (const [, i] of near) {
       const model = this.model(i);
       if (!model?.actor) continue;
-      const id = poseKey(i.key, actorPhase(i.id));
+      const sp = this.speedOf(i, model), phase = actorPhase(i.id) + (sp ? ACTOR.phases : 0);
+      const id = poseKey(i.key, phase);
       if (groups.has(id)) continue;
       if (groups.size >= ACTOR.maxGroups || bytes + model.bytes > ACTOR.maxBytes) continue;
-      groups.set(id, { key: i.key, phase: actorPhase(i.id), model });
+      groups.set(id, { key: i.key, phase, model, rate: sp ? sp / model.walkSpeed : 0 });
       bytes += model.bytes;
     }
     return groups;
+  }
+
+  // Yards/s of a walking NPC whose model has a Walk clip with a moveSpeed, else 0 (it stands).
+  speedOf(i, model) {
+    const l = this.walk.get(i.id)?.last;
+    const v = l ? Math.hypot(l.vx, l.vy) : 0;
+    if (!(v > 0.05) || !(model.walkSpeed > 0)) return 0;
+    return v / Math.hypot(i.matrix[0], i.matrix[1], i.matrix[2]);
   }
 
   model(instance) {
@@ -89,7 +103,8 @@ export class ActorService {
       const actor = this.wasm.SceneActor.create(bytes, instance.path, JSON.stringify(instance.skins || []));
       const duration = actor.duration(0);
       if (!(duration > 0)) { actor.free(); retry(Infinity); this.stats.failed++; this.stats.last = `no stand clip: ${instance.path}`; return; }
-      this.models.set(instance.key, { actor, duration, bytes: actor.vertex_count() * 48, used: this.now() });
+      const walk = actor.duration(4), walkSpeed = walk > 0 ? (actor.move_speed?.(4) ?? 0) : 0;
+      this.models.set(instance.key, { actor, duration, walk, walkSpeed, bytes: actor.vertex_count() * 48, used: this.now() });
       this.stats.models = [...this.models.values()].filter(e => e.actor).length;
     } catch (error) {
       if (error?.code === 'DEFERRED') retry(ACTOR.retryMs);
@@ -103,9 +118,9 @@ export class ActorService {
     const seconds = start / 1000;
     for (const [id, g] of groups) {
       if (this.now() - start >= ACTOR.budgetMs && poses.length) break;
-      const offset = g.phase * g.model.duration / ACTOR.phases;
+      const walking = g.phase >= ACTOR.phases, offset = (g.phase % ACTOR.phases) * (walking ? g.model.walk : g.model.duration) / ACTOR.phases;
       let vertices;
-      try { vertices = g.model.actor.pose(0, seconds + offset); }
+      try { vertices = g.model.actor.pose(walking ? 4 : 0, walking ? seconds * g.rate + offset : seconds + offset); }
       catch { this.drop(g.key); this.models.set(g.key, { until: Infinity }); this.stats.failed++; continue; }
       poses.push({ key: g.key, phase: g.phase, vertices });
       transfers.push(vertices.buffer);
@@ -152,7 +167,9 @@ export class ActorService {
       const g = ground(s.x, s.y), ahead = ground(s.x + Math.cos(s.yaw), s.y + Math.sin(s.yaw));
       const ok = Number.isFinite(g) && Math.abs(g - st.g) <= WANDER.maxHeightDelta &&
         (!Number.isFinite(ahead) || Math.abs(ahead - g) <= WANDER.maxSlope);
-      if (ok) st.last = { x: s.x, y: s.y, z: st.home[2] + g - st.g, yaw: s.yaw, vx: s.vx, vy: s.vy };
+      const dt = st.t === undefined ? 0 : Math.min(1, Math.max(0, t - st.t)); st.t = t;
+      st.yaw = st.yaw === undefined ? s.yaw : turnToward(st.yaw, s.yaw, WANDER.turnRate * dt);
+      if (ok) st.last = { x: s.x, y: s.y, z: st.home[2] + g - st.g, yaw: st.yaw, vx: s.vx, vy: s.vy };
       else { stats.rejected++; if (st.last) st.last = { ...st.last, vx: 0, vy: 0 }; }
       if (!st.last) continue;
       homeErr = Math.max(homeErr, Math.abs(st.g - st.home[2]));

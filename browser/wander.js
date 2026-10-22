@@ -7,6 +7,7 @@ export const WANDER = Object.freeze({
   period: [14, 30],
   maxHeightDelta: 2,
   maxSlope: 1.2,
+  turnRate: 4,
 });
 
 // shortcut: critters by name list, guards/vendors are indistinguishable from civilians without creature templates.
