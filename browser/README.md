@@ -1770,6 +1770,8 @@ The Garage skin picker is a compact carousel (◀ name · n / N ▶; Left/Right 
 
 **Race SFX and countdown (S5a/b).** With the folder attached, one-shots fire on edges: boost ignition (`sfx_pod_flare_fire`), airbrake on/off, obstacle contact (`sfx_crash_metal_med1`, 0.5 s cooldown) and the finish (`sfx_payoff_bell`); they follow the Sound menu's Racer-sounds box. The `Racer HUD` box also swaps the 3-2-1 countdown text for SWE1R sprites 19-21 (GO stays text; there is no GO sprite). Surface loops are not wired. Race-end stingers come from `wavs\Music`: a finish plays `m099awards2`, a cancel plays `m032wipeout2/3` (the zone/race music stops first); Music is read from the picked folder or files only, not the IndexedDB cache, so it is silent after a cache-only restore.
 
+**Sound browser.** `node swe1r/sound-browser.mjs` (`SWE1R_DATA` set) serves http://127.0.0.1:4185/ listing all 2479 wavs (22K, 11K, Music, Voice) with durations, a text filter, play and autoplay-next; read-only, nothing copied.
+
 **Voice lines (S5c).** `node swe1r/audition.mjs` (with `SWE1R_DATA` set) serves a local tagging page at http://127.0.0.1:4184/ for `wavs\22K\Voice`: space plays, n/p step, 1-9 assign a recent tag, prefix filter, autoplay. Tags save to git-ignored `runtime/voice-tags.json`; Export writes ids only to `swe1r/voice-map.json` (no audio). The race wires countdown-3/2/1/go, lap-new, final-lap, personal-best, finish and cancelled to a random tagged id (never the same twice running, one line at a time; silent when untagged or no folder).
 
 
