@@ -3,12 +3,24 @@
 import { readBlock } from './block.js';
 import { decodeSprite } from './image.js';
 
-const RING = 28, FACE = 29;
+const RING = 28, FACE = 29, COUNTDOWN = { 1: 19, 2: 20, 3: 21 };
 
 export async function loadHudSprites(reader) {
   const items = readBlock(await reader.read('out_spriteblock.bin'), 'sprite');
   const [ring, face] = [RING, FACE].map(i => items[i] && decodeSprite(items[i][0]));
   return ring?.w === 64 && ring.h === 64 && face?.w === 64 && face.h === 64 ? { ring, face } : null;
+}
+
+// Race countdown digits (sprites 19-21, 64x64). Returns { 1: canvas, 2: canvas, 3: canvas } or null if the sprites don't match.
+export async function loadCountdownSprites(reader) {
+  const items = readBlock(await reader.read('out_spriteblock.bin'), 'sprite');
+  const out = {};
+  for (const [n, i] of Object.entries(COUNTDOWN)) {
+    const s = items[i] && decodeSprite(items[i][0]);
+    if (s?.w !== 64 || s.h !== 64) return null;
+    out[n] = bitmap(s);
+  }
+  return out;
 }
 
 // 270 degree sweep from lower-left (225 deg, canvas clockwise) around the top to lower-right.
