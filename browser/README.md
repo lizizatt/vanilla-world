@@ -1800,6 +1800,4 @@ The app is static: it needs no server, and the player's own Data folder never le
 
 **Pod texture cap.** The old 16-texture limit on SWE1R pods is lifted (craft payloads accept 64; pods use 16-28), so every material is textured. Remaining garbling (purple/green noise on engines and cables) is a separate decode issue, not the cap.
 
-**Steep ground is not an obstacle.** Telemetry contact 3 is a scene object (gib and crash cue); 4 is steep terrain (the craft stops, no gib).
-
 **Wreck velocity.** Gibbed parts inherit the craft's pre-contact velocity (30-80% per part plus 8% scatter); Ctrl+Alt+K uses the current velocity.
