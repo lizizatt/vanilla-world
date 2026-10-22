@@ -508,7 +508,7 @@ immediately and expands with the selected damping. There is no accumulating
 speed-dependent follow distance. The 50-yard query bound is not a world draw-distance limit.
 
 Current browser defaults, requested from the user's Handling screenshot, are:
-cruise/boost **150/1000 yd/s**, thrust/extra boost thrust **50/250** yd/s and yd/s² (boost was 300 and 50 before), braking 30,
+cruise/boost **150/300 yd/s**, thrust/extra boost thrust **50/30** yd/s (saved tunings still holding the old 1000/250 boost values are migrated once) and yd/s² (boost was 300 and 50 before), braking 30,
 drag 0.25, turn rate 2.2, turn response 10, grip 8, drift grip 1.5, drift turn
 multiplier 1.3, hover height **3 yd**, spring 90, damping 18, gravity 24, hop speed
 7, air control 0.9 and chase damping **0.5 s**. Fresh Rust worlds (`voyage.rs` defaults) and Restore

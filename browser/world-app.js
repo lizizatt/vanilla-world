@@ -5,7 +5,7 @@ import {worldSave,worldTuning,validateWorldSave,LAYOUT_VERSION,raceScores,trackO
 import {overview,moveFlight} from './flight.js';
 import {WorldInput,DRIVE_KEYS} from './world-input.js';
 import {WorldAudio} from './world-audio.js';
-import {TUNING_FIELDS,validateTuningRecord} from './world-tuning.js';
+import {TUNING_FIELDS,validateTuningRecord,migrateTuning} from './world-tuning.js';
 import {CameraCollision} from './camera-collision.js';
 import {LoadingArt} from './loading-art.js';
 import {MusicPlayer} from './world-music.js';
@@ -161,7 +161,7 @@ function fillTuning(values,seconds) {
 async function applyTuning(record) {
   validateTuningRecord(record);
   const values=await client.request('tuning',{values:record.values,validateOnly:true});
-  const canonical={version:1,values:Array.from(values),cameraSeconds:Math.fround(record.cameraSeconds)};
+  const canonical={version:1,defaults:2,values:Array.from(values),cameraSeconds:Math.fround(record.cameraSeconds)};
   await worldTuning(client.info.id,canonical);
   await client.request('tuning',{values:canonical.values});
   tuningValues=canonical.values;settings.cameraSeconds=canonical.cameraSeconds;
@@ -199,7 +199,7 @@ async function open(selection,remember=false) {
     $('welcome').hidden=true;enabled(true);running=true;
     loadingProgress({text:'Restoring local settings and saved position'});
     const save=await worldSave(result.info.id);
-    const tune=await worldTuning(result.info.id);
+    const tune=migrateTuning(await worldTuning(result.info.id));
     if(tune) {
       validateTuningRecord(tune);
       await client.request('tuning',{values:tune.values});
