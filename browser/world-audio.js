@@ -1,3 +1,4 @@
+import {SFX} from './swe1r/sfx.js';
 const unit=n=>Number.isFinite(n)?Math.max(0,Math.min(1,n)):0;
 const tone=(hz,t)=>Math.sin(2*Math.PI*hz*t);
 const engine=(hz,t)=>.56*tone(hz,t)+.17*tone(hz*2,t)+.06*tone(hz*3,t);
@@ -118,7 +119,7 @@ export class WorldAudio {
         source.buffer=buffers[name];source.loop=true;gain.gain.value=0;source.connect(gain);gain.connect(this.master);source.start();
         return {source,gain};
       };
-      this.samples={buffers,engine:loop('sfx_pod_varipitch_d_loop'),jet:loop('sfx_pod_jet_steady_loop')};
+      this.samples={buffers,engine:loop('sfx_pod_varipitch_d_loop'),jet:loop(SFX.boost)};
     } catch(error) {console.error('SWE1R sound decode failed',error);}
     this.building=false;
   }
@@ -171,9 +172,9 @@ export class WorldAudio {
     this.cue('sfx_pod_binder_activate_a',.6);this.drifting=source;
   }
   // One-shot SWE1R effects on rising/falling edges of boost, airbrake and obstacle contact.
-  edges(boost,brake,hit,now) {
+  edges(boost,brake,hit,now,charged=true) {
     const was=this.was??={};
-    if(boost&&!was.boost)this.cue('sfx_pod_flare_fire',.5);
+    if(boost&&!was.boost&&charged)this.cue(SFX.ignite,.5);
     if(brake!==was.brake&&was.brake!==undefined)this.cue(brake?'sfx_pod_airbrakes_on':'sfx_pod_airbrakes_off',.4);
     if(hit&&!was.hit&&now>(was.crashAt??0)+.5){was.crashAt=now;this.cue('sfx_crash_metal_med1',.7);}
     was.boost=boost;was.brake=brake;was.hit=hit;
@@ -189,7 +190,7 @@ export class WorldAudio {
     if(!active)return;
     const p=state.telemetry,held=!!p[8] || !!state.scene?.waitingCollision;
     const boosting=!!(input.flags&2) && input.throttle>0 && !!p[7] && p[6]>0 && !(input.flags&1);
-    this.edges(boosting,!!(input.flags&1),p[8]===3,now);
+    this.edges(!!(input.flags&2),!!(input.flags&1),p[8]===3,now,p[6]>0);
     const layers=this.envelope.advance(p[5],input.throttle,boosting,held,!!(input.flags&1),dt,!!p[7],!!p[9]);
     const s=this.samples,real=this.sampleOn && s?.engine;
     if(real) {
