@@ -2,6 +2,7 @@ import {modelPath,sceneReady} from './scene-stream.js';
 export {sceneReady} from './scene-stream.js';
 import {MINIMAP_SIZE,TERRAIN_TEXTURE_SIZE} from './terrain-stream.js';
 import {cameraView,craftMatrix,cockpitAnchor} from './world-camera.js';
+import {splitParts,crumple,craftFrame,partMatrix,appendWreckChunk,wreckFrame,WRECK_SECONDS} from './wreck.js';
 import {COAST_GPU_LIMIT} from './water-stream.js';
 import {WATER_NORMAL_SIZE,waterNormalMips,waterShading,dayShading} from './water-shader.js';
 import {shadowShader,shadowUniform,shadowHalf} from './shadow.js';
@@ -361,9 +362,30 @@ export class WorldRenderer {
     const anchor=cockpitAnchor(data.metadata),asset=build(data.asset),lo=[1e9,1e9,1e9],hi=[-1e9,-1e9,-1e9];
     for(let i=0;i<data.asset.vertices.length;i+=12)for(let a=0;a<3;a++){lo[a]=Math.min(lo[a],data.asset.vertices[i+a]);hi[a]=Math.max(hi[a],data.asset.vertices[i+a]);}
     return {asset,textures:new Map(data.textures.map(t=>[t.key,this.texture(t.width,t.height,t.rgba)])),
-      metadata:data.metadata,anchor,items:new Map(),instance:{id:'player-craft',key,craft:true},bytes,size:hi.map((v,a)=>(v-lo[a])*data.metadata.scale),
+      metadata:data.metadata,anchor,source:data.asset,items:new Map(),instance:{id:'player-craft',key,craft:true},bytes,size:hi.map((v,a)=>(v-lo[a])*data.metadata.scale),
       flame:data.flame&&data.metadata.exhausts?.length?{asset:build(data.flame),
         parts:data.metadata.exhausts.map((at,i)=>({at,instance:{id:`player-craft-flame:${i}`,key:'flame',craft:true}}))}:undefined};
+  }
+  // Debug crash: returns the Rust wreck_start inputs and, once frames arrive, replaces the craft with its pod/engine parts.
+  startWreck(state,seed=1) {
+    const c=this.craft,src=c?.source;
+    if(!src)return undefined;
+    this.endWreck();
+    const scale=c.metadata.scale,m0=craftMatrix(state,[state[11],state[12]],scale),{rot}=craftFrame(m0,scale),split=splitParts(src.vertices,src.indices,src.batches);
+    if(split[0].empty)return undefined;
+    const vertices=this.buffer(crumple(src.vertices,seed),GPUBufferUsage.VERTEX),parts=[];
+    split.forEach((p,i)=>{if(!p.empty)parts.push({...p,asset:{vertices,indices:this.buffer(p.indices,GPUBufferUsage.INDEX),
+      batches:this.prepareBatches(p.batches),count:p.indices.length},instance:{id:`player-craft-wreck:${i}`,key:'wreck',craft:true}});});
+    this.wreck={parts,vertices,frames:[],connected:[],scale,t0:performance.now()/1000};
+    const speed=state[5];
+    return {pos:[state[0],state[1],state[2]],rot:Array.from(rot),scale,vel:[m0[0]/scale*speed,m0[1]/scale*speed,m0[2]/scale*speed],
+      parts:parts.flatMap(p=>[...p.center,...p.half]),seed,count:parts.length};
+  }
+  wreckChunk(chunk) {if(this.wreck)appendWreckChunk(this.wreck,chunk,this.wreck.parts.length);}
+  endWreck() {
+    const w=this.wreck;this.wreck=undefined;
+    if(!w)return;
+    w.vertices.destroy();for(const p of w.parts)p.asset.indices.destroy();
   }
   setCraftOverride(model) {
     const next=model?this.buildCraft(model,0,model.key,120000):undefined;
@@ -803,9 +825,13 @@ export class WorldRenderer {
         append(asset,instance,this.sceneMatrix(instance,r,origin),this.textures,this.items);
       }
     }
-    if((!flight||this.showCraftInFlight)&&this.craft&&this.cameraMode!=='cockpit')append(this.craft.asset,this.craft.instance,
+    const wreckAge=this.wreck?performance.now()/1000-this.wreck.t0:0;
+    if(this.wreck&&wreckAge>WRECK_SECONDS)this.endWreck();
+    const wreckFrameNow=this.wreck&&wreckFrame(this.wreck,wreckAge);
+    if(wreckFrameNow)this.wreck.parts.forEach((p,i)=>append(p.asset,p.instance,partMatrix(wreckFrameNow.subarray(i*7,i*7+7),p.center,this.wreck.scale,origin),this.craft.textures,this.craft.items));
+    else if((!flight||this.showCraftInFlight)&&this.craft&&this.cameraMode!=='cockpit')append(this.craft.asset,this.craft.instance,
       craftMatrix(state,origin,this.craft.metadata.scale),this.craft.textures,this.craft.items);
-    if(!flight&&this.craft?.flame&&this.cameraMode!=='cockpit') {
+    if(!this.wreck&&!flight&&this.craft?.flame&&this.cameraMode!=='cockpit') {
       const m=craftMatrix(state,origin,this.craft.metadata.scale),k=(.35+.9*Math.min(1,Math.abs(state[5])/150))*(1+.08*Math.sin(time*45));
       for(const part of this.craft.flame.parts) {
         const [x,y,z]=part.at,f=new Float32Array(m);

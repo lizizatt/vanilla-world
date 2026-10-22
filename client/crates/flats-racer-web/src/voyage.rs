@@ -323,6 +323,8 @@ pub struct Voyage {
     scene_water: CollisionTree,
     /// [centre x, centre z, radius, depth]; see whirlpool_dip.
     whirlpool: Option<[f64; 4]>,
+    /// Debug crash wreck and the global x/z its local coordinates are relative to.
+    wreck: Option<(flats_racer_physics::wreck::Wreck, [f64; 2])>,
     scene_parts: HashMap<u32, CollisionTree>,
     state: State,
     pub(crate) tuning: Tuning,
@@ -372,6 +374,7 @@ impl Voyage {
             scene_mesh: CollisionTree::default(),
             scene_water: CollisionTree::default(),
             whirlpool: None,
+            wreck: None,
             scene_parts: HashMap::new(),
             rebases: 0,
             hold: 1,
@@ -1558,6 +1561,47 @@ impl Voyage {
         tile.chunks.iter().find_map(|c| c.area_at(wow)).unwrap_or(0)
     }
 
+    /// Debug crash: split the craft into box parts and tumble them against the terrain. `rot` is the model-to-world
+    /// rotation (3 unit columns), `parts` is `[cx,cy,cz,hx,hy,hz]` per part (pod first, then engines).
+    pub fn wreck_start(&mut self, pos: &[f64], rot: &[f32], scale: f32, vel: &[f32], parts: &[f32], seed: u32) -> Result<(), JsValue> {
+        use flats_racer_physics::wreck::{PartSpec, Wreck};
+        if pos.len() != 3 || rot.len() != 9 || vel.len() != 3 || parts.is_empty() || !parts.len().is_multiple_of(6) || parts.len() > 36
+            || !pos.iter().all(|v| v.is_finite())
+            || !rot.iter().chain(vel).chain(parts).all(|v| v.is_finite()) || scale <= 0.0 || !scale.is_finite() {
+            return Err(JsValue::from_str("Invalid wreck input"));
+        }
+        let specs: Vec<PartSpec> = parts
+            .chunks(6)
+            .map(|c| PartSpec { center: [c[0], c[1], c[2]], half: [c[3], c[4], c[5]] })
+            .collect();
+        let cols = [[rot[0], rot[1], rot[2]], [rot[3], rot[4], rot[5]], [rot[6], rot[7], rot[8]]];
+        let origin = [pos[0], pos[2]];
+        self.wreck = Some((Wreck::new([0.0, pos[1] as f32, 0.0], cols, scale, [vel[0], vel[1], vel[2]], &specs, seed), origin));
+        Ok(())
+    }
+
+    /// Advance the wreck `steps` fixed steps; returns one pose record (global x/z) per 2 steps (60 Hz).
+    pub fn wreck_run(&mut self, steps: u32) -> Vec<f32> {
+        let Some((mut wreck, origin)) = self.wreck.take() else { return vec![] };
+        let floor = wreck.bodies[0].pos[1] - 2.0;
+        let mut out = vec![];
+        let mut ground = |x: f32, z: f32| {
+            let s = self.sample([origin[0] + f64::from(x), origin[1] + f64::from(z)]);
+            (s.support().unwrap_or(floor), s.on_water())
+        };
+        for i in 0..steps.min(240) {
+            wreck.step(&mut ground);
+            if i % 2 == 1 {
+                for b in wreck.bodies.iter() {
+                    out.extend([(f64::from(b.pos[0]) + origin[0]) as f32, b.pos[1], (f64::from(b.pos[2]) + origin[1]) as f32,
+                        b.rot[0], b.rot[1], b.rot[2], b.rot[3]]);
+                }
+            }
+        }
+        out.extend(wreck.connected.iter().map(|&c| f32::from(c)));
+        self.wreck = Some((wreck, origin));
+        out
+    }
     pub fn surface(&self, x: f64, z: f64) -> Vec<f64> {
         let s = self.sample([x, z]);
         vec![

@@ -21,6 +21,7 @@ import {classifyPickError} from './swe1r/attach.js';
 import {podSkinList,loadPodModel} from './swe1r/skin.js';
 import {SFX,STINGER,pickRaceMusic,loadSfx} from './swe1r/sfx.js';
 import {pickVoice,raceEndEvents} from './swe1r/voice-map.js';
+import {WRECK_CHUNK,WRECK_CHUNKS} from './wreck.js';
 import {loadHudSprites,loadCountdownSprites,createDial} from './swe1r/hud.js';
 let dial,hudOn=false,countdownSprites;
 
@@ -336,6 +337,7 @@ $('tuning-defaults').addEventListener('click',()=>{
     .catch(error=>{$('tuning-status').textContent=error.message;}).finally(()=>{busy=false;});
 });
 canvas.addEventListener('keydown',event=>{
+  if(!event.repeat && event.code==='KeyK' && event.ctrlKey && event.altKey && running){event.preventDefault();testCrash();return;}
   if(!event.repeat && event.code==='KeyN' && !event.ctrlKey && !event.altKey && !event.metaKey)setNight(!settings.night);
   if(!event.repeat && event.code==='KeyM' && !event.ctrlKey && !event.altKey && !event.metaKey && running){event.preventDefault();keys.clear();dragging=false;mouseButtons=0;mapPanel.toggle();}
   if(!event.repeat && event.code==='KeyG' && !event.ctrlKey && !event.altKey && !event.metaKey && running){event.preventDefault();openGarage();return;}
@@ -507,6 +509,19 @@ function startRace(track) {
 }
 let lastCount=0,voiceMap,voiceReader,lastVoice,lastLap=1;
 let raceTune=null;
+// Debug crash (Ctrl+Alt+K): the Rust wreck sim runs in the worker in 0.5 s chunks; the renderer replays the recorded poses.
+let wreckBusy=false;
+async function testCrash(){
+  if(wreckBusy||!client.state)return;
+  const input=renderer.startWreck(client.state.telemetry,Math.floor(Math.random()*1e9));
+  if(!input)return;
+  wreckBusy=true;
+  try{
+    await client.request('wreck-start',input);
+    for(let i=0;i<WRECK_CHUNKS&&renderer.wreck;i++)renderer.wreckChunk(await client.request('wreck-run',{steps:WRECK_CHUNK}));
+  }catch(error){renderer.endWreck();report(`Test crash failed: ${error.message}`,true);}
+  wreckBusy=false;
+}
 async function stinger(name){if(!voiceReader)return;music.setBattle(false);audio.stopLoop();const b=await voiceReader.wav(Array.isArray(name)?name[Math.floor(Math.random()*name.length)]:name).catch(()=>null);if(b)audio.stinger(b);}
 async function say(...events){const event=events.find(e=>voiceMap?.[e]?.length),id=event&&pickVoice(voiceMap,event,lastVoice);if(!id||!voiceReader)return;lastVoice=id;const b=await voiceReader.wav('Voice/'+id).catch(()=>null);if(b)audio.say(b);}
 function raceFrame(controls,t) {
@@ -669,7 +684,7 @@ async function start() {
       else {permissionNeeded=true;showReconnect(true);
         $('permission').textContent='Click to allow reading your remembered folder.';}
     }
-    if(new URLSearchParams(location.search).has('test'))window.worldTest={startRace,selectVehicle,tracks:()=>tracks,raceInfo:()=>race&&{state:race.state,next:race.next,finishing:race.finishing,gates:race.track.gates.length},choice:()=>choice,
+    if(new URLSearchParams(location.search).has('test'))window.worldTest={testCrash,wreck:()=>renderer.wreck&&{frames:renderer.wreck.frames.length,connected:renderer.wreck.connected,parts:renderer.wreck.parts.length},startRace,selectVehicle,tracks:()=>tracks,raceInfo:()=>race&&{state:race.state,next:race.next,finishing:race.finishing,gates:race.track.gates.length},choice:()=>choice,
       focus:pose=>{flight=pose.slice();},settings:o=>Object.assign(settings,o),showCraft:v=>{renderer.showCraftInFlight=v;},
       instances:()=>renderer.instances.filter(i=>i.kind==='group').slice(0,8),
       npcs:()=>renderer.instances.filter(i=>i.id.includes(':npc:')).slice(0,5),
