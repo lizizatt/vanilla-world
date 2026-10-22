@@ -63,6 +63,7 @@ export function mapIcons(manifest,maelstrom,altitude=400) {
   return [
     {id:'raceway',label:'Steamwheedle raceway (spawn)',position:[manifest.spawn[0],manifest.spawn[2]],reset:true},
     {id:'maelstrom',label:'The Maelstrom',position:maelstrom,pose:[maelstrom[0],(manifest.sea_level||0)+altitude,maelstrom[1],0]},
+    {id:'airport',label:'Ironforge airport',position:[19486,5703],pose:[19486,530,5703,-3.114]},
   ];
 }
 
