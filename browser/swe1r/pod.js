@@ -43,6 +43,10 @@ export function decodeTriangles(body, mesh) {
   return tris;
 }
 
+// S10.5 texel coordinates are normalised by a fixed 4096 for every texture size (the header's +0x14/+0x16 scale fields are width*512 / height*512, i.e. the same thing):
+// u/4096 = 0..1 spans the whole texture, so a 16x128 strip is not tiled 8x.
+const UV_RANGE = 4096;
+
 // opts.texture(t) -> { width, height, rgba } | null. Returns { asset, textures, bounds }; coordinates are the model's own
 // (callers map axes and scale).
 export function buildPod(body, mask, opts = {}) {
@@ -70,7 +74,7 @@ export function buildPod(body, mask, opts = {}) {
         tri.forEach((v, k) => {
           const [x, y, z] = P[k];
           indices.push(vertices.length / 12);
-          vertices.push(x, y, z, n[0], n[1], n[2], t ? v.u / 32 / t.w : 0, t ? v.v / 32 / t.h : 0, v.r, v.g, v.b, v.a);
+          vertices.push(x, y, z, n[0], n[1], n[2], t ? v.u / UV_RANGE : 0, t ? v.v / UV_RANGE : 0, v.r, v.g, v.b, v.a);
           for (let a = 0; a < 3; a++) { lo[a] = Math.min(lo[a], P[k][a]); hi[a] = Math.max(hi[a], P[k][a]); }
         });
       }
