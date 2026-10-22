@@ -140,12 +140,23 @@ test('real install: Lod1 pod loads as a textured craft payload', { skip: !proces
 test('real install: texture UVs are normalised by 4096, so a 16x128 strip is not tiled', { skip: !process.env.SWE1R_DATA && 'SWE1R_DATA not set' }, async () => {
   const lev = findLev(process.env.SWE1R_DATA);
   const reader = { read: async n => new Uint8Array(fs.readFileSync(path.join(lev, n))) };
-  const { asset } = await loadPodModel(reader, podSkinList().find(s => s.name === 'Teemto Pagalies'));
+  const { asset } = await loadPodModel(reader, podSkinList().find(s => s.name === 'Anakin Skywalker'));
   const strip = asset.batches.find(b => b.texture === 'swe1r\\107');
   assert.ok(strip);
   for (let i = strip.firstIndex; i < strip.firstIndex + strip.indexCount; i++) {
     const u = asset.vertices[asset.indices[i] * 12 + 6];
     assert.ok(u > -0.1 && u < 1.1, `u ${u}`);
+  }
+});
+
+test('real install: every listed pod is a Part model with plausible size (name table lags the model block by one)', { skip: !process.env.SWE1R_DATA && 'SWE1R_DATA not set' }, async () => {
+  const lev = findLev(process.env.SWE1R_DATA);
+  const reader = { read: async n => new Uint8Array(fs.readFileSync(path.join(lev, n))) };
+  for (const skin of podSkinList()) {
+    assert.equal(skin.index, +skin.id.slice(6) + 1);
+    const { asset } = await loadPodModel(reader, skin);
+    const v = asset.vertices, ext = a => { let lo = 1e9, hi = -1e9; for (let i = a; i < v.length; i += 12) { lo = Math.min(lo, v[i]); hi = Math.max(hi, v[i]); } return (hi - lo) * skin.scale; };
+    assert.ok(ext(0) > 3 && ext(0) < 20, `${skin.name} length ${ext(0)}`);
   }
 });
 

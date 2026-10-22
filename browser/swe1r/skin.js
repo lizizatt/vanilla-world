@@ -12,10 +12,12 @@ export const FORWARD = 1;
 
 const label = n => n.replace(/^Part_Racer_Lod1_/, '').replaceAll('_', ' ');
 
-// Names drift after model ~230 in some installs, so every skin is re-checked against its model tag when loaded.
+// The community name table lags the real model block by one from ~230 on (Podd_Anakin's textures belong to the model after the one named Anakin; the model named Jinn Reeso is a Podd), so the id stays the name's index but the model is the next one.
+// Every skin is still re-checked against its model tag when loaded.
+export const NAME_DRIFT = 1;
 export function podSkinList() {
   const out = [];
-  MODEL_NAMES.forEach((n, i) => { if (n.startsWith('Part_Racer_Lod1_')) out.push({ id: `swe1r-${i}`, name: label(n), source: 'swe1r', index: i, scale: POD_SCALE }); });
+  MODEL_NAMES.forEach((n, i) => { if (n.startsWith('Part_Racer_Lod1_')) out.push({ id: `swe1r-${i}`, name: label(n), source: 'swe1r', index: i + NAME_DRIFT, scale: POD_SCALE }); });
   return out;
 }
 
