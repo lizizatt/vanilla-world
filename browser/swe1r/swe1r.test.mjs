@@ -134,7 +134,7 @@ test('real install: Lod1 pod loads as a textured craft payload', { skip: !proces
   const skin = podSkinList().find(s => s.name === 'Anakin Skywalker');
   const payload = await loadPodModel(reader, skin);
   assert.ok(payload.asset.indices.length >= 900 && payload.asset.indices.length < 120000);
-  assert.ok(payload.textures.length <= 16);
+  assert.ok(payload.textures.length > 16 && payload.textures.length <= 64); // no longer capped at 16
   assert.ok(payload.asset.vertices.every(Number.isFinite));
 });
 test('loadSfx keeps present wavs, drops missing or empty ones', async () => {

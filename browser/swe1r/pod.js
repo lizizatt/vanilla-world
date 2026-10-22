@@ -53,7 +53,7 @@ export function buildPod(body, mask, opts = {}) {
   for (const mesh of meshes) {
     const t = meshTexture(body, mesh);
     let tex = t && opts.texture ? opts.texture(t) : null;
-    if (tex && !textures.has(`swe1r\\${t.index}`) && textures.size >= (opts.maxTextures ?? 16)) tex = null; // renderer limit; the rest stay untextured
+    if (tex && !textures.has(`swe1r\\${t.index}`) && textures.size >= (opts.maxTextures ?? 64)) tex = null; // renderer's craft payload limit; the rest stay untextured
     const key = tex ? `swe1r\\${t.index}` : null;
     if (tex && !textures.has(key)) textures.set(key, { key, width: tex.width, height: tex.height, rgba: tex.rgba });
     if (!groups.has(key)) groups.set(key, []);
