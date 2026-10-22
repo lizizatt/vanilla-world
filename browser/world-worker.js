@@ -19,7 +19,7 @@ const TILE=1600/3,LIMIT=SCENE_LIMITS.nearTiles;
 let wasm;
 const ready=init().then(exports=>(wasm=exports));
 let world,source,manifest,placements,scene,terrain,water,accumulator=0,queue=Promise.resolve();
-let poseTime,music,sky,worldMap,areaTime=-1e9,areaId=0,actors,actorFocus;
+let poseTime,music,sky,worldMap,areaTime=-1e9,areaId=0,actors,actorFocus,actorsOn=true;
 globalThis.setInterval?.(()=>{if(actors&&actorFocus&&sceneState)actors.update(sceneState.instances,actorFocus);},ACTOR.tickMs);
 const terrainErrors=new Map();
 let terrainFocus='';
@@ -723,11 +723,11 @@ async function handle(message) {
     });
     scene=new SceneStream(source,wasmTypes);
     actors?.close();actorFocus=undefined;
-    actors=new ActorService(source,wasmTypes,(message,transfers)=>postMessage(message,transfers));
+    actors=new ActorService(source,wasmTypes,(message,transfers)=>postMessage(message,transfers));actors.enabled=actorsOn;
     scene.asyncVisuals=true;
     startFarWorker();
-    terrain=new TerrainStream(source,wasmTypes,(message,transfers)=>postMessage(message,transfers));
-    water=new WaterStream(source,wasmTypes,manifest,(message,transfers)=>postMessage(message,transfers));
+    terrain=new TerrainStream(source,wasmTypes,(message,transfers)=>postMessage(message,transfers));actors.enabled=actorsOn;
+    water=new WaterStream(source,wasmTypes,manifest,(message,transfers)=>postMessage(message,transfers));actors.enabled=actorsOn;
     void terrain.init(manifest);
     const loopback=/^(localhost|127\.0\.0\.1|\[::1\])$/.test(self.location.hostname);
     // Static hosts without a pack (404, or an HTML fallback with 200) simply get no creatures.
@@ -831,6 +831,7 @@ async function handle(message) {
 }
 onmessage=({data})=>{
   if(data.action==='stop-loading-art'){source?.stopLoadingArt();return;}
+  if(data.action==='animate'){actorsOn=data.on!==false;if(actors)actors.enabled=actorsOn;return;}
   if(data.action==='music'){
     if(!source)return;
     const owner=source;

@@ -394,7 +394,7 @@ impl SceneActor {
     fn decode(bytes: &[u8], path: &str, skins: &str) -> Result<Self, String> {
         bounded(bytes)?;
         let skins: Vec<Option<String>> = serde_json::from_str(skins).map_err(|e| e.to_string())?;
-        if skins.len() > 3 || path.len() > 1024 {
+        if skins.len() > 4 || path.len() > 1024 {
             return Err("Invalid actor skin/path metadata".into());
         }
         let dir = path.rsplit_once(['\\', '/']).map_or("", |(dir, _)| dir);

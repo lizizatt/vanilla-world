@@ -26,7 +26,7 @@ export class ActorService {
     this.models = new Map(); // key -> {actor,duration,bytes,used} | {until}
     this.sent = new Map(); // poseKey -> bytes
     this.stats = { posts: 0, poses: 0, ms: 0, maxMs: 0, models: 0, failed: 0, groups: 0, bytes: 0 };
-    this.closed = false;
+    this.closed = false; this.enabled = true;
   }
 
   // Nearest actors first, one shared pose per (model, phase), under the group and byte caps.
@@ -85,18 +85,18 @@ export class ActorService {
       if (this.closed) return;
       const actor = this.wasm.SceneActor.create(bytes, instance.path, JSON.stringify(instance.skins || []));
       const duration = actor.duration(0);
-      if (!(duration > 0)) { actor.free(); retry(Infinity); this.stats.failed++; return; }
+      if (!(duration > 0)) { actor.free(); retry(Infinity); this.stats.failed++; this.stats.last = `no stand clip: ${instance.path}`; return; }
       this.models.set(instance.key, { actor, duration, bytes: actor.vertex_count() * 48, used: this.now() });
       this.stats.models = [...this.models.values()].filter(e => e.actor).length;
     } catch (error) {
       if (error?.code === 'DEFERRED') retry(ACTOR.retryMs);
-      else { retry(Infinity); this.stats.failed++; }
+      else { retry(Infinity); this.stats.failed++; this.stats.last = `${instance.path} skins=${JSON.stringify(instance.skins)}: ${error?.message ?? error}`; }
     }
   }
 
   update(instances, focus) {
     if (this.closed || !focus) return;
-    const start = this.now(), groups = this.select(instances, focus), poses = [], transfers = [];
+    const start = this.now(), groups = this.enabled ? this.select(instances, focus) : new Map(), poses = [], transfers = [];
     const seconds = start / 1000;
     for (const [id, g] of groups) {
       if (this.now() - start >= ACTOR.budgetMs && poses.length) break;

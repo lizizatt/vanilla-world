@@ -44,3 +44,12 @@ test('failed models are not retried and never throw',async()=>{
   s.update([inst(1,0)],[0,0]);
   assert.equal(s.snapshot().failed,1);
 });
+
+test('disabling animation removes every pose and posts nothing new',async()=>{
+  const {s,posts}=make();
+  s.update([inst(1,0)],[0,0]);await settle();s.update([inst(1,0)],[0,0]);
+  assert.ok(s.snapshot().groups>0);
+  s.enabled=false;s.update([inst(1,0)],[0,0]);
+  assert.ok(posts.at(-1)[0].removed.length>0&&posts.at(-1)[0].poses.length===0);
+  const n=posts.length;s.update([inst(1,0)],[0,0]);assert.equal(posts.length,n);
+});
