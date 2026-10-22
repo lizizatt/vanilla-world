@@ -140,6 +140,20 @@ export class WorldAudio {
       source.buffer=await this.context.decodeAudioData(bytes.slice().buffer);node.gain.value=gain;source.connect(node);node.connect(this.master);source.start();
     } catch {}
   }
+  // Looping music (race track); a newer call or stopLoop() replaces it.
+  async loopMusic(bytes,gain=.6) {
+    this.stopLoop();
+    if(!bytes || !this.sampleOn || !this.enabled || !this.active || this.context.state!=='running')return false;
+    const token=this.loopToken;
+    try {
+      const buffer=await this.context.decodeAudioData(bytes.slice().buffer);
+      if(token!==this.loopToken)return false;
+      const source=this.context.createBufferSource(),node=this.context.createGain();
+      source.buffer=buffer;source.loop=true;node.gain.value=gain;source.connect(node);node.connect(this.master);source.start();
+      this.loop=source;return true;
+    } catch {return false;}
+  }
+  stopLoop() {this.loopToken=(this.loopToken||0)+1;try{this.loop?.stop();}catch{}this.loop=undefined;}
   cue(name,gain=.8) {
     const buffer=this.samples?.buffers[name];
     if(!buffer || !this.sampleOn || !this.enabled || !this.active || this.context.state!=='running')return;
