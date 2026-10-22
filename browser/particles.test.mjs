@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {ParticlePool, QUALITY, KINDS, gradient, exhaustPoints, emitPlumes, emitBurst, emitDebris, emitHeatSmoke, particleUniform, particleShader} from './particles.js';
+import {ParticlePool, QUALITY, KINDS, gradient, exhaustPoints, emitPlumes, emitBurst, emitDebris, emitHeatSmoke, emitGroundDust, particleUniform, particleShader} from './particles.js';
 
 test('ring buffer overwrites the oldest particle when full', () => {
   const pool = new ParticlePool(4);
@@ -103,4 +103,11 @@ test('heat smoke only appears past the warning level and grows with heat', () =>
   const m = new Float32Array(16); m[0] = m[5] = m[10] = m[15] = 1;
   const run = heat => { const pool = new ParticlePool(512, () => .5); pool.quality = 1; emitHeatSmoke(pool, { points: [[0, 0, 0]], matrix: m, origin: [0, 0], length: 4, heat, dt: .5 }); return pool.count; };
   assert.equal(run(.79), 0); assert.ok(run(.9) > 0 && run(1) > run(.9));
+});
+test('ground dust needs a grounded craft, thickens when drifting and goes behind the craft', () => {
+  const m = new Float32Array(16); m[0] = m[5] = m[10] = m[15] = 1;
+  const run = o => { const pool = new ParticlePool(512, () => .5); pool.quality = 1; emitGroundDust(pool, { matrix: m, origin: [0, 0], scale: 1, length: 4, speed: 100, drift: false, grounded: true, dt: .5, ...o }); return pool; };
+  assert.equal(run({ grounded: false }).count, 0); assert.equal(run({ speed: 10 }).count, 0);
+  assert.ok(run({ drift: true }).count > run({}).count && run({}).count > 0);
+  assert.ok(run({}).data[0] < 0, 'spawned behind the craft (-x)');
 });

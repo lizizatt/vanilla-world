@@ -165,3 +165,13 @@ export function emitHeatSmoke(pool, { points, matrix: m, origin, length, heat, w
       m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14] + origin[1], 0, 2, 0, length / 3.5 * (.8 + k), length * .03);
   });
 }
+/** Dust kicked up behind a grounded craft: a thin stream at speed, a heavy cloud while drifting (sideways slip throws it out). */
+export function emitGroundDust(pool, { matrix: m, origin, scale, length, speed, drift, grounded, dt }) {
+  const rate = !grounded ? 0 : drift && speed > 25 ? 70 : speed > 40 ? 14 * Math.min(1, speed / 150) : 0;
+  const n = rate ? pool.budget('dust', rate, dt) : 0, size = length / 3.5;
+  for (let j = 0; j < n; j++) {
+    const side = (pool.rand() - .5) * 2, back = .3 + pool.rand() * .2;
+    pool.emit('dust', m[12] + origin[0] - m[0] / scale * length * .45 + m[4] / scale * side * length * .2, m[13] - length * .05, m[14] + origin[1] - m[2] / scale * length * .45 + m[6] / scale * side * length * .2,
+      -m[0] / scale * speed * back + m[4] / scale * side * (drift ? 8 : 2), 1 + pool.rand() * 2, -m[2] / scale * speed * back + m[6] / scale * side * (drift ? 8 : 2), size * (drift ? 1.4 : .8), size * .3);
+  }
+}

@@ -54,6 +54,20 @@ for (const skin of skins) {
   await page.waitForTimeout(2500);
 }
 
+// Drift dust: grounded drifting at speed kicks up a dust cloud.
+await page.evaluate(() => { worldTest.selectVehicle({ vehicle: 'podracer', skin: 'rocket' }); worldTest.particles().data.fill(0); });
+await page.waitForTimeout(2000); await page.locator('#world').focus();
+await page.keyboard.down('KeyW'); await page.keyboard.down('KeyA'); await page.keyboard.down('Space');
+let dust = 0;
+for (let i = 0; i < 60 && dust < 8; i++) {
+  await page.waitForTimeout(100);
+  if (i % 10 === 9) await page.evaluate(() => { const t = worldEvidence.state.telemetry; if (t[5] < 20) worldTest.request('restore', { pose: [t[0], t[1] + 12, t[2], t[3] + 1.3] }); });
+  dust = Math.max(dust, await page.evaluate(() => { const p = worldTest.particles(), d = p.data; let n = 0; for (let i = 0; i < p.capacity; i++) if (d[i * 12 + 6] < d[i * 12 + 7] && d[i * 12 + 10] === 3) n++; return n; }));
+}
+await shot('7-drift-dust');
+await page.keyboard.up('Space'); await page.keyboard.up('KeyA'); await page.keyboard.up('KeyW');
+console.log('drift dust particles', dust); assert.ok(dust >= 8, 'drifting kicks up dust');
+
 // Wreck: burst + fire at the start, smoke trails on the debris afterwards.
 const kind = k => page.evaluate(k => { const p = worldTest.particles(), d = p.data, names = ['plume', 'fire', 'smoke', 'dust', 'burst']; let n = 0; for (let i = 0; i < p.capacity; i++) if (d[i * 12 + 6] < d[i * 12 + 7] && names[d[i * 12 + 10]] === k) n++; return n; }, k);
 await page.evaluate(() => { worldTest.selectVehicle({ vehicle: 'podracer', skin: 'rocket' }); worldTest.particles().data.fill(0); });
