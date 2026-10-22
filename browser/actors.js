@@ -1,7 +1,10 @@
 // Bounded nearby creature animation: the world worker re-poses a few shared Stand loops with the
 // Rust rig and posts whole vertex buffers; the renderer swaps them in. Visual only: nothing here
 // touches collision, readiness or physics, and unsupported models just stay in bind pose.
+import { npcClass, idSeed, wanders, wanderState, WANDER } from './wander.js';
+
 export const ACTOR = Object.freeze({
+  maxWanderers: 48,
   radius: 120,
   maxGroups: 16,
   maxModels: 24,
@@ -24,7 +27,7 @@ export class ActorService {
   constructor(source, wasm, post, now = () => performance.now()) {
     this.source = source; this.wasm = wasm; this.post = post; this.now = now;
     this.models = new Map(); // key -> {actor,duration,bytes,used} | {until}
-    this.sent = new Map(); // poseKey -> bytes
+    this.sent = new Map(); this.walk = new Map(); // poseKey -> bytes
     this.stats = { posts: 0, poses: 0, ms: 0, maxMs: 0, models: 0, failed: 0, groups: 0, bytes: 0 };
     this.closed = false; this.enabled = true;
   }
@@ -118,6 +121,51 @@ export class ActorService {
     this.stats.ms += ms; this.stats.maxMs = Math.max(this.stats.maxMs, ms);
     this.stats.groups = groups.size;
     this.stats.bytes = [...this.sent.values()].reduce((n, v) => n + v, 0);
+  }
+
+  // Wandering NPCs: pure (id,time) paths from wander.js, kept only where the terrain under them is walkable.
+  wander(instances, focus, ground, t = Date.now() / 1000) {
+    if (this.closed || !focus) return;
+    const start = this.now(), limit = ACTOR.radius * ACTOR.radius, near = [];
+    if (this.enabled) {
+      for (const i of instances) {
+        if (!isActorInstance(i)) continue;
+        const d = (i.matrix[12] - focus[0]) ** 2 + (i.matrix[13] - focus[1]) ** 2;
+        if (d <= limit) near.push([d, i]);
+      }
+      near.sort((a, b) => a[0] - b[0]);
+    }
+    const moves = [], seen = new Set(), stats = this.stats; let homeErr = 0;
+    stats.rejected = 0;
+    for (const [, i] of near) {
+      if (moves.length >= ACTOR.maxWanderers) break;
+      const cls = npcClass(i.path), seed = idSeed(i.id);
+      if (!wanders(cls, seed)) continue;
+      let st = this.walk.get(i.id);
+      if (!st) {
+        const home = [i.matrix[12], i.matrix[13], i.matrix[14]], g = ground(home[0], home[1]);
+        if (!Number.isFinite(g)) continue;
+        st = { home, g, last: undefined };
+        this.walk.set(i.id, st);
+      }
+      const s = wanderState(seed, cls, st.home, t);
+      const g = ground(s.x, s.y), ahead = ground(s.x + Math.cos(s.yaw), s.y + Math.sin(s.yaw));
+      const ok = Number.isFinite(g) && Math.abs(g - st.g) <= WANDER.maxHeightDelta &&
+        (!Number.isFinite(ahead) || Math.abs(ahead - g) <= WANDER.maxSlope);
+      if (ok) st.last = { x: s.x, y: s.y, z: st.home[2] + g - st.g, yaw: s.yaw, vx: s.vx, vy: s.vy };
+      else { stats.rejected++; if (st.last) st.last = { ...st.last, vx: 0, vy: 0 }; }
+      if (!st.last) continue;
+      homeErr = Math.max(homeErr, Math.abs(st.g - st.home[2]));
+      const l = st.last;
+      moves.push([i.id, l.x, l.y, l.z, l.yaw, l.vx, l.vy]);
+      seen.add(i.id);
+    }
+    const removed = [...this.walk.keys()].filter(id => !seen.has(id));
+    for (const id of removed) this.walk.delete(id);
+    if (moves.length || removed.length) this.post({ event: 'npc-moves', t, moves, removed }, []);
+    const ms = this.now() - start;
+    stats.homeErr = Math.round(homeErr * 100) / 100; stats.wanderers = moves.length; stats.wanderMs = Math.round(ms * 100) / 100;
+    stats.wanderMaxMs = Math.max(stats.wanderMaxMs ?? 0, ms);
   }
 
   snapshot() { return { ...this.stats, ms: Math.round(this.stats.ms * 10) / 10 }; }

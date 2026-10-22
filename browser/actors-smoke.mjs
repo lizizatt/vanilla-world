@@ -35,14 +35,20 @@ try{
   });
   await page.waitForFunction(()=>actorProbe.poses>0,null,{timeout:120000});
   await page.waitForTimeout(4000);
+  const at=()=>page.evaluate(()=>Object.fromEntries([...actorProbe.rig.moves].map(([id,m])=>[id,[m.x+m.vx*(Date.now()/1000-m.t),m.y+m.vy*(Date.now()/1000-m.t),m.yaw]])));
+  const first=await at();await page.waitForTimeout(6000);const later=await at();
+  const moved=Object.keys(later).filter(id=>first[id]&&Math.hypot(later[id][0]-first[id][0],later[id][1]-first[id][1])>.3).length;
   await page.screenshot({path:fileURLToPath(new URL('a.png',out))});
   const sample=await page.evaluate(()=>({probe:{posts:actorProbe.posts,poses:actorProbe.poses,
     groupsGpu:actorProbe.rig.poses.size,gpuBytes:[...actorProbe.rig.poses.values()].reduce((n,e)=>n+e.size,0),
     distinctFirstVerts:new Set(actorProbe.uploads.values()).size},
-    actors:worldEvidence.state.actors,errors:worldEvidence.errors,npcs:worldEvidence.render.npcInstances}));
+    actors:worldEvidence.state.actors,errors:worldEvidence.errors,npcs:worldEvidence.render.npcInstances,moves:actorProbe.rig.moves.size}));
+  sample.moved=moved;
   Object.assign(result,sample);
   assert.deepEqual(sample.errors,[]);
   assert(sample.probe.poses>0&&sample.probe.groupsGpu>0);
+  assert(sample.actors.wanderers>0&&sample.moves>0,'no wandering NPCs posted');
+  assert(sample.moved>0,'wandering NPCs never moved');
   assert(sample.actors.maxMs<=ACTOR_BUDGET(),`tick max ${sample.actors.maxMs}`);
   assert.deepEqual(result.errors,[]);
   console.log(JSON.stringify(sample,null,1));

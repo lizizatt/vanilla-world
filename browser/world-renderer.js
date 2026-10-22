@@ -216,7 +216,7 @@ export class WorldRenderer {
     this.admissionFade=new AdmissionFade();
     this.assets=new Map();this.textures=new Map();this.items=new Map();this.instances=[];this.pipelines=new Map();
     this.materialPending=new Map();this.minimapAtlases=[];
-    this.pendingEvents=[];this.poses=new Map();
+    this.pendingEvents=[];this.poses=new Map();this.moves=new Map();
     this.terrainBundleBuilds=0;this.sceneBundleBuilds=0;
     this.uniformData=new Float32Array(16384*64);
     this.frameUniforms=device.createBuffer({size:this.uniformData.byteLength,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
@@ -228,6 +228,18 @@ export class WorldRenderer {
     if(!entry||entry.size!==base.vertices.size)return base;
     if(!entry.asset||entry.asset.base!==base)entry.asset={...base,vertices:entry.buffer,base};
     return entry.asset;
+  }
+  npcMoves(data) {
+    for(const id of data.removed)this.moves.delete(id);
+    for(const [id,x,y,z,yaw,vx,vy] of data.moves)this.moves.set(id,{x,y,z,yaw,vx,vy,t:data.t});
+  }
+  // Wandering NPC: authored matrix with the worker's position (extrapolated by velocity) and facing swapped in.
+  moveMatrix(instance,mv,region,origin) {
+    const b=instance.matrix,dt=Math.min(.5,Math.max(0,Date.now()/1000-mv.t)),d=mv.yaw-Math.atan2(b[1],b[0]);
+    const c=Math.cos(d),s=Math.sin(d),m=Array.from(b);
+    for(let k=0;k<3;k++){const x=b[k*4],y=b[k*4+1];m[k*4]=c*x-s*y;m[k*4+1]=s*x+c*y;}
+    m[12]=mv.x+mv.vx*dt;m[13]=mv.y+mv.vy*dt;m[14]=mv.z;
+    return renderMatrix(m,region,origin);
   }
   pose(data) {
     for(const id of data.removed){this.poses.get(id)?.buffer.destroy();this.poses.delete(id);}
@@ -436,7 +448,7 @@ export class WorldRenderer {
     for(const asset of this.assets.values()){asset.vertices.destroy();asset.indices.destroy();}this.assets.clear();
     for(const texture of this.textures.values())texture.destroy();this.textures.clear();
     this.items.clear();
-    for(const e of this.poses.values())e.buffer.destroy();this.poses.clear();
+    for(const e of this.poses.values())e.buffer.destroy();this.poses.clear();this.moves?.clear();
     this.instances=[];this.nearInstances=[];this.farInstances=[];this.farRegion=undefined;
     this.camera=undefined;this.origin=[0,0];
     this.view=undefined;this.terrainView=undefined;
@@ -463,6 +475,7 @@ export class WorldRenderer {
       this.pendingEvents.push(data);return;
     }
     if(data.event==='pose'){this.pose(data);return;}
+    if(data.event==='npc-moves'){this.npcMoves(data);return;}
     if(data.event==='craft'){
       const craft=this.buildCraft(data,10318,'10318');
       this.releaseCraft();
@@ -858,7 +871,8 @@ export class WorldRenderer {
       const r=this.manifest.regions[this.sceneRegion];
       for(const instance of selection.selected) {
         const asset=this.posedAsset(instance,this.assets.get(instance.key));if(!asset)continue;
-        append(asset,instance,this.sceneMatrix(instance,r,origin),this.textures,this.items);
+        const mv=this.moves.size&&instance.id.includes(':npc:')?this.moves.get(instance.id):undefined;
+        append(asset,instance,mv?this.moveMatrix(instance,mv,r,origin):this.sceneMatrix(instance,r,origin),this.textures,this.items);
       }
     }
     const wreckAge=this.wreck?performance.now()/1000-this.wreck.t0:0;
