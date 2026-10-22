@@ -122,6 +122,16 @@ export class WorldAudio {
     } catch(error) {console.error('SWE1R sound decode failed',error);}
     this.building=false;
   }
+  // Plays raw wav bytes once (voice lines); one at a time so lines never overlap.
+  async say(bytes,gain=1) {
+    if(!this.sampleOn || !this.enabled || !this.active || this.context.state!=='running' || this.talking)return;
+    this.talking=true;
+    try {
+      const source=this.context.createBufferSource(),node=this.context.createGain();
+      source.buffer=await this.context.decodeAudioData(bytes.slice().buffer);node.gain.value=gain;source.connect(node);node.connect(this.master);
+      source.onended=()=>{this.talking=false;};source.start();
+    } catch {this.talking=false;}
+  }
   cue(name,gain=.8) {
     const buffer=this.samples?.buffers[name];
     if(!buffer || !this.sampleOn || !this.enabled || !this.active || this.context.state!=='running')return;
