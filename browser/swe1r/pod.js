@@ -79,9 +79,21 @@ export function buildPod(body, mask, opts = {}) {
         });
       }
     }
-    if (indices.length > first) batches.push({ firstIndex: first, indexCount: indices.length - first, texture: key, blend: 'opaque', alphaCutoff: 0, doubleSided: true, wrapX: true, wrapY: true, emissive: 0 });
+    if (indices.length > first) batches.push({ firstIndex: first, indexCount: indices.length - first, texture: key, ...alphaMode(textures.get(key)), doubleSided: true, wrapX: true, wrapY: true, emissive: 0 });
   }
   return { asset: { vertices: new Float32Array(vertices), indices: new Uint32Array(indices), batches }, textures: [...textures.values()], bounds: { lo, hi }, meshCount: meshes.length };
+}
+
+// Texture alpha decides the mode: binary alpha is a cutout, partial alpha blends, fully opaque (or near-empty) stays opaque.
+// shortcut: the original's combiner/render-mode words are not decoded, so an opaque texture that carries alpha is treated as see-through.
+export function alphaMode(tex) {
+  const opaque = { blend: 'opaque', alphaCutoff: 0 };
+  if (!tex) return opaque;
+  let clear = 0, partial = 0;
+  const px = tex.rgba, n = px.length / 4;
+  for (let i = 3; i < px.length; i += 4) { if (px[i] < 250) { if (px[i] < 5) clear++; else partial++; } }
+  if (clear + partial < n * 0.02 || clear > n * 0.98) return opaque;
+  return partial > (clear + partial) * 0.1 ? { blend: 'alpha', alphaCutoff: 0 } : { blend: 'opaque', alphaCutoff: 0.5 };
 }
 
 // Decodes a texture-block item [pixels, palette] using the dimensions/format a mesh material declared.
