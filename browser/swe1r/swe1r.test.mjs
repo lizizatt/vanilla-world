@@ -6,6 +6,7 @@ import { readBlock } from './block.js';
 import { decompress, isComp } from './comp.js';
 import { decodePixels, decodeSprite, FMT, rgba5551 } from './image.js';
 import { findLev, listModels } from './cli.mjs';
+import { parseModel } from './model.js';
 import { alphaMode, buildPod, decodeTriangles } from './pod.js';
 import { toCraft, podSkinList, loadPodModel } from './skin.js';
 import { loadSfx, SFX } from './sfx.js';
@@ -158,6 +159,20 @@ test('real install: every listed pod is a Part model with plausible size (name t
     const v = asset.vertices, ext = a => { let lo = 1e9, hi = -1e9; for (let i = a; i < v.length; i += 12) { lo = Math.min(lo, v[i]); hi = Math.max(hi, v[i]); } return (hi - lo) * skin.scale; };
     assert.ok(ext(0) > 3 && ext(0) < 20, `${skin.name} length ${ext(0)}`);
   }
+});
+
+test('selector node draws exactly one child (finest LOD), not every child', () => {
+  const b = new Uint8Array(0x400), dv = new DataView(b.buffer);
+  b.set([0x50, 0x61, 0x72, 0x74]); dv.setUint32(4, 0x20); dv.setUint32(8, 0xffffffff);
+  const group = (at, mesh) => { dv.setUint32(at, 0x3064); dv.setUint32(at + 0x14, 1); dv.setUint32(at + 0x18, at + 0x20); dv.setUint32(at + 0x20, mesh); };
+  const mesh = at => { dv.setUint32(at + 0x30, 0x300); dv.setUint32(at + 0x34, 0x340); dv.setInt16(at + 0x3a, 1); };
+  dv.setUint32(0x20, 0x5065);
+  dv.setUint32(0x20 + 0x14, 2); dv.setUint32(0x20 + 0x18, 0x80); dv.setInt32(0x20 + 0x1c, -1);
+  dv.setUint32(0x80, 0x100); dv.setUint32(0x84, 0x180);
+  group(0x100, 0x200); group(0x180, 0x250); mesh(0x200); mesh(0x250);
+  assert.deepEqual(parseModel(b, 0).meshes.map(m => m.off), [0x200]);
+  dv.setInt32(0x20 + 0x1c, 1);
+  assert.deepEqual(parseModel(b, 0).meshes.map(m => m.off), [0x250]);
 });
 
 test('alphaMode: opaque, cutout and blended textures', () => {

@@ -13,10 +13,7 @@ export const VEHICLES=Object.freeze({
     skins:[{id:'camera',name:'Free camera',source:'none'}]},
   podracer:{id:'podracer',name:'Podracer',races:true,stats:{Speed:.9,Handling:.55,Boost:.8},
     note:'Hovering racer on the ground and over water. Boost with Shift.',
-    skins:[{id:'rocket',name:'Rocket (current)',source:'data'},
-      {id:'dug-racer',name:'Dug racer',source:'glb',model:'./vehicles/dug-racer.glb',scale:METRES},
-      {id:'dug-racer-green',name:'Dug racer (green)',source:'glb',model:'./vehicles/dug-racer-green.glb',scale:METRES},
-      {id:'dug-racer-crimson',name:'Dug racer (crimson)',source:'glb',model:'./vehicles/dug-racer-crimson.glb',scale:METRES}]},
+    skins:[{id:'rocket',name:'Rocket (current)',source:'data'}]},
 });
 
 export const vehicleOf=track=>track?.vehicle??'podracer';

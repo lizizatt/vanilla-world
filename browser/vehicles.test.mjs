@@ -27,7 +27,8 @@ test('only the active vehicle\'s tracks are offered, and free flight has none',(
 });
 test('choice round-trips and bad stored values fall back',()=>{
   const s=store();assert.deepEqual(readChoice(s),DEFAULT_CHOICE);
-  writeChoice({vehicle:'podracer',skin:'dug-racer'},s);assert.deepEqual(readChoice(s),{vehicle:'podracer',skin:'dug-racer'});
+  writeChoice({vehicle:'podracer',skin:'rocket'},s);assert.deepEqual(readChoice(s),{vehicle:'podracer',skin:'rocket'});
+  assert.deepEqual(normalizeChoice({vehicle:'podracer',skin:'dug-racer-green'}),DEFAULT_CHOICE);
   assert.deepEqual(normalizeChoice({vehicle:'plane',skin:'nope'}),DEFAULT_CHOICE);
   assert.deepEqual(normalizeChoice({vehicle:'podracer',skin:'nope'}),DEFAULT_CHOICE);
   s.setItem('racer.vehicle','{bad');assert.deepEqual(readChoice(s),DEFAULT_CHOICE);
