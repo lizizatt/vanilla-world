@@ -69,12 +69,12 @@ export function mapIcons(manifest,maelstrom,altitude=400) {
 
 export function drawMap(canvas,frame,rects,images,schematic) {
   const context=canvas.getContext('2d'),w=canvas.width,h=canvas.height;
-  context.fillStyle='#0c2a3f';context.fillRect(0,0,w,h);
+  context.clearRect(0,0,w,h);
   rects.forEach((rect,i)=>{
     if(!rect)return;
     const [u0,v0]=toMap(frame,rect[0],rect[1]),[u1,v1]=toMap(frame,rect[2],rect[3]);
     const x=u0*w,y=v0*h,dw=(u1-u0)*w,dh=(v1-v0)*h,image=images?.[i];
-    if(image)context.drawImage(image,x,y,dw,dh);
+    if(image){context.globalAlpha=.78;context.drawImage(image,x,y,dw,dh);context.globalAlpha=1;}
     else {context.fillStyle='#4b5d3a';context.strokeStyle='#cbb978';context.lineWidth=3;context.fillRect(x,y,dw,dh);context.strokeRect(x,y,dw,dh);}
   });
   if(schematic){context.fillStyle='#cbb978';context.font='20px sans-serif';context.fillText('Schematic map (Data art unavailable)',16,h-16);}
