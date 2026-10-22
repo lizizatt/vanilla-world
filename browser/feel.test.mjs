@@ -86,9 +86,12 @@ test('camera orbit clamps pitch, wraps yaw and returns behind the craft; flight 
 });
 const pad=()=>({connected:true,mapping:'standard',index:0,axes:[0,0,0,0],buttons:Array.from({length:17},()=>({pressed:false,value:0}))});
 test('both keyboard profiles reverse like the controller, with distinct brake and hop keys',()=>{
-  const input=new WorldInput(),keys=new Set(['KeyS','Space','ControlLeft']);
-  assert.deepEqual([input.sample(keys,[],true).throttle,input.sample(keys,[],true).flags],[-1,12]);
-  assert.deepEqual([input.sample(keys,[],true,'legacy').throttle,input.sample(keys,[],true,'legacy').flags],[-1,5]);
+  const input=new WorldInput(),keys=new Set(['KeyS','Space']);
+  assert.deepEqual([input.sample(keys,[],true).throttle,input.sample(keys,[],true).flags],[-1,4]);
+  assert.deepEqual([input.sample(keys,[],true,'legacy').throttle,input.sample(keys,[],true,'legacy').flags],[-1,1]);
+  for(const [k,native,legacy] of [['Space',4,1],['KeyC',4,4],['ControlLeft',0,0],['ControlRight',0,0]]){
+    assert.equal(input.sample(new Set([k]),[],true).flags,native,k);assert.equal(input.sample(new Set([k]),[],true,'legacy').flags,legacy,k);
+  }
   for(const profile of ['native','legacy']){
     assert.equal(input.sample(new Set(['KeyS']),[],true,profile).throttle,-1);
     assert.equal(input.sample(new Set(['KeyS']),[],true,profile).flags,0);

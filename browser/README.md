@@ -365,7 +365,7 @@ The spawn height comes from the ADT, not a guessed sea-level floor.
 
 | Mode | Controls |
 |---|---|
-| Drive | W thrust, S reverse, A/D steer, X brake, Space/J hop, Shift boost, Ctrl/C drift, F cockpit, V look behind, F9 reset |
+| Drive | W thrust, S reverse, A/D steer, X brake, J hop, Shift boost, Space/C drift, F cockpit, V look behind, F9 reset |
 | Standard controller | Left stick steer, RT thrust minus LT reverse, RB boost, LB drift, A hop, right stick look/click cockpit, D-pad chase zoom, Y reset, Start drive/fly |
 | Chase camera | **Left-drag** orbits the camera independently of heading and it stays where left (no snap-back; it recentres only while you drive with keys/pad). **Right-drag** steers: the camera keeps its heading and the craft turns toward it. **Both buttons** steer and thrust forward. Arrow keys orbit, wheel zooms |
 | Free flight | W/S forward/back, A/D strafe, Q/E altitude, arrows look, Shift fast |
@@ -377,8 +377,8 @@ Click the view to capture keyboard input. Flight is deliberately collision-free.
 settings. **Load** restores them; **Reset** recovers without
 overwriting a saved pose until you explicitly save.
 Display switches do not disable collision.
-**Controls & settings** keeps the existing **Space key** choice: hop (default) or
-brake (legacy saves); J always hops. **S reverses and X brakes in both profiles**,
+**Controls & settings** keeps the existing **Space key** choice: drift (default) or
+brake (legacy saves; drift stays on C); J always hops, Ctrl is no longer a drift key (Ctrl+W closes the tab). **S reverses and X brakes in both profiles**,
 matching the controller's signed throttle without applying brake to reverse.
 A short hop tap survives an in-flight worker request or a zero-step frame.
 Its discrete edge is acknowledged after one fixed-step attempt, not held until

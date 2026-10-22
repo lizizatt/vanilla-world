@@ -121,8 +121,8 @@ function syncSettings() {
   music.setNight(settings.night);music.setEnabled(settings.music);$('music-on').checked=settings.music;
   $('control-profile').value=settings.controls;$('camera-distance').value=settings.cameraDistance;
   $('keyboard-guide').textContent=settings.controls==='legacy'
-    ?'W/S thrust/reverse · A/D steer · X/Space brake · J hop · Shift boost · Ctrl/C drift · F9 reset.'
-    :'W/S thrust/reverse · A/D steer · X brake · Space/J hop · Shift boost · Ctrl/C drift · F9 reset.';
+    ?'W/S thrust/reverse · A/D steer · X/Space brake · J hop · Shift boost · C drift · F9 reset.'
+    :'W/S thrust/reverse · A/D steer · X brake · J hop · Shift boost · Space/C drift · F9 reset.';
   canvas.setAttribute('aria-label',`World. ${$('keyboard-guide').textContent} More controls in Controls and settings.`);
   syncSound();
 }
