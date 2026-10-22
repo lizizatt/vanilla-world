@@ -638,7 +638,7 @@ async function start() {
       else {permissionNeeded=true;showReconnect(true);
         $('permission').textContent='Click to allow reading your remembered folder.';}
     }
-    if(new URLSearchParams(location.search).has('test'))window.worldTest={startRace,selectVehicle,choice:()=>choice,
+    if(new URLSearchParams(location.search).has('test'))window.worldTest={startRace,selectVehicle,tracks:()=>tracks,raceInfo:()=>race&&{state:race.state,next:race.next,finishing:race.finishing,gates:race.track.gates.length},choice:()=>choice,
       focus:pose=>{flight=pose.slice();},
       instances:()=>renderer.instances.filter(i=>i.kind==='group').slice(0,8),
       npcs:()=>renderer.instances.filter(i=>i.id.includes(':npc:')).slice(0,5),
