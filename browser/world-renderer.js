@@ -8,7 +8,7 @@ import {WATER_NORMAL_SIZE,waterNormalMips,waterShading,dayShading} from './water
 import {shadowShader,shadowUniform,shadowHalf} from './shadow.js';
 import {cloudShader,cloudUniform,maelstromCentre} from './clouds.js';
 import {oceanMesh} from './ocean-mesh.js';
-import {ParticlePool,exhaustPoints,emitPlumes,QUALITY,INSTANCE_FLOATS,CAPACITY,particleShader,particleUniform} from './particles.js';
+import {ParticlePool,exhaustPoints,emitPlumes,emitBurst,emitDebris,emitHeatSmoke,QUALITY,INSTANCE_FLOATS,CAPACITY,particleShader,particleUniform} from './particles.js';
 import {flagMesh,gateMesh} from './race-flags.js';
 import {SkyCatalog,mapPosition,skyShader,skyDomeShader,skyUniform,advanceTime,nightAlpha,nightAngle,DAY} from './sky.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
@@ -388,6 +388,7 @@ export class WorldRenderer {
     split.forEach((p,i)=>{if(!p.empty)parts.push({...p,asset:{vertices,indices:this.buffer(p.indices,GPUBufferUsage.INDEX),
       batches:this.prepareBatches(p.batches),count:p.indices.length},instance:{id:`player-craft-wreck:${i}`,key:'wreck',craft:true}});});
     this.wreck={parts,vertices,frames:[],connected:[],scale,t0:performance.now()/1000};
+    if(this.particles?.quality>0)emitBurst(this.particles,[state[0],state[1]+c.size[2]*.4,state[2]],(c.fx?.length||c.size[0])/3.5);
     return {pos:[state[0],state[1],state[2]],rot:Array.from(rot),scale,vel:[m0[0]/scale*speed,m0[1]/scale*speed,m0[2]/scale*speed],
       parts:parts.flatMap(p=>[...p.center,...p.half]),seed,count:parts.length};
   }
@@ -877,6 +878,7 @@ export class WorldRenderer {
       craft.fx??={points:exhaustPoints(craft.source.vertices,craft.source.indices,craft.metadata),length:craft.size[0]};
       emitPlumes(fx,{points:craft.fx.points,matrix:craftMatrix(state,origin,scale),origin,scale,length:craft.fx.length,speed,
         thrust:input.throttle??Math.min(1,speed/150),boosting:!!input.boosting,dt:Math.min(dt,.1)});
+      if(input.heat)emitHeatSmoke(fx,{points:craft.fx.points,matrix:craftMatrix(state,origin,scale),origin,length:craft.fx.length,heat:input.heat,dt:Math.min(dt,.1)});
     }
     if(fx&&quality>0&&!this.cameraBlocked){
       fx.update(Math.min(dt,.1));
@@ -889,6 +891,10 @@ export class WorldRenderer {
         fxPass.setPipeline(this.particlePipeline);fxPass.setBindGroup(0,this.particleGroup);fxPass.setVertexBuffer(0,this.particleBuffer);
         fxPass.draw(6,count);fxPass.end();
       }
+    }
+    if(fx&&quality>0&&this.wreck&&wreckFrameNow&&craft?.fx) {
+      const size=craft.fx.length/3.5,sdt=Math.max(1/240,Math.min(dt,.1));
+      this.wreck.parts.forEach((p,i)=>{const f=wreckFrameNow.subarray(i*7,i*7+7);emitDebris(fx,p.memo??={},[f[0],f[1],f[2]],wreckAge,sdt,size,`w${i}`,WRECK_SECONDS);});
     }
     this.particleCount=fx?.count||0;
     this.device.queue.submit([encoder.finish()]);
