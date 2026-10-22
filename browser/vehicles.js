@@ -29,6 +29,13 @@ export function setRuntimeSkins(source,skins,vehicle='podracer') {
   list.splice(0,list.length,...keep,...skins);
 }
 
+// Garage carousel: next/previous usable skin id with wrap-around; the current id if nothing else is usable.
+export function stepSkin(skins,current,dir,usable=()=>true) {
+  const n=skins.length,at=Math.max(0,skins.findIndex(s=>s.id===current));
+  for(let k=1;k<=n;k++){const s=skins[((at+dir*k)%n+n)%n];if(usable(s))return s.id;}
+  return current;
+}
+
 // Anything unreadable or unknown falls back to the default; an unknown skin falls back to the type's first skin.
 export function normalizeChoice(raw) {
   const vehicle=isVehicle(raw?.vehicle)?raw.vehicle:DEFAULT_CHOICE.vehicle;

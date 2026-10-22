@@ -15,7 +15,7 @@ import {createTrackEditor} from './track-editor.js';
 import {clampTrack} from './track-edit.js';
 import {loadTracks,nearestFlag,flagPosition} from './race-flags.js';
 import {loadVehicleModel} from './vehicle-model.js';
-import {bootChoice,writeChoice,tracksFor,vehicleOf,VEHICLES,canSwitch,normalizeChoice,skinOf,setRuntimeSkins} from './vehicles.js';
+import {bootChoice,writeChoice,tracksFor,vehicleOf,VEHICLES,canSwitch,normalizeChoice,skinOf,setRuntimeSkins,stepSkin} from './vehicles.js';
 import {initSwe1rRow,onSwe1r,getSwe1r} from './swe1r/ui.js';
 import {podSkinList,loadPodModel} from './swe1r/skin.js';
 import {SFX,loadSfx} from './swe1r/sfx.js';
@@ -407,9 +407,10 @@ function renderGarage() {
   const v=VEHICLES[garagePick.vehicle];
   $('garage-tabs').replaceChildren(...Object.values(VEHICLES).map(x=>{
     const b=document.createElement('button');b.type='button';b.role='tab';b.textContent=x.name;b.dataset.vehicle=x.id;b.setAttribute('aria-selected',String(x.id===v.id));return b;}));
-  $('garage-skins').replaceChildren(...v.skins.map(s=>{
-    const b=document.createElement('button');b.type='button';b.role='radio';b.textContent=s.name;b.dataset.skin=s.id;
-    b.setAttribute('aria-checked',String(s.id===garagePick.skin));b.disabled=!glbAvailable(s);if(b.disabled)b.title='Model file not installed';return b;}));
+  const at=Math.max(0,v.skins.findIndex(s=>s.id===garagePick.skin)),cur=v.skins[at],arrow=(dir,text)=>{
+    const b=document.createElement('button');b.type='button';b.textContent=text;b.dataset.step=dir;b.setAttribute('aria-label',dir<0?'Previous skin':'Next skin');b.disabled=v.skins.length<2;return b;},
+    label=document.createElement('span');label.id='garage-skin-name';label.setAttribute('aria-live','polite');label.textContent=`${cur.name} · ${at+1} / ${v.skins.length}`;
+  $('garage-skins').replaceChildren(arrow(-1,'◀'),label,arrow(1,'▶'));
   $('garage-note').textContent=v.note;
   $('garage-stats').replaceChildren(...Object.entries(v.stats).map(([k,n])=>{
     const row=document.createElement('div'),bar=document.createElement('i');row.append(k,bar);bar.style.width=`${Math.round(n*100)}%`;return row;}));
@@ -423,7 +424,9 @@ function openGarage() {
   keys.clear();dragging=false;mouseButtons=0;garagePick={...choice};renderGarage();garage.showModal();
 }
 $('garage-tabs').addEventListener('click',event=>{const b=event.target.closest('[data-vehicle]');if(b){garagePick=normalizeChoice({vehicle:b.dataset.vehicle,skin:b.dataset.vehicle===choice.vehicle?choice.skin:undefined});renderGarage();}});
-$('garage-skins').addEventListener('click',event=>{const b=event.target.closest('[data-skin]');if(b&&!b.disabled){garagePick={...garagePick,skin:b.dataset.skin};renderGarage();}});
+function stepGarage(dir){const skins=VEHICLES[garagePick.vehicle].skins;garagePick={...garagePick,skin:stepSkin(skins,garagePick.skin,dir,glbAvailable)};renderGarage();}
+$('garage-skins').addEventListener('click',event=>{const b=event.target.closest('[data-step]');if(b&&!b.disabled)stepGarage(+b.dataset.step);});
+garage.addEventListener('keydown',event=>{const dir={ArrowLeft:-1,KeyA:-1,ArrowRight:1,KeyD:1}[event.code];if(dir&&!event.ctrlKey&&!event.altKey&&!event.metaKey){event.preventDefault();stepGarage(dir);}});
 $('garage-use').addEventListener('click',()=>{if(selectVehicle(garagePick))garage.close();});
 garage.addEventListener('close',()=>canvas.focus());
 $('menu-garage').addEventListener('click',()=>{raceMenu.close();openGarage();});
