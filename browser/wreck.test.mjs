@@ -52,6 +52,10 @@ test('recorded chunks replay and hold the last frame', () => {
   assert.equal(wreckFrame(w, 99)[0], 2);
 });
 
+test('steep terrain (contact 4) never gibs',()=>{
+  const mem={};gibTrigger(mem,[0,0,0,0,0,200,0,0,0],true,100,0);
+  assert.equal(gibTrigger(mem,[0,0,0,0,0,0,0,0,4],true,100,10),false);
+});
 test('gibTrigger fires on a fast contact edge only, once, with cooldown',()=>{
   const mem={},at=(hit,speed)=>[0,0,0,0,0,speed,0,0,hit?3:0];
   assert.equal(gibTrigger(mem,at(false,200),true,100,0),false);

@@ -629,14 +629,14 @@ function frame(now) {
       $('race-prompt').hidden=!promptTrack&&!again;if(again)$('race-prompt').textContent='Press F to race again';else if(promptTrack)$('race-prompt').textContent=`Press F to start race: ${promptTrack.name||promptTrack.id}`;
       $('speed').textContent=flight?'FLY':p[5]<10000?p[5].toFixed(0).padStart(3,'0'):p[5].toExponential(1);
       $('direction').textContent=flight?'FREE':p[14]<-.1?'REV':p[14]>.1?'FWD':p[5]<.1?'IDLE':'--';
-      $('drive-state').textContent=flight?'FLIGHT':scene?.waitingCollision||p[8]===1?'WAIT':p[8]===3?'CONTACT':p[8]===2?'NO GROUND':p[7]?'HOVER':'AIR';
+      $('drive-state').textContent=flight?'FLIGHT':scene?.waitingCollision||p[8]===1?'WAIT':p[8]===3?'CONTACT':p[8]===4?'STEEP':p[8]===2?'NO GROUND':p[7]?'HOVER':'AIR';
       document.querySelector('.meters').dataset.held=String(held);
       $('boost').textContent=`${Math.round(p[6]*100)}%`;$('boost-meter').value=p[6];
       $('speed-meter').value=Math.min(1,p[5]/tuningValues[1]);
       $('drive').hidden=!flight;$('fly').hidden=!!flight||!!race;
       $('cockpit').setAttribute('aria-pressed',String(settings.cockpit&&!flight));
       $('motion').textContent=flight?'':scene?.waitingCollision||p[8]===1?'Loading nearby ground'
-        :p[8]===2?'Unsupported surface':p[8]===3?'Obstacle or steep ground':'';
+        :p[8]===2?'Unsupported surface':p[8]===3?'Obstacle':p[8]===4?'Steep ground':'';
       if(raceMenu.open&&!raceMenu.querySelector('[data-page=diagnostics]').hidden) {
       $('input-device').textContent=input.device==='controller'?'Controller':'Keyboard';
       $('camera-status').textContent=flight?'Flight camera is collision-free':settings.cockpit

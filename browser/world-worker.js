@@ -766,7 +766,7 @@ async function handle(message) {
           advanced=true;accumulator-=1/120;
         }
         const hold=world.telemetry()[8];
-        measureHold(hold===1?'terrain':hold===3?'solid':hold===2?'unsupported':'clear',elapsed);
+        measureHold(hold===1?'terrain':hold===3||hold===4?'solid':hold===2?'unsupported':'clear',elapsed);
       }
     } else {accumulator=0;lastHoldTime=0;lastHold='clear';}
     materialFrameReady=loads===frameLoads && (advanced || !!message.focus || objectWait.length>0);

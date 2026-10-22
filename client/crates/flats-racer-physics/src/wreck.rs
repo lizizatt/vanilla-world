@@ -199,7 +199,7 @@ impl Wreck {
             let half = mul(part.half, scale).map(|h| h.max(0.02));
             let mut body = Body::new(center, q, half);
             // Inherit the craft's (pre-impact) velocity with some scatter.
-            body.vel = mul(vel, 0.85 + 0.3 * wreck.rand());
+            body.vel = mul(vel, 0.3 + 0.5 * wreck.rand());
             for a in 0..3 {
                 body.vel[a] += 0.08 * wreck.signed() * speed;
             }
@@ -409,14 +409,14 @@ mod tests {
         for seed in 1..20 {
             let w = Wreck::new([0.0, 50.0, 0.0], ID, 1.0, [100.0, 0.0, 0.0], &parts(), seed);
             for b in &w.bodies {
-                assert!(b.vel[0] > 60.0 && b.vel[0] < 140.0, "seed {seed}: vx {}", b.vel[0]);
+                assert!(b.vel[0] > 15.0 && b.vel[0] < 100.0, "seed {seed}: vx {}", b.vel[0]);
             }
             let mut w = w;
             let mut g = flat(0.0);
             for _ in 0..30 {
                 w.step(&mut g);
             }
-            assert!(w.bodies.iter().all(|b| b.pos[0] > 15.0), "parts did not carry forward");
+            assert!(w.bodies.iter().all(|b| b.pos[0] > 5.0), "parts did not carry forward");
         }
     }
 
