@@ -787,7 +787,7 @@ impl Voyage {
                 self.physics_stats[counter] = self.physics_stats[counter].saturating_add(1);
                 self.state = before;
                 self.state.velocity = [0.0; 3];
-                self.hold = result.err().unwrap_or(4); // 4: steep terrain, not a scene object (3)
+                self.hold = result.err().unwrap_or(3);
             }
         }
         Ok(())
@@ -1872,7 +1872,7 @@ pub(crate) mod tests {
                 .unwrap();
             assert_eq!(
                 world.hold,
-                if speed > 50.0 { 4 } else { 0 },
+                if speed > 50.0 { 3 } else { 0 },
                 "old single-step guard"
             );
             (world.state, world.origin, world.rebases, world.hold) = saved;
@@ -2039,8 +2039,6 @@ pub(crate) mod tests {
                     1
                 } else if kind == "hole" {
                     2
-                } else if kind == "ledge" {
-                    4
                 } else {
                     3
                 },
@@ -2181,7 +2179,7 @@ pub(crate) mod tests {
                 ..Default::default()
             })
             .unwrap();
-        assert_eq!(world.hold, 4);
+        assert_eq!(world.hold, 3);
         assert_eq!(world.state.position, before.position);
         assert_eq!(world.state.jump_cooldown, before.jump_cooldown);
     }
@@ -2334,7 +2332,7 @@ pub(crate) mod tests {
                 world.advance(Input {throttle:1.0,..Default::default()}).unwrap();
                 if world.hold!=0 {break;}
             }
-            assert_eq!(world.hold==4,blocked,"height={height}");
+            assert_eq!(world.hold==3,blocked,"height={height}");
             if blocked {assert!(world.physics_stats[5]>0);} else {assert!(world.global()[0]<533.0);}
         }
     }
@@ -2759,7 +2757,7 @@ pub(crate) mod tests {
         let mut world=Voyage::from_manifest(fixture(0.0)).unwrap();
         let tile=&world.manifest.tiles[0];
         world.resident.insert(0,crate::world::tests::flat_tile(tile.x,tile.y));
-        assert_eq!(world.tuning(),vec![150.0,300.0,50.0,30.0,30.0,0.25,2.2,10.0,8.0,1.5,1.3,3.0,90.0,18.0,24.0,7.0,0.9]);
+        assert_eq!(world.tuning(),vec![150.0,300.0,50.0,30.0,30.0,0.25,2.2,10.0,8.0,1.5,1.3,3.0,90.0,18.0,48.0,7.0,0.9]);
         world.initialize_spawn().unwrap();
         assert_eq!(world.state.position[1],3.0);
         world.tuning.hover_height=7.0;

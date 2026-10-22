@@ -310,7 +310,7 @@ test('tuning accepts native physical domains without gameplay ceilings and retai
   assert.equal(record.values[1],500);
 });
 test('fresh Handling and Restore defaults use the user-provided values without migrating saved overrides',()=>{
-  assert.deepEqual(TUNING_FIELDS.map(f=>f[1]),[150,300,50,30,30,.25,2.2,10,8,1.5,1.3,3,90,18,24,7,.9]);
+  assert.deepEqual(TUNING_FIELDS.map(f=>f[1]),[150,300,50,30,30,.25,2.2,10,8,1.5,1.3,3,90,18,48,7,.9]);
   const saved={version:1,values:[36,50,18,22,30,.25,2.2,10,8,1.5,1.3,1.1,90,18,24,7,.9],cameraSeconds:.7};
   assert.equal(validateTuningRecord(saved),saved);assert.equal(saved.values[0],36);assert.equal(saved.values[11],1.1);
 });
@@ -398,7 +398,7 @@ test('mouse steer keeps the camera world heading while the craft turns toward it
 test('old boost defaults migrate once; customised values are kept',()=>{
   const old={version:1,cameraSeconds:0,values:TUNING_FIELDS.map(f=>f[1])};old.values[1]=1000;old.values[3]=250;
   const moved=migrateTuning(old);
-  assert.deepEqual([moved.values[1],moved.values[3],moved.defaults],[300,30,2]);
+  assert.deepEqual([moved.values[1],moved.values[3],moved.values[14],moved.defaults],[300,30,48,3]);const v2=migrateTuning({...old,defaults:2,values:old.values.map((v,i)=>i===1?1000:i===14?24:v)});assert.deepEqual([v2.values[1],v2.values[14],v2.defaults],[1000,48,3]);assert.equal(migrateTuning({...old,defaults:2,values:old.values.map((v,i)=>i===14?30:v)}).values[14],30);
   const custom=migrateTuning({...old,values:old.values.map((v,i)=>i===1?600:v)});
   assert.deepEqual([custom.values[1],custom.values[3]],[600,30]);
   assert.equal(migrateTuning(moved),moved);
