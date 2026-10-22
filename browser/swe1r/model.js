@@ -42,12 +42,12 @@ export function parseModel(body, mask) {
     let mat = m, take = count;
     if (flags === NODE.TRANSFORMED || flags === NODE.PIVOT) mat = mulMat(m, readMatrix(o + 0x1c));
     else if (flags === NODE.LOD) take = Math.min(count, 1);
-    else if (flags === NODE.SELECTOR) { const sel = dv.getInt32(o + 0x1c); take = sel >= 0 ? sel + 1 : count; }
+    else if (flags === NODE.SELECTOR) { const sel = dv.getInt32(o + 0x1c); take = sel >= 0 ? sel + 1 : 1; } // unset (-1): the children are alternate detail levels of one body, first is the finest
     else if (flags !== NODE.MESH_GROUP && flags !== NODE.BASIC && flags !== NODE.COMPUTED) return;
     if (!ok(kids) && count) return;
     for (let i = 0; i < take && i < count; i++) {
       const c = u32(kids + 4 * i);
-      if (flags === NODE.SELECTOR && dv.getInt32(o + 0x1c) >= 0 && i !== dv.getInt32(o + 0x1c)) continue;
+      if (flags === NODE.SELECTOR && i !== Math.max(0, dv.getInt32(o + 0x1c))) continue;
       if (flags === NODE.MESH_GROUP) mesh(c, mat, path.concat(i));
       else walk(c, mat, path.concat(i));
     }
