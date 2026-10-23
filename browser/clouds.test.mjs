@@ -8,7 +8,7 @@ test('cloud uniform puts the maelstrom on the world-map eye at 0.8x Hyjal and tr
   assert.equal(CLOUD_ALTITUDE,CLOUD_ALTITUDE_FACTOR*HYJAL_SUMMIT);
   const view={eye:[1,2,3],right:[1,0,0],up:[0,1,0],look:[0,0,1],aspect:2};
   const u=cloudUniform(view,5,.25,manifest,.5),[x,z]=maelstromCentre(manifest);
-  assert.deepEqual([...u.slice(16,20)],[x,z,CLOUD_ALTITUDE,60000].map(Math.fround));
+  assert.deepEqual([...u.slice(16,20)],[x,z,CLOUD_ALTITUDE,250000].map(Math.fround));
   assert.equal(u[20],.5);assert.equal(u[15],.25);assert.equal(u[11],5);assert.equal(u[7],2);
 });
 test('maelstrom centre is 43% across the gap, north of the old midpoint',()=>{
