@@ -43,7 +43,7 @@ export class MapPanel {
     for(const old of this.stage.querySelectorAll('.map-icon'))old.remove();
     for(const icon of mapIcons(manifest,centre)) {
       const [u,v]=toMap(this.frame,...icon.position),button=this.stage.ownerDocument.createElement('button');
-      button.type='button';button.className='map-icon';button.dataset.icon=icon.id;button.textContent={raceway:'Raceway',maelstrom:'Maelstrom',airport:'Airport'}[icon.id];
+      button.type='button';button.className='map-icon';button.dataset.icon=icon.id;button.textContent={raceway:'Raceway',maelstrom:'Maelstrom',airport:'Airport',stormwind:'Stormwind',orgrimmar:'Orgrimmar',undercity:'Undercity',darnassus:'Darnassus'}[icon.id];
       button.title=button.ariaLabel=`Teleport to ${icon.label}`;
       button.style.left=`${u*100}%`;button.style.top=`${v*100}%`;
       button.addEventListener('click',()=>{this.dialog.close();this.teleport(icon);});button.addEventListener('pointerdown',e=>e.preventDefault());

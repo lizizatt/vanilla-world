@@ -1799,7 +1799,7 @@ The app is static: it needs no server, and the player's own Data folder never le
 
 **Boost sound.** With the Racer folder attached, Shift plays the start one-shot once per press, then a sustain loop while held (`BOOST` in `swe1r/sfx.js`). To A/B other start+loop pairs run `node browser\swe1r\sound-browser.mjs` (with `SWE1R_DATA` set) and use the Boost A/B buttons at http://127.0.0.1:4185/.
 
-**Map.** M opens a non-modal, transparent world map over the live world: driving keys keep working, icons (Raceway, Maelstrom, Ironforge airport) teleport on click, M or Esc closes it.
+**Map.** M opens a non-modal, transparent world map over the live world: driving keys keep working, icons (Raceway, Maelstrom, Ironforge airport, and the Stormwind, Orgrimmar, Undercity and Darnassus city gates) teleport on click, M or Esc closes it.
 
 **Pod texture cap.** The old 16-texture limit on SWE1R pods is lifted (craft payloads accept 64; pods use 16-28), so every material is textured. Remaining garbling (purple/green noise on engines and cables) is a separate decode issue, not the cap.
 
