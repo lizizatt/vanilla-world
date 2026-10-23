@@ -117,8 +117,21 @@ test('sweep: the pre-fix extent is caught (horizon gap and hard cap)',()=>{
 
 test('parity: shader keeps the extent, cap, tail and step expressions the JS mirror uses',()=>{
   for(const [name,src,ns] of [['standard',cloudShader,8],['high',cloudShaderHigh,28]]) {
-    for(const frag of ['select(select(-.0005,.0005,dir.y>=0.0),dir.y,abs(dir.y)>=.0005)','sCap=s0+max(9000.0,.3*s0)','sFull>sCap&&s1==sCap','s0<c.cloud.w','1.0-smoothstep(.55,1.0,(ts-s0)/Ls)','smoothstep(30000.0,c.cloud.w,ts)','clamp(ts/150000.0,0.0,.93)'])
+    for(const frag of ['select(select(-.0005,.0005,dir.y>=0.0),dir.y,abs(dir.y)>=.0005)','sCap=s0+max(9000.0,.3*s0)','sFull>sCap&&s1==sCap','s0<c.cloud.w','1.0-cutK*smoothstep(.55,1.0,(ts-s0)/Ls)','smoothstep(30000.0,c.cloud.w,ts)','clamp(ts/150000.0,0.0,.93)'])
       assert.ok(src.includes(frag),`${name} shader lost: ${frag}`);
     assert.ok(src.includes(`NS=${ns}`)||src.includes(`const NS=${ns}`)||src.includes(`${ns}`),`${name} step count`);
+  }
+});
+
+test('above-layer look-down: no hard edge across pitch, saturated tops stay lit (grey-plateau regression)',()=>{
+  for(const H of [6000,9000,16000,30000]) {
+    let prev=null,worst=0;
+    for(let deg=8;deg<=60;deg+=.05) {
+      const p=-deg*Math.PI/180,o=[0,1,2,3,4,5,6,7].map(j=>march({eye:[0,H,0],dir:[Math.cos(p),Math.sin(p),0],t:500,coverage:.95,high:true,jitter:(j+.5)/8}));
+      const a=o.reduce((s,x)=>s+x.alpha,0)/8,lum=o.reduce((s,x)=>s+x.rgb[0],0)/8;
+      if(prev&&a>.9&&prev.a>.9)worst=Math.max(worst,Math.abs(lum-prev.lum));
+      prev={a,lum};
+    }
+    assert.ok(worst<.12,`colour edge ${worst.toFixed(3)} at H=${H}`);
   }
 });

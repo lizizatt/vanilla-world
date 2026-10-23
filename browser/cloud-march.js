@@ -32,7 +32,7 @@ export function extent(eyeY,dirY,sceneDist,high,far=CLOUD_HALF_SIZE,legacy=false
   let s1=Math.min(full,cap),sEdge=1;
   if(sceneDist<1e8){sEdge=smoothstep(0,350,sceneDist-s0);s1=Math.min(s1,sceneDist);}
   const ns=s1>s0&&sEdge>0&&s0<far?steps(high):0;
-  return {s0,s1,ns,sEdge,capped:full>cap&&s1===cap};
+  return {s0,s1,ns,sEdge,capped:full>cap&&s1===cap,cutK:smoothstep(0,.5,(full-cap)/Math.max(cap-s0,1))};
 }
 
 // The pre-fix behaviour (flat 9 km cap with a hard end, no march for near-horizontal rays), kept so the sweep can prove it detects those defects.
@@ -85,11 +85,11 @@ export function march(o) {
     const ts=ex.s0+ss*(i+jitter),pos=[eye[0]+dir[0]*ts,eye[1]+dir[1]*ts,eye[2]+dir[2]*ts];
     const s=density(pos,t,high,centre,coverage);
     if(s[0]<=.001)continue;
-    const tail=ex.capped?1-smoothstep(.55,1,(ts-ex.s0)/(ex.s1-ex.s0)):1;
+    const tail=ex.capped?1-ex.cutK*smoothstep(.55,1,(ts-ex.s0)/(ex.s1-ex.s0)):1;
     const w=(1-smoothstep(FADE_START,CLOUD_HALF_SIZE,ts))*.96*ex.sEdge*tail;
     const absorb=(1-Math.exp(-s[0]*ss*.008))*w;
     let shade=1;
-    if(high){const sd=density([pos[0]+sun[0]*ss*2.5,pos[1]+sun[1]*ss*2.5,pos[2]+sun[2]*ss*2.5],t,high,centre,coverage)[0];shade=mix(.65,1,Math.exp(-sd*2))*(1+.8*Math.max(dot(dir,sun),0)**6);}
+    if(high){const sd=density([pos[0]+sun[0]*ss*2.5,pos[1]+sun[1]*ss*2.5,pos[2]+sun[2]*ss*2.5],t,high,centre,coverage)[0];shade=mix(mix(.65,1,Math.exp(-sd*2)),1,smoothstep(.7,1,s[2]))*(1+.8*Math.max(dot(dir,sun),0)**6);}
     const lit=mix(.62,1,s[2])*mix(.75,1,s[1])*(.7+.3*trans)*shade;
     const mixFog=clamp(ts/FOG_RANGE,0,.93);
     for(let k=0;k<3;k++) {
