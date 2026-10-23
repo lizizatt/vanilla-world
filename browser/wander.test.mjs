@@ -6,19 +6,21 @@ import {ACTOR,ActorService} from './actors.js';
 test('classes come from the model path',()=>{
   assert.equal(npcClass('character\\human\\male\\humanmale.m2'),'civilian');
   assert.equal(npcClass('Creature\\Rabbit\\Rabbit.m2'),'critter');
-  assert.equal(npcClass('Creature\\Dragon\\Dragon.m2'),undefined);
+  assert.equal(npcClass('Creature\\Dragon\\Dragon.m2'),'creature');
+  assert.equal(npcClass('World\\Generic\\Human\\Passive Doodads\\X.m2'),undefined);
 });
 
-test('critters always wander, civilians about 20%, others never',()=>{
+test('critters always wander, civilians about 50%, creatures about 35%, others never',()=>{
   const seeds=[...Array(2000).keys()].map(i=>idSeed(`0:npc:${i}`));
   assert.ok(seeds.every(s=>wanders('critter',s)));
   const share=seeds.filter(s=>wanders('civilian',s)).length/seeds.length;
-  assert.ok(share>.15&&share<.25,share);
+  assert.ok(share>.45&&share<.55,share);
+  const cs=seeds.filter(s=>wanders('creature',s)).length/seeds.length;assert.ok(cs>.3&&cs<.4,cs);
   assert.ok(!wanders(undefined,seeds[0]));
 });
 
 test('wander is deterministic, bounded by the class radius and continuous',()=>{
-  for(const cls of ['critter','civilian']){
+  for(const cls of ['critter','civilian','creature']){
     const seed=idSeed('0:npc:42'),home=[100,-50],R=WANDER[cls].radius;
     let prev;
     for(let t=0;t<400;t+=.25){
