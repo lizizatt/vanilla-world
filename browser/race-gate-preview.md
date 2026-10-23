@@ -49,3 +49,18 @@ Steamwheedle (-900.2, 5664.8), Track To Sea (-787.4, 5722.9), IF Airport Track (
 - Alpha pass: the fade is CPU-clipped at build time (no shader change). One extra blended draw per gate.
 - Beacon: needs a shader flag for fog immunity (today additive beams brighten with fog distance) and distance-scaled width/billboard so the far beam does not become a hairline: ~0.5-1 day.
 - Local models need the WoW (and optionally SWE1R) folder; hosted falls back to the procedural versions, which are always available. Never commit models, textures or renders.
+
+## Textured pass (local assets only)
+
+`TEXTURED=1 node browser\race-gate-preview-shots.mjs` writes `t-*.png` + `runtime\gate-preview\textured-sheet.png` (compare with `preview-sheet.png` for before). Procedural parts get WoW textures read from the local MPQs via `worldTest.propTexture`, drawn alpha ~0.62 on top of the 3.5 yd ground fade; hosted keeps flat colours.
+
+| key | WoW texture | used on |
+|---|---|---|
+| wood | HordeBanners\ns_wood01 | gantry span |
+| iron | Decoration\mm_wroughtiron_01 | light housing |
+| stone | Trim\mm_duskwood_stonebase_01 | gantry plinths, beacon base |
+| metal | Carlo\MedBrazier01 | checkpoint plinths |
+| zap | spells\zap1 | checkpoint curtain (additive) |
+| flag | PVP\BattlefieldBanners\PvPNeutralBannerFlag | label cloth |
+
+Cost: one extra batch per texture; no gameplay wiring.

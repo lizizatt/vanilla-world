@@ -7,11 +7,17 @@ export const COL={amber:[1,.7,.15,1],red:[1,.12,.08,1],green:[.2,1,.3,1],pole:[.
 const FACES=[[[0,0,0],[0,1,0],[0,1,1],[0,0,1],[-1,0,0]],[[1,0,0],[1,0,1],[1,1,1],[1,1,0],[1,0,0]],[[0,0,0],[0,0,1],[1,0,1],[1,0,0],[0,-1,0]],
   [[0,1,0],[1,1,0],[1,1,1],[0,1,1],[0,1,0]],[[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,-1]],[[0,0,1],[0,1,1],[1,1,1],[1,0,1],[0,0,1]]];
 
+// With a texture dictionary (name -> {key,width,height,rgba} from worldTest.propTexture) a quad/box given a texture name is drawn
+// textured and semi-transparent (opaque -> alpha at TEX_ALPHA, UVs tile every TILE_YD); unknown names fall back to flat colour (hosted).
+export const TEX_ALPHA = .62, TILE_YD = 3;
 export class Mesh {
-  constructor() { this.g = {}; }
-  quad(blend, p, c) { (this.g[blend] ||= []).push({ p, c }); return this; }
-  box(blend, [x, y, z], [w, d, h], c) {
-    for (const f of FACES) this.quad(blend, f.slice(0, 4).map(([a, b, e]) => [x + a * w, y + b * d, z + e * h]), [c, c, c, c]);
+  constructor(tex = {}) { this.g = {}; this.T = tex; }
+  quad(blend, p, c, t) {
+    if (t && this.T[t]) { if (blend === 'opaque') blend = 'alpha'; if (blend === 'alpha') c = c.map(x => [x[0], x[1], x[2], x[3] * TEX_ALPHA]); } else t = undefined;
+    (this.g[blend + '|' + (t || '')] ||= []).push({ p, c, t }); return this;
+  }
+  box(blend, [x, y, z], [w, d, h], c, t) {
+    for (const f of FACES) this.quad(blend, f.slice(0, 4).map(([a, b, e]) => [x + a * w, y + b * d, z + e * h]), [c, c, c, c], t);
     return this;
   }
   column(blend, r, z0, z1, bottom, top, sides = 4) { // open tube: gradient from bottom to top colour
@@ -23,18 +29,22 @@ export class Mesh {
   }
   build() {
     const V = [], I = [], batches = [];
-    for (const [blend, quads] of Object.entries(this.g)) {
+    const used = new Map();
+    for (const [group, quads] of Object.entries(this.g)) {
+      const [blend, name] = group.split('|'), tex = name && this.T[name];
+      if (tex) used.set(tex.key, tex);
       const firstIndex = I.length;
       for (const { p, c } of quads) {
+        const len = (a, b) => Math.hypot(...[0, 1, 2].map(k => p[b][k] - p[a][k])), us = tex ? len(0, 1) / TILE_YD : 1, vs = tex ? len(0, 3) / TILE_YD : 1;
         const [u, v, w] = [0, 1, 2].map(k => p[1][k] - p[0][k]), [s, t, o] = [0, 1, 2].map(k => p[3][k] - p[0][k]);
         let n = [v * o - w * t, w * s - u * o, u * t - v * s]; const l = Math.hypot(...n) || 1; n = n.map(x => x / l);
         const base = V.length / 12;
-        p.forEach((q, k) => V.push(...q, ...n, k === 1 || k === 2 ? 1 : 0, k > 1 ? 1 : 0, ...c[k]));
+        p.forEach((q, k) => V.push(...q, ...n, (k === 1 || k === 2 ? 1 : 0) * us, (k > 1 ? 1 : 0) * vs, ...c[k]));
         I.push(base, base + 1, base + 2, base, base + 2, base + 3);
       }
-      batches.push({ firstIndex, indexCount: I.length - firstIndex, texture: 'white', blend, alphaCutoff: 0, emissive: true, doubleSided: true, noDepthWrite: blend === 'add' });
+      batches.push({ firstIndex, indexCount: I.length - firstIndex, texture: tex ? tex.key : 'white', blend, alphaCutoff: 0, emissive: true, doubleSided: true, wrapX: true, wrapY: true, noDepthWrite: blend === 'add' });
     }
-    return { asset: { vertices: new Float32Array(V), indices: new Uint32Array(I), batches }, textures: [WHITE] };
+    return { asset: { vertices: new Float32Array(V), indices: new Uint32Array(I), batches }, textures: [WHITE, ...used.values()] };
   }
 }
 
@@ -81,13 +91,14 @@ const faded = p => ({ ...p, asset: fadeGround(p.asset, { h: FADE_YD / (p.scale |
 
 // A: start/finish gantry. phase 0 off, 1 red, 2 amber, 3 green lights.
 export function gantry({ at, yaw, width = 30, phase = 3, real }) {
-  const m = new Mesh(), h = width / 2, lamp = [COL.red, COL.amber, COL.green];
+  const m = new Mesh(real?.tex), h = width / 2, lamp = [COL.red, COL.amber, COL.green];
   const out = [];
   if (!real) for (const s of [-1, 1]) m.box('opaque', [-.5, s * h - .5, 0], [1, 1, 17], COL.pole);
-  m.box('opaque', [-.8, -h, 15], [1.6, width, 1.4], COL.pole);
+  m.box('opaque', [-.8, -h, 15], [1.6, width, 1.4], real ? COL.white : COL.pole, 'wood');
   const n = Math.round(width / 1.5);
   for (let r = 0; r < 2; r++) for (let i = 0; i < n; i++) m.box('opaque', [-.85 - r * .02, -h + i * width / n, 16.4 + r * 1.0], [.2, width / n, 1.0], (i + r) % 2 ? COL.white : COL.black);
-  m.box('opaque', [-1.1, -4.2, 11.6], [1.6, 8.4, 3.2], COL.pole);
+  m.box('opaque', [-1.1, -4.2, 11.6], [1.6, 8.4, 3.2], real ? COL.white : COL.pole, 'iron');
+  if (real) for (const s of [-1, 1]) m.box('opaque', [-.9, s * h - .9, 0], [1.8, 1.8, 1.4], COL.white, 'stone');
   for (let i = 0; i < 3; i++) m.box(real ? 'add' : 'opaque', [-1.3, -3.6 + i * 2.8, 12.0], [.3, 2.0, 2.0], i + 1 === phase ? lamp[i] : [.12, .12, .12, 1]);
   out.push(faded(mk(m, at, yaw)));
   if (real) {
@@ -100,14 +111,15 @@ export function gantry({ at, yaw, width = 30, phase = 3, real }) {
 
 // C: checkpoint gate. state 'next' amber, 'passed' dim.
 export function checkpoint({ at, yaw, width = 24, state = 'next', pulse = 1, real }) {
-  const m = new Mesh(), h = width / 2, hot = state === 'next', c = hot ? COL.amber : COL.dim, a = hot ? .3 * pulse : .2;
+  const m = new Mesh(real?.tex), h = width / 2, hot = state === 'next', c = hot ? COL.amber : COL.dim, a = hot ? .3 * pulse : .2;
   const out = [];
   if (!real) for (const s of [-1, 1]) { m.box('opaque', [-.4, s * h - .4, 0], [.8, .8, 10], COL.pole); m.box('add', [-1.1, s * h - 1.1, 10], [2.2, 2.2, 2.2], [...c.slice(0, 3), 1]); }
   const beams = new Mesh();
-  for (const s of [-1, 1]) { const g = new Mesh().column('add', hot ? .7 : .4, 10.5, 140, [...c.slice(0, 3), a], [...c.slice(0, 3), 0], 6); for (const q of g.g.add) beams.quad('add', q.p.map(([x, y, z]) => [x, y + s * h, z]), q.c); }
-  beams.quad('add', [[0, -h, 0], [0, h, 0], [0, h, 9], [0, -h, 9]], [[...c.slice(0, 3), .02], [...c.slice(0, 3), .02], [...c.slice(0, 3), .22 * (hot ? pulse : .5)], [...c.slice(0, 3), .22 * (hot ? pulse : .5)]]);
-  const body = new Mesh(); for (const [b, q] of Object.entries(m.g)) for (const x of q) body.quad(b, x.p, x.c);
-  for (const [b, q] of Object.entries(beams.g)) for (const x of q) body.quad(b, x.p, x.c);
+  for (const s of [-1, 1]) { const g = new Mesh().column('add', hot ? .7 : .4, 10.5, 140, [...c.slice(0, 3), a], [...c.slice(0, 3), 0], 6); for (const q of g.g['add|']) beams.quad('add', q.p.map(([x, y, z]) => [x, y + s * h, z]), q.c); }
+  const beamTex = new Mesh(real?.tex);
+  beamTex.quad('add', [[0, -h, 0], [0, h, 0], [0, h, 9], [0, -h, 9]], [[...c.slice(0, 3), .02], [...c.slice(0, 3), .02], [...c.slice(0, 3), .22 * (hot ? pulse : .5)], [...c.slice(0, 3), .22 * (hot ? pulse : .5)]], 'zap');
+  if (real) for (const s of [-1, 1]) m.box('opaque', [-1, s * h - 1, 0], [2, 2, 1.3], COL.white, 'metal');
+  const body = new Mesh(real?.tex); for (const g of [m.g, beams.g, beamTex.g]) for (const [k, q] of Object.entries(g)) (body.g[k] ||= []).push(...q);
   out.push(faded(mk(body, at, yaw)));
   if (real) for (const s of [-1, 1]) {
     out.push(faded(model(at, yaw, [0, s * h, 0], real.pole, .95)));
@@ -118,7 +130,8 @@ export function checkpoint({ at, yaw, width = 24, state = 'next', pulse = 1, rea
 
 // Overworld race label: tall pole + banner + pulsing sky beam. fade of the beam top is to transparent (sky colour shows through).
 export function beacon({ at, yaw, pulse = 1, height = 700, real }) {
-  const m = new Mesh();
+  const m = new Mesh(real?.tex);
+  if (real) { m.box('opaque', [-3, -3, 0], [6, 6, 1.6], COL.white, 'stone'); m.box('alpha', [-.2, .3, 20], [.3, 9, 9], [1, 1, 1, 1], 'flag'); }
   if (!real) { m.box('opaque', [-.5, -.5, 0], [1, 1, 30], COL.pole); m.box('opaque', [-.2, .5, 24], [.4, 6, 4.5], COL.red); m.box('opaque', [-.2, .5, 28.5], [.4, 6, 1], COL.white); }
   m.column('add', 1.6, 30, height, [1, .75, .25, .6 * pulse], [1, .75, .25, 0], 8);
   m.column('add', 5, 30, height * .6, [1, .6, .2, .12 * pulse], [1, .6, .2, 0], 8);

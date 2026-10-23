@@ -23,3 +23,13 @@ test('A / C / beacon build valid payloads in hosted mode', () => {
 test('place follows the craft basis (forward is -z at yaw 0)', () => {
   assert.deepEqual(place([0, 0, 0], 0, [1, 0, 2]).map(v => v + 0), [0, 2, -1]);
 });
+
+test('textured parts use the supplied textures, blend as alpha and tile UVs; no textures means flat colour', () => {
+  const tex = { wood: { key: 'w\\\\wood.blp', width: 4, height: 4, rgba: new Uint8Array(64) } };
+  const m = new Mesh(tex).box('opaque', [0, 0, 0], [6, 1, 1], [1, 1, 1, 1], 'wood').build();
+  assert.ok(m.textures.some(t => t.key === 'w\\\\wood.blp') && m.asset.batches.every(b => b.blend === 'alpha' && b.texture === 'w\\\\wood.blp'));
+  assert.ok(Math.max(...m.asset.vertices.filter((_, i) => i % 12 === 6)) >= 2);
+  const flat = new Mesh().box('opaque', [0, 0, 0], [1, 1, 1], [1, 1, 1, 1], 'wood').build();
+  assert.ok(flat.asset.batches.every(b => b.texture === 'white' && b.blend === 'opaque'));
+  for (const list of [gantry({ at: [0, 0, 0], yaw: 0, real: { tex, pole: { asset: m.asset, textures: m.textures }, banner: { asset: m.asset, textures: m.textures }, lens: { asset: m.asset, textures: m.textures } } })]) assert.ok(list.every(valid));
+});
