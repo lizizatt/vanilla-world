@@ -103,6 +103,14 @@ export function overheatTrigger(mem, p, boosting, on, now, blocked = false, cool
   return fire;
 }
 
+// Durability on: wreck when either engine's health (telemetry 15/16) reaches 0.
+export function healthTrigger(mem, p, on, now, blocked = false, cooldown = 5000) {
+  const dead = Math.min(p[15] ?? 1, p[16] ?? 1) <= 0, fire = dead && !mem.dead && on && !blocked && now - (mem.at ?? -1e9) > cooldown;
+  mem.dead = dead;
+  if (fire) mem.at = now;
+  return fire;
+}
+
 // Gib on the rising edge of obstacle contact (telemetry 8 === 3) when the last pre-contact speed reaches minSpeed; cooldown in ms.
 export function gibTrigger(mem, p, on, minSpeed, now, blocked = false, cooldown = 5000) {
   const hit = p[8] === 3, fire = hit && !mem.hit && on && !blocked && mem.speed >= minSpeed && now - (mem.at ?? -1e9) > cooldown;

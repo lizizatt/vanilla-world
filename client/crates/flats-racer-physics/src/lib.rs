@@ -16,6 +16,25 @@ pub const HEAT_RISE_PER_SEC: f32 = 0.4 / 3.0;
 pub const HEAT_COOL_PER_SEC: f32 = 0.1;
 /// Heat at or above this fraction is the warning zone (about 6 s of continuous boost); 1.0 is overheated.
 pub const HEAT_WARN: f32 = 0.8;
+/// Durability: each engine (left pod, right pod) has health in [0, 1]. From HEAT_DAMAGE_START heat, damage ramps to
+/// HEAT_DAMAGE_PER_SEC at 1.0 (about 7 s to kill one engine at full heat). Impact damage ramps linearly from 0 at
+/// IMPACT_SAFE_SPEED to a whole engine at the lethal (instant-wreck) speed.
+pub const HEAT_DAMAGE_START: f32 = 0.9;
+pub const HEAT_DAMAGE_PER_SEC: f32 = 0.15;
+pub const IMPACT_SAFE_SPEED: f32 = 20.0;
+
+/// Engine health lost per second at this heat.
+pub fn heat_damage_rate(heat: f32) -> f32 {
+    ((heat - HEAT_DAMAGE_START) / (1.0 - HEAT_DAMAGE_START)).clamp(0.0, 1.0) * HEAT_DAMAGE_PER_SEC
+}
+
+/// Health fraction one engine loses from an impact at `speed`.
+pub fn impact_damage(speed: f32, lethal: f32) -> f32 {
+    if !speed.is_finite() || !(lethal > IMPACT_SAFE_SPEED) {
+        return 0.0;
+    }
+    ((speed - IMPACT_SAFE_SPEED) / (lethal - IMPACT_SAFE_SPEED)).clamp(0.0, 1.0)
+}
 /// Equilibrium distance in world units from body center to a level support surface.
 pub const HOVER_HEIGHT: f32 = 1.1;
 /// Downward probe length measured from body center, not from the bottom of the collision shape.
@@ -170,6 +189,8 @@ pub struct State {
     /// Engine heat in [0, 1]: rises while forward boost has nonzero control authority, cools when boost is released.
     /// It caps at 1.0; whether that destroys the craft is the client's decision.
     pub heat: f32,
+    /// Left and right engine health in [0, 1]; the client wrecks the craft when either reaches 0.
+    pub health: [f32; 2],
     jump_held: bool,
     support_lockout: f32,
 }
@@ -217,6 +238,7 @@ impl State {
             grounded: false,
             jump_cooldown: 0.0,
             heat: 0.0,
+            health: [1.0; 2],
             jump_held: false,
             support_lockout: 0.0,
         })
@@ -298,6 +320,7 @@ impl State {
                 .iter()
                 .all(|v| v.is_finite())
             && (0.0..=1.0).contains(&self.heat)
+            && self.health.iter().all(|h| (0.0..=1.0).contains(h))
             && [self.jump_cooldown, self.support_lockout]
                 .iter()
                 .all(|v| v.is_finite() && *v >= 0.0)
@@ -1823,5 +1846,42 @@ mod tests {
         assert_eq!(state.velocity[0], before[0]);
         assert!(state.velocity[2] < before[2] - 200.0);
         assert!(state.velocity[1] < before[1]);
+    }
+}
+
+#[cfg(test)]
+mod durability_tests {
+    use super::*;
+
+    #[test]
+    fn heat_damage_only_in_the_overheat_band() {
+        assert_eq!(heat_damage_rate(0.0), 0.0);
+        assert_eq!(heat_damage_rate(HEAT_WARN), 0.0);
+        assert_eq!(heat_damage_rate(HEAT_DAMAGE_START), 0.0);
+        assert!((heat_damage_rate(0.95) - HEAT_DAMAGE_PER_SEC / 2.0).abs() < 1e-6);
+        assert!((1.0 / heat_damage_rate(1.0) - 6.667).abs() < 0.01, "a whole engine in about 6.7 s at full heat");
+    }
+
+    #[test]
+    fn impact_damage_ramps_from_safe_speed_to_lethal() {
+        assert_eq!(impact_damage(10.0, 100.0), 0.0);
+        assert_eq!(impact_damage(IMPACT_SAFE_SPEED, 100.0), 0.0);
+        assert!((impact_damage(60.0, 100.0) - 0.5).abs() < 1e-6);
+        assert_eq!(impact_damage(100.0, 100.0), 1.0);
+        assert_eq!(impact_damage(250.0, 100.0), 1.0);
+        assert_eq!(impact_damage(f32::NAN, 100.0), 0.0);
+        assert_eq!(impact_damage(50.0, 10.0), 0.0, "a degenerate lethal speed deals no damage");
+    }
+
+    #[test]
+    fn new_and_reset_states_are_fully_healthy_and_bad_health_is_rejected() {
+        let mut s = State::new([0.0; 3], 0.0).unwrap();
+        assert_eq!(s.health, [1.0, 1.0]);
+        s.health = [0.2, 0.0];
+        s.reset([0.0; 3], 0.0).unwrap();
+        assert_eq!(s.health, [1.0, 1.0]);
+        let mut bad = s;
+        bad.health[1] = 1.5;
+        assert!(!bad.valid());
     }
 }

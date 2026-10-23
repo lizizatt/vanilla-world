@@ -112,15 +112,14 @@ function tint(sprite, color) {
 }
 export const engineColor = heat => heat >= .8 ? '#ff4a3a' : heat >= .5 ? '#ffd23a' : '#46e85a';
 
-// Twin engine panels from sprite 49 (27x62) at 2x; outline and fill follow the heat stage, both engines share the one heat value.
+// Twin engine panels from sprite 49 (27x62) at 2x; outline and fill follow the heat stage, each engine takes the worse of shared heat and its own damage (1 - health).
 export function createRealEngines(real, canvas) {
-  const ctx = canvas.getContext('2d'), K = 1.2, w = 27 * K, h = 62 * K, gap = 16, cache = {};
-  return (heat, now = 0) => {
-    const col = engineColor(heat), o = cache[col] ??= tint(real.panel, col);
+  const ctx = canvas.getContext('2d'), K = canvas.width / 67, w = 27 * K, h = 62 * K, gap = 13 * K, cache = {};
+  return (heat, now = 0, left = 1, right = 1) => {
     ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.imageSmoothingEnabled = false;
-    const blink = heat >= 1 && Math.floor(now * 4) % 2 === 0, y = canvas.height - h;
+    const y = canvas.height - h;
     for (let i = 0; i < 2; i++) {
-      const x = i * (w + gap);
+      const x = i * (w + gap), lvl = Math.max(heat || 0, 1 - (i ? right : left) || 0), col = engineColor(lvl), o = cache[col] ??= tint(real.panel, col), blink = lvl >= 1 && Math.floor(now * 4) % 2 === 0;
       ctx.globalAlpha = blink ? .9 : .32; ctx.fillStyle = col; ctx.fillRect(x + 4, y + 4, w - 8, h - 8);
       ctx.globalAlpha = 1; ctx.drawImage(bitmap(real.panel), x, y, w, h); ctx.globalAlpha = .5; ctx.drawImage(o, x, y, w, h); ctx.globalAlpha = 1;
     }
@@ -129,8 +128,8 @@ export function createRealEngines(real, canvas) {
 
 // Dial from sprite 104 (71x59: speed capsule + D meter + lamp ring); heat fills the gradient arc (99, blue to red) bottom-up; lamp (101) green, red from 80%.
 export function createRealDial(real, canvas) {
-  const ctx = canvas.getContext('2d'), K = 1.8, W = canvas.width, H = canvas.height, cache = {};
-  const cap = tint(real.capsule, '#7fd8ff'), grad = bitmap(real.grad), ox = W - 71 * K - 4, oy = H - 59 * K - 2;
+  const ctx = canvas.getContext('2d'), W = canvas.width, H = canvas.height, K = W / 71, cache = {};
+  const cap = tint(real.capsule, '#7fd8ff'), grad = bitmap(real.grad), ox = 0, oy = 0;
   return (_speed01, heat01, speed = '000', now = 0) => {
     const heat = Math.min(1, Math.max(0, Number.isFinite(heat01) ? heat01 : 0));
     ctx.clearRect(0, 0, W, H); ctx.imageSmoothingEnabled = false;
@@ -140,8 +139,8 @@ export function createRealDial(real, canvas) {
     ctx.drawImage(grad, ox + 35 * K, oy + 5 * K, 36 * K, 51 * K); ctx.restore();
     const lamp = heat >= .8 ? '#ff3b30' : '#46e85a', l = cache[lamp] ??= tint(real.lamp, lamp);
     if (heat < 1 || Math.floor(now * 4) % 2 === 0) ctx.drawImage(l, ox + 28 * K, oy + 3 * K, 18 * K, 18 * K);
-    ctx.font = 'italic 800 32px "Arial Black", Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.lineWidth = 4; ctx.strokeStyle = '#04202c'; ctx.fillStyle = '#d8f6ff';
+    ctx.font = `italic 800 ${17.8 * K}px "Arial Black", Arial, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = 2.2 * K; ctx.strokeStyle = '#04202c'; ctx.fillStyle = '#d8f6ff';
     ctx.strokeText(speed, ox + 24 * K, oy + 38 * K); ctx.fillText(speed, ox + 24 * K, oy + 38 * K);
   };
 }

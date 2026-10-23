@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {gibTrigger,overheatTrigger,splitParts,crumple,partMatrix,craftFrame,appendWreckChunk,wreckFrame} from './wreck.js';
+import {gibTrigger,healthTrigger,overheatTrigger,splitParts,crumple,partMatrix,craftFrame,appendWreckChunk,wreckFrame} from './wreck.js';
 
 // Body triangle at the rear, plus left (+y) and right (-y) engine triangles far forward; stride 12.
 const tri = (x, y) => [[x, y, 0], [x + 1, y, 0], [x, y, 1]].flatMap(p => [...p, 0, 0, 1, 0, 0, 1, 1, 1, 1]);
@@ -82,4 +82,17 @@ test('overheatTrigger fires once when heat maxes while boosting, honours option,
   overheatTrigger(mem,at(.7),true,true,50000);
   mem.at=49000;
   assert.equal(overheatTrigger(mem,at(1),true,true,51000),false,'shares the gib cooldown');
+});
+test('healthTrigger fires once when either engine reaches 0, honours option, block and cooldown',()=>{
+  const mem={},at=(l,r)=>Array.from({length:17},(_,i)=>i===15?l:i===16?r:0);
+  assert.equal(healthTrigger(mem,at(1,.2),true,0),false);
+  assert.equal(healthTrigger(mem,at(1,0),true,10000),true,'either engine');
+  assert.equal(healthTrigger(mem,at(1,0),true,10100),false,'no repeat while dead');
+  healthTrigger(mem,at(1,1),true,10200);
+  assert.equal(healthTrigger(mem,at(0,1),true,12000),false,'5 s cooldown');
+  healthTrigger(mem,at(1,1),true,20000);
+  assert.equal(healthTrigger(mem,at(0,1),false,21000),false,'option off');
+  healthTrigger(mem,at(1,1),true,30000);
+  assert.equal(healthTrigger(mem,at(0,1),true,31000,true),false,'blocked');
+  assert.equal(healthTrigger({},[0,0],true,0),false,'old short telemetry is healthy');
 });
