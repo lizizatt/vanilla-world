@@ -7,7 +7,7 @@ export const CLOUD_ALTITUDE=CLOUD_ALTITUDE_FACTOR*HYJAL_SUMMIT;
 export const CLOUD_THICKNESS=520;
 // High tier only: how far dense storm columns grow above / below the slab (yards, at full storm density).
 export const CLOUD_TOWER={up:2400,down:160};
-export const CLOUD_HALF_SIZE=60000;
+export const CLOUD_HALF_SIZE=250000;
 // Tunables in yards / radians per second. Arms rotate counter-clockwise as seen on the world map (north up).
 export const MAELSTROM={eyeRadius:2200,wallRadius:5200,radius:24000,arms:3,pitch:.7,spin:.08,drift:.006};
 // World-map registration: the eye sits 43% of the way from Kalimdor's east coast to the Eastern Kingdoms' west coast,
@@ -141,7 +141,7 @@ const NF=14;
   let ya=c.cloud.z-THICK*.5-DOWN;let yb=c.cloud.z+THICK*.5+UP;
   if(abs(dir.y)>.0005){
     let ta=(ya-c.eye.y)/dir.y;let tb=(yb-c.eye.y)/dir.y;
-    s0=max(0.0,min(ta,tb));s1=min(max(ta,tb),s0+9000.0);
+    s0=max(0.0,min(ta,tb));s1=min(max(ta,tb),s0+max(9000.0,.3*s0));
     if(sceneDist<1e8){sEdge=smoothstep(0.0,350.0,sceneDist-s0);s1=min(s1,sceneDist);}
     if(s1>s0&&sEdge>0.0){ns=NS;}
   }
