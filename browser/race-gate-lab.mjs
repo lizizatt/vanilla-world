@@ -13,7 +13,7 @@ export async function openLab({ swe1r = true, width = 1280, height = 720, clouds
   const { WOW_DATA, SWE1R_DATA } = process.env;
   if (!WOW_DATA) throw new Error('WOW_DATA required');
   const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(os.tmpdir(), 'edge-gatelab-')),
-    { channel: 'msedge', headless: true, args: ['--mute-audio'], ignoreDefaultArgs: ['--autoplay-policy=no-user-gesture-required'], viewport: { width, height }, serviceWorkers: 'block' });
+    { channel: 'msedge', headless: true, args: ['--mute-audio', ...(process.env.LAB_UNCAPPED ? ['--disable-frame-rate-limit', '--disable-gpu-vsync'] : [])], ignoreDefaultArgs: ['--autoplay-policy=no-user-gesture-required'], viewport: { width, height }, serviceWorkers: 'block' });
   const page = ctx.pages()[0] || await ctx.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
