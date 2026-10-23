@@ -70,7 +70,7 @@ const STD_NOISE=`
   n=n*.78+.22*vnoise(w/650.0+vec2f(hf*3.1,hf*1.7));`;
 const HIGH_TAP=`
       let sd=sheetDensity(pos+c.sun.xyz*ss*2.5,t).x;
-      let shade=mix(.65,1.0,exp(-sd*2.0))*(1.0+.8*pow(max(dot(dir,c.sun.xyz),0.0),6.0));`;
+      let shade=mix(mix(.65,1.0,exp(-sd*2.0)),1.0,smoothstep(.7,1.0,hf))*(1.0+.8*pow(max(dot(dir,c.sun.xyz),0.0),6.0));`;
 const build=high=>COMMON+(high?HIGH_BINDINGS:'')+`
 struct V {@builtin(position) clip:vec4f,@location(0) ndc:vec2f};
 @vertex fn vs(@builtin(vertex_index) i:u32)->V {
@@ -144,7 +144,7 @@ const NF=14;
   let ta=(ya-c.eye.y)/dy;let tb=(yb-c.eye.y)/dy;
   s0=max(0.0,min(ta,tb));let sFull=max(ta,tb);let sCap=s0+max(9000.0,.3*s0);s1=min(sFull,sCap);
   if(sceneDist<1e8){sEdge=smoothstep(0.0,350.0,sceneDist-s0);s1=min(s1,sceneDist);}
-  capped=sFull>sCap&&s1==sCap;
+  capped=sFull>sCap&&s1==sCap;let cutK=smoothstep(0.0,.5,(sFull-sCap)/max(sCap-s0,1.0));
   if(s1>s0&&sEdge>0.0&&s0<c.cloud.w){ns=NS;}
   // Funnel cylinder-and-height extent.
   var f0=0.0;var f1=1e9;var nf=NF;var fEdge=1.0;
@@ -178,7 +178,7 @@ const NF=14;
       let s=sheetDensity(pos,t);
       if(s.x<=.001){continue;}
       let hf=s.z;
-      let tail=select(1.0,1.0-smoothstep(.55,1.0,(ts-s0)/Ls),capped);
+      let tail=select(1.0,1.0-cutK*smoothstep(.55,1.0,(ts-s0)/Ls),capped);
       let w=(1.0-smoothstep(30000.0,c.cloud.w,ts))*.96*sEdge*tail;
       let absorb=(1.0-exp(-s.x*ss*.008))*w;
       ${high?HIGH_TAP:'let shade=1.0;'}
@@ -226,4 +226,17 @@ export function bakeCloudNoise(size=CLOUD_NOISE_SIZE) {
     out[o+1]=Math.round(255*(.6*lattice(...p,16,4)+.4*lattice(...p,32,5)));
   }
   return out;
+}
+
+/** Cloud quality: 'auto' (unset) is High when it built, unless the guard saw sustained slow frames; an explicit choice always wins. */
+export const resolveCloudQuality=(setting,{highFailed=false,slow=false}={})=>setting==='high'?!highFailed:setting==='standard'?false:!highFailed&&!slow;
+export class SlowFrameGuard {
+  constructor(limitMs=30,windowMs=3000) {Object.assign(this,{limitMs,windowMs,sum:0,n:0,span:0});}
+  /** Feed frame deltas (ms); returns true once a full window averaged over the limit. Deltas over 250 ms (tab pauses) are ignored. */
+  push(dt) {
+    if(!(dt>0)||dt>250)return false;
+    this.sum+=dt;this.n++;this.span+=dt;
+    if(this.span<this.windowMs)return false;
+    const bad=this.sum/this.n>this.limitMs;this.sum=this.n=this.span=0;return bad;
+  }
 }

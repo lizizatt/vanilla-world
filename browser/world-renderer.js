@@ -6,7 +6,7 @@ import {splitParts,crumple,craftFrame,partMatrix,appendWreckChunk,wreckFrame,WRE
 import {COAST_GPU_LIMIT} from './water-stream.js';
 import {WATER_NORMAL_SIZE,waterNormalMips,waterShading,dayShading} from './water-shader.js';
 import {shadowShader,shadowUniform,shadowHalf} from './shadow.js';
-import {cloudShader,cloudShaderHigh,cloudUniform,maelstromCentre,bakeCloudNoise,CLOUD_NOISE_SIZE} from './clouds.js';
+import {cloudShader,cloudShaderHigh,cloudUniform,maelstromCentre,bakeCloudNoise,CLOUD_NOISE_SIZE,resolveCloudQuality,SlowFrameGuard} from './clouds.js';
 import {oceanMesh} from './ocean-mesh.js';
 import {ParticlePool,exhaustPoints,emitPlumes,emitBurst,emitDebris,emitHeatSmoke,emitGroundDust,QUALITY,INSTANCE_FLOATS,CAPACITY,particleShader,particleUniform} from './particles.js';
 import {flagMesh,gateMesh} from './race-flags.js';
@@ -952,11 +952,16 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
       const shadowPass=encoder.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}]});
       this.drawShadow(shadowPass,state,near);shadowPass.end();
     }
-    if(settings.cloudQuality==='high'&&!this.cloudHigh&&!this.cloudHighFailed)this.enableHighClouds();
+    const nowMs=performance.now(),auto=settings.cloudQuality!=='high'&&settings.cloudQuality!=='standard';
+    this.cloudGuard??=new SlowFrameGuard();
+    if(auto&&!this.cloudSlow&&this.cloudHighGroup&&settings.clouds!==false&&this.cloudGuard.push(nowMs-(this.lastRenderMs??nowMs))){this.cloudSlow=true;console.warn('auto clouds: slow frames, using Standard');}
+    this.lastRenderMs=nowMs;
+    const highClouds=resolveCloudQuality(settings.cloudQuality,{highFailed:this.cloudHighFailed,slow:this.cloudSlow});
+    if(highClouds&&!this.cloudHigh&&!this.cloudHighFailed)this.enableHighClouds();
     if(!this.cameraBlocked&&settings.clouds!==false) {
       // Clouds read the finished scene depth to clip their ray march, so they never need a depth-test bias.
       const cloudPass=encoder.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}]});
-      this.drawClouds(cloudPass,time,daylight,near,settings.cloudQuality==='high');cloudPass.end();
+      this.drawClouds(cloudPass,time,daylight,near,highClouds);cloudPass.end();
     }
     if(!this.cameraBlocked&&propDraws.length) {
       const propPass=encoder.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}],
