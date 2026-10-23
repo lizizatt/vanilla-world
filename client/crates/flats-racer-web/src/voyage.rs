@@ -1576,6 +1576,12 @@ impl Voyage {
         result
     }
 
+    /// A fresh craft after a wreck: both engines whole and cool (restore_pose alone keeps both, for Unstuck).
+    pub fn repair(&mut self) {
+        self.state.health = [1.0; 2];
+        self.state.heat = 0.0;
+    }
+
     /// Engine durability on/off and the instant-wreck speed (yd/s; impact damage reaches a whole engine there).
     pub fn set_durability(&mut self, on: bool, lethal_speed: f32) {
         self.dur.on = on;
@@ -3008,5 +3014,9 @@ pub(crate) mod tests {
         assert_eq!(world.state.health, [0.0, 1.0]);
         world.reset();
         assert_eq!(world.state.health, [1.0, 1.0]);
+        world.state.health = [0.2, 0.5];
+        world.state.heat = 0.7;
+        world.repair();
+        assert_eq!((world.state.health, world.state.heat), ([1.0, 1.0], 0.0), "repair makes a fresh craft");
     }
 }

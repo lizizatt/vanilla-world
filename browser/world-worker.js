@@ -790,6 +790,7 @@ async function handle(message) {
     if(!Array.isArray(message.pose)||message.pose.length!==4||
       !message.pose.every(v=>Number.isFinite(v)&&Math.abs(v)<1e12))throw new Error('Invalid parked pose');
     await restorePose(message.pose);
+    if(message.repair)world.repair();
   } else if(message.action==='reset') {
     await stream([manifest.spawn[0],manifest.spawn[2]],false,true);
     world.initialize_spawn();accumulator=0;poseTime=undefined;
