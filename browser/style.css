@@ -115,16 +115,25 @@ dialog h2 { color: #ffb34d; margin-top: 0; }
 #race-countdown { position: fixed; inset: 18% 0 auto 0; text-align: center; font-size: 112px; font-weight: 800; color: #fff; text-shadow: 0 0 12px #000, 0 0 3px #000; pointer-events: none; }
 #race-countdown canvas { display: block; margin: 0 auto; width: 160px; height: 160px; image-rendering: pixelated; }
 #race-prompt[hidden], #race-countdown[hidden] { display: none; }
-#race-hud { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); min-width: 180px; padding: 6px 14px; text-align: center; background: rgba(0,0,0,.5); border-radius: 6px; color: #fff; pointer-events: none; }
+#race-hud { position: fixed; top: 0; left: 50%; transform: translateX(-50%); width: min(100vw, 900px); text-align: center; color: #f4fbff; pointer-events: none; }
+#race-hud .rh-band { display: block; width: 100%; height: clamp(44px, 7vw, 78px); fill: rgba(14,86,112,.78); stroke: #7fe3f2; stroke-width: 1.5px; vector-effect: non-scaling-stroke; filter: drop-shadow(0 2px 3px rgba(0,0,0,.5)); }
+#race-hud .rh-row { position: absolute; top: 0; left: 0; right: 0; height: clamp(38px, 6vw, 66px); display: grid; grid-template-columns: 1fr 1.6fr 1fr; align-items: start; padding: 0 clamp(8px, 3vw, 28px); }
+#race-hud .rh-cell { display: flex; flex-direction: column; align-items: center; line-height: 1; padding-top: 3px; }
+#race-hud .rh-cell b { font-size: clamp(16px, 3.2vw, 34px); font-style: italic; font-weight: 800; font-variant-numeric: tabular-nums; text-shadow: 0 1px 0 #03202a, 0 0 4px #03202a; }
+#race-hud .rh-time b { font-size: clamp(21px, 4.6vw, 48px); color: #fff; }
+#race-hud .rh-cell small { margin-top: 2px; font-size: clamp(8px, 1.3vw, 14px); letter-spacing: .22em; color: #9fe9f5; }
+#race-hud .rh-sub { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px 12px; margin-top: 6px; font-size: 12px; font-variant-numeric: tabular-nums; text-shadow: 0 1px 2px #000, 0 0 3px #000; }
+#race-hud .rh-sub > :empty { display: none; }
+@media (max-width: 1100px) { #race-hud { top: 26px; } }
 #race-laps { font-size: 14px; font-variant-numeric: tabular-nums; }
 #race-laps:empty, #race-banner { position: fixed; inset: 30% 0 auto 0; text-align: center; font-size: 64px; font-weight: 800; letter-spacing: .12em; color: #ffd27a; text-shadow: 0 0 14px #000, 0 0 3px #000; pointer-events: none; }
 #race-banner[hidden] { display: none; }
-#race-lap:empty { display: none; }
-#race-lap { font-size: 18px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #ffd27a; }
-#race-time { font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; }
-#race-delta { font-size: 18px; font-weight: 700; color: #ff6b6b; min-height: 22px; }
+
+
+
+#race-delta { font-weight: 700; color: #ff6b6b; }
 #race-delta[data-ahead=true] { color: #6bff9a; }
-#race-arrow { display: inline-block; font-size: 30px; color: #ffd36a; margin-top: 2px; }
+#race-arrow { display: inline-block; font-size: 16px; color: #ffd36a; }
 #race-board { position: fixed; right: 16px; top: 120px; min-width: 210px; padding: 10px 14px; background: rgba(0,0,0,.6); border: 1px solid rgba(255,200,60,.8); border-radius: 6px; color: #fff; font-variant-numeric: tabular-nums; pointer-events: none; }
 #race-board strong { display: block; margin-bottom: 4px; color: #ffd36a; }
 #race-board .this { color: #6bff9a; font-weight: 700; }
