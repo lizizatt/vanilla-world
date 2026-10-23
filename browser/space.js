@@ -29,6 +29,30 @@ export function planetFrame(x,z,centre=WORLD_CENTRE,radius=PLANET_RADIUS) {
   return {east:[-sl,0,cl],up:[cp*cl,sp,cp*sl],south:[sp*cl,-cp,sp*sl]};
 }
 
+/** Position model: the flat pose (x, z) is the globe sub-point (the radial below you), lon = (x - cx)/R and lat = -(z - cz)/R, so descending radially lands on the same flat (x, z). */
+export function subPoint(x,z,centre=WORLD_CENTRE,radius=PLANET_RADIUS) {
+  return {lat:-(z-centre[1])/radius,lon:(x-centre[0])/radius};
+}
+export function globeToFlat(lat,lon,centre=WORLD_CENTRE,radius=PLANET_RADIUS) {
+  return [centre[0]+radius*lon,centre[1]-radius*lat];
+}
+/** Flight stays on the globe: longitude wraps around the planet and latitude stops short of the poles (the frame clamps there). */
+export function wrapFlat(x,z,centre=WORLD_CENTRE,radius=PLANET_RADIUS) {
+  const turn=2*Math.PI*radius,half=turn/2;
+  const dx=((x-centre[0]+half)%turn+turn)%turn-half,lim=1.4*radius;
+  return [centre[0]+dx,Math.max(centre[1]-lim,Math.min(centre[1]+lim,z))];
+}
+/** Continent under a flat position from the populated continent rectangles (first = Kalimdor, second = Eastern Kingdoms). */
+export function placeName(x,z,rects=FALLBACK_RECTS) {
+  const inside=r=>x>=r[0]&&x<=r[2]&&z>=r[1]&&z<=r[3];
+  return inside(rects[0])?'KALIMDOR':rects[1]&&inside(rects[1])?'EASTERN KINGDOMS':'THE GREAT SEA';
+}
+export function spaceHud(pose,speed,rects) {
+  const {lat,lon}=subPoint(pose[0],pose[2]),d=r=>(Math.abs(r*180/Math.PI)).toFixed(1);
+  const alt=Math.max(0,pose[1]),altText=alt>=10000?`${(alt/1000).toFixed(1)}k`:alt.toFixed(0);
+  return `${placeName(pose[0],pose[2],rects)} · ${d(lat)}°${lat>=0?'N':'S'} ${d(lon)}°${lon>=0?'E':'W'} · ALT ${altText} yd · ${speed>=10000?(speed/1000).toFixed(1)+'k':speed.toFixed(0)} yd/s`;
+}
+
 /** Moon position in the planet frame (static planet, slow rails: whole turns per day clock so the wrap never pops). */
 export function moonPlanetPosition(moon,timeOfDay) {
   const a=moon.turns*Math.PI*(timeOfDay-720)/1440+moon.phase,[rx,rz]=moon.plane;
@@ -126,12 +150,14 @@ struct FO {@location(0) color:vec4f,@builtin(frag_depth) depth:f32};
       let ground=mix(vec3f(.2,.38,.14),vec3f(.5,.42,.26),smoothstep(.35,.7,tex));
       let sea=mix(vec3f(.02,.1,.22),vec3f(.06,.3,.42),smoothstep(-6000.0,2000.0,sdist));
       var col=mix(sea,ground,land);
-      let cloud=smoothstep(.55,.8,fbm(m*.00045+s.sun.w*.0004));
-      col=mix(col,vec3f(.95),cloud*.55);
+      let cloud=0.0;
       let lit=clamp(dot(n,sun)*1.6+.15,0.0,1.0);
       let spec=pow(max(dot(reflect(-sun,n),-d),0.0),40.0)*(1.0-land)*(1.0-cloud);
       let rim=pow(1.0-max(dot(n,-d),0.0),3.0);
       col=col*(.03+lit)+vec3f(.5,.6,.7)*spec*lit+vec3f(.25,.5,1.0)*rim*(.15+lit)*.8;
+      let phi=acos(clamp(n.y,-1.0,1.0));let rho=.05*alt/(R+alt);
+      let ring=(1.0-smoothstep(0.0,rho*.3,abs(phi-rho)))+(1.0-smoothstep(0.0,rho*.22,phi));
+      col=mix(col,vec3f(1.0,.75,.2),clamp(ring,0.0,1.0)*.9);
       acc=over(acc,col,globe);
       let dz=dot(d,s.look.xyz);
       let dt=sphereT(o,d,centre,R-40.0);

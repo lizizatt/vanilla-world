@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PLANET_RADIUS, CONTINENT_YD, CONTINENT_DEG, MOONS, planetFactors, planetFrame, moonPlanetPosition } from './space.js';
+import { PLANET_RADIUS, CONTINENT_YD, CONTINENT_DEG, MOONS, planetFactors, planetFrame, moonPlanetPosition, subPoint, globeToFlat, wrapFlat, placeName, spaceHud, WORLD_CENTRE, FALLBACK_RECTS } from './space.js';
 import { FLIGHT_CEILING, flightBoost, moveFlight } from './flight.js';
 
 test('radius makes one continent span 40 degrees', () => {
@@ -73,4 +73,32 @@ test('turn rate does not depend on altitude', () => {
   const keys = new Set(['ArrowLeft']);
   const lo = moveFlight([0, 10, 0, 0, 0], keys, .1)[3], hi = moveFlight([0, 5e5, 0, 0, 0], keys, .1)[3];
   assert.equal(lo, hi);
+});
+test('flat -> globe -> flat round trip is exact, incl. world edges, and matches the render frame', () => {
+  let s = 99;
+  const rnd = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296;
+  const pts = [[-21867, -17600], [24725, 17067], [5333, 12267], [13525, -5333], [1429, -267], ...Array.from({ length: 2000 }, () => [-30000 + rnd() * 60000, -30000 + rnd() * 60000])];
+  for (const [x, z] of pts) {
+    const { lat, lon } = subPoint(x, z);
+    const [rx, rz] = globeToFlat(lat, lon);
+    assert.ok(Math.abs(rx - x) < 1e-6 && Math.abs(rz - z) < 1e-6);
+    const up = planetFrame(x, z).up, lat2 = Math.asin(up[1]), lon2 = Math.atan2(up[2], up[0]);
+    assert.ok(Math.abs(lat2 - lat) < 1e-9 && Math.abs(lon2 - lon) < 1e-9);
+  }
+  const k = subPoint(-21867, 0), e = subPoint(5333, 0);
+  assert.ok(Math.abs((e.lon - k.lon) * 180 / Math.PI - 36.9) < 1);
+});
+
+test('wrapFlat wraps longitude and clamps latitude without moving points inside the world', () => {
+  assert.deepEqual(wrapFlat(1000, 2000), [1000, 2000]);
+  const turn = 2 * Math.PI * PLANET_RADIUS, [x] = wrapFlat(WORLD_CENTRE[0] + turn + 5, 0);
+  assert.ok(Math.abs(x - (WORLD_CENTRE[0] + 5)) < 1e-6);
+  assert.ok(wrapFlat(0, 1e9)[1] <= WORLD_CENTRE[1] + 1.4 * PLANET_RADIUS + 1e-6);
+});
+
+test('place name and HUD text', () => {
+  assert.equal(placeName(-810, 5589), 'KALIMDOR');
+  assert.equal(placeName(20000, 0), 'EASTERN KINGDOMS');
+  assert.equal(placeName(9000, 0), 'THE GREAT SEA');
+  assert.match(spaceHud([-810, 12345, 5589, 0, 0], 800, FALLBACK_RECTS), /KALIMDOR .* ALT 12\.3k yd .* 800 yd\/s/);
 });

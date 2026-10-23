@@ -2,7 +2,8 @@ import {WorldClient} from './world-client.js';
 import {WorldRenderer} from './world-renderer.js';
 import {rememberDataFolder,restoreDataFolder,forgetDataFolder,authorizeDataFolder} from './asset-folder.js';
 import {worldSave,worldTuning,validateWorldSave,LAYOUT_VERSION,raceScores,trackOverride} from './world-store.js';
-import {overview,moveFlight} from './flight.js';
+import {overview,moveFlight,FLIGHT_PITCH} from './flight.js';
+import {spaceHud} from './space.js';
 import {WorldInput,DRIVE_KEYS} from './world-input.js';
 import {WorldAudio} from './world-audio.js';
 import {TUNING_FIELDS,validateTuningRecord,migrateTuning} from './world-tuning.js';
@@ -41,7 +42,7 @@ const evidence={ready:false,frames:0,errors:[],mode:'drive'};
 window.worldEvidence=evidence;
 let choice=bootChoice(),tracks=[],race,raceBest,promptTrack,goUntil=0,boardTimer=0,againTrack,againUntil=0;
 const raceAgain=()=>againTrack&&performance.now()<againUntil?againTrack:undefined;
-let renderer,folder,flight,running=false,busy=false,last=0,frames=0,hudTime=0,hudFrames=0,permissionNeeded=false;
+let flightSpeed=0,renderer,folder,flight,running=false,busy=false,last=0,frames=0,hudTime=0,hudFrames=0,permissionNeeded=false;
 let orbit=[0,0],dragging=false,mouseButtons=0,soundAttempt=0,soundError='',soundTime=0,reportTimer,testPads,frozenPresentation=false,tuningValues=TUNING_FIELDS.map(f=>f[1]);
 const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:true,cockpit:false,night:false,clouds:true,planet:true,cloudQuality:'auto',music:true,particles:'medium',animateNpcs:true};
 const settings={...defaults};
@@ -78,7 +79,7 @@ function fail(error) {
   console.error(error);evidence.errors.push(message);$('error').textContent=message;$('error').hidden=false;
 }
 const mapPanel=new MapPanel({dialog:$('map-panel'),canvas:$('map-canvas'),stage:$('map-stage'),status:$('map-status'),close:$('map-close')},{
-  requestArt:names=>client.worldmap(names),pose:()=>client.state?.telemetry,tracks:()=>tracksFor(tracks,choice.vehicle),
+  requestArt:names=>client.worldmap(names),pose:()=>flight??client.state?.telemetry,tracks:()=>tracksFor(tracks,choice.vehicle),
   teleport:icon=>operation(async()=>{
     flight=undefined;client.state=await client.request(icon.reset?'reset':'restore',icon.reset?undefined:{pose:icon.pose});race?.jump();
     renderer.camera=undefined;running=true;$('error').hidden=true;report(`Teleported to ${icon.label}.`,true);
@@ -653,8 +654,9 @@ function frame(now) {
     if(right){controls.steer=Math.max(-1,Math.min(1,(renderer.chase?.[0]||0)*4));if(mouseButtons&1)controls.throttle=1;}
     const locked=wreckLocked();if(locked){Object.assign(controls,{throttle:0,steer:0,flags:0});client.pendingHop=0;}else if(wasLocked&&!flight)void respawn();wasLocked=locked;
     if(flight) {
-      flight=moveFlight(flight,keys,dt);flight[3]-=cameraOrbit[0]*.004;
-      flight[4]=Math.max(-1.55,Math.min(1.55,flight[4]-cameraOrbit[1]*.004));
+      const before=flight;flight=moveFlight(flight,keys,dt);flightSpeed=dt>0?Math.hypot(flight[0]-before[0],flight[1]-before[1],flight[2]-before[2])/dt:0;flight[3]-=cameraOrbit[0]*.004;
+      flight[4]=Math.max(-FLIGHT_PITCH,Math.min(FLIGHT_PITCH,flight[4]-cameraOrbit[1]*.004));
+      if(keys.has('KeyX'))flight[4]=-FLIGHT_PITCH;
     }
     if(race){flight=undefined;if(!raceMenu.open)raceFrame(controls,now/1000);}
     if(editor.isOpen)flight=editor.pose();
@@ -699,6 +701,7 @@ function frame(now) {
       $('camera-status').textContent=flight?'Flight camera is collision-free':settings.cockpit
         ?cameraWarning||(renderer.cameraMode==='cockpit'?'Cockpit / exact posed seat':'Cockpit waiting for craft'):!cameraCollision.ready?'Chase clearance waiting for geometry'
         :cameraCollision.coverageLimited?'Chase distance limited to its collision window':'Vehicle-relative chase collision ready';
+      $('space-hud').hidden=!flight||flight[1]<150;if(flight&&flight[1]>=150)$('space-hud').textContent=spaceHud(flight,flightSpeed,renderer.planetRects?.());
       $('place').textContent=flight?'FREE FLIGHT':p[10]===-1?'THE GREAT SEA':p[10]===1?'EASTERN KINGDOMS':'KALIMDOR';
       $('coordinates').textContent=`${(flight?.[0]??p[0]).toFixed(0)} E / ${(flight?.[2]??p[2]).toFixed(0)} S`;
       $('resident').textContent=`${s.resident.length}/${s.limit} terrain tiles · ${stats.horizonTiles} distant patches · ${stats.sceneInstances||0} scene instances`;

@@ -47,7 +47,7 @@
 </section>
 <section class="menu-page" data-page="controls" role="tabpanel" hidden>
 <p id="keyboard-guide" class="controls">W/S thrust/reverse · A/D steer · X/Space brake · J hop · Shift boost · C drift · F9 reset.</p>
-<p class="controls">Camera: F cockpit · left-drag orbit · right-drag steer · arrows look · wheel chase zoom · V look back. Flight: W/S forward/back · A/D strafe · Q/E altitude · Shift fast. Shortcuts: M map · T track editor · N night · Esc this menu · F near a race flag starts the race.</p>
+<p class="controls">Camera: F cockpit · left-drag orbit · right-drag steer · arrows look · wheel chase zoom · V look back. Flight: W/S forward/back · A/D strafe · Q/E altitude · Shift fast · X look straight down at the point below (the globe ring is where you land). Shortcuts: M map · T track editor · N night · Esc this menu · F near a race flag starts the race.</p>
 <p class="controls">Controller: left stick steer · RT/LT thrust/reverse · RB boost · LB drift · A hop · right stick look/click cockpit · D-pad chase zoom · Y reset · Start fly/drive · Back menu.</p>
 </section>
 <section class="menu-page" data-page="diagnostics" role="tabpanel" hidden>
@@ -64,7 +64,8 @@
       <div id="garage-tabs" role="tablist"></div>
       <div id="garage-body"><div id="garage-skins" role="radiogroup" aria-label="Skin"></div><div><p id="garage-note"></p><div id="garage-stats"></div><h3>Races for this vehicle</h3><ul id="garage-races"></ul></div></div>
       <footer><button value="cancel">Cancel</button><button type="button" id="garage-use">Use vehicle</button><button type="button" id="garage-attach" hidden>Attach Racer folder</button></footer><p id="garage-hint">Opens from Esc &gt; Game &gt; Garage (or press G). Switching is allowed in open world only.</p></form></dialog>
-    <dialog id="map-panel" aria-label="World map (M or Esc to close)"><div id="map-stage"><canvas id="map-canvas" width="1600" height="1000" aria-hidden="true"></canvas><button id="map-close" type="button" aria-label="Close map">Close (M)</button><p id="map-status" role="status"></p></div></dialog>
+    <div id="space-hud" hidden></div>
+<dialog id="map-panel" aria-label="World map (M or Esc to close)"><div id="map-stage"><canvas id="map-canvas" width="1600" height="1000" aria-hidden="true"></canvas><button id="map-close" type="button" aria-label="Close map">Close (M)</button><p id="map-status" role="status"></p></div></dialog>
     <p id="error" role="alert" hidden></p>
     </div>
   </main>
