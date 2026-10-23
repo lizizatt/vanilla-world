@@ -1,5 +1,6 @@
 // Procedural cumulus slab: one camera-following quad whose fragments march a short ray through a layer of
 // analytic noise density, with a maelstrom (eye, eye wall, spiral arms) around a vortex centre. No textures or extra passes.
+import {PLANET_RADIUS,WORLD_CENTRE,planetFrame} from './space.js';
 export const CLOUD_ALTITUDE_FACTOR=.8;
 // Mt Hyjal summit height in yards, measured from the user's Kalimdor terrain (tile bounds near Hyjal, see README "Clouds").
 export const HYJAL_SUMMIT=1971;
@@ -32,9 +33,15 @@ export function sunDirection(timeOfDay) {
   return v.map(x=>x/n);
 }
 
-export function cloudUniform(view,time,daylight,manifest,near,game,out=new Float32Array(44),timeOfDay=1440) {
+// Curvature is only applied once the terrain bend has started (bend >= .003), so ground flight and driving keep the flat sheet.
+// kappa = bend / R is the curvature of the cloud shells (1 / yd); space blends the fade/fog distance origin to the shell entry.
+export const shellCurvature=bend=>bend>=.003?bend/PLANET_RADIUS:0;
+export function cloudUniform(view,time,daylight,manifest,near,game,out=new Float32Array(60),timeOfDay=1440,planet={bend:0,space:0}) {
   const [x,z]=maelstromCentre(manifest),sun=sunDirection(timeOfDay);
   out.set([...view.eye,200000,...view.right,view.aspect,...view.up,time,...view.look,daylight,x,z,CLOUD_ALTITUDE,CLOUD_HALF_SIZE,near]);
+  const f=planetFrame(view.eye[0],view.eye[2]);
+  out.set([shellCurvature(planet.bend),planet.space,0,0],44);
+  out.set([...f.east,WORLD_CENTRE[0],...f.up,WORLD_CENTRE[1],...f.south,PLANET_RADIUS],48);
   out.set([...sun,sun[1]],32);out.set([1,.96,.88,0],36);out.set([.55,.6,.7,0],40);
   if(game){out.set([...game.cloud,1,...game.fog,0],24);if(game.sun)out.set([...game.sun,0],36);if(game.cloud2)out.set([...game.cloud2,1],40);}
   return out;
@@ -44,10 +51,45 @@ export function cloudUniform(view,time,daylight,manifest,near,game,out=new Float
 // The column continues below the sheet down to sea level, flaring into a mist skirt (skirtRadius) at the whirlpool.
 export const FUNNEL={top:7500,seaLevel:-WHIRLPOOL_DIP.depth,skirtRadius:1700,baseRadius:500,topRadius:3200,flare:1.5,spin:.5,twist:5,fadeStart:90000,fadeEnd:170000};
 const COMMON=`
-struct C {eye:vec4f,right:vec4f,up:vec4f,look:vec4f,cloud:vec4f,near:vec4f,tint:vec4f,fog:vec4f,sun:vec4f,sunCol:vec4f,cloud2:vec4f};
+struct C {eye:vec4f,right:vec4f,up:vec4f,look:vec4f,cloud:vec4f,near:vec4f,tint:vec4f,fog:vec4f,sun:vec4f,sunCol:vec4f,cloud2:vec4f,bend:vec4f,fe:vec4f,fu:vec4f,fs:vec4f};
 @group(0) @binding(0) var<uniform> c:C;
 @group(0) @binding(1) var sceneDepth:texture_depth_2d;
 fn hash(p:vec2f)->f32 {return fract(sin(dot(p,vec2f(127.1,311.7)))*43758.5453);}
+// Curved cloud shells (planet view): the layer is a spherical shell of effective radius 1/kappa under the eye. These are scaled by kappa so
+// the flat limit (kappa -> 0) stays finite: roots of a t^2 + 2 b t + cc = 0 for the sphere at altitude y; returns (near, far) or (1e30, -1e30).
+fn shellRoots(e:f32,dy:f32,y:f32)->vec2f {
+  let k=c.bend.x;let a=max(k,1e-9);
+  let b=(1.0+k*e)*dy;let cc=(e-y)*(2.0+k*(e+y));
+  let disc=b*b-a*cc;
+  if(disc<0.0){return vec2f(1e30,-1e30);}
+  let sq=sqrt(disc);
+  var q=-(b+select(-sq,sq,b>=0.0));
+  if(abs(q)<1e-12){q=-1e-12;}
+  let t1=q/a;let t2=cc/q;
+  return vec2f(min(t1,t2),max(t1,t2));
+}
+// Local up (render frame) at an eye-relative point on the shells.
+fn upAt(rel:vec3f)->vec3f {
+  let k=c.bend.x;
+  return normalize(vec3f(k*rel.x,1.0+k*(rel.y+c.eye.y),k*rel.z));
+}
+// Eye-relative point -> world (x, height, z). Flat when kappa = 0. Otherwise heights are above the shells' sea level and the horizontal position
+// is the equirectangular planet mapping (same as the globe), with the arc scaled from the effective radius to the true one.
+fn worldAt(rel:vec3f)->vec3f {
+  let k=c.bend.x;
+  if(k<=0.0){return c.eye.xyz+rel;}
+  let u=rel.y+c.eye.y;let hd2=dot(rel.xz,rel.xz);
+  let ry=1.0+k*u;let qs=sqrt(k*k*hd2+ry*ry);
+  let h=(k*hd2+u*(2.0+k*u))/(qs+1.0);
+  let hd=sqrt(hd2);
+  let thetaE=atan2(k*hd,ry);
+  let theta=thetaE/(k*${PLANET_RADIUS}.0);
+  let hx=select(vec2f(1.0,0.0),rel.xz/hd,hd>1e-3);
+  let n=vec3f(sin(theta)*hx.x,cos(theta),sin(theta)*hx.y);
+  let pv=c.fe.xyz*n.x+c.fu.xyz*n.y+c.fs.xyz*n.z;
+  let lat=asin(clamp(pv.y,-1.0,1.0));let lon=atan2(pv.z,pv.x);
+  return vec3f(c.fe.w+c.fs.w*lon,h,c.fu.w-c.fs.w*lat);
+}
 fn vnoise(p:vec2f)->f32 {
   let i=floor(p);let f=fract(p);let s=f*f*(3.0-2.0*f);
   return mix(mix(hash(i),hash(i+vec2f(1,0)),s.x),mix(hash(i+vec2f(0,1)),hash(i+vec2f(1,1)),s.x),s.y);
@@ -69,7 +111,7 @@ const STD_NOISE=`
   var n=.55*vnoise(q)+.3*vnoise(q*2.3+7.0)+.15*vnoise(q*5.1+3.0);
   n=n*.78+.22*vnoise(w/650.0+vec2f(hf*3.1,hf*1.7));`;
 const HIGH_TAP=`
-      let sd=sheetDensity(pos+c.sun.xyz*ss*2.5,t).x;
+      let sd=sheetDensity(worldAt(rel+c.sun.xyz*ss*2.5),t).x;
       let shade=mix(mix(.65,1.0,exp(-sd*2.0)),1.0,smoothstep(.7,1.0,hf))*(1.0+.8*pow(max(dot(dir,c.sun.xyz),0.0),6.0));`;
 const build=high=>COMMON+(high?HIGH_BINDINGS:'')+`
 struct V {@builtin(position) clip:vec4f,@location(0) ndc:vec2f};
@@ -120,8 +162,8 @@ fn funnelDensity(pos:vec3f,t:f32)->vec2f {
   return vec2f(body,h);
 }
 // Sun-lit edges: forward scatter (silver lining, strongest looking toward the sun through thin cloud), fading out as the sun sets.
-fn silver(dir:vec3f,thin:f32)->vec3f {
-  let day=smoothstep(-.1,.25,c.sun.w);
+fn silver(dir:vec3f,thin:f32,sunY:f32)->vec3f {
+  let day=smoothstep(-.1,.25,sunY);
   return c.sunCol.rgb*pow(max(dot(dir,c.sun.xyz),0.0),4.0)*(.4+1.4*thin)*day;
 }
 const NS=${high?28:8};
@@ -137,15 +179,25 @@ const NF=14;
   var sceneDist=1e9;
   if(d<1.0){sceneDist=c.near.x*c.eye.w/(c.eye.w-d*(c.eye.w-c.near.x))/max(dot(dir,c.look.xyz),.05);}
   // Sheet slab extent.
-  var s0=0.0;var s1=0.0;var ns=0;var sEdge=1.0;var capped=false;
+  var s0=0.0;var s1=0.0;var ns=0;var sEdge=1.0;var capped=false;var sFull=0.0;var live=true;
   let ya=c.cloud.z-THICK*.5-DOWN;let yb=c.cloud.z+THICK*.5+UP;
+  let shell=c.bend.x>0.0;
   // Near-horizontal rays are clamped to a minimum slope so the horizon has no gap; a march cut by the span cap fades out instead of ending hard.
-  let dy=select(select(-.0005,.0005,dir.y>=0.0),dir.y,abs(dir.y)>=.0005);
-  let ta=(ya-c.eye.y)/dy;let tb=(yb-c.eye.y)/dy;
-  s0=max(0.0,min(ta,tb));let sFull=max(ta,tb);let sCap=s0+max(${high?"40000.0":"9000.0"},.3*s0);s1=min(sFull,sCap);
+  if(shell){
+    // Curved layer: inside the outer shell and outside the inner one, first contiguous piece along the ray.
+    let O=shellRoots(c.eye.y,dir.y,yb);let I=shellRoots(c.eye.y,dir.y,ya);
+    s0=max(O.x,0.0);sFull=O.y;live=O.x<=O.y;
+    if(I.x<=I.y){if(I.x>s0){sFull=min(sFull,I.x);}else if(I.y>s0){s0=I.y;}}
+    live=live&&sFull>s0;
+  } else {
+    let dy=select(select(-.0005,.0005,dir.y>=0.0),dir.y,abs(dir.y)>=.0005);
+    let ta=(ya-c.eye.y)/dy;let tb=(yb-c.eye.y)/dy;
+    s0=max(0.0,min(ta,tb));sFull=max(ta,tb);
+  }
+  let sCap=s0+max(${high?"40000.0":"9000.0"},.3*s0);s1=min(sFull,sCap);
   if(sceneDist<1e8){sEdge=smoothstep(0.0,350.0,sceneDist-s0);s1=min(s1,sceneDist);}
   capped=sFull>sCap&&s1==sCap;let cutK=smoothstep(0.0,.5,(sFull-sCap)/max(sCap-s0,1.0));
-  if(s1>s0&&sEdge>0.0&&s0<c.cloud.w){ns=NS;}
+  if(live&&s1>s0&&sEdge>0.0&&s0<select(c.cloud.w,1e8,shell)){ns=NS;}
   // Funnel cylinder-and-height extent.
   var f0=0.0;var f1=1e9;var nf=NF;var fEdge=1.0;
   let o=c.eye.xz-c.cloud.xy;let dxz=dir.xz;
@@ -166,7 +218,7 @@ const NF=14;
   let sJit=fract(52.9829189*fract(dot(v.clip.xy,vec2f(.06711056,.00583715))));
   let fJit=.3*hash(v.clip.xy);
   let fDist=length(c.eye.xyz-vec3f(c.cloud.x,(BASE+TOP)*.5,c.cloud.y));
-  let fWeight=(1.0-smoothstep(${F.fadeStart.toFixed(1)},${F.fadeEnd.toFixed(1)},fDist))*.95*fEdge;
+  let fWeight=(1.0-smoothstep(${F.fadeStart.toFixed(1)},${F.fadeEnd.toFixed(1)},fDist))*.95*fEdge*(1.0-smoothstep(.3,.9,c.bend.x*${PLANET_RADIUS}.0));
   var trans=1.0;var light=vec3f(0);
   var i=0;var j=0;
   for(var n=0;n<NS+NF;n++){
@@ -174,20 +226,22 @@ const NF=14;
     let ts=s0+ss*(f32(i)+sJit);let tf=f0+fstep*(f32(j)+fJit);
     if(i<ns&&(j>=nf||ts<=tf)){
       i++;
-      let pos=c.eye.xyz+dir*ts;
+      let rel=dir*ts;let pos=worldAt(rel);
       let s=sheetDensity(pos,t);
       if(s.x<=.001){continue;}
       let hf=s.z;
       let tail=select(1.0,1.0-cutK*smoothstep(.55,1.0,(ts-s0)/Ls),capped);
-      let w=(1.0-smoothstep(30000.0,c.cloud.w,ts))*.96*sEdge*tail;
+      let dd=ts-s0*c.bend.y;
+      let w=(1.0-smoothstep(30000.0,c.cloud.w,dd))*.96*sEdge*tail;
       let absorb=(1.0-exp(-s.x*ss*.008))*w;
       ${high?HIGH_TAP:'let shade=1.0;'}
       let lit=mix(.62,1.0,hf)*mix(.75,1.0,s.y)*(.7+.3*trans)*shade;
-      let day=smoothstep(-.1,.25,c.sun.w);
+      let sunY=select(c.sun.w,dot(upAt(rel),c.sun.xyz),shell);
+      let day=smoothstep(-.1,.25,sunY);
       let under=select(vec3f(.55,.60,.70),c.cloud2.rgb,game);
       let lite=mix(vec3f(.98,.97,.95),c.sunCol.rgb,.5*(1.0-smoothstep(.2,.9,c.sun.w)));
-      let tone=mix(under,lite,lit)*lit*mix(.55,1.0,day)*(1.0+.3*hf*day)+vec3f(.18,.1,.1)*(1.0-s.y)*lit+silver(dir,1.0-smoothstep(0.0,.6,s.x))*hf;
-      light+=trans*absorb*mix(tone*grade,fog,clamp(ts/150000.0,0.0,.93));trans*=1.0-absorb;
+      let tone=mix(under,lite,lit)*lit*mix(.55,1.0,day)*(1.0+.3*hf*day)+vec3f(.18,.1,.1)*(1.0-s.y)*lit+silver(dir,1.0-smoothstep(0.0,.6,s.x),sunY)*hf;
+      light+=trans*absorb*mix(tone*grade,fog,clamp(dd/150000.0,0.0,.93));trans*=1.0-absorb;
     } else {
       j++;
       let pos=c.eye.xyz+dir*tf;
@@ -195,7 +249,7 @@ const NF=14;
       if(s.x<=.001){continue;}
       let absorb=(1.0-exp(-s.x*fstep*.004))*fWeight;
       let lit=mix(.32,1.0,pow(s.y,.7))*(.6+.4*trans);
-      let tone=mix(vec3f(.5,.52,.6),vec3f(.98,.96,.94),lit)*lit+vec3f(.2,.08,.06)*(1.0-s.y)*lit+silver(dir,.5)*.5;
+      let tone=mix(vec3f(.5,.52,.6),vec3f(.98,.96,.94),lit)*lit+vec3f(.2,.08,.06)*(1.0-s.y)*lit+silver(dir,.5,c.sun.w)*.5;
       light+=trans*absorb*mix(tone*grade,fog,clamp(fDist/200000.0,0.0,.9));trans*=1.0-absorb;
     }
     if(trans<.01){break;}
