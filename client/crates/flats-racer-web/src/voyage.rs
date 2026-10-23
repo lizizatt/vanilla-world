@@ -311,6 +311,23 @@ impl Surface {
     }
 }
 
+/// Engine durability settings and the little memory the damage rules need between ticks.
+#[derive(Clone, Copy)]
+struct Durability {
+    on: bool,
+    lethal: f32,
+    pre_speed: f32,
+    hit_side: usize,
+    hot_side: usize,
+    hot: bool,
+}
+
+impl Default for Durability {
+    fn default() -> Self {
+        Self { on: true, lethal: 100.0, pre_speed: 0.0, hit_side: 0, hot_side: 0, hot: false }
+    }
+}
+
 #[wasm_bindgen]
 pub struct Voyage {
     pub(crate) manifest: Manifest,
@@ -331,6 +348,7 @@ pub struct Voyage {
     origin: [f64; 2],
     rebases: u32,
     hold: u8,
+    dur: Durability,
     physics_stats: [u32; 8],
     profile_admission: bool,
     admission_times: std::cell::Cell<[f64; 9]>,
@@ -378,6 +396,7 @@ impl Voyage {
             scene_parts: HashMap::new(),
             rebases: 0,
             hold: 1,
+            dur: Durability::default(),
             physics_stats: [0; 8],
             profile_admission: false,
             admission_times: std::cell::Cell::new([0.0; 9]),
@@ -614,6 +633,34 @@ impl Voyage {
         Ok(heights)
     }
 
+    /// Overheating wears the engines (the hotter side alternates per episode, 60/40) and a rising obstacle contact (hold 3)
+    /// damages one engine (alternating) by the speed just before it.
+    fn durability_step(&mut self, hold_before: u8) {
+        let d = &mut self.dur;
+        let speed = self.state.velocity[0].hypot(self.state.velocity[2]);
+        if !d.on {
+            d.pre_speed = speed;
+            return;
+        }
+        let rate = flats_racer_physics::heat_damage_rate(self.state.heat) * FIXED_DT;
+        let hot = rate > 0.0;
+        if d.hot && !hot {
+            d.hot_side ^= 1;
+        }
+        d.hot = hot;
+        let h = &mut self.state.health;
+        h[d.hot_side] = (h[d.hot_side] - rate * 0.6).max(0.0);
+        h[d.hot_side ^ 1] = (h[d.hot_side ^ 1] - rate * 0.4).max(0.0);
+        if self.hold == 3 && hold_before != 3 {
+            let side = d.hit_side;
+            d.hit_side ^= 1;
+            h[side] = (h[side] - flats_racer_physics::impact_damage(d.pre_speed, d.lethal)).max(0.0);
+        }
+        if self.hold != 3 {
+            d.pre_speed = speed;
+        }
+    }
+
     fn restore_pose(&mut self, pose: &[f64]) -> Result<(), String> {
         if pose.len() != 4 || pose.iter().any(|v| !v.is_finite()) {
             return Err("Save requires a finite global pose".into());
@@ -622,6 +669,7 @@ impl Voyage {
             State::new([0.0, pose[1] as f32, 0.0], pose[3] as f32).map_err(|e| e.to_string())?;
         // Teleporting (unstuck, load) does not cool the engines.
         state.heat = self.state.heat;
+        state.health = self.state.health;
         let heights = self
             .heights_at([pose[0], pose[2]], state.yaw, state.position[1])
             .map_err(|_| "Saved location is unloaded or outside supported surfaces")?;
@@ -1514,7 +1562,8 @@ impl Voyage {
     }
 
     pub fn tick(&mut self, throttle: f32, steer: f32, flags: u32) -> Result<(), JsValue> {
-        self.advance(Input {
+        let before = self.hold;
+        let result = self.advance(Input {
             throttle,
             steer,
             brake: flags & 1 != 0,
@@ -1522,7 +1571,15 @@ impl Voyage {
             drift: flags & 4 != 0,
             jump: flags & 8 != 0,
         })
-        .map_err(|e| JsValue::from_str(&e))
+        .map_err(|e| JsValue::from_str(&e));
+        self.durability_step(before);
+        result
+    }
+
+    /// Engine durability on/off and the instant-wreck speed (yd/s; impact damage reaches a whole engine there).
+    pub fn set_durability(&mut self, on: bool, lethal_speed: f32) {
+        self.dur.on = on;
+        self.dur.lethal = lethal_speed;
     }
 
     pub fn telemetry(&self) -> Vec<f64> {
@@ -1547,6 +1604,8 @@ impl Voyage {
                 -self.state.velocity[0] * self.state.yaw.sin()
                     - self.state.velocity[2] * self.state.yaw.cos(),
             ),
+            f64::from(self.state.health[0]),
+            f64::from(self.state.health[1]),
         ]
     }
 
@@ -1578,6 +1637,7 @@ impl Voyage {
             .collect();
         let cols = [[rot[0], rot[1], rot[2]], [rot[3], rot[4], rot[5]], [rot[6], rot[7], rot[8]]];
         let origin = [pos[0], pos[2]];
+        self.state.health = [1.0; 2]; // the wreck replaces the craft: both engines are whole again
         self.wreck = Some((Wreck::new([0.0, pos[1] as f32, 0.0], cols, scale, [vel[0], vel[1], vel[2]], &specs, seed), origin));
         Ok(())
     }
@@ -2900,5 +2960,53 @@ pub(crate) mod tests {
         assert_eq!(world.sample([1200.0, 100.0]).water, Some(0.0));
         m.regions[1].placement[0] = 1000.0;
         assert!(m.validate().is_err());
+    }
+
+    #[test]
+    fn durability_overheat_wears_engines_and_impacts_hurt_by_speed() {
+        let mut world = Voyage::from_manifest(fixture(0.0)).unwrap();
+        assert_eq!(world.telemetry()[15..17], [1.0, 1.0]);
+        // Overheating: 5 s at full heat takes about 0.75 of health split 60/40 across the engines.
+        world.state.heat = 1.0;
+        for _ in 0..600 {
+            world.durability_step(0);
+        }
+        let h = world.state.health;
+        assert!((1.0 - h[0] - 0.45).abs() < 0.01 && (1.0 - h[1] - 0.30).abs() < 0.01, "{h:?}");
+        // Cooling below the damage band swaps which engine runs hotter next time.
+        world.state.heat = 0.5;
+        world.durability_step(0);
+        world.state.heat = 1.0;
+        world.durability_step(0);
+        assert!(world.dur.hot_side == 1);
+        // Impacts: damage follows the speed before the contact edge, alternating engines; holding contact deals no more.
+        world.state.health = [1.0; 2];
+        world.state.heat = 0.0;
+        world.state.velocity = [60.0, 0.0, 0.0];
+        world.durability_step(0);
+        world.hold = 3;
+        world.state.velocity = [0.0; 3];
+        world.durability_step(0);
+        world.durability_step(3);
+        world.hold = 0;
+        assert!((world.state.health[0] - 0.5).abs() < 1e-5 && world.state.health[1] == 1.0);
+        world.state.velocity = [10.0, 0.0, 0.0];
+        world.durability_step(0);
+        world.hold = 3;
+        world.durability_step(0);
+        assert_eq!(world.state.health, [0.5, 1.0], "a slow bump is free");
+        world.hold = 0;
+        world.state.velocity = [100.0, 0.0, 0.0];
+        world.durability_step(0);
+        world.hold = 3;
+        world.durability_step(0);
+        assert_eq!(world.state.health, [0.0, 1.0], "lethal speed destroys the engine it hits");
+        // Off: no damage; restore keeps health, reset repairs.
+        world.dur.on = false;
+        world.state.heat = 1.0;
+        world.durability_step(0);
+        assert_eq!(world.state.health, [0.0, 1.0]);
+        world.reset();
+        assert_eq!(world.state.health, [1.0, 1.0]);
     }
 }

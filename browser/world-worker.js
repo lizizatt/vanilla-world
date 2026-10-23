@@ -815,6 +815,9 @@ async function handle(message) {
       return Array.from(values);
     }
     return Array.from(world.tuning());
+  } else if(message.action==='durability') {
+    world.set_durability(!!message.on,Number(message.lethal)||100);
+    return true;
   } else if(message.action==='probe') {
     return message.points.map(p=>Array.from(world.surface(p[0],p[1])));
   } else if(message.action==='wreck-start') {
