@@ -511,12 +511,14 @@ function toggleEditor() {
 }
 let flagKey;
 // Rest each prop on the terrain: lowest ground under its centre and both ends of its span (ground-fade hides the sunk part).
+// Samples across the span (incl. just past the posts); the terrain mesh is coarser than the probe, so sink 1 yd (the ground fade hides it).
+const SETTLE_SPAN=[-1.15,-1,-.85,0,.85,1,1.15],SETTLE_SINK=1;
 async function settleGates(list,key) {
   try {
-    const pts=list.flatMap(d=>{const [x,,z]=d.at,h=(d.width||0)/2,c=Math.cos(d.yaw),s=Math.sin(d.yaw);return [[x,z],[x+c*h,z-s*h],[x-c*h,z+s*h]];});
+    const pts=list.flatMap(d=>{const [x,,z]=d.at,h=(d.width||0)/2,c=Math.cos(d.yaw),s=Math.sin(d.yaw);return SETTLE_SPAN.map(k=>[x+c*h*k,z-s*h*k]);});
     const g=await probeSurface(pts);
     if(key!==gateKey)return;
-    const fixed=list.map((d,i)=>{const y=Math.min(g[3*i][1],g[3*i+1][1],g[3*i+2][1]);return {...d,at:[d.at[0],Number.isFinite(y)?y:d.at[1],d.at[2]]};});
+    const fixed=list.map((d,i)=>{const y=Math.min(...g.slice(i*SETTLE_SPAN.length,(i+1)*SETTLE_SPAN.length).map(s=>s[1]))-SETTLE_SINK;return {...d,at:[d.at[0],Number.isFinite(y)?y:d.at[1],d.at[2]]};});
     renderer.setProps(sceneProps(fixed,gateKit));
   } catch {}
 }
