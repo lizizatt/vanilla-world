@@ -32,7 +32,7 @@ for (const [name, skin] of [['rocket', 'rocket'], ['pod', skins[1]]]) {
     await page.waitForTimeout(150);
     const r = await page.evaluate(() => ({ n: worldTest.raceInfo()?.next, v: Math.abs(window.__lastSpeed ?? 0) }));
     next = r.n ?? next;
-    const gap = await page.evaluate(() => { const r = worldTest.raceObj(), g = r.track.gates[r.gateIndex]; return r.last && Math.hypot(r.last[0] - g.pos[0], r.last[2] - g.pos[2]); });
+    const gap = await page.evaluate(() => { const r = worldTest.raceObj(); if (!r) return 1e9; const g = r.track.gates[r.gateIndex]; return r.last && Math.hypot(r.last[0] - g.pos[0], r.last[2] - g.pos[2]); });
     if (gap < 115 && !seen.has('near')) { seen.add('near'); await snap(`${name}-gate-approach`); }
   }
   await snap(`${name}-after-gate`);

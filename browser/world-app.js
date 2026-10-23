@@ -14,7 +14,7 @@ import {Race,unstuckPoses,formatTime,lapTimes,bearing,addScore,validScores,valid
 import {createTrackEditor} from './track-editor.js';
 import {clampTrack} from './track-edit.js';
 import {loadTracks,nearestFlag,flagPosition} from './race-flags.js';
-import {gateScene,sceneKey,sceneProps,loadGateKit} from './race-gates.js';
+import {gateScene,sceneKey,sceneProps,loadGateKit,startLine} from './race-gates.js';
 import {loadVehicleModel} from './vehicle-model.js';
 import {bootChoice,writeChoice,tracksFor,vehicleOf,VEHICLES,canSwitch,normalizeChoice,skinOf,setRuntimeSkins,stepSkin} from './vehicles.js';
 import {initSwe1rRow,onSwe1r,getSwe1r,attachSwe1r} from './swe1r/ui.js';
@@ -549,7 +549,7 @@ function startRace(track) {
   operation(async()=>{
     flight=undefined;
     track=await groundTrack(track);
-    const [x,y,z]=track.start.pos;
+    const [x,y,z]=startLine(track).grid;
     client.state=await client.request('restore',{pose:[x,y+2,z,track.start.yaw]});
     renderer.camera=undefined;running=true;$('error').hidden=true;
     const board=validScores(await raceScores(track.id).catch(()=>undefined));raceBest=board.runs[0];
