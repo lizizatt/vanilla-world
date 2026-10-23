@@ -14,6 +14,7 @@ import {Race,unstuckPoses,formatTime,lapTimes,bearing,addScore,validScores,valid
 import {createTrackEditor} from './track-editor.js';
 import {clampTrack} from './track-edit.js';
 import {loadTracks,nearestFlag,flagPosition} from './race-flags.js';
+import {gateScene,sceneKey,sceneProps,loadGateKit} from './race-gates.js';
 import {loadVehicleModel} from './vehicle-model.js';
 import {bootChoice,writeChoice,tracksFor,vehicleOf,VEHICLES,canSwitch,normalizeChoice,skinOf,setRuntimeSkins,stepSkin} from './vehicles.js';
 import {initSwe1rRow,onSwe1r,getSwe1r,attachSwe1r} from './swe1r/ui.js';
@@ -77,7 +78,7 @@ function fail(error) {
   console.error(error);evidence.errors.push(message);$('error').textContent=message;$('error').hidden=false;
 }
 const mapPanel=new MapPanel({dialog:$('map-panel'),canvas:$('map-canvas'),stage:$('map-stage'),status:$('map-status'),close:$('map-close')},{
-  requestArt:names=>client.worldmap(names),pose:()=>client.state?.telemetry,
+  requestArt:names=>client.worldmap(names),pose:()=>client.state?.telemetry,tracks:()=>tracksFor(tracks,choice.vehicle),
   teleport:icon=>operation(async()=>{
     flight=undefined;client.state=await client.request(icon.reset?'reset':'restore',icon.reset?undefined:{pose:icon.pose});race?.jump();
     renderer.camera=undefined;running=true;$('error').hidden=true;report(`Teleported to ${icon.label}.`,true);
@@ -202,6 +203,7 @@ async function open(selection,remember=false) {
     const result=await client.open(selection,loadingMap);
     renderer.configure(result.info.manifest);client.sky();client.animate(settings.animateNpcs);mapPanel.configure(result.info.manifest);
     void loadTracks().then(async found=>{shipped=found;tracks=await withOverrides(found);gateKey=undefined;});
+gateKit=undefined;void loadGateKit((a,p)=>client.request(a,p),()=>getSwe1r()&&loadPodModel(getSwe1r(),{index:309,scale:1/600})).then(kit=>{gateKit=kit;gateKey=undefined;});
     cameraCollision.configure(result.info.manifest);
     tuningValues=Array.isArray(result.info.tuning)?result.info.tuning.slice():TUNING_FIELDS.map(f=>f[1]);
     opened=true;
@@ -467,7 +469,7 @@ $('garage-use').addEventListener('click',()=>{if(selectVehicle(garagePick))garag
 $('garage-attach').addEventListener('click',attachSwe1r);
 garage.addEventListener('close',()=>canvas.focus());
 $('menu-garage').addEventListener('click',()=>{raceMenu.close();openGarage();});
-let gateKey,editorFlight,shipped=[];
+let gateKey,gateKit,editorFlight,shipped=[];
 const mergeTrack=(list,t)=>list.some(x=>x.id===t.id)?list.map(x=>x.id===t.id?t:x):[...list,t];
 const probeSurface=points=>client.request('probe',{points});
 // Pull stale saved heights back above the current ground/water; unloaded tiles leave a point as saved.
@@ -510,8 +512,16 @@ function toggleEditor() {
 let flagKey;
 function syncGates(force) {
   const live=editor.isOpen?tracks:tracksFor(tracks,choice.vehicle);
-  const key=live.map(t=>t.id).join()+'|'+(race?race.track.id+':'+race.next:'')+(editor.isOpen?'|'+editor.draft.id+':'+editor.draft.revision+':'+editor.selected:'');
+  if(!editor.isOpen){
+    const list=gateScene(live,race,performance.now()/1000),key='w|'+sceneKey(list)+'|'+!!gateKit;
+    if(!force&&key===gateKey)return;
+    gateKey=key;flagKey=undefined;
+    renderer.setGates([]);renderer.setFlags([]);renderer.setProps(sceneProps(list,gateKit));
+    return;
+  }
+  const key=live.map(t=>t.id).join()+'|'+(race?race.track.id+':'+race.next:'')+'|'+editor.draft.id+':'+editor.draft.revision+':'+editor.selected;
   if(!force&&key===gateKey)return;
+  if(gateKey?.startsWith('w|'))renderer.setProps([]);
   gateKey=key;
   const racing=!editor.isOpen&&race;
   // The editor draws only the draft being edited; every other track shows as its flag.
@@ -727,7 +737,7 @@ async function start() {
         $('permission').textContent='Click to allow reading your remembered folder.';}
     }
     if(new URLSearchParams(location.search).has('test'))window.worldTest={restore:pose=>client.request('restore',{pose}).then(s=>{client.state=s;flight=undefined;renderer.camera=undefined;running=true;return s.telemetry;}),particles:()=>renderer.particles,testCrash,wreck:()=>renderer.wreck&&{frames:renderer.wreck.frames.length,connected:renderer.wreck.connected,parts:renderer.wreck.parts.length},startRace,selectVehicle,tracks:()=>tracks,raceObj:()=>race,heldLoops:()=>Object.values(audio.held||{}).map(h=>h?.name).filter(Boolean),raceInfo:()=>race&&{state:race.state,next:race.next,finishing:race.finishing,gates:race.track.gates.length},choice:()=>choice,
-      focus:pose=>{flight=pose.slice();},props:list=>renderer.setProps(list),beamFx:o=>{renderer.fxOverride=o;},propTexture:path=>client.request('prop-texture',{path}),propModel:path=>client.request('prop-model',{path}),swe1rModel:(index,scale)=>loadPodModel(getSwe1r(),{index,scale}),mockGates:list=>{for(const g of renderer.gates)renderer.release(g);renderer.gates=list.map(({vertices,pos})=>renderer.drawable(vertices,pos));renderer.terrainView=undefined;},settings:o=>Object.assign(settings,o),showCraft:v=>{renderer.showCraftInFlight=v;},
+      focus:pose=>{flight=pose.slice();},gateKit:()=>!!gateKit,propCount:()=>renderer.props?.length,props:list=>renderer.setProps(list),beamFx:o=>{renderer.fxOverride=o;},propTexture:path=>client.request('prop-texture',{path}),propModel:path=>client.request('prop-model',{path}),swe1rModel:(index,scale)=>loadPodModel(getSwe1r(),{index,scale}),mockGates:list=>{for(const g of renderer.gates)renderer.release(g);renderer.gates=list.map(({vertices,pos})=>renderer.drawable(vertices,pos));renderer.terrainView=undefined;},settings:o=>Object.assign(settings,o),showCraft:v=>{renderer.showCraftInFlight=v;},
       instances:()=>renderer.instances.filter(i=>i.kind==='group').slice(0,8),
       npcs:()=>renderer.instances.filter(i=>i.id.includes(':npc:')).slice(0,5),
       request:async(action,fields)=>{const s=await client.request(action,fields);if(s.telemetry)client.state=s;return s;},

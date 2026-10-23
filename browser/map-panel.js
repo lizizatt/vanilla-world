@@ -3,8 +3,8 @@ import {maelstromCentre} from './clouds.js';
 
 /** Fullscreen world map dialog. Art arrives from the worker (runtime Data read); without it a schematic is drawn. */
 export class MapPanel {
-  constructor({dialog,canvas,stage,status,close},{requestArt,teleport,pose}) {
-    Object.assign(this,{dialog,canvas,stage,status,requestArt,teleport,pose,rows:undefined,images:new Map(),requested:false,timer:0});
+  constructor({dialog,canvas,stage,status,close},{requestArt,teleport,pose,tracks=()=>[]}) {
+    Object.assign(this,{dialog,canvas,stage,status,requestArt,teleport,pose,tracks,rows:undefined,images:new Map(),requested:false,timer:0});
     close.addEventListener('click',()=>dialog.close());
     dialog.addEventListener('close',()=>this.stop());
     this.you=stage.ownerDocument.createElement('div');this.you.id='map-you';this.you.hidden=true;
@@ -40,7 +40,7 @@ export class MapPanel {
     const images=manifest.regions.map(r=>this.images.get(r.map.toLowerCase()));
     drawMap(this.canvas,this.frame,use,art?images:undefined,!art||images.some(i=>!i));
     this.status.textContent=rows===undefined?'Loading map art...':art?(images.every(Boolean)?'':'Loading map art...'):'Map art unavailable'+(this.error?` (${this.error})`:'')+'; showing schematic.';
-    for(const old of this.stage.querySelectorAll('.map-icon'))old.remove();
+    for(const old of this.stage.querySelectorAll('.map-icon,.map-track'))old.remove();
     for(const icon of mapIcons(manifest,centre)) {
       const [u,v]=toMap(this.frame,...icon.position),button=this.stage.ownerDocument.createElement('button');
       button.type='button';button.className='map-icon';button.dataset.icon=icon.id;button.textContent={raceway:'Raceway',maelstrom:'Maelstrom',airport:'Airport',stormwind:'Stormwind',orgrimmar:'Orgrimmar',undercity:'Undercity',darnassus:'Darnassus'}[icon.id];
@@ -48,6 +48,11 @@ export class MapPanel {
       button.style.left=`${u*100}%`;button.style.top=`${v*100}%`;
       button.addEventListener('click',()=>{this.dialog.close();this.teleport(icon);});button.addEventListener('pointerdown',e=>e.preventDefault());
       this.stage.append(button);
+    }
+    for(const t of this.tracks()) { // race start markers (a flagpole + beacon stands there in the world); informational, not teleports
+      const [u,v]=toMap(this.frame,t.start.pos[0],t.start.pos[2]),pin=this.stage.ownerDocument.createElement('span');
+      pin.className='map-track';pin.dataset.track=t.id;pin.title=pin.ariaLabel=`Race start: ${t.name??t.id}`;pin.textContent='\u2691';
+      pin.style.left=`%`;pin.style.top=`%`;this.stage.append(pin);
     }
     this.stage.append(this.you);
     this.marker();
