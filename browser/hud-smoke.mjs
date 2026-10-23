@@ -31,7 +31,7 @@ await page.evaluate(() => { worldTest.settings({ shadows: false, clouds: false, 
 await page.waitForTimeout(1500);
 
 const shot = name => page.screenshot({ path: path.join(out, `${name}.png`) });
-const heat = () => page.evaluate(() => 1 - worldEvidence.state.telemetry[6]);
+const heat = () => page.evaluate(() => worldEvidence.state.telemetry[6]);
 
 // A 3-lap race on a one-gate track just ahead of the spawn point; the gate is far behind the lineup so it never triggers here.
 await page.evaluate(() => {
@@ -80,11 +80,11 @@ assert.ok([...seen.klaxon].some(n => n.startsWith('sfx_klaxon')), `klaxon loop p
 
 // Cooldown: coolant spray loops while the engine vents, silent once cold.
 await page.waitForTimeout(3500);
-const cooling = await page.evaluate(() => ({ heat: 1 - worldEvidence.state.telemetry[6], loops: worldTest.heldLoops() }));
+const cooling = await page.evaluate(() => ({ heat: worldEvidence.state.telemetry[6], loops: worldTest.heldLoops() }));
 console.log('cooldown', JSON.stringify(cooling));
 await shot('7-cooldown');
 assert.ok(cooling.loops.includes('sfx_pod_coolant_spray_loop'), 'coolant loop while venting');
-await page.waitForFunction(() => !worldTest.heldLoops().length, null, { timeout: 30000 }).catch(async e => { console.log(await page.evaluate(() => [1 - worldEvidence.state.telemetry[6], worldTest.heldLoops(), worldEvidence.state.telemetry[5]])); throw e; });
+await page.waitForFunction(() => !worldTest.heldLoops().length, null, { timeout: 30000 }).catch(async e => { console.log(await page.evaluate(() => [worldEvidence.state.telemetry[6], worldTest.heldLoops(), worldEvidence.state.telemetry[5]])); throw e; });
 
 // Option off: boosting to max heat does not explode.
 await page.waitForTimeout(6000);

@@ -618,8 +618,10 @@ impl Voyage {
         if pose.len() != 4 || pose.iter().any(|v| !v.is_finite()) {
             return Err("Save requires a finite global pose".into());
         }
-        let state =
+        let mut state =
             State::new([0.0, pose[1] as f32, 0.0], pose[3] as f32).map_err(|e| e.to_string())?;
+        // Teleporting (unstuck, load) does not cool the engines.
+        state.heat = self.state.heat;
         let heights = self
             .heights_at([pose[0], pose[2]], state.yaw, state.position[1])
             .map_err(|_| "Saved location is unloaded or outside supported surfaces")?;
@@ -1533,7 +1535,7 @@ impl Voyage {
             f64::from(self.state.yaw),
             f64::from(self.state.bank),
             f64::from(self.state.velocity[0].hypot(self.state.velocity[2])),
-            f64::from(self.state.boost_reserve),
+            f64::from(self.state.heat),
             f64::from(self.state.grounded),
             f64::from(self.hold),
             f64::from(surface.on_water()),
@@ -2286,7 +2288,7 @@ pub(crate) mod tests {
                 world.origin = [x, 64.0];
                 world.state = State::new([0.0, 1.1, 0.0], 0.3).unwrap();
                 world.state.bank = 0.2;
-                world.state.boost_reserve = 0.5;
+                world.state.heat = 0.5;
                 world.tuning.hop_speed = 1.0;
                 let before = (world.state, world.origin, world.rebases);
                 world.scene_mesh = CollisionTree::new(&[
@@ -2595,7 +2597,7 @@ pub(crate) mod tests {
             assert!(world.global()[0] > 205.0, "{kind}");
             assert!(world.state.velocity[0] > 20.0, "{kind}");
             assert!(world.state.position[1] < 98.0, "{kind}");
-            assert!((world.state.boost_reserve - (1.0 - 0.2 / 3.0)).abs() < 0.00001, "{kind}");
+            assert!((world.state.heat - 0.2 / 3.0).abs() < 0.00001, "{kind}");
             if kind == "hole" {
                 let before = world.state;
                 assert!(world.restore_pose(&[world.global()[0], 100.0, 64.0, 0.0]).is_err());
@@ -2688,7 +2690,7 @@ pub(crate) mod tests {
             assert_eq!(world.global(), [x, 64.0]);
             world.state.velocity = [12.0, 3.0, 4.0];
             world.state.bank = 0.2;
-            world.state.boost_reserve = 0.5;
+            world.state.heat = 0.5;
             let previous = (world.state, world.origin, world.hold, world.rebases);
             for pose in [
                 vec![x, 20.4, 64.0, 0.0],
@@ -2703,6 +2705,11 @@ pub(crate) mod tests {
                     previous
                 );
             }
+            world.restore_pose(&[x, 21.1, 64.0, 0.0]).unwrap();
+            assert_eq!(world.state.heat, 0.5, "restoring a pose keeps engine heat");
+            world.state.velocity = [12.0, 3.0, 4.0];
+            world.state.bank = 0.2;
+            let previous = (world.state, world.origin, world.hold, world.rebases);
             world.resident.clear();
             assert!(world.restore_pose(&[x, 21.1, 64.0, 0.0]).is_err());
             assert_eq!(

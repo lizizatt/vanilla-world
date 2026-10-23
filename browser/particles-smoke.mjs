@@ -89,7 +89,7 @@ if (SWE1R_DATA) {
   let smoke = 0;
   for (let i = 0; i < 300 && !smoke; i++) {
     await page.waitForTimeout(100);
-    const heat = await page.evaluate(() => 1 - worldEvidence.state.telemetry[6]);
+    const heat = await page.evaluate(() => worldEvidence.state.telemetry[6]);
     if (i > 5 && i % 10 === 0) await page.evaluate(() => { const t = worldEvidence.state.telemetry; if (t[5] < 20) worldTest.request('restore', { pose: [t[0], t[1] + 12, t[2], t[3] + 1.3] }); });
     if (heat > .85) { await page.waitForTimeout(150); smoke = await kind('smoke'); await shot('6-overheat-smoke'); }
   }

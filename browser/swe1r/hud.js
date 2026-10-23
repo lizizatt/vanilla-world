@@ -74,7 +74,7 @@ export function createHeatGauge(sprites, canvas) {
 export function createDial(sprites, canvas) {
   const ring = bitmap(sprites.ring), face = bitmap(sprites.face), ctx = canvas.getContext('2d');
   const S = canvas.width, h = S / 2;
-  return (speed01, boost01) => {
+  return (speed01, heat01) => {
     ctx.clearRect(0, 0, S, S);
     ctx.imageSmoothingEnabled = false;
     ctx.globalAlpha = .55; half(ctx, S, face, false); half(ctx, S, face, true); ctx.globalAlpha = 1;
@@ -82,7 +82,7 @@ export function createDial(sprites, canvas) {
     const a = needleAngle(speed01);
     ctx.strokeStyle = '#ffb34d'; ctx.lineWidth = 3; ctx.lineCap = 'round';
     ctx.beginPath(); ctx.moveTo(h, h); ctx.lineTo(h + Math.cos(a) * h * .8, h + Math.sin(a) * h * .8); ctx.stroke();
-    ctx.fillStyle = '#4ddbcc'; ctx.fillRect(S * .2, S - 8, S * .6 * Math.min(1, Math.max(0, boost01)), 5);
+    ctx.fillStyle = heatColor(heat01); ctx.fillRect(S * .2, S - 8, S * .6 * Math.min(1, Math.max(0, heat01)), 5);
   };
 }
 
@@ -93,9 +93,9 @@ export function hitFlash(mem,contact,speed,now,floor=30){
   return mem.at===undefined?0:Math.max(0,1-(now-mem.at)/.45)*(mem.strength??1);
 }
 
-// Boost speed-line overlay intensity 0..1: ramps up while boosting with reserve left, fades when not.
-export function boostFx(mem,boosting,reserve,dt){
-  const target=boosting&&reserve>0?1:0;
+// Boost speed-line overlay intensity 0..1: ramps up while boosting, fades when not.
+export function boostFx(mem,boosting,dt){
+  const target=boosting?1:0;
   mem.v=Math.max(0,Math.min(1,(mem.v??0)+Math.sign(target-(mem.v??0))*dt*5));
   return mem.v;
 }

@@ -231,17 +231,17 @@ test('audio uses authoritative holds, fuel and focus without replaying boost on 
   audio.master={gain:parameter()};
   audio.voices=Array.from({length:3},()=>({gain:{gain:parameter()},source:{playbackRate:parameter()},filter:{frequency:parameter()}}));
   const state={telemetry:new Float64Array(15),scene:{waitingCollision:0}},p=state.telemetry,input={throttle:1,flags:2};
-  p[5]=60;p[6]=1;p[7]=1;
+  p[5]=60;p[6]=0;p[7]=1;
   for(let i=0;i<120;i++)audio.update(state,input,1/60,true);
   assert(audio.envelope.boost>.99);
-  for(const change of [()=>{p[6]=0;},()=>{p[7]=0;},()=>{p[8]=1;},
+  for(const change of [()=>{p[7]=0;},()=>{p[8]=1;},
     ()=>{p[8]=2;},()=>{p[8]=3;},()=>{state.scene.waitingCollision=1;},()=>{input.flags=3;}]) {
-    p[6]=1;p[7]=1;p[8]=0;state.scene.waitingCollision=0;input.flags=2;change();
+    p[6]=0;p[7]=1;p[8]=0;state.scene.waitingCollision=0;input.flags=2;change();
     for(let i=0;i<180;i++)audio.update(state,input,1/60,true);
     assert(audio.envelope.boost<.001);
   }
   audio.update(state,input,1/60,false);assert.equal(audio.master.gain.value,0);
-  p[6]=1;p[7]=1;p[8]=0;state.scene.waitingCollision=0;input.throttle=0;input.flags=0;
+  p[6]=0;p[7]=1;p[8]=0;state.scene.waitingCollision=0;input.throttle=0;input.flags=0;
   audio.update(state,input,1/60,true);
   assert.equal(audio.envelope.boost,0);assert.equal(audio.envelope.landing,0);
   input.throttle=-1;input.flags=2;p[14]=-60;

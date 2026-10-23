@@ -10,10 +10,10 @@ pub mod wreck;
 
 
 pub const FIXED_DT: f32 = 1.0 / 120.0;
-/// Boost reserve fraction per second: 7.5 s of full boost, 10 s to recharge from empty.
-pub const BOOST_DRAIN_PER_SEC: f32 = 0.4 / 3.0;
-pub const BOOST_RECHARGE_PER_SEC: f32 = 0.1;
-/// Engine heat is the boost reserve inverted: boosting heats at the drain rate, cooling follows the recharge rate.
+/// Engine heat per second while boosting (7.5 s from cold to 1.0) and while cooling (10 s from full). Boost has no
+/// reserve: it is always available and heat is the only limiter.
+pub const HEAT_RISE_PER_SEC: f32 = 0.4 / 3.0;
+pub const HEAT_COOL_PER_SEC: f32 = 0.1;
 /// Heat at or above this fraction is the warning zone (about 6 s of continuous boost); 1.0 is overheated.
 pub const HEAT_WARN: f32 = 0.8;
 /// Equilibrium distance in world units from body center to a level support surface.
@@ -167,8 +167,9 @@ pub struct State {
     pub bank: f32,
     pub grounded: bool,
     pub jump_cooldown: f32,
-    /// Fraction in [0, 1], consumed by forward boost with nonzero control authority.
-    pub boost_reserve: f32,
+    /// Engine heat in [0, 1]: rises while forward boost has nonzero control authority, cools when boost is released.
+    /// It caps at 1.0; whether that destroys the craft is the client's decision.
+    pub heat: f32,
     jump_held: bool,
     support_lockout: f32,
 }
@@ -190,7 +191,7 @@ impl fmt::Display for StepError {
             Self::InvalidInput => {
                 f.write_str("throttle, steer and terrain rise rate must be finite")
             }
-            Self::InvalidState => f.write_str("state must be finite with valid reserve and timers"),
+            Self::InvalidState => f.write_str("state must be finite with valid heat and timers"),
             Self::InvalidTuning(message) => f.write_str(message),
             Self::InvalidSupport(index) => {
                 write!(f, "support {index} must be finite and nonnegative")
@@ -215,18 +216,13 @@ impl State {
             bank: 0.0,
             grounded: false,
             jump_cooldown: 0.0,
-            boost_reserve: 1.0,
+            heat: 0.0,
             jump_held: false,
             support_lockout: 0.0,
         })
     }
 
-    /// Engine heat in [0, 1]; boost cuts out at 1.0 until it cools.
-    pub fn heat(&self) -> f32 {
-        1.0 - self.boost_reserve
-    }
-
-    /// Atomically clears momentum, jump latch, all timers, bank and reserve depletion.
+    /// Atomically clears momentum, jump latch, all timers, bank and engine heat.
     pub fn reset(&mut self, position: [f32; 3], yaw: f32) -> Result<(), StepError> {
         *self = Self::new(position, yaw)?;
         Ok(())
@@ -301,7 +297,7 @@ impl State {
             && [self.yaw, self.yaw_rate, self.bank]
                 .iter()
                 .all(|v| v.is_finite())
-            && (0.0..=1.0).contains(&self.boost_reserve)
+            && (0.0..=1.0).contains(&self.heat)
             && [self.jump_cooldown, self.support_lockout]
                 .iter()
                 .all(|v| v.is_finite() && *v >= 0.0)
@@ -407,18 +403,12 @@ impl State {
         let boosting = input.boost
             && throttle > 0.0
             && !input.brake
-            && authority > 0.0
-            && self.boost_reserve > 0.0;
-        // Prorate the final fraction of boost rather than granting a whole free last tick.
-        let boost_fraction = if boosting {
-            (self.boost_reserve / (BOOST_DRAIN_PER_SEC * dt)).min(1.0)
-        } else {
-            0.0
-        };
+            && authority > 0.0;
+        let boost_fraction = if boosting { 1.0 } else { 0.0 };
         if boosting {
-            self.boost_reserve = (self.boost_reserve - BOOST_DRAIN_PER_SEC * dt).max(0.0);
+            self.heat = (self.heat + HEAT_RISE_PER_SEC * dt).min(1.0);
         } else if !input.boost {
-            self.boost_reserve = (self.boost_reserve + BOOST_RECHARGE_PER_SEC * dt).min(1.0);
+            self.heat = (self.heat - HEAT_COOL_PER_SEC * dt).max(0.0);
         }
         longitudinal += throttle
             * (tuning.acceleration as f64
@@ -578,7 +568,7 @@ mod tests {
             }
             assert_eq!(speed(&state), 0.0);
             assert!(state.velocity[1] < -25.0);
-            assert_eq!(state.boost_reserve, 1.0);
+            assert_eq!(state.heat, 0.0);
             if air_control == 0.0 {
                 assert_eq!(state.yaw, 0.0);
             } else {
@@ -638,7 +628,7 @@ mod tests {
             }
             assert!(state.yaw.abs() > 0.5);
             assert!(speed(&state) > 30.0);
-            assert!(state.boost_reserve < 0.95);
+            assert!(state.heat > 0.05);
         }
     }
 
@@ -759,9 +749,9 @@ mod tests {
                 .unwrap();
             assert!(!state.grounded);
             assert!(speed(&state) > 0.0);
-            assert!(state.boost_reserve < 1.0);
+            assert!(state.heat > 0.0);
         }
-        assert!((state.boost_reserve - (1.0 - 0.2 / 3.0)).abs() < 0.00001);
+        assert!((state.heat - 0.2 / 3.0).abs() < 0.00001);
         assert!((state.velocity[1] - (12.0 - GRAVITY * 60.0 * FIXED_DT)).abs() < 0.001);
         for _ in 0..600 {
             tick(&mut state, Input::default());
@@ -858,7 +848,7 @@ mod tests {
                 )
                 .unwrap();
             assert!(state.velocity[2] >= 0.0);
-            assert_eq!(state.boost_reserve, 1.0);
+            assert_eq!(state.heat, 0.0);
         }
         assert!(speed(&state) < 0.001);
     }
@@ -940,7 +930,7 @@ mod tests {
                 .unwrap();
         }
         let before = speed(&state);
-        let reserve = state.boost_reserve;
+        let heat = state.heat;
         for _ in 0..120 {
             state
                 .step(
@@ -955,7 +945,7 @@ mod tests {
                 .unwrap();
         }
         assert!(speed(&state) > before + 1.0);
-        assert!((state.boost_reserve - (reserve - 0.4 / 3.0)).abs() < 0.00001);
+        assert!((state.heat - (heat + 0.4 / 3.0)).abs() < 0.00001);
         assert!(state.velocity[1] < -20.0);
     }
 
@@ -999,15 +989,15 @@ mod tests {
                     }
                 }
                 assert!((speed(&state) - 30.0 * air_control).abs() < 0.001);
-                assert_eq!(state.boost_reserve, 1.0);
+                assert_eq!(state.heat, 0.0);
             }
         }
     }
 
     #[test]
-    fn heat_mirrors_the_boost_reserve_with_the_same_rates() {
+    fn heat_rises_while_boosting_and_boost_never_cuts_out() {
         let mut state = racer();
-        assert_eq!(state.heat(), 0.0);
+        assert_eq!(state.heat, 0.0);
         let held = Input {
             throttle: 1.0,
             boost: true,
@@ -1016,19 +1006,25 @@ mod tests {
         for _ in 0..720 {
             tick(&mut state, held);
         }
-        assert!(state.heat() >= HEAT_WARN - 0.001 && state.heat() < 0.85, "6 s of boost reaches the warning zone");
+        assert!(state.heat >= HEAT_WARN - 0.001 && state.heat < 0.85, "6 s of boost reaches the warning zone");
         for _ in 0..180 {
             tick(&mut state, held);
         }
-        assert!((state.heat() - 1.0).abs() < 0.00001, "7.5 s of boost overheats");
+        assert!((state.heat - 1.0).abs() < 0.00001, "7.5 s of boost overheats");
+        let capped = speed(&state);
+        for _ in 0..240 {
+            tick(&mut state, held);
+        }
+        assert_eq!(state.heat, 1.0, "heat caps at 1.0");
+        assert!(speed(&state) >= capped - 0.001, "boost never cuts out at full heat");
         for _ in 0..600 {
             tick(&mut state, Input::default());
         }
-        assert!((state.heat() - BOOST_RECHARGE_PER_SEC * 5.0).abs() < 0.001, "cooling is 10 s from full");
+        assert!((state.heat - HEAT_COOL_PER_SEC * 5.0).abs() < 0.001, "cooling is 10 s from full");
     }
 
     #[test]
-    fn airborne_boost_from_rest_preserves_gravity_and_reserve_rules() {
+    fn airborne_boost_from_rest_preserves_gravity_and_heat_rules() {
         for hz in [30, 60, 144] {
             for air_control in [0.0, 0.9] {
                 let tuning = Tuning {
@@ -1054,9 +1050,9 @@ mod tests {
                 }
                 assert!((speed(&normal) - tuning.acceleration * air_control).abs() < 0.001);
                 assert!((speed(&boosted) - (tuning.acceleration + tuning.boost_acceleration) * air_control).abs() < 0.001);
-                let expected = if air_control > 0.0 { 1.0 - 0.4 / 3.0 } else { 1.0 };
-                assert!((boosted.boost_reserve - expected).abs() < 0.00001);
-                assert_eq!(normal.boost_reserve, 1.0);
+                let expected = if air_control > 0.0 { 0.4 / 3.0 } else { 0.0 };
+                assert!((boosted.heat - expected).abs() < 0.00001);
+                assert_eq!(normal.heat, 0.0);
             }
         }
     }
@@ -1065,14 +1061,14 @@ mod tests {
     fn airborne_braking_reverse_and_idle_do_not_spend_boost() {
         for (throttle, brake) in [(1.0, true), (-1.0, false), (0.0, false)] {
             let mut boosted = State::new([0.0, 100.0, 0.0], 0.0).unwrap();
-            boosted.boost_reserve = 0.4;
+            boosted.heat = 0.6;
             let mut normal = boosted;
             for _ in 0..60 {
                 let input = Input { throttle, brake, boost: true, ..Input::default() };
                 boosted.step(input, [None; 4], FIXED_DT).unwrap();
                 normal.step(Input { boost: false, ..input }, [None; 4], FIXED_DT).unwrap();
                 assert_eq!(boosted.velocity, normal.velocity);
-                assert_eq!(boosted.boost_reserve, 0.4);
+                assert_eq!(boosted.heat, 0.6);
             }
         }
     }
@@ -1092,7 +1088,7 @@ mod tests {
     }
 
     #[test]
-    fn boost_and_normal_speed_and_reserve_are_bounded() {
+    fn boost_and_normal_speed_and_heat_are_bounded() {
         let mut normal = racer();
         let mut boosted = racer();
         let mut peak: f32 = 0.0;
@@ -1115,16 +1111,16 @@ mod tests {
             peak = peak.max(speed(&boosted));
             assert!(speed(&normal) <= MAX_SPEED + 0.0001);
             assert!(speed(&boosted) <= BOOST_MAX_SPEED + 0.0001);
-            assert!((0.0..=1.0).contains(&boosted.boost_reserve));
+            assert!((0.0..=1.0).contains(&boosted.heat));
             if frame == 119 {
                 assert!(speed(&boosted) > speed(&normal) * 1.8);
             }
         }
-        assert_eq!(boosted.boost_reserve, 0.0);
+        assert_eq!(boosted.heat, 1.0);
         for _ in 0..1200 {
             tick(&mut boosted, Input::default());
         }
-        assert!((boosted.boost_reserve - 1.0).abs() < 0.00001);
+        assert!(boosted.heat.abs() < 0.00001);
         println!("normal top={:.3}, boost peak={peak:.3}", speed(&normal));
     }
 
@@ -1224,7 +1220,7 @@ mod tests {
             assert_eq!(state, original);
         }
         let mut invalid = original;
-        invalid.boost_reserve = 2.0;
+        invalid.heat = 2.0;
         assert_eq!(
             invalid.step(Input::default(), [None; 4], FIXED_DT),
             Err(StepError::InvalidState)
@@ -1233,7 +1229,7 @@ mod tests {
             invalid.reset([f32::NAN, 0.0, 0.0], 0.0),
             Err(StepError::InvalidState)
         );
-        assert_eq!(invalid.boost_reserve, 2.0);
+        assert_eq!(invalid.heat, 2.0);
         let mut invalid = original;
         invalid.velocity[0] = f32::NAN;
         assert_eq!(

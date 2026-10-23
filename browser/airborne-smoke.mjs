@@ -34,11 +34,11 @@ try{
     assert.equal(end[7],0,'The measured interval stays airborne');
     assert.equal(end[8],0,'Thrust must not hold the falling vehicle');
     assert(end[5]>5&&drop>1,'Forward motion and gravity must both continue');
-    if(boost)assert(end[6]<.9,'Airborne boost consumes reserve');
-    else assert.equal(end[6],1,'Ordinary air thrust does not consume boost');
-    results.push({boost,speed:end[5],drop,reserve:end[6],rate:end[5]/Math.sqrt(drop)});
+    if(boost)assert(end[6]>.05,'Airborne boost builds heat '+end[6]);
+    else assert.equal(end[6],0,'Ordinary air thrust does not build heat');
+    results.push({boost,speed:end[5],drop,heat:end[6],rate:end[5]/Math.sqrt(drop)});
   }
-  assert(results[1].rate>results[0].rate*1.6,'Boost adds thrust, not just reserve consumption');
+  assert(results[1].rate>results[0].rate*1.6,'Boost adds thrust, not just heat');
   assert.deepEqual(errors,[]);
   await mkdir(new URL('./test-results/airborne/',import.meta.url),{recursive:true});
   await writeFile(new URL('./test-results/airborne/functional.json',import.meta.url),JSON.stringify(results,null,2));
