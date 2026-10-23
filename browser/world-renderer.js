@@ -434,6 +434,16 @@ export class WorldRenderer {
     if(!w)return;
     w.vertices.destroy();for(const p of w.parts)p.asset.indices.destroy();
   }
+  // Preview tooling (race-gate-preview.js): static scenery drawn through the craft path; not used by gameplay.
+  setProps(list) {
+    for(const p of this.props||[])this.destroyCraft(p.craft);
+    this.props=list.map((p,i)=>{
+      const craft=this.buildCraft({asset:p.asset,textures:p.textures,metadata:{display:0,scale:p.scale||1,pose:'prop',exhausts:[],
+        posedAttachment0:{space:'model-local',pose:'stand-frame-0',position:[0,0,0]}}},0,`prop:${i}`,2000000);
+      craft.instance={id:`prop:${i}`,key:`prop:${i}`,craft:true};
+      return {craft,pos:p.pos,yaw:p.yaw||0,scale:p.scale||1,space:p.space||'world'};
+    });
+  }
   setCraftOverride(model) {
     const next=model?this.buildCraft(model,0,model.key,120000):undefined;
     this.destroyCraft(this.override);this.override=next;this.craft=next??this.dataCraft;
@@ -882,6 +892,9 @@ export class WorldRenderer {
     if(wreckFrameNow)this.wreck.parts.forEach((p,i)=>append(p.asset,p.instance,partMatrix(wreckFrameNow.subarray(i*7,i*7+7),p.center,this.wreck.scale,origin),this.craft.textures,this.craft.items));
     else if((!flight||this.showCraftInFlight)&&this.craft&&this.cameraMode!=='cockpit')append(this.craft.asset,this.craft.instance,
       craftMatrix(state,origin,this.craft.metadata.scale),this.craft.textures,this.craft.items);
+    for(const p of this.props||[]){const c=Math.cos(p.yaw),s=Math.sin(p.yaw),k=p.scale;
+      append(p.craft.asset,p.craft.instance,p.space==='craft'?craftMatrix([p.pos[0],p.pos[1],p.pos[2],p.yaw,0],origin,k):
+        new Float32Array([c*k,0,-s*k,0,0,k,0,0,s*k,0,c*k,0,p.pos[0]-origin[0],p.pos[1],p.pos[2]-origin[1],1]),p.craft.textures,p.craft.items);}
     if(!this.wreck&&!flight&&this.craft?.flame&&this.cameraMode!=='cockpit') {
       const m=craftMatrix(state,origin,this.craft.metadata.scale),k=(.35+.9*Math.min(1,Math.abs(state[5])/150))*(1+.08*Math.sin(time*45));
       for(const part of this.craft.flame.parts) {
