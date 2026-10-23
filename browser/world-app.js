@@ -636,7 +636,7 @@ function frame(now) {
     syncGates();
     if(!frozenPresentation&&!locked)client.frame(dt,controls.throttle,controls.steer,controls.flags,flight?.slice(0,3),settings.distant,renderer.view);
     cameraCollision.frame(client.state,renderer.sceneRegion ?? client.state.telemetry[10]);
-    renderer.fxInput={throttle:Math.max(0,controls.throttle),boosting:(controls.flags&2)!==0,heat:dial?client.state.telemetry[6]:0,drifting:(controls.flags&4)!==0};
+    renderer.fxInput={throttle:Math.max(0,controls.throttle),boosting:(controls.flags&2)!==0,heat:dial?client.state.telemetry[6]:0,health:[client.state.telemetry[15]??1,client.state.telemetry[16]??1],drifting:(controls.flags&4)!==0};
     const stats=renderer.draw(frozenPresentation || flight?client.state.telemetry:client.presentation(),flight,dt,frozenPresentation?0:now/1000,
       {...settings,cameraLook:controls.look,cameraOrbit,cameraSteer:right,cameraRecentre:keyDrive&&!dragging},keys.has('KeyV')&&!keys.has('AltLeft')&&!keys.has('AltRight'));
     editor.frame();
@@ -727,7 +727,7 @@ async function start() {
         $('permission').textContent='Click to allow reading your remembered folder.';}
     }
     if(new URLSearchParams(location.search).has('test'))window.worldTest={restore:pose=>client.request('restore',{pose}).then(s=>{client.state=s;flight=undefined;renderer.camera=undefined;running=true;return s.telemetry;}),particles:()=>renderer.particles,testCrash,wreck:()=>renderer.wreck&&{frames:renderer.wreck.frames.length,connected:renderer.wreck.connected,parts:renderer.wreck.parts.length},startRace,selectVehicle,tracks:()=>tracks,raceObj:()=>race,heldLoops:()=>Object.values(audio.held||{}).map(h=>h?.name).filter(Boolean),raceInfo:()=>race&&{state:race.state,next:race.next,finishing:race.finishing,gates:race.track.gates.length},choice:()=>choice,
-      focus:pose=>{flight=pose.slice();},props:list=>renderer.setProps(list),propModel:path=>client.request('prop-model',{path}),swe1rModel:(index,scale)=>loadPodModel(getSwe1r(),{index,scale}),mockGates:list=>{for(const g of renderer.gates)renderer.release(g);renderer.gates=list.map(({vertices,pos})=>renderer.drawable(vertices,pos));renderer.terrainView=undefined;},settings:o=>Object.assign(settings,o),showCraft:v=>{renderer.showCraftInFlight=v;},
+      focus:pose=>{flight=pose.slice();},props:list=>renderer.setProps(list),beamFx:o=>{renderer.fxOverride=o;},propModel:path=>client.request('prop-model',{path}),swe1rModel:(index,scale)=>loadPodModel(getSwe1r(),{index,scale}),mockGates:list=>{for(const g of renderer.gates)renderer.release(g);renderer.gates=list.map(({vertices,pos})=>renderer.drawable(vertices,pos));renderer.terrainView=undefined;},settings:o=>Object.assign(settings,o),showCraft:v=>{renderer.showCraftInFlight=v;},
       instances:()=>renderer.instances.filter(i=>i.kind==='group').slice(0,8),
       npcs:()=>renderer.instances.filter(i=>i.id.includes(':npc:')).slice(0,5),
       request:async(action,fields)=>{const s=await client.request(action,fields);if(s.telemetry)client.state=s;return s;},

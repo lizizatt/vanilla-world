@@ -47,6 +47,10 @@ export function decodeTriangles(body, mesh) {
 // u/4096 = 0..1 spans the whole texture, so a 16x128 strip is not tiled 8x.
 const UV_RANGE = 4096;
 
+// The energy binder: a 2-triangle 64x16 pink-arc quad strung between the engines in 23 of 25 racer pods (none in 260 and 268).
+// The model data carries no scroll/animation for it, so the web renderer animates it (see beam.js).
+export const BEAM_TEXTURE = 815;
+
 // opts.texture(t) -> { width, height, rgba } | null. Returns { asset, textures, bounds }; coordinates are the model's own
 // (callers map axes and scale).
 export function buildPod(body, mask, opts = {}) {
@@ -79,7 +83,8 @@ export function buildPod(body, mask, opts = {}) {
         });
       }
     }
-    if (indices.length > first) batches.push({ firstIndex: first, indexCount: indices.length - first, texture: key, ...alphaMode(textures.get(key)), doubleSided: true, wrapX: true, wrapY: true, emissive: 0 });
+    const beam = key === `swe1r\\${BEAM_TEXTURE}`;
+    if (indices.length > first) batches.push({ firstIndex: first, indexCount: indices.length - first, texture: key, ...alphaMode(textures.get(key)), doubleSided: true, wrapX: true, wrapY: true, emissive: 0, ...(beam && { beam: true, blend: 'add', emissive: 1 }) });
   }
   return { asset: { vertices: new Float32Array(vertices), indices: new Uint32Array(indices), batches }, textures: [...textures.values()], bounds: { lo, hi }, meshCount: meshes.length };
 }
