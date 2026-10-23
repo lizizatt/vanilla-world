@@ -510,6 +510,16 @@ function toggleEditor() {
   editor.open(client.state.telemetry.slice(0,3));
 }
 let flagKey;
+// Rest each prop on the terrain: lowest ground under its centre and both ends of its span (ground-fade hides the sunk part).
+async function settleGates(list,key) {
+  try {
+    const pts=list.flatMap(d=>{const [x,,z]=d.at,h=(d.width||0)/2,c=Math.cos(d.yaw),s=Math.sin(d.yaw);return [[x,z],[x+c*h,z-s*h],[x-c*h,z+s*h]];});
+    const g=await probeSurface(pts);
+    if(key!==gateKey)return;
+    const fixed=list.map((d,i)=>{const y=Math.min(g[3*i][1],g[3*i+1][1],g[3*i+2][1]);return {...d,at:[d.at[0],Number.isFinite(y)?y:d.at[1],d.at[2]]};});
+    renderer.setProps(sceneProps(fixed,gateKit));
+  } catch {}
+}
 function syncGates(force) {
   const live=editor.isOpen?tracks:tracksFor(tracks,choice.vehicle);
   if(!editor.isOpen){
@@ -517,6 +527,7 @@ function syncGates(force) {
     if(!force&&key===gateKey)return;
     gateKey=key;flagKey=undefined;
     renderer.setGates([]);renderer.setFlags([]);renderer.setProps(sceneProps(list,gateKit));
+    void settleGates(list,key);
     return;
   }
   const key=live.map(t=>t.id).join()+'|'+(race?race.track.id+':'+race.next:'')+'|'+editor.draft.id+':'+editor.draft.revision+':'+editor.selected;
