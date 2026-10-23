@@ -9,7 +9,7 @@ export const ACTOR = Object.freeze({
   maxGroups: 32,
   maxModels: 32,
   phases: 3,
-  tickMs: 100,
+  tickMs: 40,
   budgetMs: 2,
   maxBytes: 8 * 1024 * 1024,
   retryMs: 5000,
@@ -118,8 +118,12 @@ export class ActorService {
     if (this.closed || !focus) return;
     const start = this.now(), groups = this.enabled ? this.select(instances, focus) : new Map(), poses = [], transfers = [];
     const seconds = start / 1000;
-    for (const [id, g] of groups) {
-      if (this.now() - start >= ACTOR.budgetMs && poses.length) break;
+    // Rotate the start so a spent budget starves different groups each tick instead of always the farthest.
+    const list = [...groups], at = list.length ? (this.cursor = (this.cursor ?? -1) + 1) % list.length : 0;
+    let done = 0;
+    for (const [id, g] of [...list.slice(at), ...list.slice(0, at)]) {
+      if (this.now() - start >= ACTOR.budgetMs && done) break;
+      done++;
       const walking = g.phase >= ACTOR.phases, offset = (g.phase % ACTOR.phases) * (walking ? g.model.walk : g.model.duration) / ACTOR.phases;
       let vertices;
       try { vertices = g.model.actor.pose(walking ? 4 : 0, walking ? seconds * g.rate + offset : seconds + offset); }

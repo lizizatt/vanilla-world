@@ -53,3 +53,12 @@ test('disabling animation removes every pose and posts nothing new',async()=>{
   assert.ok(posts.at(-1)[0].removed.length>0&&posts.at(-1)[0].poses.length===0);
   const n=posts.length;s.update([inst(1,0)],[0,0]);assert.equal(posts.length,n);
 });
+test('a spent pose budget rotates which groups are served',async()=>{
+  let clock=0;const posts=[];
+  const s=new ActorService({read:async()=>new Uint8Array(1)},fakeWasm(),m=>posts.push(m),()=>(clock+=3));
+  const list=[inst(1,0,{key:'a'}),inst(2,1,{key:'b'}),inst(3,2,{key:'c'})];
+  s.update(list,[0,0]);await settle();s.update(list,[0,0]);await settle();posts.length=0;
+  for(let i=0;i<3;i++)s.update(list,[0,0]);
+  const served=new Set(posts.flatMap(p=>p.poses?.map(x=>x.key)??[]));
+  assert.ok(served.size>1,[...served].join());
+});
