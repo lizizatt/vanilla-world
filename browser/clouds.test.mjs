@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {CLOUD_ALTITUDE,CLOUD_ALTITUDE_FACTOR,HYJAL_SUMMIT,MAELSTROM,FUNNEL,cloudShader,cloudUniform,funnelShader,maelstromCentre,sunDirection} from './clouds.js';
+import {CLOUD_ALTITUDE,CLOUD_ALTITUDE_FACTOR,HYJAL_SUMMIT,MAELSTROM,FUNNEL,cloudShader,cloudUniform,funnelShader,maelstromCentre,sunDirection,cloudShaderHigh,bakeCloudNoise} from './clouds.js';
 
 const manifest={ocean:[5333,-17600,13525,17066],world_bounds:[[0,0,51,56],[24,20,45,62]],
   regions:[{placement:[-21866,-17600]},{placement:[725,-16000]}]};
@@ -45,4 +45,17 @@ test('sun direction follows the half-minute clock and lighting reaches the cloud
   const u=cloudUniform(view,0,1,manifest,0,{cloud:[.1,.2,.3],fog:[.4,.5,.6],sun:[.9,.8,.7],cloud2:[.2,.3,.4]},undefined,2160);
   assert.ok(Math.abs(u[32]-dusk[0])<1e-6);assert.ok(Math.abs(u[36]-.9)<1e-6);assert.ok(Math.abs(u[40]-.2)<1e-6&&u[43]===1);
   assert.match(cloudShader,/cloud2:vec4f/);assert.match(cloudShader,/fn silver/);
+});
+test('high tier adds noise texture bindings, 16 steps and a sun light tap; standard stays texture-free',()=>{
+  assert.match(cloudShaderHigh,/texture_3d<f32>/);assert.match(cloudShaderHigh,/const NS=20/);assert.match(cloudShaderHigh,/let shade=mix/);
+  assert.doesNotMatch(cloudShader,/texture_3d/);assert.match(cloudShader,/const NS=8/);assert.match(cloudShader,/let shade=1\.0/);
+});
+
+test('baked cloud noise is deterministic, spans the range and tiles',()=>{
+  const a=bakeCloudNoise(16),b=bakeCloudNoise(16);
+  assert.equal(a.length,16*16*16*2);assert.deepEqual(a,b);
+  assert.ok(Math.max(...a)>170&&Math.min(...a)<85);
+  // Wrapped lattice: the lowest-frequency channel varies smoothly across the seam.
+  const at=(x,y,z)=>a[((z*16+y)*16+x)*2];
+  assert.ok(Math.abs(at(15,3,3)-at(0,3,3))<60);
 });

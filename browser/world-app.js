@@ -43,7 +43,7 @@ let choice=bootChoice(),tracks=[],race,raceBest,promptTrack,goUntil=0,boardTimer
 const raceAgain=()=>againTrack&&performance.now()<againUntil?againTrack:undefined;
 let renderer,folder,flight,running=false,busy=false,last=0,frames=0,hudTime=0,hudFrames=0,permissionNeeded=false;
 let orbit=[0,0],dragging=false,mouseButtons=0,soundAttempt=0,soundError='',soundTime=0,reportTimer,testPads,frozenPresentation=false,tuningValues=TUNING_FIELDS.map(f=>f[1]);
-const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:true,cockpit:false,night:false,clouds:true,music:true,particles:'medium',animateNpcs:true};
+const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:true,cockpit:false,night:false,clouds:true,cloudQuality:'standard',music:true,particles:'medium',animateNpcs:true};
 const settings={...defaults};
 const gib={on:true,speed:100,overheat:true},gibMem={};
 try{gib.on=localStorage.getItem('racer.gib')!=='0';gib.overheat=localStorage.getItem('racer.overheat')!=='0';gib.durable=localStorage.getItem('racer.durability')!=='0';gib.speed=Math.max(20,Math.min(400,Number(localStorage.getItem('racer.gibSpeed'))||100));}catch{}
@@ -127,7 +127,7 @@ function enabled(value) {
 }
 function syncSettings() {
   for(const key of ['horizon','scenery','distant','sound','night','clouds'])$(key).checked=settings[key];
-  $('particles').value=settings.particles;$('animate-npcs').checked=settings.animateNpcs;
+  $('particles').value=settings.particles;$('cloud-quality').value=settings.cloudQuality;$('animate-npcs').checked=settings.animateNpcs;
   music.setNight(settings.night);music.setEnabled(settings.music);$('music-on').checked=settings.music;
   $('control-profile').value=settings.controls;$('camera-distance').value=settings.cameraDistance;
   $('keyboard-guide').textContent=settings.controls==='legacy'
@@ -318,6 +318,7 @@ $('scenery').addEventListener('change',()=>{settings.scenery=$('scenery').checke
 $('clouds').addEventListener('change',()=>{settings.clouds=$('clouds').checked;});
 $('animate-npcs').addEventListener('change',()=>{settings.animateNpcs=$('animate-npcs').checked;client.animate(settings.animateNpcs);try{localStorage.setItem('racer.animateNpcs',settings.animateNpcs?'1':'0');}catch{}});
 $('particles').addEventListener('change',()=>{settings.particles=$('particles').value;});
+$('cloud-quality').addEventListener('change',()=>{settings.cloudQuality=$('cloud-quality').value;});
 $('distant').addEventListener('change',()=>{settings.distant=$('distant').checked;});
 function setNight(night) {
   settings.night=night;syncSettings();
