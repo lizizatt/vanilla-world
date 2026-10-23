@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { decodeTrimmed, resolveModels, loadPopulation } from './npc-pack.js';
+import { decodeTrimmed, resolveModels, loadPopulation, addGeosets } from './npc-pack.js';
 import { validatePopulation } from './scene-stream.js';
 import { npcPack } from './build-dist.mjs';
 
@@ -48,4 +48,14 @@ test('dist includes the trimmed pack only when asked, only if present, and never
   assert.ok(await npcPack({ INCLUDE_NPC_PACK: '1' }, path));
   await writeFile(path, JSON.stringify({ version: 1, provenance: { redistribution: 'private-local-only' }, spawns: [] }));
   await assert.rejects(npcPack({ INCLUDE_NPC_PACK: '1' }, path), /non-trimmed/);
+});
+
+test('humanoid geosets attach to character models only, validate, and failures keep the pack', async () => {
+  const mk = () => ({ models: { 1: { path: 'character\\human\\male\\humanmale.m2', scale: 1, skins: [null, null, null, null] }, 2: { path: 'creature\\a\\a.m2', scale: 1, skins: [] } }, spawns: [] });
+  const ok = await addGeosets(mk(), source, { scene_character_geosets: (_m, _d, _e, _i, ids) => JSON.stringify({ [ids[0]]: [0, 1, 1301] }) });
+  assert.deepEqual(ok.models[1].geosets, [0, 1, 1301]);
+  assert.equal(ok.models[2].geosets, undefined);
+  assert.equal((await addGeosets(mk(), source, {})).models[1].geosets, undefined);
+  const bad = { version: 1, provenance: { source: 's', redistribution: 'private-local-only' }, models: { 1: { path: 'a.m2', scale: 1, skins: [], geosets: [-1] } }, spawns: [] };
+  assert.throws(() => validatePopulation(bad), /Invalid NPC model/);
 });

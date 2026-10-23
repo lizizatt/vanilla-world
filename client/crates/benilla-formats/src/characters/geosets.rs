@@ -26,6 +26,11 @@ pub struct VisibleGeosets {
 }
 
 impl VisibleGeosets {
+    /// The selected managed geoset ids, sorted; every id above 1700 is shown as well.
+    pub fn ids(&self) -> &[u16] {
+        &self.selected
+    }
+
     /// Whether a model submesh survives the character compositor's geoset selection.
     pub fn contains(&self, geoset_id: &u16) -> bool {
         *geoset_id > 1700 || self.selected.contains(geoset_id)
@@ -61,6 +66,11 @@ pub struct EquipGeosets {
 }
 
 impl CharacterGeosets {
+    /// No customization tables: every group shows its bare base (scalp, clean-shaven, ears).
+    pub fn empty() -> Self {
+        Self { hair: HashMap::new(), facial: HashMap::new(), helmet_vis: HashMap::new() }
+    }
+
     /// The geosets (`skinSectionId`s) this appearance draws, sorted and deduplicated: the naked
     /// set, then the eight equipment branches B1–B8 of `0x477520`. Use
     /// [`VisibleGeosets::contains`] to retain unmanaged IDs above 1700.
