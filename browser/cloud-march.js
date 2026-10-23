@@ -4,7 +4,7 @@
 // noise (the texture is baked from the same kind of value noise), so High geometry (towers, 28 steps, light tap) is covered, its noise is not.
 import {CLOUD_ALTITUDE,CLOUD_THICKNESS,CLOUD_HALF_SIZE,CLOUD_TOWER,MAELSTROM as M,sunDirection} from './clouds.js';
 
-export const FADE_START=30000,FOG_RANGE=150000,MIN_SPAN=9000,SPAN_PER_DISTANCE=.3,MIN_DIR_Y=.0005;
+export const FADE_START=30000,FOG_RANGE=150000,MIN_SPAN=9000,MIN_SPAN_HIGH=40000,SPAN_PER_DISTANCE=.3,MIN_DIR_Y=.0005;
 export const steps=high=>high?28:8;
 const clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
 const mix=(a,b,t)=>a+(b-a)*t;
@@ -28,7 +28,7 @@ export function extent(eyeY,dirY,sceneDist,high,far=CLOUD_HALF_SIZE,legacy=false
   if(legacy)return extentLegacy(eyeY,dirY,sceneDist,high,ya,yb);
   const dy=Math.abs(dirY)<MIN_DIR_Y?(dirY>=0?MIN_DIR_Y:-MIN_DIR_Y):dirY;
   const ta=(ya-eyeY)/dy,tb=(yb-eyeY)/dy;
-  const s0=Math.max(0,Math.min(ta,tb)),full=Math.max(ta,tb),cap=s0+Math.max(MIN_SPAN,SPAN_PER_DISTANCE*s0);
+  const s0=Math.max(0,Math.min(ta,tb)),full=Math.max(ta,tb),cap=s0+Math.max(high?MIN_SPAN_HIGH:MIN_SPAN,SPAN_PER_DISTANCE*s0);
   let s1=Math.min(full,cap),sEdge=1;
   if(sceneDist<1e8){sEdge=smoothstep(0,350,sceneDist-s0);s1=Math.min(s1,sceneDist);}
   const ns=s1>s0&&sEdge>0&&s0<far?steps(high):0;

@@ -142,7 +142,7 @@ const NF=14;
   // Near-horizontal rays are clamped to a minimum slope so the horizon has no gap; a march cut by the span cap fades out instead of ending hard.
   let dy=select(select(-.0005,.0005,dir.y>=0.0),dir.y,abs(dir.y)>=.0005);
   let ta=(ya-c.eye.y)/dy;let tb=(yb-c.eye.y)/dy;
-  s0=max(0.0,min(ta,tb));let sFull=max(ta,tb);let sCap=s0+max(9000.0,.3*s0);s1=min(sFull,sCap);
+  s0=max(0.0,min(ta,tb));let sFull=max(ta,tb);let sCap=s0+max(${high?"40000.0":"9000.0"},.3*s0);s1=min(sFull,sCap);
   if(sceneDist<1e8){sEdge=smoothstep(0.0,350.0,sceneDist-s0);s1=min(s1,sceneDist);}
   capped=sFull>sCap&&s1==sCap;let cutK=smoothstep(0.0,.5,(sFull-sCap)/max(sCap-s0,1.0));
   if(s1>s0&&sEdge>0.0&&s0<c.cloud.w){ns=NS;}
