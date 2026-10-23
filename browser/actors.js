@@ -102,7 +102,7 @@ export class ActorService {
     try {
       const bytes = await this.source.read(instance.path, { background: true });
       if (this.closed) return;
-      const actor = this.wasm.SceneActor.create(bytes, instance.path, JSON.stringify(instance.skins || []));
+      const actor = this.wasm.SceneActor.create(bytes, instance.path, JSON.stringify(instance.skins || []), instance.geosets && JSON.stringify(instance.geosets));
       const duration = actor.duration(0);
       if (!(duration > 0)) { actor.free(); retry(Infinity); this.stats.failed++; this.stats.last = `no stand clip: ${instance.path}`; return; }
       const walk = actor.duration(4), walkSpeed = walk > 0 ? (actor.move_speed?.(4) ?? 0) : 0;

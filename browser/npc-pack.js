@@ -23,14 +23,28 @@ export async function resolveModels(pack, source, wasm) {
   return { ...pack, models: map, spawns: pack.spawns.filter(s => Object.hasOwn(map, s.displayId)) };
 }
 
+// Humanoid geoset ids (one variant per group, trousers unless the NPC's robe/skirt equipment says otherwise) from the user's own DBCs.
+// Failure only means bare bind-pose bases, never a lost pack.
+export async function addGeosets(pack, source, wasm) {
+  try {
+    const humanoids = Object.entries(pack.models).filter(([, m]) => /^character\\/i.test(m.path)).map(([id]) => Number(id));
+    if (!humanoids.length) return pack;
+    const [models, displays, extra, items] = await Promise.all(["CreatureModelData", "CreatureDisplayInfo", "CreatureDisplayInfoExtra", "ItemDisplayInfo"]
+      .map(n => source.read(`${DBC}${n}.dbc`).catch(() => new Uint8Array())));
+    const map = JSON.parse(wasm.scene_character_geosets(models, displays, extra, items, Uint32Array.from(humanoids)));
+    for (const [id, g] of Object.entries(map)) if (pack.models[id]) pack.models[id].geosets = g;
+  } catch { /* bare bases */ }
+  return pack;
+}
+
 // Private pack first (loopback only), then the hosted trimmed pack. Absent or HTML-fallback responses mean no creatures, never an error.
 export async function loadPopulation({ fetchFn = fetch, loopback, source, wasm }) {
   if (loopback) {
     const r = await fetchFn('./local/npc-spawns.json').catch(() => undefined);
-    if (json(r)) { const pack = await r.json().catch(() => undefined); if (pack) return pack; }
+    if (json(r)) { const pack = await r.json().catch(() => undefined); if (pack) return addGeosets(pack, source, wasm); }
     else if (r && r.status >= 500) throw new Error(`Private NPC companion failed: HTTP ${r.status}`);
   }
   const r = await fetchFn(PUBLIC_PACK_URL).catch(() => undefined);
   if (!json(r)) return undefined;
-  try { return await resolveModels(decodeTrimmed(await r.json()), source, wasm); } catch { return undefined; }
+  try { return await addGeosets(await resolveModels(decodeTrimmed(await r.json()), source, wasm), source, wasm); } catch { return undefined; }
 }

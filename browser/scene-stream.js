@@ -16,7 +16,7 @@ export function modelPath(path) {
   return normalized;
 }
 const EMPTY_SKINS = Object.freeze([]);
-const modelKey = (kind, p) => `${kind}:${p.path}:${JSON.stringify(p.skins || EMPTY_SKINS)}`;
+const modelKey = (kind, p) => `${kind}:${p.path}:${JSON.stringify(p.skins || EMPTY_SKINS)}${p.geosets ? `:${p.geosets.join(",")}` : ""}`;
 
 const identity = () => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 export function multiply(a, b) {
@@ -420,7 +420,7 @@ export class SceneStream {
       if(!entries){entries=new Map();this.placementInstances.set(matrix,entries);}
       let instance=entries.get(id);
       if(!instance) {
-        instance={id,key:p.key,matrix,kind,path:p.path,skins:p.skins||EMPTY_SKINS,rootKey};
+        instance={id,key:p.key,matrix,kind,path:p.path,skins:p.skins||EMPTY_SKINS,geosets:p.geosets,rootKey};
         entries.set(id,instance);
       }
       instance.bounds=bounds;instance.boundsKnown=boundsKnown;instance.score=score;instance.distant=distant;
@@ -530,7 +530,7 @@ export class SceneStream {
           boundsWithin(i.bounds, position, i.boundsKnown ? collisionRadius : Math.max(32, collisionRadius),
             i.boundsKnown ? collisionVerticalRadius : Math.max(32, collisionVerticalRadius))) {
           keep.add(i.key);
-          want(i.key,{kind:i.kind,path:i.path,skins:i.skins,rootKey:i.rootKey,
+          want(i.key,{kind:i.kind,path:i.path,skins:i.skins,geosets:i.geosets,rootKey:i.rootKey,
             collisionScore:i.collisionScore,required:true},i.score,false);
           if (i.rootKey) { keep.add(i.rootKey); requests.get(i.rootKey).required = true; }
         }
@@ -589,7 +589,7 @@ export class SceneStream {
     const keep = new Set(this.instances.map(i => i.key));
     if(mode!=='visual')requireCollisions(keep);
     for (const [visualRank,i] of this.instances.entries()) {
-      want(i.key,{kind:i.kind,path:i.path,skins:i.skins,rootKey:i.rootKey,
+      want(i.key,{kind:i.kind,path:i.path,skins:i.skins,geosets:i.geosets,rootKey:i.rootKey,
         collisionScore:i.collisionScore,visualRank},i.score,i.distant);
       const request = requests.get(i.key);
       if(this.visualOnly&&discoveryKeys.has(i.key))request.discovery=true;
@@ -819,7 +819,7 @@ export class SceneStream {
     }
     const handle = request.kind === 'group'
       ? this.cache.get(request.rootKey).value.handle.group(bytes)
-      : this.wasm.SceneModel.m2(bytes, request.path, JSON.stringify(request.skins));
+      : this.wasm.SceneModel.m2(bytes, request.path, JSON.stringify(request.skins), request.geosets && JSON.stringify(request.geosets));
     const value = extractModel(handle,!this.visualOnly);
     return { value, bytes: modelBytes(value) };
     } finally { this.timings.decodeMs += performance.now()-decodeStart; this.timings.loads++; }
@@ -889,7 +889,8 @@ export function validatePopulation(pack) {
     model.path = modelPath(model.path);
     if (!Number.isFinite(model.scale) || model.scale <= 0 || model.scale > 100
         || !Array.isArray(model.skins) || model.skins.length > 4
-        || model.skins.some(s => s !== null && (typeof s !== 'string' || s.length > 1024))) throw new Error('Invalid NPC model');
+        || model.skins.some(s => s !== null && (typeof s !== 'string' || s.length > 1024))
+        || (model.geosets !== undefined && (!Array.isArray(model.geosets) || model.geosets.length > 256 || model.geosets.some(g => !Number.isInteger(g) || g < 0 || g > 65535)))) throw new Error('Invalid NPC model');
     model.key = modelKey('m2', model);
   }
   const chunks = new Map(), ids = new Set();
