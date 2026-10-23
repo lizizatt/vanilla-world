@@ -4,16 +4,34 @@ Reference: one 596x335 in-game screenshot supplied by the user (not stored here)
 measurements of that frame (so x/596, y/335 fractions) plus what the local `lev01 out_spriteblock.bin`
 sprite index shows. Nothing is copied from the game.
 
-## What the sprite data does and does not say
+## What the sprite data says (corrected)
 
-- Sprite block indices 0-127 contain: 28/29 (64x64 RGBA32 ring/disc, circular), 30/32 (tan face and second
-  ring), 31/33/34 (glow/star), 35 (48x8 grey strip), 19-21 (countdown digits).
-- No oval-dial sprite and no tall engine-panel sprite was identified in 0-127. The oval dial and the
-  engine panels in the screenshot are therefore **not confirmed to be sprites** (they may be tiled/composed
-  from other blocks or drawn from textured quads). Layout below is measured from the screenshot, not from
-  game data. The SWE1R-folder path keeps using sprites 28/29 and 30/32 where they apply.
+An earlier revision claimed no dial/panel sprite exists; that was wrong. `decodeSprite` ignored the N64 TMEM
+row padding (rows padded to 8 bytes; 16 px for 4-bit, 2 px for RGBA32), so non-multiple-of-8 sprites were
+garbled (fixed in 31ce229). In `lev01 out_spriteblock.bin` (179 sprites) the **block index equals the
+swrSprite_NAME id** from the community RE enum (reference only, AGPL SW_RACER_RE; nothing copied). HUD pieces:
+
+| id | size | RE name | role |
+|---|---|---|---|
+| 40/41/42 | 26x63 etc | hudframe_top/mid/btm | vertical frame struts |
+| 43 | 91x3 | speedbar | thin tick strip |
+| 46/47/48/49 | ~27x62 | engdisp0..3 | engine-module icons for the bottom-left cluster (6 damage modules + 2 cooling, per swrRace_InRaceEngineUI) |
+| 99 | ~34x34 | dial_gradient | red->blue half-ring ramp (the arc colour ramp; coloured, not fixed purple) |
+| 101 | ~16x16 | dial_lightflash | white lamp dot |
+| 102/103/104 | | dial_speed_edge_blue / mid_blue / speed_wire | speed readout frame pieces |
+| 105-108 | | dial_time_wire / top_h_wire / trakmid / traktop | top row (lap/time/pos) wires |
+| 166 | 71x59 | dial_meter_only | the oval dial outline with the lamp socket and swoosh |
+| 111-126 | 14x14 | hi/lo_border_* | 9-slice window corner/edge pieces (menus, not HUD) |
+| 95/96, 138-148 | | award/lrg/sml window, rectangle_blue | menu windows (previously mis-taken for the panels) |
+| 28-34 | 64x64 | lensflare1-5, sun_tat, glowstar | flares/glows (the old ring/disc guess was these) |
+
+Ruled out: textures/models blocks hold 3D parts, not the HUD; `images\*.TGA` are menu art; no bitmap digit font for the
+speed number was found in the spriteblock (the digits 19-21 are the 64x64 race countdown). The original draws the
+number as engine text (so our own italic font is the closest option). The dial/engine layout lives in code
+(swrObjJdge_DrawSpeedDialHud, swrRace_InRaceEngineUI) on a ~320x240 design grid, anchored bottom-left / bottom-right.
+Not verified locally: exact sprite x/y placements (they are in the game executable, not the data files) and the
+damage-colour tint rules, so the layout below stays screenshot-measured.
 - Sounds (Sounds.map): `sfx_klaxon1/2/3_loop` (warning stages), `sfx_pod_coolant_spray_on/_loop` (cooldown).
-
 ## Left: twin engine panels
 
 | item | measured | fraction of frame |
