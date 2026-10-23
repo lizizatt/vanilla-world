@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {CLOUD_ALTITUDE,CLOUD_ALTITUDE_FACTOR,HYJAL_SUMMIT,MAELSTROM,FUNNEL,cloudShader,cloudUniform,funnelShader,maelstromCentre,sunDirection,cloudShaderHigh,bakeCloudNoise} from './clouds.js';
+import {CLOUD_ALTITUDE,CLOUD_ALTITUDE_FACTOR,HYJAL_SUMMIT,MAELSTROM,FUNNEL,cloudShader,cloudUniform,funnelShader,maelstromCentre,sunDirection,cloudShaderHigh,bakeCloudNoise,CLOUD_TOWER} from './clouds.js';
 
 const manifest={ocean:[5333,-17600,13525,17066],world_bounds:[[0,0,51,56],[24,20,45,62]],
   regions:[{placement:[-21866,-17600]},{placement:[725,-16000]}]};
@@ -47,7 +47,7 @@ test('sun direction follows the half-minute clock and lighting reaches the cloud
   assert.match(cloudShader,/cloud2:vec4f/);assert.match(cloudShader,/fn silver/);
 });
 test('high tier adds noise texture bindings, 16 steps and a sun light tap; standard stays texture-free',()=>{
-  assert.match(cloudShaderHigh,/texture_3d<f32>/);assert.match(cloudShaderHigh,/const NS=20/);assert.match(cloudShaderHigh,/let shade=mix/);
+  assert.match(cloudShaderHigh,/texture_3d<f32>/);assert.match(cloudShaderHigh,/const NS=28/);assert.match(cloudShaderHigh,/let shade=mix/);
   assert.doesNotMatch(cloudShader,/texture_3d/);assert.match(cloudShader,/const NS=8/);assert.match(cloudShader,/let shade=1\.0/);
 });
 
@@ -58,4 +58,10 @@ test('baked cloud noise is deterministic, spans the range and tiles',()=>{
   // Wrapped lattice: the lowest-frequency channel varies smoothly across the seam.
   const at=(x,y,z)=>a[((z*16+y)*16+x)*2];
   assert.ok(Math.abs(at(15,3,3)-at(0,3,3))<60);
+});
+
+test('storm columns grow only in the High tier; Standard keeps the flat slab',()=>{
+  assert.match(cloudShaderHigh,new RegExp('const UP='+CLOUD_TOWER.up+'\\.0'));assert.match(cloudShaderHigh,new RegExp('const DOWN='+CLOUD_TOWER.down+'\\.0'));
+  assert.match(cloudShader,/const UP=0\.0/);assert.match(cloudShader,/const DOWN=0\.0/);
+  assert.ok(CLOUD_TOWER.up>CLOUD_TOWER.down);
 });

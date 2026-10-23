@@ -5,6 +5,8 @@ export const CLOUD_ALTITUDE_FACTOR=.8;
 export const HYJAL_SUMMIT=1971;
 export const CLOUD_ALTITUDE=CLOUD_ALTITUDE_FACTOR*HYJAL_SUMMIT;
 export const CLOUD_THICKNESS=520;
+// High tier only: how far dense storm columns grow above / below the slab (yards, at full storm density).
+export const CLOUD_TOWER={up:2400,down:160};
 export const CLOUD_HALF_SIZE=60000;
 // Tunables in yards / radians per second. Arms rotate counter-clockwise as seen on the world map (north up).
 export const MAELSTROM={eyeRadius:2200,wallRadius:5200,radius:24000,arms:3,pitch:.7,spin:.08,drift:.006};
@@ -59,7 +61,7 @@ const HIGH_BINDINGS=`
 @group(0) @binding(2) var noise:texture_3d<f32>;
 @group(0) @binding(3) var nsamp:sampler;`;
 const HIGH_NOISE=`
-  let u=vec3f(w.x,pos.y*3.0,w.y)/6500.0;
+  let u=vec3f(w.x,pos.y*3.0-t*4.0,w.y)/6500.0;
   let lo=textureSampleLevel(noise,nsamp,u,0.0);
   let hi=textureSampleLevel(noise,nsamp,u*2.6+.37,0.0);
   var n=.35*vnoise(q)+.5*lo.r+.15*hi.g;`;
@@ -76,14 +78,14 @@ struct V {@builtin(position) clip:vec4f,@location(0) ndc:vec2f};
   var v:V;v.clip=vec4f(q[i],0.5,1);v.ndc=q[i];return v;
 }
 const THICK=${CLOUD_THICKNESS.toFixed(1)};
-fn sheetDensity(pos:vec3f,t:f32)->vec2f {
-  let hf=clamp((pos.y-(c.cloud.z-THICK*.5))/THICK,0.0,1.0);
+const UP=${high?CLOUD_TOWER.up:0}.0;
+const DOWN=${high?CLOUD_TOWER.down:0}.0;
+fn sheetDensity(pos:vec3f,t:f32)->vec3f {
   let d=pos.xz-c.cloud.xy;let r=length(d);
   let turn=t*${M.drift}*exp(-r/${M.radius.toFixed(1)});
   let cs=cos(turn);let sn=sin(turn);
   let w=vec2f(d.x*cs-d.y*sn,d.x*sn+d.y*cs);
   let q=w/2600.0;
-${high?HIGH_NOISE:STD_NOISE}
   // North is -z, so atan2(-z,x) grows counter-clockwise on the map.
   let a=atan2(-d.y,d.x);
   let arm=smoothstep(.2,.8,.5+.5*cos(${M.arms.toFixed(1)}*(a+${M.pitch}*log(max(r,1.0)/1000.0)-t*${M.spin})));
@@ -91,9 +93,13 @@ ${high?HIGH_NOISE:STD_NOISE}
   let wall=exp(-pow((r-${M.wallRadius.toFixed(1)})/(${M.wallRadius.toFixed(1)}*.35),2.0));
   let eye=smoothstep(${M.eyeRadius.toFixed(1)},${(M.eyeRadius*1.5).toFixed(1)},r);
   let coverage=clamp(mix(.4,mix(.1,.95,arm),storm)+.6*wall,0.0,.95)*eye;
+  // Dense columns grow upward (towering tops) and a little downward, billowing slowly; low coverage keeps the flat sheet.
+  let grow=smoothstep(.45,.95,coverage)*mix(.4,1.0,vnoise(w/3800.0+vec2f(t*.012,-t*.009)));
+  let hf=clamp((pos.y-(c.cloud.z-THICK*.5-DOWN*grow))/(THICK+(UP+DOWN)*grow),0.0,1.0);
+${high?HIGH_NOISE:STD_NOISE}
   let top=(n-(1.0-coverage))*(2.2+1.6*wall);
   let body=smoothstep(0.0,.3,top-hf*.9)*smoothstep(0.0,.1,hf+.05);
-  return vec2f(body,storm*(.55+.45*smoothstep(${(M.eyeRadius).toFixed(1)},${(M.wallRadius*2).toFixed(1)},r)));
+  return vec3f(body,storm*(.55+.45*smoothstep(${(M.eyeRadius).toFixed(1)},${(M.wallRadius*2).toFixed(1)},r)),hf);
 }
 const BASE=${(CLOUD_ALTITUDE-CLOUD_THICKNESS*.5).toFixed(1)};
 const SEA=${F.seaLevel.toFixed(1)};
@@ -118,7 +124,7 @@ fn silver(dir:vec3f,thin:f32)->vec3f {
   let day=smoothstep(-.1,.25,c.sun.w);
   return c.sunCol.rgb*pow(max(dot(dir,c.sun.xyz),0.0),4.0)*(.4+1.4*thin)*day;
 }
-const NS=${high?20:8};
+const NS=${high?28:8};
 const NF=14;
 @fragment fn fs(v:V)->@location(0) vec4f {
   let t=c.up.w;let night=1.0-c.look.w;
@@ -132,7 +138,7 @@ const NF=14;
   if(d<1.0){sceneDist=c.near.x*c.eye.w/(c.eye.w-d*(c.eye.w-c.near.x))/max(dot(dir,c.look.xyz),.05);}
   // Sheet slab extent.
   var s0=0.0;var s1=0.0;var ns=0;var sEdge=1.0;
-  let ya=c.cloud.z-THICK*.5;let yb=c.cloud.z+THICK*.5;
+  let ya=c.cloud.z-THICK*.5-DOWN;let yb=c.cloud.z+THICK*.5+UP;
   if(abs(dir.y)>.0005){
     let ta=(ya-c.eye.y)/dir.y;let tb=(yb-c.eye.y)/dir.y;
     s0=max(0.0,min(ta,tb));s1=min(max(ta,tb),s0+9000.0);
@@ -170,7 +176,7 @@ const NF=14;
       let pos=c.eye.xyz+dir*ts;
       let s=sheetDensity(pos,t);
       if(s.x<=.001){continue;}
-      let hf=clamp((pos.y-ya)/THICK,0.0,1.0);
+      let hf=s.z;
       let w=(1.0-smoothstep(30000.0,c.cloud.w,ts))*.96*sEdge;
       let absorb=(1.0-exp(-s.x*ss*.008))*w;
       ${high?HIGH_TAP:'let shade=1.0;'}
