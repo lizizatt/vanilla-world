@@ -1,3 +1,4 @@
+import {basis} from './orient.js';
 const wrap=a=>Math.atan2(Math.sin(a),Math.cos(a));
 const unit=v=>{const length=Math.hypot(...v);return length?v.map(n=>n/length):[0,0,-1];};
 const PITCH_LIMIT=89*Math.PI/180;
@@ -28,7 +29,8 @@ export function cameraView(rig,state,flight,dt,origin,settings={},lookBack=false
   rig.cameraMode=mode;rig.cameraBlocked=undefined;
   if(flight) {
     rig.camera=[flight[0]-origin[0],flight[1],flight[2]-origin[1]];
-    return {look:[-Math.sin(flight[3])*Math.cos(flight[4]),Math.sin(flight[4]),-Math.cos(flight[3])*Math.cos(flight[4])],
+    const aim=flight.length>=9?basis(flight.slice(5,9)):undefined;
+    return {look:aim?.look??[-Math.sin(flight[3])*Math.cos(flight[4]),Math.sin(flight[4]),-Math.cos(flight[3])*Math.cos(flight[4])],up:aim?.up,
       near:Math.max(.1,Math.min(100,Math.abs(flight[1])*.01)),collisionReady:true};
   }
   if(mode==='cockpit') {
