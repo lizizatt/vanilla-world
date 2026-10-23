@@ -91,6 +91,19 @@ struct V {@builtin(position) clip:vec4f,@location(0) q:vec2f,@location(1) c:vec4
   return v.c*(f*f);
 }`;
 
+/** Nozzle point of an engine's vertex set: the rearmost x-slice that is nearly as wide as the engine's widest (skips thin tether/strut tips that stick out behind it). */
+export function engineRear(vertices, ids, bins = 24) {
+  if (!ids.size) return undefined;
+  let lo = 1e9, hi = -1e9;
+  for (const i of ids) { lo = Math.min(lo, vertices[i * STRIDE_V]); hi = Math.max(hi, vertices[i * STRIDE_V]); }
+  const slice = Array.from({ length: bins }, () => ({ n: 0, y: [1e9, -1e9], z: [1e9, -1e9], sy: 0, sz: 0 })), w = (hi - lo) / bins || 1;
+  for (const i of ids) {
+    const s = slice[Math.min(bins - 1, Math.floor((vertices[i * STRIDE_V] - lo) / w))], y = vertices[i * STRIDE_V + 1], z = vertices[i * STRIDE_V + 2];
+    s.n++; s.sy += y; s.sz += z; s.y = [Math.min(s.y[0], y), Math.max(s.y[1], y)]; s.z = [Math.min(s.z[0], z), Math.max(s.z[1], z)];
+  }
+  const spread = s => Math.max(s.y[1] - s.y[0], s.z[1] - s.z[0]), widest = Math.max(...slice.map(s => s.n ? spread(s) : 0)), k = slice.findIndex(s => s.n && spread(s) >= widest * .5);
+  return [lo + k * w, slice[k].sy / slice[k].n, slice[k].sz / slice[k].n];
+}
 /** Engine exhaust points in craft space: metadata.exhausts if present, else the rear centre of each engine group, else one at the tail. */
 export function exhaustPoints(vertices, indices, metadata) {
   if (metadata?.exhausts?.length) return metadata.exhausts.map(p => [...p]);
