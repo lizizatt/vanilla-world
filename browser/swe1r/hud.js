@@ -33,6 +33,9 @@ export async function loadCountdownSprites(reader) {
 // Persistent in-race lap readout; the lap number never exceeds the total.
 export const lapText = (lap, laps) => `Lap ${Math.min(Math.max(1, lap), laps)}/${laps}`;
 
+// Top-banner LAP cell: current/total, never above the total (one-lap and point-to-point races read 1/1).
+export const lapCount = (lap, laps) => { const n = Math.max(1, Math.floor(laps) || 1); return `${Math.min(Math.max(1, lap), n)}/${n}`; };
+
 // Last and best completed lap, only meaningful for multi-lap races.
 export const lapTimesText = (times, fmt) => times.length ? `Last ${fmt(times.at(-1))}  Best lap ${fmt(Math.min(...times))}` : '';
 

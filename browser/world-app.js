@@ -24,7 +24,7 @@ import {pickVoice,raceEndEvents} from './swe1r/voice-map.js';
 import {hitFlash,boostFx} from './swe1r/hud.js';
 import {WRECK_CHUNK,WRECK_CHUNKS,gibTrigger,healthTrigger,overheatTrigger} from './wreck.js';
 import {hudModel,engineLevels,levelStage} from './hud-model.js';
-import {loadHudSprites,loadCountdownSprites,createDial,createHeatGauge,createRealDial,createRealEngines,lapText,lapTimesText,lapBanner,finishBanner} from './swe1r/hud.js';
+import {loadHudSprites,loadCountdownSprites,createDial,createHeatGauge,createRealDial,createRealEngines,lapCount,lapTimesText,lapBanner,finishBanner} from './swe1r/hud.js';
 const flashMem={},boostMem={},meters=document.querySelector('.meters'),ownLast={};
 let realHud;
 // Each bottom HUD group is ~1/6 of the viewport width (96-320 px), at the Racer ratios: engine pair 67x62, dial 71x59.
@@ -575,7 +575,7 @@ function raceFrame(controls,t) {
   } else raceHud(t);
 }
 let bannerTimer;
-function banner(text,ms=2500){if(!hudOn||!dial)return;const b=$('race-banner');b.textContent=text;b.hidden=false;clearTimeout(bannerTimer);bannerTimer=setTimeout(()=>{b.hidden=true;},ms);}
+function banner(text,ms=2500){const b=$('race-banner');b.textContent=text;b.hidden=false;clearTimeout(bannerTimer);bannerTimer=setTimeout(()=>{b.hidden=true;},ms);}
 const setText=(id,value)=>{const e=$(id);if(e.textContent!==value)e.textContent=value;};
 function raceHud(t) {
   $('race-hud').hidden=false;
@@ -584,8 +584,8 @@ function raceHud(t) {
   const done=race.splits.length,reference=raceBest?.splits[done-1];
   if(done&&reference!==undefined){const d=race.splits[done-1]-reference;setText('race-delta',`${d<0?'-':'+'}${Math.abs(d).toFixed(2)}`);$('race-delta').dataset.ahead=String(d<0);}
   else setText('race-delta','');
-  setText('race-lap',hudOn&&dial?lapText(race.lap,race.track.laps):'');
-  setText('race-laps',hudOn&&dial&&race.track.laps>1?lapTimesText(lapTimes(race.splits,race.track.gates.length),formatTime):'');
+  setText('race-lap',lapCount(race.lap,race.track.laps));
+  setText('race-laps',race.track.laps>1?lapTimesText(lapTimes(race.splits,race.track.gates.length),formatTime):'');
   setText('race-gate',`Gate ${Math.min(done+1,race.totalGates)}/${race.totalGates}`);
   const gate=race.nextGate,arrow=$('race-arrow');
   arrow.hidden=!gate;

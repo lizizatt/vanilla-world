@@ -66,7 +66,7 @@ red is an assumption (only purple is visible in the reference).
 
 Both clusters are anchored to the bottom corners with margins proportional to frame height, so at 4:3
 (e.g. 640x480) and 16:9 (e.g. 1280x720) sizes scale with height and the gap between clusters widens
-at 16:9. Top row (lap / time / pos) is out of scope here.
+at 16:9. Top row: see "Top banner" below.
 
 ## Our mapping (Azeroth Racer)
 
@@ -75,3 +75,11 @@ at 16:9. Top row (lap / time / pos) is out of scope here.
 - Dial: arc length = heat 0-100% (replaces the old boost bar; boost is unlimited), purple -> amber -> red
   with the engines' thresholds; light is green below 80%, red at/above; rim flashes at overheat.
 - Unmeasured/assumed: yellow/red hues, flash rate, number font (own italic UI font, not the game's).
+
+## Top banner (lap / time / pos)
+
+Reference frame (596x335): a full-width teal band curving down to a centre dip; LAP `1/3` left (x .06, text ~14 px, label under it), TIME `3:51.38` centre (~16 px, label `TIME`), POS `12/12` right (x .92). Band height ~.12 h at the edges, ~.15 h at the dip; cyan rim; white italic digits with a dark outline; small spaced caps labels beneath each value.
+
+Sprites: 40/41/42/105-108 (the RE names `hudframe_*` / `dial_time_wire` etc.) decode as brass/steel frame struts and rivet plates (hangar/selection-screen style), not a teal curved band, so no matching pieces were found; the band and digits are drawn by the engine. Both the SWE1R-folder and hosted paths therefore use our own SVG/CSS band (no Racer art involved).
+
+Our layout: band `min(100vw, 900px)` centred, height clamp(44, 7vw, 78) px; value font clamp(16, 3.2vw, 34) px (time clamp(21, 4.6vw, 48) px); cells in a 1 : 1.6 : 1 grid. Below it a small line shows best, split delta, last/best lap, gate n/N and the next-gate arrow. Position shows `1/1` (no AI racers; the slot is kept so the layout matches Racer). At <=1100 px wide the band drops to 26 px so it clears the `Esc - Menu` hint. Lap banners (LAP n / FINAL LAP / LAP RECORD / FINISH) are no longer limited to the Racer HUD.

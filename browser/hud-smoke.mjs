@@ -41,14 +41,14 @@ await page.evaluate(() => {
 });
 await page.waitForFunction(() => worldTest.raceInfo()?.state === 'running', null, { timeout: 15000 });
 await page.waitForTimeout(500);
-assert.equal(await page.locator('#race-lap').textContent(), 'Lap 1/3');
+assert.equal(await page.locator('#race-lap').textContent(), '1/3');
 assert.equal(await page.locator('#race-laps').textContent(), '', 'no lap times before a lap is done');
 await shot('1-lap-counter');
 
 // Complete lap 1 in 40 s, then lap 2 in 35 s: counter, last/best and banner follow.
 await page.evaluate(() => { const r = worldTest.raceObj(); r.splits.push(40); r.lap = 2; });
 await page.waitForTimeout(400);
-assert.equal(await page.locator('#race-lap').textContent(), 'Lap 2/3');
+assert.equal(await page.locator('#race-lap').textContent(), '2/3');
 assert.match(await page.locator('#race-laps').textContent(), /^Last 0:40\.00 {2}Best lap 0:40\.00$/);
 assert.equal(await page.locator('#race-banner').textContent(), 'LAP 2');
 await shot('2-lap-2-banner');
@@ -78,18 +78,25 @@ await page.keyboard.up('ShiftLeft'); await page.keyboard.up('KeyW');
 assert.ok(seen.exploded, 'boosting into max heat blows the pod up');
 assert.ok([...seen.klaxon].some(n => n.startsWith('sfx_klaxon')), `klaxon loop played (saw ${[...seen.klaxon]})`);
 
-// Cooldown: coolant spray loops while the engine vents, silent once cold.
-await page.waitForTimeout(3500);
+// After the wreck the pod respawns repaired and cold; then heat it to half and let go: coolant spray loops while venting, silent once cold.
+await page.waitForFunction(() => !worldTest.wreck() && worldEvidence.state.telemetry[6] < .05, null, { timeout: 15000 });
+await page.waitForTimeout(500);
+await page.keyboard.down('KeyW'); await page.keyboard.down('ShiftLeft');
+for (let i = 0; i < 100 && (await heat()) < .5; i++) {
+  await page.waitForTimeout(100);
+  if (i % 10 === 9) await page.evaluate(() => { const t = worldEvidence.state.telemetry; if (t[5] < 20) worldTest.request('restore', { pose: [t[0], t[1] + 12, t[2], t[3] + 1.3] }); });
+}
+await page.keyboard.up('ShiftLeft'); await page.keyboard.up('KeyW');
+await page.waitForTimeout(400);
 const cooling = await page.evaluate(() => ({ heat: worldEvidence.state.telemetry[6], loops: worldTest.heldLoops() }));
 console.log('cooldown', JSON.stringify(cooling));
 await shot('7-cooldown');
 assert.ok(cooling.loops.includes('sfx_pod_coolant_spray_loop'), 'coolant loop while venting');
 await page.waitForFunction(() => !worldTest.heldLoops().length, null, { timeout: 30000 }).catch(async e => { console.log(await page.evaluate(() => [worldEvidence.state.telemetry[6], worldTest.heldLoops(), worldEvidence.state.telemetry[5]])); throw e; });
-
 // Option off: boosting to max heat does not explode.
 await page.waitForTimeout(6000);
 await page.keyboard.press('Escape'); await page.locator('[data-tab=options]').click();
-await page.locator('#overheat').uncheck();
+await page.locator('#durability').uncheck(); await page.locator('#overheat').uncheck();
 await page.keyboard.press('Escape'); await page.locator('#world').focus();
 await page.keyboard.down('KeyW'); await page.keyboard.down('ShiftLeft');
 for (let i = 0; i < 300 && (await heat()) < 1; i++) {
