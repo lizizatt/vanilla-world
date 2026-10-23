@@ -189,6 +189,9 @@ const NF=14;
     s0=max(O.x,0.0);sFull=O.y;live=O.x<=O.y;
     if(I.x<=I.y){if(I.x>s0){sFull=min(sFull,I.x);}else if(I.y>s0){s0=I.y;}}
     live=live&&sFull>s0;
+    // A ray that reaches the sea-level sphere ends there: the far-side layer behind the planet is never visible.
+    let G=shellRoots(c.eye.y,dir.y,0.0);
+    if(c.eye.y>0.0&&G.x>0.0&&G.x<=G.y){sFull=min(sFull,G.x);live=live&&s0<G.x;}
   } else {
     let dy=select(select(-.0005,.0005,dir.y>=0.0),dir.y,abs(dir.y)>=.0005);
     let ta=(ya-c.eye.y)/dy;let tb=(yb-c.eye.y)/dy;

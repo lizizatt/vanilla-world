@@ -104,3 +104,23 @@ export function march(o) {
   return {alpha,rgb:alpha<.01?[0,0,0]:light.map(v=>Math.min(v/alpha,1)),extent:ex};
 }
 const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+
+/** Mirror of the WGSL shellRoots: both distances where a ray from height `e` (direction y `dy`) meets the shell at altitude `y` of curvature k = 1/Re. */
+export function shellRoots(e,dy,y,k) {
+  const a=Math.max(k,1e-9),b=(1+k*e)*dy,cc=(e-y)*(2+k*(e+y)),disc=b*b-a*cc;
+  if(disc<0)return [1e30,-1e30];
+  const sq=Math.sqrt(disc);let q=-(b+(b>=0?sq:-sq));
+  if(Math.abs(q)<1e-12)q=-1e-12;
+  const t1=q/a,t2=cc/q;return [Math.min(t1,t2),Math.max(t1,t2)];
+}
+/** Mirror of the shell branch of the extent: first contiguous piece inside the outer shell and outside the inner one. */
+export function shellExtent(eyeY,dirY,k,high,far=1e8) {
+  const {ya,yb}=slab(high),O=shellRoots(eyeY,dirY,yb,k),I=shellRoots(eyeY,dirY,ya,k);
+  let s0=Math.max(O[0],0),sFull=O[1],live=O[0]<=O[1];
+  if(I[0]<=I[1]){if(I[0]>s0)sFull=Math.min(sFull,I[0]);else if(I[1]>s0)s0=I[1];}
+  live=live&&sFull>s0;
+  const G=shellRoots(eyeY,dirY,0,k);
+  if(eyeY>0&&G[0]>0&&G[0]<=G[1]){sFull=Math.min(sFull,G[0]);live=live&&s0<G[0];}
+  const cap=s0+Math.max(high?MIN_SPAN_HIGH:MIN_SPAN,SPAN_PER_DISTANCE*s0),s1=Math.min(sFull,cap);
+  return {s0,s1,sFull,live:live&&s1>s0&&s0<far};
+}
