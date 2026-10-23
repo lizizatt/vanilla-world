@@ -195,9 +195,9 @@ export class WorldAudio {
     this.holdLoop('coolant',cooling?HEAT.cool:undefined,.25);
   }
   // One-shot SWE1R effects on rising/falling edges of boost, airbrake and obstacle contact.
-  edges(boost,brake,hit,now,charged=true) {
+  edges(boost,brake,hit,now) {
     const was=this.was??={};
-    if(boost&&!was.boost&&charged)this.cue(SFX.ignite,.5);
+    if(boost&&!was.boost)this.cue(SFX.ignite,.5);
     if(brake!==was.brake&&was.brake!==undefined)this.cue(brake?'sfx_pod_airbrakes_on':'sfx_pod_airbrakes_off',.4);
     if(hit&&!was.hit&&now>(was.crashAt??0)+.5){was.crashAt=now;this.cue('sfx_crash_metal_med1',.7);}
     was.boost=boost;was.brake=brake;was.hit=hit;
@@ -212,8 +212,8 @@ export class WorldAudio {
     this.setDrift(active&&!!(input.flags&4));
     if(!active)return;
     const p=state.telemetry,held=!!p[8] || !!state.scene?.waitingCollision;
-    const boosting=!!(input.flags&2) && input.throttle>0 && !!p[7] && p[6]>0 && !(input.flags&1);
-    this.edges(!!(input.flags&2),!!(input.flags&1),p[8]===3,now,p[6]>0);
+    const boosting=!!(input.flags&2) && input.throttle>0 && !!p[7] && !(input.flags&1);
+    this.edges(!!(input.flags&2),!!(input.flags&1),p[8]===3,now);
     const layers=this.envelope.advance(p[5],input.throttle,boosting,held,!!(input.flags&1),dt,!!p[7],!!p[9]);
     const s=this.samples,real=this.sampleOn && s?.engine;
     if(real) {

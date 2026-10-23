@@ -31,7 +31,7 @@ try {
     const updateMs=[],envelopes=[];
     for(let frame=0;frame<seconds*60;frame++) {
       now=frame/60;input.throttle=0;input.flags=0;
-      telemetry[5]=0;telemetry[6]=1;telemetry[7]=1;telemetry[8]=0;telemetry[9]=0;
+      telemetry[5]=0;telemetry[6]=0;telemetry[7]=1;telemetry[8]=0;telemetry[9]=0;
       if(now>=2 && now<5){input.throttle=1;telemetry[5]=(now-2)*20;}
       if(now>=5 && now<8){input.throttle=.4;telemetry[5]=60;}
       if(now>=8 && now<11){input.throttle=1;input.flags=2;telemetry[5]=90;}
@@ -99,7 +99,7 @@ try {
   await page.evaluate(async()=>{
     const {WorldAudio}=await import('./world-audio.js');
     window.audioProbe=new WorldAudio();window.audioProbeActive=true;
-    const telemetry=new Float64Array(15);telemetry[5]=60;telemetry[6]=1;telemetry[7]=1;
+    const telemetry=new Float64Array(15);telemetry[5]=60;telemetry[6]=0;telemetry[7]=1;
     const state={telemetry,scene:{waitingCollision:0}},input={throttle:1,flags:2};
     await audioProbe.enable();
     window.originalVoices=audioProbe.voices.slice();

@@ -15,18 +15,24 @@ canvas { display: block; width: 100%; height: 100%; outline-offset: -4px; }
 .panel-content { max-height: min(50dvh, 480px); overflow: auto; scrollbar-width: thin; padding: 4px 8px 4px 0; }
 .meters { position: absolute; inset: auto max(14px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); display: flex; justify-content: space-between; align-items: flex-end; pointer-events: none; text-shadow: 0 1px 2px #000; }
 .meters[hidden] { display: none; }
-.heat-twin { display: flex; gap: 6px; align-items: flex-end; }
-.heat-twin .engine { position: relative; display: block; width: clamp(12px, 2.4vw, 18px); height: clamp(56px, 12vw, 92px); border: 2px solid #d7edf7aa; border-radius: 3px; background: rgba(0,0,0,.45); transform: skewX(-8deg); overflow: hidden; }
-.heat-twin i { position: absolute; inset: auto 0 0; height: 0; background: linear-gradient(#ff7a2e, #ffd35c); }
-.heat-twin[data-warn=true] .engine { border-color: #ff5a3c; }
-.heat-twin[data-warn=true] i { background: linear-gradient(#ff2a1f, #ff7a2e); }
-.speed-dial { position: relative; width: clamp(130px, 26vw, 200px); aspect-ratio: 2 / 1; display: grid; place-items: center; align-content: center; }
+.heat-twin { display: flex; gap: clamp(8px, 3vw, 18px); align-items: flex-end; margin: 0 0 clamp(2px, 2.5vh, 12px) clamp(0px, 2.4vw, 16px); --edge: #5ad46a; --fill: rgba(90,212,106,.32); }
+.heat-twin[data-stage="1"] { --edge: #f0d34a; --fill: rgba(240,211,74,.34); }
+.heat-twin[data-stage="2"] { --edge: #ff4a3a; --fill: rgba(255,74,58,.38); }
+.heat-twin .engine { display: block; width: clamp(24px, 6vw, 44px); aspect-ratio: 1 / 1.8; border: 2px solid #7fe3e8; border-radius: 3px; background: var(--fill); box-shadow: 0 0 6px #7fe3e8aa, inset 0 0 8px rgba(255,255,255,.2); }
+.heat-twin svg { display: block; width: 100%; height: 100%; padding: 3% 5%; box-sizing: border-box; fill: var(--edge); stroke: #0a1a12; stroke-width: 1; opacity: 1; filter: brightness(1.25); }
+.heat-twin[data-hot=true] .engine { animation: engine-blink .3s steps(2) infinite; }
+@keyframes engine-blink { 50% { opacity: .3; } }
+.speed-dial { position: relative; width: clamp(120px, 22vw, 200px); aspect-ratio: 2.05 / 1; display: grid; margin: 0 clamp(0px, 3vw, 20px) clamp(0px, 3vh, 14px) 0; place-items: center; align-content: center; --arc: #b04ad8; --lamp: #4cff5c; }
+.speed-dial[data-stage="1"] { --arc: #ffb34d; }
+.speed-dial[data-stage="2"] { --arc: #ff4a3a; --lamp: #ff3a2a; }
 .speed-dial svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-.speed-dial ellipse { fill: rgba(0,0,0,.4); stroke: #d7edf755; stroke-width: 3; }
-.speed-dial .boost { fill: none; stroke: #4ddbcc; stroke-width: 6; stroke-linecap: round; stroke-dasharray: 100 100; transition: stroke .15s; }
-.speed-dial[data-low=true] .boost { stroke: #ffb34d; }
-.speed-dial strong { position: relative; font-size: clamp(28px, 6vw, 46px); font-style: italic; line-height: 1; font-variant-numeric: tabular-nums; color: #ffb34d; }
-.speed-dial span { position: relative; font-size: 10px; letter-spacing: .7px; color: #edf5f7; }
+.speed-dial .rim { fill: #0c2a3a; stroke: #3fd0d8; stroke-width: 9; }
+.speed-dial .track { fill: none; stroke: rgba(180,230,240,.22); stroke-width: 15; stroke-linecap: round; }
+.speed-dial .heat { fill: none; stroke: var(--arc); stroke-width: 15; stroke-linecap: round; stroke-dasharray: 0 100; transition: stroke .15s; }
+.speed-dial .light { fill: var(--lamp); stroke: #05140a; stroke-width: 1.5; }
+.speed-dial[data-hot=true] .rim, .speed-dial[data-hot=true] .light { animation: engine-blink .3s steps(2) infinite; }
+.speed-dial strong { position: relative; font-size: clamp(22px, 5.4vw, 46px); font-style: italic; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; color: #bff4ff; -webkit-text-stroke: 1px #06242e; text-shadow: 0 2px 0 #06242e; }
+.speed-dial span { display: none; }
 .state-note { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 8px; text-align: center; font-size: 11px; letter-spacing: .7px; color: #edf5f7; white-space: nowrap; }
 .state-note strong { color: #ffb34d; margin-right: 6px; }
 .meters[data-held=false]:not([data-flight=true]) .state-note { visibility: hidden; }
@@ -104,7 +110,7 @@ dialog h2 { color: #ffb34d; margin-top: 0; }
 #loading-progress::-webkit-progress-value { background: linear-gradient(#f0d48a, #9b702e); }
 #loading-count { min-height: 1.5em; color: #dac18a; font-variant-numeric: tabular-nums; }
 #loading-tip { margin: 36px 0 0; font-size: 12px; color: #bfc7ca; }
-@media (max-width: 700px) { .meters { gap: 8px; padding: 8px; } .meters strong { font-size: 20px; } .meters span { font-size: 9px; } #tuning-fields { grid-template-columns: 1fr; } }
+@media (max-width: 700px) { .meters { gap: 8px; padding: 8px; } .meters span { font-size: 9px; } #tuning-fields { grid-template-columns: 1fr; } }
 #race-prompt { position: fixed; left: 50%; bottom: 22%; transform: translateX(-50%); padding: 8px 16px; background: rgba(0,0,0,.55); border: 1px solid rgba(255,200,60,.8); border-radius: 6px; color: #ffd36a; font-weight: 600; pointer-events: none; }
 #race-countdown { position: fixed; inset: 18% 0 auto 0; text-align: center; font-size: 112px; font-weight: 800; color: #fff; text-shadow: 0 0 12px #000, 0 0 3px #000; pointer-events: none; }
 #race-countdown canvas { display: block; margin: 0 auto; width: 160px; height: 160px; image-rendering: pixelated; }
