@@ -8,7 +8,7 @@ import { chromium } from 'playwright';
 const URL = `http://127.0.0.1:${process.env.PORT || 4183}/?test`, out = path.resolve('..', 'runtime', 'hud-element-shots');
 fs.mkdirSync(out, { recursive: true });
 const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(os.tmpdir(), 'edge-hudel-')),
-  { channel: 'msedge', headless: true, args: ['--mute-audio'], ignoreDefaultArgs: ['--autoplay-policy=no-user-gesture-required'], viewport: { width: 596, height: 335 }, serviceWorkers: 'block', bypassCSP: true });
+  { channel: 'msedge', headless: true, args: ['--mute-audio'], ignoreDefaultArgs: ['--autoplay-policy=no-user-gesture-required'], viewport: { width: Number((process.env.VIEW || '596x335').split('x')[0]), height: Number((process.env.VIEW || '596x335').split('x')[1]) }, serviceWorkers: 'block', bypassCSP: true });
 const page = ctx.pages()[0] || await ctx.newPage();
 const errors = [];
 page.on('pageerror', e => errors.push(e.message));
@@ -19,7 +19,7 @@ await page.evaluate(() => { const m = document.querySelector('.meters'); m.hidde
 const shot = async (name, heat, speed, hl = 1, hr = 1) => {
   await page.evaluate(([h, s, l, r]) => { window.ownHudTest(h, l, r); document.getElementById('speed').textContent = String(s).padStart(3, '0'); document.getElementById('direction').textContent = 'FWD'; }, [heat, speed, hl, hr]);
   await page.waitForTimeout(80);
-  await page.screenshot({ path: path.join(out, `${name}.png`) });
+  await page.screenshot({ path: path.join(out, `${name}${process.env.VIEW ? '-' + process.env.VIEW : ''}.png`) });
 };
 for (const [name, heat] of [['green', 0.1], ['yellow', 0.6], ['red', 0.9], ['overheat', 1]]) await shot(`panel-${name}`, heat, 355);
 for (const [name, l, r] of [['damaged', .45, 1], ['critical', .15, .6]]) await shot(`panel-${name}`, 0, 120, l, r);

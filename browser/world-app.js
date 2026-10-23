@@ -26,6 +26,10 @@ import {WRECK_CHUNK,WRECK_CHUNKS,gibTrigger,healthTrigger,overheatTrigger} from 
 import {hudModel,engineLevels,levelStage} from './hud-model.js';
 import {loadHudSprites,loadCountdownSprites,createDial,createHeatGauge,createRealDial,createRealEngines,lapText,lapTimesText,lapBanner,finishBanner} from './swe1r/hud.js';
 const flashMem={},boostMem={},meters=document.querySelector('.meters'),ownLast={};
+let realHud;
+// Each bottom HUD group is ~1/6 of the viewport width (96-320 px), at the Racer ratios: engine pair 67x62, dial 71x59.
+function layoutHud(){const w=Math.round(Math.min(320,Math.max(96,innerWidth/6)));document.documentElement.style.setProperty('--hud-w',w+'px');if(!realHud)return;const d=$('swe1r-hud'),e=$('swe1r-heat');d.width=w;d.height=Math.round(w*59/71);e.width=w;e.height=Math.round(w*62/67);for(const c of[d,e]){c.style.width=c.width+'px';c.style.height=c.height+'px';}dial=createRealDial(realHud,d);heatGauge=createRealEngines(realHud,e);}
+addEventListener('resize',layoutHud);layoutHud();
 function syncDurability(){client.request('durability',{on:gib.durable,lethal:gib.on?gib.speed:400}).catch(()=>{});}
 function ownHud(boost,hl=1,hr=1){const m=hudModel(boost),key=m.arc+'/'+hl+'/'+hr;if(ownLast.key===key)return;ownLast.key=key;$('heat-arc').style.strokeDasharray=`${m.arc} 100`;const d=$('heat-arc').closest('.speed-dial');d.dataset.stage=String(m.stage);d.dataset.hot=String(m.heat>=1);const g=meters.querySelector('.heat-twin');g.dataset.warn=String(m.warn);g.setAttribute('aria-label',`Engine heat ${Math.round(m.heat*100)}%`);const lv=engineLevels(m.heat,hl,hr);g.querySelectorAll('.engine').forEach((e,i)=>{e.dataset.stage=String(levelStage(lv[i]));e.dataset.hot=String(lv[i]>=1);});g.dataset.hot='false';g.setAttribute('aria-label',`Engine heat ${Math.round(m.heat*100)}%, health ${Math.round(hl*100)}% / ${Math.round(hr*100)}%`);}if(new URLSearchParams(location.search).has('test'))window.ownHudTest=ownHud;let dial,heatGauge,hudOn=false,countdownSprites;
 
@@ -705,12 +709,12 @@ async function start() {
     }
     initSwe1rRow();
     onSwe1r(async r=>{
-      if(!r){setRuntimeSkins('swe1r',[]);if(choice.skin.startsWith('swe1r-')){choice=normalizeChoice({...choice,skin:'rocket'});writeChoice(choice);applySkin();}garagePick=normalizeChoice(garagePick);dial=undefined;heatGauge=undefined;$('swe1r-heat').hidden=true;countdownSprites=undefined;voiceReader=undefined;$('swe1r-hud').hidden=true;syncHud();$('swe1r-hud-row').hidden=true;$('overheat-row').hidden=true;$('swe1r-sfx-row').hidden=true;audio.sampleOn=false;if(garage.open)renderGarage();return;}
+      if(!r){setRuntimeSkins('swe1r',[]);if(choice.skin.startsWith('swe1r-')){choice=normalizeChoice({...choice,skin:'rocket'});writeChoice(choice);applySkin();}garagePick=normalizeChoice(garagePick);dial=undefined;heatGauge=undefined;realHud=undefined;$('swe1r-heat').hidden=true;countdownSprites=undefined;voiceReader=undefined;$('swe1r-hud').hidden=true;syncHud();$('swe1r-hud-row').hidden=true;$('overheat-row').hidden=true;$('swe1r-sfx-row').hidden=true;audio.sampleOn=false;if(garage.open)renderGarage();return;}
       setRuntimeSkins('swe1r',podSkinList());if(garage.open)renderGarage();
       voiceReader=r;fetch('./swe1r/voice-map.json').then(x=>x.ok?x.json():{}).then(m=>{voiceMap=m;}).catch(()=>{});
       const raw=await loadSfx(r,[...Object.values(SFX),...WIPEOUT_NAMES,...HEAT.klaxon,HEAT.coolOn,HEAT.cool]).catch(()=>new Map());
       loadCountdownSprites(r).then(s=>{countdownSprites=s||undefined;}).catch(e=>console.error('SWE1R countdown',e));
-  loadHudSprites(r).then(s=>{if(!s)return;if(s.real){const d=$('swe1r-hud');d.width=200;d.height=130;d.style.width='200px';d.style.height='130px';dial=createRealDial(s.real,d);heatGauge=createRealEngines(s.real,$('swe1r-heat'));}else{dial=createDial(s,$('swe1r-hud'));heatGauge=s.heat&&createHeatGauge(s.heat,$('swe1r-heat'));}$('swe1r-hud-row').hidden=false;$('overheat-row').hidden=false;syncHud();}).catch(e=>console.error('SWE1R HUD',e));
+  loadHudSprites(r).then(s=>{if(!s)return;if(s.real){realHud=s.real;layoutHud();}else{realHud=undefined;dial=createDial(s,$('swe1r-hud'));heatGauge=s.heat&&createHeatGauge(s.heat,$('swe1r-heat'));}$('swe1r-hud-row').hidden=false;$('overheat-row').hidden=false;syncHud();}).catch(e=>console.error('SWE1R HUD',e));
       if(raw.size){audio.sampleOn=$('swe1r-sfx').checked;$('swe1r-sfx-row').hidden=false;await audio.useSamples(raw);}});
     folder=await restoreDataFolder().catch(()=>undefined);
     if(folder) {
