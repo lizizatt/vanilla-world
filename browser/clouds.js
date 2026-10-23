@@ -24,10 +24,17 @@ export function maelstromCentre(manifest) {
   return [o[0]+MAELSTROM_MAP.across*(o[2]-o[0]),(kalimdor+east)/2];
 }
 
-export function cloudUniform(view,time,daylight,manifest,near,game,out=new Float32Array(32)) {
-  const [x,z]=maelstromCentre(manifest);
+// Sun direction from the Light.dbc half-minute clock (1440 = noon): east at 6:00 (720), overhead at noon, west at 18:00, with a fixed southward lean.
+export function sunDirection(timeOfDay) {
+  const a=Math.PI*(timeOfDay-720)/1440,v=[Math.cos(a),Math.sin(a),.35],n=Math.hypot(...v);
+  return v.map(x=>x/n);
+}
+
+export function cloudUniform(view,time,daylight,manifest,near,game,out=new Float32Array(44),timeOfDay=1440) {
+  const [x,z]=maelstromCentre(manifest),sun=sunDirection(timeOfDay);
   out.set([...view.eye,200000,...view.right,view.aspect,...view.up,time,...view.look,daylight,x,z,CLOUD_ALTITUDE,CLOUD_HALF_SIZE,near]);
-  if(game)out.set([...game.cloud,1,...game.fog,0],24);
+  out.set([...sun,sun[1]],32);out.set([1,.96,.88,0],36);out.set([.55,.6,.7,0],40);
+  if(game){out.set([...game.cloud,1,...game.fog,0],24);if(game.sun)out.set([...game.sun,0],36);if(game.cloud2)out.set([...game.cloud2,1],40);}
   return out;
 }
 
@@ -35,7 +42,7 @@ export function cloudUniform(view,time,daylight,manifest,near,game,out=new Float
 // The column continues below the sheet down to sea level, flaring into a mist skirt (skirtRadius) at the whirlpool.
 export const FUNNEL={top:7500,seaLevel:-WHIRLPOOL_DIP.depth,skirtRadius:1700,baseRadius:500,topRadius:3200,flare:1.5,spin:.5,twist:5,fadeStart:90000,fadeEnd:170000};
 const COMMON=`
-struct C {eye:vec4f,right:vec4f,up:vec4f,look:vec4f,cloud:vec4f,near:vec4f,tint:vec4f,fog:vec4f};
+struct C {eye:vec4f,right:vec4f,up:vec4f,look:vec4f,cloud:vec4f,near:vec4f,tint:vec4f,fog:vec4f,sun:vec4f,sunCol:vec4f,cloud2:vec4f};
 @group(0) @binding(0) var<uniform> c:C;
 @group(0) @binding(1) var sceneDepth:texture_depth_2d;
 fn hash(p:vec2f)->f32 {return fract(sin(dot(p,vec2f(127.1,311.7)))*43758.5453);}
@@ -91,6 +98,11 @@ fn funnelDensity(pos:vec3f,t:f32)->vec2f {
   let shell=smoothstep(1.05,.55,rel)*(.5+.9*n);
   let body=shell*smoothstep(SEA,SEA+250.0,pos.y)*smoothstep(1.0,.82,h);
   return vec2f(body,h);
+}
+// Sun-lit edges: forward scatter (silver lining, strongest looking toward the sun through thin cloud), fading out as the sun sets.
+fn silver(dir:vec3f,thin:f32)->vec3f {
+  let day=smoothstep(-.1,.25,c.sun.w);
+  return c.sunCol.rgb*pow(max(dot(dir,c.sun.xyz),0.0),4.0)*(.4+1.4*thin)*day;
 }
 const NS=8;
 const NF=14;
@@ -148,7 +160,10 @@ const NF=14;
       let w=(1.0-smoothstep(30000.0,c.cloud.w,ts))*.96*sEdge;
       let absorb=(1.0-exp(-s.x*ss*.008))*w;
       let lit=mix(.62,1.0,hf)*mix(.75,1.0,s.y)*(.7+.3*trans);
-      let tone=mix(vec3f(.55,.60,.70),vec3f(.98,.97,.95),lit)*lit+vec3f(.18,.1,.1)*(1.0-s.y)*lit;
+      let day=smoothstep(-.1,.25,c.sun.w);
+      let under=select(vec3f(.55,.60,.70),c.cloud2.rgb,game);
+      let lite=mix(vec3f(.98,.97,.95),c.sunCol.rgb,.5*(1.0-smoothstep(.2,.9,c.sun.w)));
+      let tone=mix(under,lite,lit)*lit*mix(.55,1.0,day)*(1.0+.3*hf*day)+vec3f(.18,.1,.1)*(1.0-s.y)*lit+silver(dir,1.0-smoothstep(0.0,.6,s.x))*hf;
       light+=trans*absorb*mix(tone*grade,fog,clamp(ts/150000.0,0.0,.93));trans*=1.0-absorb;
     } else {
       j++;
@@ -157,7 +172,7 @@ const NF=14;
       if(s.x<=.001){continue;}
       let absorb=(1.0-exp(-s.x*fstep*.004))*fWeight;
       let lit=mix(.32,1.0,pow(s.y,.7))*(.6+.4*trans);
-      let tone=mix(vec3f(.5,.52,.6),vec3f(.98,.96,.94),lit)*lit+vec3f(.2,.08,.06)*(1.0-s.y)*lit;
+      let tone=mix(vec3f(.5,.52,.6),vec3f(.98,.96,.94),lit)*lit+vec3f(.2,.08,.06)*(1.0-s.y)*lit+silver(dir,.5)*.5;
       light+=trans*absorb*mix(tone*grade,fog,clamp(fDist/200000.0,0.0,.9));trans*=1.0-absorb;
     }
     if(trans<.01){break;}
