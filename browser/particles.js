@@ -91,6 +91,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) q:vec2f,@location(1) c:vec4
   return v.c*(f*f);
 }`;
 
+/** Engine exhaust points in craft space: metadata.exhausts if present, else the rear centre of each engine group, else one at the tail. */
 /** Nozzle point of an engine's vertex set: the rearmost x-slice that is nearly as wide as the engine's widest (skips thin tether/strut tips that stick out behind it). */
 export function engineRear(vertices, ids, bins = 24) {
   if (!ids.size) return undefined;
@@ -104,20 +105,13 @@ export function engineRear(vertices, ids, bins = 24) {
   const spread = s => Math.max(s.y[1] - s.y[0], s.z[1] - s.z[0]), widest = Math.max(...slice.map(s => s.n ? spread(s) : 0)), k = slice.findIndex(s => s.n && spread(s) >= widest * .5);
   return [lo + k * w, slice[k].sy / slice[k].n, slice[k].sz / slice[k].n];
 }
-/** Engine exhaust points in craft space: metadata.exhausts if present, else the rear centre of each engine group, else one at the tail. */
 export function exhaustPoints(vertices, indices, metadata) {
   if (metadata?.exhausts?.length) return metadata.exhausts.map(p => [...p]);
   const { part, lo, hi } = classifyTriangles(vertices, indices), points = [];
   for (const id of [1, 2]) {
-    let min = 1e9, n = 0, sy = 0, sz = 0;
-    for (let t = 0; t < part.length; t++) if (part[t] === id) for (let k = 0; k < 3; k++) min = Math.min(min, vertices[indices[t * 3 + k] * STRIDE_V]);
-    if (min === 1e9) continue;
-    const rear = min + (hi[0] - lo[0]) * .05;
-    for (let t = 0; t < part.length; t++) if (part[t] === id) for (let k = 0; k < 3; k++) {
-      const v = indices[t * 3 + k] * STRIDE_V; if (vertices[v] > rear) continue;
-      sy += vertices[v + 1]; sz += vertices[v + 2]; n++;
-    }
-    points.push([min, sy / n, sz / n]);
+    const ids = new Set();
+    for (let t = 0; t < part.length; t++) if (part[t] === id) for (let k = 0; k < 3; k++) ids.add(indices[t * 3 + k]);
+    const p = engineRear(vertices, ids); if (p) points.push(p);
   }
   return points.length ? points : [[lo[0], (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2]];
 }

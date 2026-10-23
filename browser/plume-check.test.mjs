@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { checkPlumes } from './plume-check.js';
+import { exhaustPoints } from './particles.js';
 
 function craft(tether) {
   const vertices = [], indices = [];
@@ -21,6 +22,10 @@ test('a clean craft passes the plume audit', () => {
   const r = checkPlumes(craft(false));
   assert.deepEqual(r.flags.filter(f => !f.includes('hull-occluded')), []);
   assert.equal(r.points.length, 2);
+});
+
+test('thin tethers behind an engine do not pull the emitter off the nozzle', () => {
+  for (const [x] of exhaustPoints(craft(true).vertices, craft(true).indices)) assert.ok(x >= 3.9 && x <= 4.1, `emitter x ${x}`);
 });
 
 test('missing engines and merged emitters are flagged', () => {
