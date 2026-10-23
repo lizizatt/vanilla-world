@@ -911,6 +911,9 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
       }
     }
     draws.sort((a,b)=>a.batch.transparent-b.batch.transparent || (a.batch.transparent?b.distance-a.distance:0));
+    // Race props (gates, beacons) draw after the clouds so nearer props are never veiled by them.
+    const propDraws=draws.filter(d=>d.item.id.startsWith('prop:'));
+    if(propDraws.length)for(let i=draws.length;i--;)if(draws[i].item.id.startsWith('prop:'))draws.splice(i,1);
     if(uniformCount)this.device.queue.writeBuffer(this.frameUniforms,0,this.uniformData.buffer,0,uniformCount*256);
     const encoder=this.device.createCommandEncoder(),pass=encoder.beginRenderPass({
       colorAttachments:[{view:this.context.getCurrentTexture().createView(),clearValue:{r:sky[0],g:sky[1],b:sky[2],a:1},loadOp:'clear',storeOp:'store'}],
@@ -929,6 +932,15 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
       // Clouds read the finished scene depth to clip their ray march, so they never need a depth-test bias.
       const cloudPass=encoder.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}]});
       this.drawClouds(cloudPass,time,daylight,near);cloudPass.end();
+    }
+    if(!this.cameraBlocked&&propDraws.length) {
+      const propPass=encoder.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}],
+        depthStencilAttachment:{view:this.depth.createView(),depthLoadOp:'load',depthStoreOp:'store'}});
+      for(const {asset,batch,item,pipeline} of propDraws) {
+        propPass.setPipeline(pipeline);propPass.setBindGroup(0,item.group,[item.offset]);propPass.setVertexBuffer(0,asset.vertices);
+        propPass.setIndexBuffer(asset.indices,'uint32');propPass.drawIndexed(batch.indexCount,1,batch.firstIndex);
+      }
+      propPass.end();
     }
     const fx=this.particles,quality=QUALITY[settings.particles]??QUALITY.medium;
     if(fx)fx.quality=quality;

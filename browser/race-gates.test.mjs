@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Race} from './race.js';
-import {gateScene,lightPhase,sceneKey,sceneProps,START_AHEAD} from './race-gates.js';
+import {gateScene,lightPhase,sceneKey,sceneProps,START_AHEAD,startLine} from './race-gates.js';
 
 const mk=id=>({id,start:{pos:[100,5,200],yaw:0},gates:[0,1,2].map(i=>({pos:[100,5,200-100*(i+1)],yaw:0,width:40})),mode:'p2p',laps:1,vehicle:'podracer'});
 const kinds=l=>l.map(d=>d.id);
@@ -48,4 +48,15 @@ test('scene keys change only with visible state and props build (hosted fallback
   assert.equal(a,b);assert.notEqual(a,c);
   const props=sceneProps(gateScene([mk('a'),mk('b')],r,0),undefined);
   assert.ok(props.length>=2&&props.every(p=>p.asset.indices.length>0));
+});
+
+test('circuit: the gantry and finish share the line and the grid sits behind it; p2p: gantry ahead of grid, finish at last gate', () => {
+  const p2p=mk('a'),circuit={...mk('c'),mode:'lap',gates:[{pos:[100,5,100],yaw:0,width:40},{pos:[100,5,200.5],yaw:0,width:40}]};
+  let s=startLine(p2p);
+  assert.equal(s.circuit,false);assert.equal(s.at[2],200-START_AHEAD);assert.deepEqual(s.grid,[100,5,200]);
+  s=startLine(circuit);
+  assert.equal(s.circuit,true);assert.deepEqual(s.at,[100,5,200.5]);
+  assert.ok(Math.abs(s.grid[2]-(200.5+START_AHEAD))<1e-9);
+  const r=new Race(circuit);r.start(0);r.lined(0);
+  assert.deepEqual(gateScene([circuit],r,0).find(d=>d.id==='A:start').at,circuit.gates[1].pos);
 });

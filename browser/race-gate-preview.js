@@ -104,7 +104,6 @@ export function gantry({ at, yaw, width = 30, phase = 3, real }) {
   if (real) {
     for (const s of [-1, 1]) out.push(faded(model(at, yaw, [0, s * h, 0], real.pole, 1.7)));
     for (let i = 0; i < 3 && real.lens; i++) out.push(model(at, yaw, [-1.3, -2.8 + i * 2.8, 12.4], real.lens, 1, { asset: tint(real.lens.asset, i + 1 === phase ? lamp[i] : [.15, .15, .15, 1]) }));
-    for (const s of [-1, 1]) out.push(model(at, yaw, [-1, s * h * .55, 15 - 6.19 * 1.4], real.banner, 1.4));
   }
   return out;
 }

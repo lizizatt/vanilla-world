@@ -15,17 +15,25 @@ export function lightPhase(race,now) {
   return Math.ceil(race.countdown(now))>=3?1:2;
 }
 
+// Circuit (last gate on the start spot): the finish plane IS the start line, so the lights gantry stands on it and the grid sits
+// START_AHEAD yd behind it. Otherwise (point to point) the gantry stands ahead of the grid and the finish is the last gate.
+export function startLine(track) {
+  const s=track.start.pos,last=track.gates[track.gates.length-1];
+  const circuit=Math.hypot(last.pos[0]-s[0],last.pos[2]-s[2])<GANTRY_WIDTH;
+  const [fx,fz]=forward(track.start.yaw);
+  if(circuit)return {circuit,at:last.pos,yaw:last.yaw,grid:[last.pos[0]-fx*START_AHEAD,s[1],last.pos[2]-fz*START_AHEAD]};
+  return {circuit,at:[s[0]+fx*START_AHEAD,s[1],s[2]+fz*START_AHEAD],yaw:track.start.yaw,grid:s};
+}
 // Descriptors for every gate prop. Labels show at each track start in free-roam and are hidden for the track being raced (the gantry marks it).
 // While running: the next gate is amber (or the chequered finish gantry on the last one) and the one just passed is dim; later gates stay hidden.
 export function gateScene(tracks,race,now=0) {
   const out=[],active=race&&ACTIVE[race.state]?race:undefined;
   for(const t of tracks)if(t.id!==active?.track.id)out.push({kind:'L',id:'L:'+t.id,at:flagPosition(t),yaw:t.start.yaw});
   if(!active)return out;
-  const {track}=active,[fx,fz]=forward(track.start.yaw),s=track.start.pos,n=track.gates.length;
-  const startAt=[s[0]+fx*START_AHEAD,s[1],s[2]+fz*START_AHEAD];
+  const {track}=active,n=track.gates.length,{at:startAt,yaw:startYaw,circuit}=startLine(track);
   const fin=active.finishing,last=track.gates[active.gateIndex];
-  const dup=fin&&Math.hypot(last.pos[0]-startAt[0],last.pos[2]-startAt[2])<GANTRY_WIDTH;
-  if(!dup)out.push({kind:'A',id:'A:start',at:startAt,yaw:track.start.yaw,phase:lightPhase(active,now)});
+  const dup=fin&&circuit;
+  if(!dup)out.push({kind:'A',id:'A:start',at:startAt,yaw:startYaw,phase:lightPhase(active,now)});
   if(active.state==='running'){
     if(fin)out.push({kind:'A',id:'A:finish',at:last.pos,yaw:last.yaw,width:Math.min(last.width,60),phase:3});
     else out.push({kind:'C',id:'C:next',at:last.pos,yaw:last.yaw,width:last.width,state:'next'});
@@ -44,7 +52,6 @@ export function sceneProps(list,real) {
 // local data is missing (hosted), which keeps the flat procedural fallback.
 const WOW={
   pole:'World\\Generic\\Human\\Passive Doodads\\FlagPole\\Flagpole01.m2',
-  banner:'World\\Generic\\PVP\\BattlefieldBanners\\BattlefieldBannerHorde.m2',
   bannerBig:'World\\Generic\\Orc\\Passive Doodads\\HordeBanners\\HordeBanner01.m2',
   brazier:'World\\Generic\\Orc\\Passive Doodads\\Braziers\\TallBrazier01.m2',
 };
