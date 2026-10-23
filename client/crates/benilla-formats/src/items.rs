@@ -181,6 +181,11 @@ fn catalog_from_records(rs: RecordSet) -> ItemDisplayCatalog {
     ItemDisplayCatalog { displays }
 }
 
+/// The catalog from ItemDisplayInfo.dbc bytes already read.
+pub fn parse_item_display_catalog(bytes: &[u8]) -> Result<ItemDisplayCatalog> {
+    Ok(catalog_from_records(parse(bytes, item_display_info_schema(), "ItemDisplayInfo")?))
+}
+
 /// Load `ItemDisplayInfo.dbc` off the patch chain into an [`ItemDisplayCatalog`].
 pub fn load_item_display_catalog(chain: &mut Chain) -> Result<ItemDisplayCatalog> {
     let bytes = chain

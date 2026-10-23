@@ -82,6 +82,41 @@ pub fn scene_resolve_displays(models: &[u8], displays: &[u8], extra: &[u8], ids:
     resolve_displays(models, displays, extra, ids).map_err(js)
 }
 
+/// Visible geosets for each character-body NPC display: the bare region bases, with the worn
+/// shirt/chest/pants/boots/gloves/belt/tabard rows from ItemDisplayInfo (robe => skirt 1302, else
+/// legs 1301). Hair and facial hair keep their bases until CharHairGeosets is wired in.
+fn character_geosets(models: &[u8], displays: &[u8], extra: &[u8], items: &[u8], ids: &[u32]) -> Result<String, String> {
+    for b in [models, displays, extra, items] {
+        bounded(b)?;
+    }
+    let catalog = benilla_formats::parse_creature_catalog(models, displays)
+        .map_err(|e| e.to_string())?
+        .with_extra(benilla_formats::parse_creature_display_info_extra(extra).unwrap_or_default());
+    let items = benilla_formats::parse_item_display_catalog(items).map_err(|e| e.to_string())?;
+    let bare = benilla_formats::CharacterGeosets::empty();
+    let mut out = serde_json::Map::new();
+    for &id in ids {
+        let Some(npc) = catalog.model(id).and_then(|m| m.npc_appearance) else { continue };
+        let mut worn: [Option<&benilla_formats::ItemDisplay>; 8] = [None; 8];
+        let mut eq = benilla_formats::EquipGeosets::default();
+        for i in 0..8 {
+            if npc.equipment[i + 2] != 0 {
+                worn[i] = items.get(npc.equipment[i + 2]);
+                eq.bodyslots[i] = worn[i].map(|row| row.geoset_groups);
+            }
+        }
+        eq.forearm_dressed = benilla_formats::forearm_dressed(&worn);
+        let ids = bare.visible_geosets(npc.race, npc.sex, npc.hair_style, npc.facial_hair, &eq);
+        out.insert(id.to_string(), json!(ids.ids()));
+    }
+    Ok(serde_json::Value::Object(out).to_string())
+}
+
+#[wasm_bindgen]
+pub fn scene_character_geosets(models: &[u8], displays: &[u8], extra: &[u8], items: &[u8], ids: &[u32]) -> Result<String, JsValue> {
+    character_geosets(models, displays, extra, items, ids).map_err(js)
+}
+
 fn craft_metadata(bytes: &[u8]) -> Result<String, String> {
     bounded(bytes)?;
     let attachments = benilla_formats::parse_m2_attachments(bytes).map_err(|e| e.to_string())?;
@@ -279,11 +314,18 @@ impl SceneModel {
         })
     }
 
+    #[cfg(test)]
     fn from_m2(bytes: &[u8], path: &str, skins: &str) -> Result<Self, String> {
-        Self::decode_m2(bytes, path, skins, false)
+        Self::decode_m2(bytes, path, skins, false, None)
     }
 
-    fn decode_m2(bytes: &[u8], path: &str, skins: &str, stand: bool) -> Result<Self, String> {
+    fn decode_m2(
+        bytes: &[u8],
+        path: &str,
+        skins: &str,
+        stand: bool,
+        geosets: Option<Vec<u16>>,
+    ) -> Result<Self, String> {
         bounded(bytes)?;
         let skins: Vec<Option<String>> = serde_json::from_str(skins).map_err(|e| e.to_string())?;
         if skins.len() > 4 || path.len() > 1024 {
@@ -296,6 +338,7 @@ impl SceneModel {
         } else {
             None
         };
+        retain_geosets(&mut subs, &geosets);
         let mut omitted_character_batches = 0;
         if let Some(Some(body)) = skins.get(3) {
             for sub in &mut subs {
@@ -303,10 +346,7 @@ impl SceneModel {
                     sub.texture = Some(body.clone());
                 }
             }
-            // shortcut: baked body only; resolve hair/equipment before admitting their untextured cards.
-            let before = subs.len();
-            subs.retain(|sub| sub.char_slot.is_none() || sub.texture.is_some());
-            omitted_character_batches = before - subs.len();
+            omitted_character_batches = retain_baked(&mut subs);
         }
         let collision = parse_m2_collision_hull(bytes).map_err(|e| e.to_string())?;
         let mut model = Self::build(
@@ -332,6 +372,33 @@ impl SceneModel {
     }
 }
 
+/// Optional visible-geoset list (`""` means every geoset); an NPC body shows one variant per group.
+fn parse_geosets(json: &str) -> Result<Option<Vec<u16>>, String> {
+    if json.is_empty() {
+        return Ok(None);
+    }
+    let ids: Vec<u16> = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    if ids.len() > 256 {
+        return Err("Invalid geoset list".into());
+    }
+    Ok(Some(ids))
+}
+
+fn retain_geosets(subs: &mut Vec<RenderSubmesh>, geosets: &Option<Vec<u16>>) {
+    if let Some(ids) = geosets {
+        // Like the client's compositor, ids above 1700 are unmanaged and stay visible.
+        subs.retain(|s| s.geoset_id > 1700 || ids.contains(&s.geoset_id));
+    }
+}
+
+/// Baked-body-only NPCs: hair and equipment cards have no texture yet. The actor must apply the
+/// same cut so its vertex stream matches the static mesh.
+fn retain_baked(subs: &mut Vec<RenderSubmesh>) -> usize {
+    let before = subs.len();
+    subs.retain(|sub| sub.char_slot.is_none() || sub.texture.is_some());
+    before - subs.len()
+}
+
 fn validate_mesh(positions: &[[f32; 3]], indices: &[u32]) -> Result<(), String> {
     if positions.len() > MAX_TRIANGLES * 3
         || !indices.len().is_multiple_of(3)
@@ -348,12 +415,13 @@ fn validate_mesh(positions: &[[f32; 3]], indices: &[u32]) -> Result<(), String> 
 
 #[wasm_bindgen]
 impl SceneModel {
-    pub fn m2(bytes: &[u8], path: &str, skins: &str) -> Result<SceneModel, JsValue> {
-        Self::from_m2(bytes, path, skins).map_err(js)
+    pub fn m2(bytes: &[u8], path: &str, skins: &str, geosets: Option<String>) -> Result<SceneModel, JsValue> {
+        let geosets = parse_geosets(geosets.as_deref().unwrap_or("")).map_err(js)?;
+        Self::decode_m2(bytes, path, skins, false, geosets).map_err(js)
     }
 
     pub fn craft(bytes: &[u8], path: &str, skins: &str) -> Result<SceneModel, JsValue> {
-        Self::decode_m2(bytes, path, skins, true).map_err(js)
+        Self::decode_m2(bytes, path, skins, true, None).map_err(js)
     }
     pub fn metadata(&self) -> String {
         self.metadata.clone()
@@ -391,14 +459,23 @@ pub struct SceneActor {
 }
 
 impl SceneActor {
-    fn decode(bytes: &[u8], path: &str, skins: &str) -> Result<Self, String> {
+    fn decode(bytes: &[u8], path: &str, skins: &str, geosets: Option<Vec<u16>>) -> Result<Self, String> {
         bounded(bytes)?;
         let skins: Vec<Option<String>> = serde_json::from_str(skins).map_err(|e| e.to_string())?;
         if skins.len() > 4 || path.len() > 1024 {
             return Err("Invalid actor skin/path metadata".into());
         }
         let dir = path.rsplit_once(['\\', '/']).map_or("", |(dir, _)| dir);
-        let bind = parse_m2_render_submeshes(bytes, dir, &skins).map_err(|e| e.to_string())?;
+        let mut bind = parse_m2_render_submeshes(bytes, dir, &skins).map_err(|e| e.to_string())?;
+        retain_geosets(&mut bind, &geosets);
+        if let Some(Some(body)) = skins.get(3) {
+            for sub in &mut bind {
+                if sub.char_slot == Some(benilla_formats::CharSkinSlot::Body) {
+                    sub.texture = Some(body.clone());
+                }
+            }
+            retain_baked(&mut bind);
+        }
         let mut vertices = Vec::new();
         for sub in &bind {
             let n = sub.positions.len();
@@ -432,8 +509,9 @@ impl SceneActor {
 
 #[wasm_bindgen]
 impl SceneActor {
-    pub fn create(bytes: &[u8], path: &str, skins: &str) -> Result<SceneActor, JsValue> {
-        Self::decode(bytes, path, skins).map_err(js)
+    pub fn create(bytes: &[u8], path: &str, skins: &str, geosets: Option<String>) -> Result<SceneActor, JsValue> {
+        let geosets = parse_geosets(geosets.as_deref().unwrap_or("")).map_err(js)?;
+        Self::decode(bytes, path, skins, geosets).map_err(js)
     }
 
     /// Clip length in seconds; `0` when the model lacks it.
@@ -815,7 +893,7 @@ mod tests {
             "Creature\\HumanMaleGuard\\HumanMaleGuard.m2",
         ] {
             let Ok(bytes) = chain.read_file(path) else { continue };
-            let Ok(actor) = SceneActor::decode(&bytes, path, "[]") else { continue };
+            let Ok(actor) = SceneActor::decode(&bytes, path, "[]", None) else { continue };
             built += 1;
             let model = SceneModel::from_m2(&bytes, path, "[]").unwrap();
             assert_eq!(actor.vertices.len(), model.vertices.len());
@@ -991,7 +1069,7 @@ mod tests {
             weighted > 100,
             "Exercise the goblin's multi-bone skin, not only rigid chassis"
         );
-        let model = SceneModel::decode_m2(&bytes, path, "[]", true).unwrap();
+        let model = SceneModel::decode_m2(&bytes, path, "[]", true, None).unwrap();
         let metadata: serde_json::Value = serde_json::from_str(&model.metadata).unwrap();
         assert_eq!(metadata["animation"], "stand-frame-0");
         assert_eq!(model.indices.len() / 3, 1566);
@@ -1379,5 +1457,44 @@ mod tests {
                 .all(|b| b["alphaCutoff"].as_f64().unwrap() == 0.0 || b["texture"].is_string()),
             "Unresolved character cutouts hide an otherwise valid baked NPC"
         );
+    }
+
+    #[test]
+    fn character_actor_stream_matches_the_filtered_static_mesh() {
+        let data = benilla_formats::wow_data_or_skip!();
+        let mut chain = benilla_formats::Chain::open(&data).unwrap();
+        let catalog = benilla_formats::load_creature_catalog(&mut chain).unwrap();
+        let creature = catalog
+            .display_models()
+            .filter_map(|(id, _)| catalog.model(id))
+            .find(|m| m.npc_appearance.as_ref().is_some_and(|a| a.bake_name.is_some()))
+            .unwrap();
+        let path = creature.model_path.to_ascii_lowercase().replace(".mdx", ".m2");
+        let mut skins = creature.textures.to_vec();
+        skins.push(
+            creature.npc_appearance.unwrap().bake_name.map(|n| format!("Textures\\BakedNpcTextures\\{n}")),
+        );
+        let (skins, bytes) = (serde_json::to_string(&skins).unwrap(), chain.read_file(&path).unwrap());
+        let trousers = "[0,1,101,201,301,401,501,601,702,801,901,1001,1101,1201,1301,1401,1501]";
+        let skirt = "[0,1,101,201,301,401,601,702,801,1001,1201,1302,1401,1501]";
+        let count = |g: Option<Vec<u16>>| SceneModel::decode_m2(&bytes, &path, &skins, false, g).unwrap().vertices.len() / 12;
+        let all = count(None);
+        assert!(count(parse_geosets(trousers).unwrap()) <= all);
+        assert_ne!(count(parse_geosets(trousers).unwrap()), count(parse_geosets(skirt).unwrap()), "skirt and trousers differ");
+        if let Ok(actor) = SceneActor::decode(&bytes, &path, &skins, parse_geosets(trousers).unwrap()) {
+            assert_eq!(actor.vertex_count(), count(parse_geosets(trousers).unwrap()));
+            let (mut p0, mut p1) = (actor.vertices.clone(), actor.vertices.clone());
+            actor.rig.pose_into(&actor.bind, 0, 0.0, &mut p0).unwrap();
+            actor.rig.pose_into(&actor.bind, 0, actor.duration(0) * 0.5, &mut p1).unwrap();
+            assert_ne!(p0, p1, "stand pose changes over time");
+        }
+    }
+
+    #[test]
+    fn geoset_lists_are_bounded_json() {
+        assert_eq!(parse_geosets("").unwrap(), None);
+        assert_eq!(parse_geosets("[1,1301]").unwrap(), Some(vec![1, 1301]));
+        assert!(parse_geosets("[-1]").is_err());
+        assert!(parse_geosets(&format!("[{}]", vec!["1"; 300].join(","))).is_err());
     }
 }
