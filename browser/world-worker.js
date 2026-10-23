@@ -3,7 +3,7 @@ import * as wasmTypes from './pkg/flats_racer_web.js';
 import {openAssetSource} from './asset-channel.js';
 import {SceneStream,SCENE_LIMITS,transformedBounds,globalCollisionVertices,boundsWithin,boundsDistance,sceneReady} from './scene-stream.js';
 import {TerrainStream} from './terrain-stream.js';
-import {loadCraft,loadProp} from './craft-stream.js';
+import {loadCraft,loadProp,loadPropTexture} from './craft-stream.js';
 import {loadPopulation} from './npc-pack.js';
 import {WaterStream} from './water-stream.js';
 import {FarChannel} from './far-channel.js';
@@ -686,7 +686,8 @@ function snapshot() {
 }
 async function handle(message) {
   await ready;
-  if(message.action==='prop-model')return loadProp(source,wasmTypes,String(message.path));
+  if(message.action==='prop-texture')return loadPropTexture(source,wasmTypes,String(message.path));
+    if(message.action==='prop-model')return loadProp(source,wasmTypes,String(message.path));
   if(message.action==='open') {
     sceneInstanceDeltas=message.sceneInstanceDeltas===true;
     sceneInstanceUpdates=message.sceneInstanceUpdates===true;

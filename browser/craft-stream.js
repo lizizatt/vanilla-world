@@ -38,6 +38,12 @@ export async function loadCraft(source,wasm,emit) {
  }
 }
 
+// Preview tooling: one BLP from the user's Data folder as a craft-payload texture (key is the renderer's model path).
+export async function loadPropTexture(source,wasm,path) {
+  const key=modelPath(path),tex=new wasm.SceneTexture(await source.read(key));
+  try{return {key,...JSON.parse(tex.metadata()),rgba:tex.rgba()};}finally{tex.free();}
+}
+
 // Preview tooling: any M2 in the user's Data folder as a craft-style payload (vertices in scene space, textures decoded).
 export async function loadProp(source,wasm,path) {
   const handle=wasm.SceneModel.m2(await source.read(path),path,'[]'),posed=JSON.parse(handle.metadata());
