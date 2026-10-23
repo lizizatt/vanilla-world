@@ -53,7 +53,8 @@ export function decodeSprite(bytes) {
   for (let t = 0; t < n; t++) {
     const { w: tw, h: th, off } = tiles[t];
     const end = t + 1 < n ? tiles[t + 1].off : bytes.length;
-    const rgba = decodePixels(fmt, bytes.subarray(off, end), tw, th, palette);
+    const pad = four ? 16 : fmt === FMT.RGBA32 ? 2 : 8; // N64 rows are 8-byte aligned
+    const rgba = decodePixels(fmt, bytes.subarray(off, end), tw, th, palette, Math.ceil(tw / pad) * pad);
     const ox = (t % gw) * MAX_TW, oy = Math.floor(t / gw) * MAX_TH;
     for (let y = 0; y < th && oy + y < h; y++) for (let x = 0; x < tw && ox + x < w; x++) {
       out.set(rgba.subarray(((th - 1 - y) * tw + x) * 4, ((th - 1 - y) * tw + x) * 4 + 4), ((oy + y) * w + ox + x) * 4);

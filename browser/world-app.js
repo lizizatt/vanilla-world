@@ -24,7 +24,7 @@ import {pickVoice,raceEndEvents} from './swe1r/voice-map.js';
 import {hitFlash,boostFx} from './swe1r/hud.js';
 import {WRECK_CHUNK,WRECK_CHUNKS,gibTrigger,overheatTrigger} from './wreck.js';
 import {hudModel} from './hud-model.js';
-import {loadHudSprites,loadCountdownSprites,createDial,createHeatGauge,lapText,lapTimesText,lapBanner,finishBanner} from './swe1r/hud.js';
+import {loadHudSprites,loadCountdownSprites,createDial,createHeatGauge,createRealDial,createRealEngines,lapText,lapTimesText,lapBanner,finishBanner} from './swe1r/hud.js';
 const flashMem={},boostMem={},meters=document.querySelector('.meters'),ownLast={};
 function ownHud(boost){const m=hudModel(boost);if(ownLast.arc===m.arc)return;ownLast.arc=m.arc;$('heat-arc').style.strokeDasharray=`${m.arc} 100`;const d=$('heat-arc').closest('.speed-dial');d.dataset.stage=String(m.stage);d.dataset.hot=String(m.heat>=1);const g=meters.querySelector('.heat-twin');g.dataset.warn=String(m.warn);g.setAttribute('aria-label',`Engine heat ${Math.round(m.heat*100)}%`);g.dataset.stage=String(m.stage);g.dataset.hot=String(m.heat>=1);}if(new URLSearchParams(location.search).has('test'))window.ownHudTest=ownHud;let dial,heatGauge,hudOn=false,countdownSprites;
 
@@ -638,7 +638,7 @@ function frame(now) {
     if(gibTrigger(gibMem,client.state.telemetry,gib.on,gib.speed,now,!!flight||!!frozenPresentation||editor.isOpen||wreckBusy)){flashMem.at=now/1000;flashMem.strength=1;void testCrash(true,gibMem.speed);}
     else if(dial&&overheatTrigger(gibMem,client.state.telemetry,(controls.flags&2)!==0,gib.overheat,now,!!flight||!!frozenPresentation||editor.isOpen||wreckBusy)){flashMem.at=now/1000;flashMem.strength=1;void testCrash(true,client.state.telemetry[5]);}
     const flash=dial&&hudOn&&!flight?hitFlash(flashMem,client.state.telemetry[8],client.state.telemetry[5],now/1000):0;$('boost-fx').hidden=!(dial&&hudOn&&!flight&&(boostFx(boostMem,(controls.flags&2)!==0,dt)>0));if(!$('boost-fx').hidden)$('boost-fx').style.opacity=(boostMem.v*.8).toFixed(2);$('hit-flash').hidden=flash<=0;if(flash>0)$('hit-flash').style.opacity=flash.toFixed(2);
-    audio.update(client.state,controls,dt,audible);ownHud(client.state.telemetry[6]);if(dial){const on=hudOn&&!flight;$('swe1r-hud').hidden=!on;if(on)dial(Math.min(1,client.state.telemetry[5]/tuningValues[1]),client.state.telemetry[6]);$('swe1r-heat').hidden=!(on&&heatGauge);if(on&&heatGauge)heatGauge(client.state.telemetry[6],now/1000);}audio.setHeat(dial?client.state.telemetry[6]:0,(controls.flags&2)!==0);if(!race)music.setBattle(false);music.update(client.state.area,audible);evidence.music=music.snapshot();
+    audio.update(client.state,controls,dt,audible);ownHud(client.state.telemetry[6]);if(dial){const on=hudOn&&!flight;$('swe1r-hud').hidden=!on;if(on)dial(Math.min(1,client.state.telemetry[5]/tuningValues[1]),client.state.telemetry[6],$('speed').textContent,now/1000);$('swe1r-heat').hidden=!(on&&heatGauge);if(on&&heatGauge)heatGauge(client.state.telemetry[6],now/1000);}audio.setHeat(dial?client.state.telemetry[6]:0,(controls.flags&2)!==0);if(!race)music.setBattle(false);music.update(client.state.area,audible);evidence.music=music.snapshot();
     frames++;Object.assign(evidence,{frames,state:client.state,mode:flight?'fly':'drive',camera:flight?.slice(),render:stats,adapter:renderer.adapter});
     evidence.input={...controls,device:input.device};evidence.view=renderer.camera?.slice();
     evidence.cockpit={requested:settings.cockpit,active:renderer.cameraMode==='cockpit',available:stats.cockpitAvailable};
@@ -708,7 +708,7 @@ async function start() {
       voiceReader=r;fetch('./swe1r/voice-map.json').then(x=>x.ok?x.json():{}).then(m=>{voiceMap=m;}).catch(()=>{});
       const raw=await loadSfx(r,[...Object.values(SFX),...WIPEOUT_NAMES,...HEAT.klaxon,HEAT.coolOn,HEAT.cool]).catch(()=>new Map());
       loadCountdownSprites(r).then(s=>{countdownSprites=s||undefined;}).catch(e=>console.error('SWE1R countdown',e));
-  loadHudSprites(r).then(s=>{if(!s)return;dial=createDial(s,$('swe1r-hud'));heatGauge=s.heat&&createHeatGauge(s.heat,$('swe1r-heat'));$('swe1r-hud-row').hidden=false;$('overheat-row').hidden=false;syncHud();}).catch(e=>console.error('SWE1R HUD',e));
+  loadHudSprites(r).then(s=>{if(!s)return;if(s.real){const d=$('swe1r-hud');d.width=200;d.height=130;d.style.width='200px';d.style.height='130px';dial=createRealDial(s.real,d);heatGauge=createRealEngines(s.real,$('swe1r-heat'));}else{dial=createDial(s,$('swe1r-hud'));heatGauge=s.heat&&createHeatGauge(s.heat,$('swe1r-heat'));}$('swe1r-hud-row').hidden=false;$('overheat-row').hidden=false;syncHud();}).catch(e=>console.error('SWE1R HUD',e));
       if(raw.size){audio.sampleOn=$('swe1r-sfx').checked;$('swe1r-sfx-row').hidden=false;await audio.useSamples(raw);}});
     folder=await restoreDataFolder().catch(()=>undefined);
     if(folder) {

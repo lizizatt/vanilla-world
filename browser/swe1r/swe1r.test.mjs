@@ -10,7 +10,7 @@ import { parseModel } from './model.js';
 import { alphaMode, buildPod, decodeTriangles } from './pod.js';
 import { toCraft, podSkinList, loadPodModel } from './skin.js';
 import { loadSfx, SFX } from './sfx.js';
-import { loadHudSprites, needleAngle } from './hud.js';
+import { loadHudSprites, needleAngle, engineColor } from './hud.js';
 import { readerFromFiles } from './folder.js';
 import { VEHICLES, normalizeChoice, setRuntimeSkins } from '../vehicles.js';
 
@@ -218,6 +218,13 @@ test('real install: HUD ring/face sprites decode as 64x64', { skip: !process.env
   const s = await loadHudSprites({ read: async n => new Uint8Array(fs.readFileSync(path.join(lev, n))) });
   assert.ok(s && s.ring.rgba.some((v, i) => i % 4 === 3 && v > 0) && s.face.rgba.some((v, i) => i % 4 === 3 && v > 0));
 });
+test('real install: dial/engine panel sprites decode at their known sizes with content', { skip: !process.env.SWE1R_DATA && 'SWE1R_DATA not set' }, async () => {
+  const lev = findLev(process.env.SWE1R_DATA);
+  const s = await loadHudSprites({ read: async n => new Uint8Array(fs.readFileSync(path.join(lev, n))) });
+  for (const k of ['panel', 'capsule', 'grad', 'lamp']) assert.ok(s.real[k].rgba.some((v, i) => i % 4 === 3 && v > 0), k);
+  assert.deepEqual([s.real.panel.w, s.real.panel.h, s.real.capsule.w, s.real.capsule.h], [27, 62, 71, 59]);
+});
+test('engine colours follow the heat stages', () => assert.deepEqual([0, .5, .8].map(engineColor), ['#46e85a', '#ffd23a', '#ff4a3a']));
 test('pod vertex bytes are normals, not colours (no G_GEOMETRYMODE -> lit)', () => {
   const body = new Uint8Array(256), dv = new DataView(body.buffer);
   dv.setUint32(0, 0x01003006); dv.setUint32(4, 64);       // G_VTX n=3 at 64
