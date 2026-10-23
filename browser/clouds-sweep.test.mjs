@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {cloudShader,cloudShaderHigh,CLOUD_HALF_SIZE} from './clouds.js';
+import {cloudShader,cloudShaderHigh,CLOUD_HALF_SIZE,CLOUD_ALTITUDE,CLOUD_THICKNESS} from './clouds.js';
 import {march,extent,slab,density,steps,MIN_SPAN} from './cloud-march.js';
 
 // Seeded Monte Carlo sweep of the cloud ray march (pure JS mirror of the sheet branch, no GPU).
@@ -36,7 +36,7 @@ for(const high of [false,true]) {
     const r=rng(12),{ya,yb}=slab(high);
     let worst=0,where=null;
     for(let i=0;i<400;i++) {
-      const s=randomRay(r);s.eye[1]=ya+(yb-ya)*r();s.coverage=.6+r()*.35;
+      const s=randomRay(r);s.eye[1]=ya+(Math.min(yb,CLOUD_ALTITUDE+CLOUD_THICKNESS/2)-ya)*r();s.coverage=.6+r()*.35;
       const yaw=s.yaw;
       let prev=null;
       for(const p of [-.0006,-.0004,.0004,.0006]) {
@@ -90,7 +90,7 @@ for(const high of [false,true]) {
       const s=randomRay(r),d=dirOf(s.yaw,s.pitch),ex=extent(s.eye[1],d[1],1e9,high);
       const toward=(s.eye[1]<ya&&d[1]>0)||(s.eye[1]>yb&&d[1]<0)||(s.eye[1]>=ya&&s.eye[1]<=yb);
       if(toward&&ex.s0<CLOUD_HALF_SIZE)assert.ok(ex.ns>0,`slab missed ${JSON.stringify(s)}`);
-      if(ex.ns)assert.ok((ex.s1-ex.s0)/steps(high)<=Math.max(MIN_SPAN,.3*ex.s0)/steps(high)+1e-6);
+      if(ex.ns)assert.ok((ex.s1-ex.s0)/steps(high)<=Math.max(high?40000:MIN_SPAN,.3*ex.s0)/steps(high)+1e-6);
     }
   });
 }
@@ -117,7 +117,7 @@ test('sweep: the pre-fix extent is caught (horizon gap and hard cap)',()=>{
 
 test('parity: shader keeps the extent, cap, tail and step expressions the JS mirror uses',()=>{
   for(const [name,src,ns] of [['standard',cloudShader,8],['high',cloudShaderHigh,28]]) {
-    for(const frag of ['select(select(-.0005,.0005,dir.y>=0.0),dir.y,abs(dir.y)>=.0005)','sCap=s0+max(9000.0,.3*s0)','sFull>sCap&&s1==sCap','s0<c.cloud.w','1.0-cutK*smoothstep(.55,1.0,(ts-s0)/Ls)','smoothstep(30000.0,c.cloud.w,ts)','clamp(ts/150000.0,0.0,.93)'])
+    for(const frag of ['select(select(-.0005,.0005,dir.y>=0.0),dir.y,abs(dir.y)>=.0005)',`sCap=s0+max(${name==='high'?'40000.0':'9000.0'},.3*s0)`,'sFull>sCap&&s1==sCap','s0<c.cloud.w','1.0-cutK*smoothstep(.55,1.0,(ts-s0)/Ls)','smoothstep(30000.0,c.cloud.w,ts)','clamp(ts/150000.0,0.0,.93)'])
       assert.ok(src.includes(frag),`${name} shader lost: ${frag}`);
     assert.ok(src.includes(`NS=${ns}`)||src.includes(`const NS=${ns}`)||src.includes(`${ns}`),`${name} step count`);
   }
@@ -134,4 +134,9 @@ test('above-layer look-down: no hard edge across pitch, saturated tops stay lit 
     }
     assert.ok(worst<.12,`colour edge ${worst.toFixed(3)} at H=${H}`);
   }
+});
+
+test('far sheet stays visible below a tall High slab (right-side-culled regression)',()=>{
+  const mean=(high,yaw)=>{let a=0,n=0;for(let p=-.1;p<=-.02;p+=.01)for(let j=0;j<4;j++){a+=march({eye:[0,6000,0],dir:[Math.cos(p)*Math.cos(yaw),Math.sin(p),Math.cos(p)*Math.sin(yaw)],t:500,coverage:.8,high,jitter:(j+.5)/4}).alpha;n++;}return a/n;};
+  for(const yaw of [0,1,2,3,4,5]) assert.ok(mean(true,yaw)>mean(false,yaw)*.7,`High loses the sheet at yaw ${yaw}`);
 });
