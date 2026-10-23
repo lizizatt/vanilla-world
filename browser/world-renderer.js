@@ -814,7 +814,7 @@ export class WorldRenderer {
     const target=settings.night?0:1,previous=this.daylight??target;
     const daylight=this.daylight=Math.abs(target-previous)<.002?target:previous+(target-previous)*Math.min(1,dt*1.5);
     const sky0=DAY_SKY.map((v,i)=>NIGHT_SKY[i]+(v-NIGHT_SKY[i])*daylight);
-    this.timeOfDay=advanceTime(this.timeOfDay??(settings.night?0:DAY),settings.night,dt);
+    this.timeOfDay=this.timeLock??advanceTime(this.timeOfDay??(settings.night?0:DAY),settings.night,dt);
     const game=this.sampleSky(),sky=game?game.fog:sky0;
     this.gameSky=game;
     const skyFloats=game?[...game.fog,1,...game.sun,0,...game.horizon,0,...game.mid,0]:new Array(16).fill(0);

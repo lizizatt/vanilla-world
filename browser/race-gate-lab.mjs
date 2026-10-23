@@ -9,7 +9,7 @@ export const track = JSON.parse(fs.readFileSync(new URL('./tracks/steamwheedle.j
 export const out = path.resolve('..', 'runtime', 'gate-preview');
 fs.mkdirSync(out, { recursive: true });
 
-export async function openLab({ swe1r = true, width = 1280, height = 720 } = {}) {
+export async function openLab({ swe1r = true, width = 1280, height = 720, clouds = false } = {}) {
   const { WOW_DATA, SWE1R_DATA } = process.env;
   if (!WOW_DATA) throw new Error('WOW_DATA required');
   const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(os.tmpdir(), 'edge-gatelab-')),
@@ -27,8 +27,8 @@ export async function openLab({ swe1r = true, width = 1280, height = 720 } = {})
   await page.waitForFunction(() => worldEvidence.ready || worldEvidence.errors.length, null, { timeout: 180000 });
   await page.keyboard.press('Escape'); await page.locator('[data-tab=options]').click(); await page.keyboard.press('Escape');
   await page.locator('#world').click();
-  await page.evaluate(([p, y]) => { worldTest.settings({ shadows: false, clouds: false, night: false, music: false });
-    worldTest.selectVehicle({ vehicle: 'podracer', skin: 'rocket' }); worldTest.restore({ pos: p, yaw: y }); }, [track.start.pos, track.start.yaw]).catch(() => {});
+  await page.evaluate(([p, y, clouds]) => { worldTest.settings({ shadows: false, clouds, night: false, music: false });
+    worldTest.selectVehicle({ vehicle: 'podracer', skin: 'rocket' }); worldTest.restore({ pos: p, yaw: y }); }, [track.start.pos, track.start.yaw, clouds]).catch(() => {});
   return { ctx, page, errors };
 }
 
