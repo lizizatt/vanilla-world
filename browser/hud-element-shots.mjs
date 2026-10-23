@@ -16,12 +16,13 @@ await page.goto(URL);
 await page.waitForFunction(() => window.ownHudTest);
 await page.addStyleTag({ content: '#welcome,.interface,#menu-hint{display:none!important} #world{background:linear-gradient(#78a9d6,#c9b58f 55%,#9b8466)!important}' });
 await page.evaluate(() => { const m = document.querySelector('.meters'); m.hidden = false; m.dataset.sprites = 'false'; m.dataset.held = 'false'; });
-const shot = async (name, heat, speed) => {
-  await page.evaluate(([h, s]) => { window.ownHudTest(h); document.getElementById('speed').textContent = String(s).padStart(3, '0'); document.getElementById('direction').textContent = 'FWD'; }, [heat, speed]);
+const shot = async (name, heat, speed, hl = 1, hr = 1) => {
+  await page.evaluate(([h, s, l, r]) => { window.ownHudTest(h, l, r); document.getElementById('speed').textContent = String(s).padStart(3, '0'); document.getElementById('direction').textContent = 'FWD'; }, [heat, speed, hl, hr]);
   await page.waitForTimeout(80);
   await page.screenshot({ path: path.join(out, `${name}.png`) });
 };
 for (const [name, heat] of [['green', 0.1], ['yellow', 0.6], ['red', 0.9], ['overheat', 1]]) await shot(`panel-${name}`, heat, 355);
+for (const [name, l, r] of [['damaged', .45, 1], ['critical', .15, .6]]) await shot(`panel-${name}`, 0, 120, l, r);
 for (const [speed, heat] of [[0, 0], [120, 0.25], [355, 0.55], [355, 0.85], [355, 1]]) await shot(`dial-s${speed}-h${Math.round(heat * 100)}`, heat, speed);
 await ctx.close();
 if (errors.length) { console.error(errors); process.exit(1); }

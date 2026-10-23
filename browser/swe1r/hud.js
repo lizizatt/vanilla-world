@@ -112,15 +112,14 @@ function tint(sprite, color) {
 }
 export const engineColor = heat => heat >= .8 ? '#ff4a3a' : heat >= .5 ? '#ffd23a' : '#46e85a';
 
-// Twin engine panels from sprite 49 (27x62) at 2x; outline and fill follow the heat stage, both engines share the one heat value.
+// Twin engine panels from sprite 49 (27x62) at 2x; outline and fill follow the heat stage, each engine takes the worse of shared heat and its own damage (1 - health).
 export function createRealEngines(real, canvas) {
   const ctx = canvas.getContext('2d'), K = 1.2, w = 27 * K, h = 62 * K, gap = 16, cache = {};
-  return (heat, now = 0) => {
-    const col = engineColor(heat), o = cache[col] ??= tint(real.panel, col);
+  return (heat, now = 0, left = 1, right = 1) => {
     ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.imageSmoothingEnabled = false;
-    const blink = heat >= 1 && Math.floor(now * 4) % 2 === 0, y = canvas.height - h;
+    const y = canvas.height - h;
     for (let i = 0; i < 2; i++) {
-      const x = i * (w + gap);
+      const x = i * (w + gap), lvl = Math.max(heat || 0, 1 - (i ? right : left) || 0), col = engineColor(lvl), o = cache[col] ??= tint(real.panel, col), blink = lvl >= 1 && Math.floor(now * 4) % 2 === 0;
       ctx.globalAlpha = blink ? .9 : .32; ctx.fillStyle = col; ctx.fillRect(x + 4, y + 4, w - 8, h - 8);
       ctx.globalAlpha = 1; ctx.drawImage(bitmap(real.panel), x, y, w, h); ctx.globalAlpha = .5; ctx.drawImage(o, x, y, w, h); ctx.globalAlpha = 1;
     }

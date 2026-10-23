@@ -1,4 +1,4 @@
-const CACHE = 'racer-shell-v115';
+const CACHE = 'racer-shell-v116';
 const FILES = ['./', './index.html', './world-app.js', './world-client.js', './world-worker.js', './world-renderer.js',
   './world-store.js', './world-camera.js', './wreck.js', './world-view.js', './camera-collision.js', './world-input.js', './world-audio.js', './world-tuning.js',
   './asset-source.js', './asset-folder.js', './swe1r/folder.js', './swe1r/attach.js', './swe1r/cache.js', './swe1r/ui.js', './swe1r/block.js', './swe1r/comp.js', './swe1r/image.js', './swe1r/names.js', './swe1r/model.js', './swe1r/pod.js', './swe1r/skin.js', './swe1r/sfx.js', './swe1r/hud.js', './swe1r/voice-map.js', './swe1r/voice-map.json', './scene-stream.js', './npc-pack.js', './terrain-stream.js', './water-stream.js', './craft-stream.js', './flight.js',
