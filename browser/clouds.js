@@ -54,7 +54,22 @@ const M=MAELSTROM;
 const F=FUNNEL;
 // One fullscreen ray march samples the cumulus sheet and the funnel together, always taking whichever sample is nearer,
 // so the two volumes occlude each other in true front-to-back order. Both are clipped to the scene depth.
-export const cloudShader=COMMON+`
+// High tier: the sheet's noise comes from a tiling 64^3 texture (bakeCloudNoise) and each step takes one light tap toward the sun.
+const HIGH_BINDINGS=`
+@group(0) @binding(2) var noise:texture_3d<f32>;
+@group(0) @binding(3) var nsamp:sampler;`;
+const HIGH_NOISE=`
+  let u=vec3f(w.x,pos.y*3.0,w.y)/6500.0;
+  let lo=textureSampleLevel(noise,nsamp,u,0.0);
+  let hi=textureSampleLevel(noise,nsamp,u*2.6+.37,0.0);
+  var n=.35*vnoise(q)+.5*lo.r+.15*hi.g;`;
+const STD_NOISE=`
+  var n=.55*vnoise(q)+.3*vnoise(q*2.3+7.0)+.15*vnoise(q*5.1+3.0);
+  n=n*.78+.22*vnoise(w/650.0+vec2f(hf*3.1,hf*1.7));`;
+const HIGH_TAP=`
+      let sd=sheetDensity(pos+c.sun.xyz*ss*2.5,t).x;
+      let shade=mix(.65,1.0,exp(-sd*2.0))*(1.0+.8*pow(max(dot(dir,c.sun.xyz),0.0),6.0));`;
+const build=high=>COMMON+(high?HIGH_BINDINGS:'')+`
 struct V {@builtin(position) clip:vec4f,@location(0) ndc:vec2f};
 @vertex fn vs(@builtin(vertex_index) i:u32)->V {
   var q=array<vec2f,3>(vec2f(-1,-1),vec2f(3,-1),vec2f(-1,3));
@@ -68,8 +83,7 @@ fn sheetDensity(pos:vec3f,t:f32)->vec2f {
   let cs=cos(turn);let sn=sin(turn);
   let w=vec2f(d.x*cs-d.y*sn,d.x*sn+d.y*cs);
   let q=w/2600.0;
-  var n=.55*vnoise(q)+.3*vnoise(q*2.3+7.0)+.15*vnoise(q*5.1+3.0);
-  n=n*.78+.22*vnoise(w/650.0+vec2f(hf*3.1,hf*1.7));
+${high?HIGH_NOISE:STD_NOISE}
   // North is -z, so atan2(-z,x) grows counter-clockwise on the map.
   let a=atan2(-d.y,d.x);
   let arm=smoothstep(.2,.8,.5+.5*cos(${M.arms.toFixed(1)}*(a+${M.pitch}*log(max(r,1.0)/1000.0)-t*${M.spin})));
@@ -104,7 +118,7 @@ fn silver(dir:vec3f,thin:f32)->vec3f {
   let day=smoothstep(-.1,.25,c.sun.w);
   return c.sunCol.rgb*pow(max(dot(dir,c.sun.xyz),0.0),4.0)*(.4+1.4*thin)*day;
 }
-const NS=8;
+const NS=${high?20:8};
 const NF=14;
 @fragment fn fs(v:V)->@location(0) vec4f {
   let t=c.up.w;let night=1.0-c.look.w;
@@ -159,7 +173,8 @@ const NF=14;
       let hf=clamp((pos.y-ya)/THICK,0.0,1.0);
       let w=(1.0-smoothstep(30000.0,c.cloud.w,ts))*.96*sEdge;
       let absorb=(1.0-exp(-s.x*ss*.008))*w;
-      let lit=mix(.62,1.0,hf)*mix(.75,1.0,s.y)*(.7+.3*trans);
+      ${high?HIGH_TAP:'let shade=1.0;'}
+      let lit=mix(.62,1.0,hf)*mix(.75,1.0,s.y)*(.7+.3*trans)*shade;
       let day=smoothstep(-.1,.25,c.sun.w);
       let under=select(vec3f(.55,.60,.70),c.cloud2.rgb,game);
       let lite=mix(vec3f(.98,.97,.95),c.sunCol.rgb,.5*(1.0-smoothstep(.2,.9,c.sun.w)));
@@ -181,4 +196,26 @@ const NF=14;
   if(alpha<.01){discard;}
   return vec4f(light/alpha,alpha);
 }`;
+export const cloudShader=build(false);
+export const cloudShaderHigh=build(true);
 export const funnelShader=cloudShader;
+
+// Tileable 64^3 RG8 noise (r: broad puffs, g: fine detail), baked once on the CPU: value noise on a wrapped lattice, 3 octaves.
+export const CLOUD_NOISE_SIZE=64;
+export function bakeCloudNoise(size=CLOUD_NOISE_SIZE) {
+  const hash=(x,y,z,s)=>{let h=Math.imul(x,374761393)^Math.imul(y,668265263)^Math.imul(z,2147483647)^Math.imul(s,1274126177);h=Math.imul(h^h>>>13,1274126177);return((h^h>>>16)>>>0)/4294967296;};
+  const smooth=f=>f*f*(3-2*f);
+  const lattice=(x,y,z,cells,seed)=>{
+    const [fx,fy,fz]=[x*cells,y*cells,z*cells],[ix,iy,iz]=[Math.floor(fx),Math.floor(fy),Math.floor(fz)];
+    const [sx,sy,sz]=[smooth(fx-ix),smooth(fy-iy),smooth(fz-iz)],h=(a,b,c)=>hash((ix+a)%cells,(iy+b)%cells,(iz+c)%cells,seed);
+    const lerp=(a,b,t)=>a+(b-a)*t;
+    return lerp(lerp(lerp(h(0,0,0),h(1,0,0),sx),lerp(h(0,1,0),h(1,1,0),sx),sy),lerp(lerp(h(0,0,1),h(1,0,1),sx),lerp(h(0,1,1),h(1,1,1),sx),sy),sz);
+  };
+  const out=new Uint8Array(size*size*size*2);
+  for(let z=0,o=0;z<size;z++)for(let y=0;y<size;y++)for(let x=0;x<size;x++,o+=2){
+    const p=[x/size,y/size,z/size];
+    out[o]=Math.round(255*(.55*lattice(...p,4,1)+.3*lattice(...p,8,2)+.15*lattice(...p,16,3)));
+    out[o+1]=Math.round(255*(.6*lattice(...p,16,4)+.4*lattice(...p,32,5)));
+  }
+  return out;
+}

@@ -6,7 +6,7 @@ import {splitParts,crumple,craftFrame,partMatrix,appendWreckChunk,wreckFrame,WRE
 import {COAST_GPU_LIMIT} from './water-stream.js';
 import {WATER_NORMAL_SIZE,waterNormalMips,waterShading,dayShading} from './water-shader.js';
 import {shadowShader,shadowUniform,shadowHalf} from './shadow.js';
-import {cloudShader,cloudUniform,maelstromCentre} from './clouds.js';
+import {cloudShader,cloudShaderHigh,cloudUniform,maelstromCentre,bakeCloudNoise,CLOUD_NOISE_SIZE} from './clouds.js';
 import {oceanMesh} from './ocean-mesh.js';
 import {ParticlePool,exhaustPoints,emitPlumes,emitBurst,emitDebris,emitHeatSmoke,emitGroundDust,QUALITY,INSTANCE_FLOATS,CAPACITY,particleShader,particleUniform} from './particles.js';
 import {flagMesh,gateMesh} from './race-flags.js';
@@ -317,6 +317,7 @@ export class WorldRenderer {
     this.cloudPipeline=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module:cloudModule,entryPoint:'vs'},
       fragment:{module:cloudModule,entryPoint:'fs',targets:[{format:this.format,blend:{color:{srcFactor:'src-alpha',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},
       primitive:{topology:'triangle-list',cullMode:'none'}});
+    this.shader=shader;
     this.particles=new ParticlePool();
     this.particleInstances=new Float32Array(CAPACITY*INSTANCE_FLOATS);
     this.particleBuffer=this.device.createBuffer({size:this.particleInstances.byteLength,usage:GPUBufferUsage.VERTEX|GPUBufferUsage.COPY_DST});
@@ -766,9 +767,31 @@ export class WorldRenderer {
     this.device.queue.writeBuffer(this.shadowBuffer,0,shadowUniform(this.view,state,shadowHalf(this.craft?.size),near));
     pass.setPipeline(this.shadowPipeline);pass.setBindGroup(0,this.shadowGroup);pass.draw(3);
   }
-  drawClouds(pass,time,daylight,near) {
+  // High tier (opt-in): built on first use so the noise bake and shader compile cost nothing for Standard.
+  async enableHighClouds() {
+    if(this.cloudHigh||this.cloudHighPending)return;
+    this.cloudHighPending=true;
+    try {
+      const noise=this.device.createTexture({size:[CLOUD_NOISE_SIZE,CLOUD_NOISE_SIZE,CLOUD_NOISE_SIZE],dimension:'3d',format:'rg8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});
+      this.device.queue.writeTexture({texture:noise},bakeCloudNoise(),{bytesPerRow:CLOUD_NOISE_SIZE*2,rowsPerImage:CLOUD_NOISE_SIZE},[CLOUD_NOISE_SIZE,CLOUD_NOISE_SIZE,CLOUD_NOISE_SIZE]);
+      this.cloudNoise=noise.createView();
+      this.cloudNoiseSampler=this.device.createSampler({magFilter:'linear',minFilter:'linear',addressModeU:'repeat',addressModeV:'repeat',addressModeW:'repeat'});
+      const module=await this.shader(cloudShaderHigh);
+      this.cloudHigh=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module,entryPoint:'vs'},
+        fragment:{module,entryPoint:'fs',targets:[{format:this.format,blend:{color:{srcFactor:'src-alpha',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},
+        primitive:{topology:'triangle-list',cullMode:'none'}});
+      this.cloudHighGroup=this.highCloudGroup();
+    } catch(e) {console.warn('high clouds unavailable',e);this.cloudHighFailed=true;}
+    this.cloudHighPending=false;
+  }
+  highCloudGroup() {
+    return this.depth&&this.device.createBindGroup({layout:this.cloudHigh.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:this.cloudBuffer}},
+      {binding:1,resource:this.depth.createView()},{binding:2,resource:this.cloudNoise},{binding:3,resource:this.cloudNoiseSampler}]});
+  }
+  drawClouds(pass,time,daylight,near,high) {
     this.device.queue.writeBuffer(this.cloudBuffer,0,cloudUniform(this.view,time,daylight,this.manifest,near,this.gameSky,undefined,this.timeOfDay));
-    pass.setPipeline(this.cloudPipeline);pass.setBindGroup(0,this.cloudGroup);pass.draw(3);
+    const useHigh=high&&this.cloudHighGroup;
+    pass.setPipeline(useHigh?this.cloudHigh:this.cloudPipeline);pass.setBindGroup(0,useHigh?this.cloudHighGroup:this.cloudGroup);pass.draw(3);
   }
   drawScene(pass,draws) {
     const firstTransparent=draws.findIndex(draw=>draw.batch.transparent);
@@ -803,6 +826,7 @@ export class WorldRenderer {
         entries:[{binding:0,resource:{buffer:this.shadowBuffer}},{binding:1,resource:this.depth.createView()}]});
       this.cloudGroup=this.device.createBindGroup({layout:this.cloudPipeline.getBindGroupLayout(0),
         entries:[{binding:0,resource:{buffer:this.cloudBuffer}},{binding:1,resource:this.depth.createView()}]});
+      this.cloudHighGroup=this.cloudHigh&&this.highCloudGroup();
     }
     const origin=flight?[Math.round(flight[0]),Math.round(flight[2])]:[state[11],state[12]];
     const p=[state[0]-origin[0],state[1],state[2]-origin[1]];
@@ -928,10 +952,11 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
       const shadowPass=encoder.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}]});
       this.drawShadow(shadowPass,state,near);shadowPass.end();
     }
+    if(settings.cloudQuality==='high'&&!this.cloudHigh&&!this.cloudHighFailed)this.enableHighClouds();
     if(!this.cameraBlocked&&settings.clouds!==false) {
       // Clouds read the finished scene depth to clip their ray march, so they never need a depth-test bias.
       const cloudPass=encoder.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}]});
-      this.drawClouds(cloudPass,time,daylight,near);cloudPass.end();
+      this.drawClouds(cloudPass,time,daylight,near,settings.cloudQuality==='high');cloudPass.end();
     }
     if(!this.cameraBlocked&&propDraws.length) {
       const propPass=encoder.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}],
