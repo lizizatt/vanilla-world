@@ -124,3 +124,7 @@ export function addScore(record,run) {
   const runs=[...validScores(record).runs,run].sort((a,b)=>a.time-b.time).slice(0,SCORE_LIMIT);
   return {record:{version:1,runs},rank:runs.indexOf(run)};
 }
+
+// Unstuck: world units are yards, so 10 m = 10.94 yd straight up. Retries 2x/4x if the first spot still overlaps collision.
+export const UNSTUCK_YD=10/0.9144;
+export const unstuckPoses=t=>[1,2,4].map(k=>[t[0],t[1]+UNSTUCK_YD*k,t[2],t[3]]);

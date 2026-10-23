@@ -10,7 +10,7 @@ import {CameraCollision} from './camera-collision.js';
 import {LoadingArt} from './loading-art.js';
 import {MusicPlayer} from './world-music.js';
 import {MapPanel} from './map-panel.js';
-import {Race,formatTime,lapTimes,bearing,addScore,validScores,validateTrack} from './race.js';
+import {Race,unstuckPoses,formatTime,lapTimes,bearing,addScore,validScores,validateTrack} from './race.js';
 import {createTrackEditor} from './track-editor.js';
 import {clampTrack} from './track-edit.js';
 import {loadTracks,nearestFlag,flagPosition} from './race-flags.js';
@@ -113,7 +113,7 @@ function dockFolderButtons(inMenu) {
 }
 function enabled(value) {
   document.querySelector('.meters').hidden=!value;$('menu-hint').hidden=!value;dockFolderButtons(value);
-  for(const id of ['save','load','reset','retry','overview','fly','drive'])$(id).disabled=!value;
+  for(const id of ['save','load','reset','unstuck','retry','overview','fly','drive'])$(id).disabled=!value;
   $('tuning-panel').inert=!value || !Array.isArray(client.info?.tuning);
   $('cockpit').disabled=!value;
 }
@@ -123,8 +123,8 @@ function syncSettings() {
   music.setNight(settings.night);music.setEnabled(settings.music);$('music-on').checked=settings.music;
   $('control-profile').value=settings.controls;$('camera-distance').value=settings.cameraDistance;
   $('keyboard-guide').textContent=settings.controls==='legacy'
-    ?'W/S thrust/reverse · A/D steer · X/Space brake · J hop · Shift boost · C drift · F9 reset.'
-    :'W/S thrust/reverse · A/D steer · X brake · J hop · Shift boost · Space/C drift · F9 reset.';
+    ?'W/S thrust/reverse · A/D steer · X/Space brake · J hop · Shift boost · C drift · U unstuck · F9 reset.'
+    :'W/S thrust/reverse · A/D steer · X brake · J hop · Shift boost · Space/C drift · U unstuck · F9 reset.';
   canvas.setAttribute('aria-label',`World. ${$('keyboard-guide').textContent} More controls in Controls and settings.`);
   syncSound();
 }
@@ -284,6 +284,13 @@ $('load').addEventListener('click',()=>operation(async()=>{
   if(!await restore(await worldSave(client.info.id)))throw new Error('No save for this Data installation yet.');
   report('Loaded.',true);running=true;
 }));
+$('unstuck').addEventListener('click',()=>operation(async()=>{
+  const p=client.state?.telemetry;if(!p)return;
+  for(const pose of unstuckPoses(p)){
+    try{client.state=await client.request('restore',{pose});flight=undefined;race?.jump();renderer.camera=undefined;running=true;report('Unstuck: moved 10 m up.',true);return;}catch{}
+  }
+  report('Unstuck failed: no free space above.',true);
+}));
 $('reset').addEventListener('click',()=>operation(async()=>{
   flight=undefined;client.state=await client.request('reset');race?.jump();renderer.camera=undefined;running=true;
   $('error').hidden=true;report('Reset. Save unchanged.',true);
@@ -350,6 +357,7 @@ canvas.addEventListener('keydown',event=>{
   if(!event.repeat && event.code==='KeyK' && event.ctrlKey && event.altKey && running){event.preventDefault();testCrash();return;}
   if(!event.repeat && event.code==='KeyN' && !event.ctrlKey && !event.altKey && !event.metaKey)setNight(!settings.night);
   if(!event.repeat && event.code==='KeyM' && !event.ctrlKey && !event.altKey && !event.metaKey && running){event.preventDefault();mapPanel.toggle();}
+  if(!event.repeat && event.code==='KeyU' && !event.ctrlKey && !event.altKey && !event.metaKey && running && !flight){event.preventDefault();$('unstuck').click();return;}
   if(!event.repeat && event.code==='KeyG' && !event.ctrlKey && !event.altKey && !event.metaKey && running){event.preventDefault();openGarage();return;}
   if(!event.repeat && event.code==='KeyT' && !event.ctrlKey && !event.altKey && !event.metaKey && running){event.preventDefault();toggleEditor();return;}
   if(!event.repeat && event.code==='Escape' && mapPanel.open){event.preventDefault();mapPanel.dialog.close();return;}

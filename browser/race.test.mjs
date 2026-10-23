@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {lapTimes,Race,crossesGate,crossingAt,breakoffDistance,validateTrack,BREAKOFF_MARGIN,formatTime,bearing,addScore,validScores,SCORE_LIMIT} from './race.js';
+import {lapTimes,Race,crossesGate,crossingAt,breakoffDistance,validateTrack,BREAKOFF_MARGIN,formatTime,bearing,addScore,validScores,SCORE_LIMIT,unstuckPoses,UNSTUCK_YD} from './race.js';
 
 // Gates face -z (yaw 0), spaced 100 yd apart northward.
 const gate=z=>({pos:[0,0,z],yaw:0,width:40});
@@ -139,4 +139,11 @@ test('lapTimes splits cumulative gate times into per-lap durations',()=>{
   assert.deepEqual(lapTimes([5,10,20,25,30,45],3),[20,25]);
   assert.deepEqual(lapTimes([5,10],3),[]);
   assert.deepEqual(lapTimes([4,9],1),[4,5]);
+});
+
+test('unstuck lifts 10 m (yards) straight up, keeping x/z/yaw, with 2x/4x retries',()=>{
+  assert.ok(Math.abs(UNSTUCK_YD-10.936)<.01);
+  const [a,b,c]=unstuckPoses([1,2,3,.5]);
+  assert.deepEqual(a.map((v,i)=>i===1?0:v),[1,0,3,.5]);
+  assert.ok(Math.abs(a[1]-2-UNSTUCK_YD)<1e-9&&Math.abs(c[1]-2-4*UNSTUCK_YD)<1e-9&&b[0]===1);
 });
