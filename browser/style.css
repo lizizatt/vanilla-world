@@ -220,3 +220,4 @@ dialog h2 { color: #ffb34d; margin-top: 0; }
 #hit-flash[hidden] { display: none; }
 #boost-fx { position: fixed; inset: 0; pointer-events: none; background: repeating-conic-gradient(from 0deg at 50% 50%, rgba(160,220,255,.5) 0 .6deg, transparent .6deg 7deg); -webkit-mask-image: radial-gradient(ellipse at center, transparent 45%, #000 100%); mask-image: radial-gradient(ellipse at center, transparent 45%, #000 100%); }
 #boost-fx[hidden] { display: none; }
+details.welcome-help summary { cursor: pointer; } details.welcome-help p { margin: 8px 0 0; } .welcome-help a { color: var(--gold); }
