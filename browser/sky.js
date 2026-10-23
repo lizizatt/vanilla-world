@@ -7,6 +7,16 @@ const SKYBOX=/^environments\\stars\\[^:*?"<>|]+\.(mdx|m2)$/i;
 const rgb=value=>[(value>>16&255)/255,(value>>8&255)/255,(value&255)/255];
 const mixed=(a,b,t)=>a.map((v,i)=>v+(b[i]-v)*t);
 
+const lum=c=>.299*c[0]+.587*c[1]+.114*c[2];
+const HOUR_BANDS=['ambient','top','mid','band1','band2','horizon','fog','cloud','cloud2'];
+// Zone lights keep their hue but take the map's global-light brightness for the current hour, so every zone shows the same time of day.
+export function matchHour(colour,zone,reference,strength=.85) {
+  const lz=lum(zone),lr=lum(reference);
+  if(lz<1e-3||lr<1e-3)return colour;
+  const k=Math.min(3,Math.max(.35,lr/lz))**strength;
+  return colour.map(v=>Math.min(1,v*k));
+}
+
 /** Light.dbc/LightParams.dbc/LightSkybox.dbc/LightIntBand.dbc as 1.12 ships them; every value is runtime-only and in memory. */
 export class SkyCatalog {
   constructor({light,params,skybox,bands}) {
@@ -65,6 +75,8 @@ export class SkyCatalog {
       });
     }
     for(const name of BANDS)if(name&&out[name]){out[name]=out[name].map(v=>v/out[`${name}W`]);delete out[`${name}W`];}
+    const ref=lights.find(l=>l.end===0);
+    if(ref&&this.paramRows.has(ref.params))for(const name of HOUR_BANDS)if(out[name]){const r=this.band(ref.params,BANDS.indexOf(name),time);if(r)out[name]=matchHour(out[name],out[name],r);}
     out.skybox=this.skyPath(lead.params);
     return out.fog&&out.top?out:undefined;
   }

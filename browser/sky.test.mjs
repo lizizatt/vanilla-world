@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {SkyCatalog,DAY,NIGHT,mapPosition,advanceTime,nightAlpha} from './sky.js';
+import {SkyCatalog,DAY,NIGHT,mapPosition,advanceTime,nightAlpha,matchHour} from './sky.js';
 
 function dbc(fields,rows) {
   const strings=[0],str=s=>{const at=strings.length;strings.push(...Buffer.from(s+'\0'));return at;};
@@ -56,3 +56,12 @@ test('time of day only advances forward to the target and stops there',()=>{
   assert.ok(step>DAY&&step<NIGHT);
 });
 test('night alpha is full at midnight and zero by day',()=>{assert.equal(nightAlpha(0),1);assert.equal(nightAlpha(DAY),0);assert.ok(nightAlpha(720)<1e-9);});
+
+test('zone colours keep their hue but take the global light brightness for the hour',()=>{
+  const out=matchHour([.2,.1,.05],[.2,.1,.05],[.8,.8,.8],1);
+  assert.ok(out[0]>.2&&out[0]/out[1]-2<1e-9||out[0]===1);
+  assert.deepEqual(matchHour([.3,.3,.3],[.3,.3,.3],[.3,.3,.3]),[.3,.3,.3].map(v=>v));
+  assert.deepEqual(matchHour([0,0,0],[0,0,0],[.8,.8,.8]),[0,0,0]);
+  const dark=matchHour([.5,.5,.5],[.5,.5,.5],[.05,.05,.05],1);
+  assert.ok(dark[0]<.5&&dark[0]>=.5/3);
+});
