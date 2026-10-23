@@ -33,6 +33,8 @@ test('frame mapping round-trips and icons hold spawn and maelstrom',()=>{
   const frame=mapFrame([[0,0,1000,500]],[[1200,-100]]);
   const [u,v]=toMap(frame,250,125);assert.deepEqual(fromMap(frame,u,v).map(Math.round),[250,125]);
   const icons=mapIcons(manifest,[7,8]);
-  assert.deepEqual(icons.map(i=>i.id),['raceway','maelstrom','airport']);
+  assert.deepEqual(icons.map(i=>i.id),['raceway','maelstrom','airport','stormwind','orgrimmar','undercity','darnassus']);
+  const [kx,kz]=regionOffset(manifest.regions[0]),og=icons.find(i=>i.id==='orgrimmar').pose,uc=icons.find(i=>i.id==='undercity').pose;
+  assert.deepEqual(og,[4420+kx,35,-1330+kz,0]);assert.ok(Math.abs(uc[3]-Math.PI)<1e-9);
   assert.deepEqual(icons[0].position,[100,200]);assert.deepEqual(icons[1].pose,[7,400,8,0]);
 });

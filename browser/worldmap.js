@@ -58,12 +58,29 @@ export function mapFrame(rects,extra=[],margin=.04) {
 export const toMap=(frame,x,z)=>[(x-frame.x0)/frame.width,(z-frame.z0)/frame.height];
 export const fromMap=(frame,u,v)=>[frame.x0+u*frame.width,frame.z0+v*frame.height];
 
+/** City gate spawns in WoW world coordinates (x north, y west): map, [x,y,z], direction into the city as [dx,dy]. Render x=-y+offset, z=-x+offset, forward=(-sin yaw,-cos yaw). */
+export const GATES=[
+  {id:'stormwind',label:'Stormwind gate',map:'Azeroth',wow:[-8985,497,102],into:[.8,.6]},
+  {id:'orgrimmar',label:'Orgrimmar gate',map:'Kalimdor',wow:[1330,-4420,35],into:[1,0]},
+  {id:'undercity',label:'Undercity gate',map:'Azeroth',wow:[1890,240,70],into:[-1,0]},
+  {id:'darnassus',label:'Darnassus gate',map:'Kalimdor',wow:[9950,2150,1330],into:[0,1]},
+];
+export function gateIcons(manifest) {
+  return GATES.flatMap(g=>{
+    const region=manifest.regions?.find(r=>r.map===g.map);
+    if(!region)return [];
+    const [kx,kz]=regionOffset(region),[x,y,z]=g.wow,pos=[-y+kx,-x+kz];
+    return [{id:g.id,label:g.label,position:pos,pose:[pos[0],z,pos[1],Math.atan2(g.into[1],g.into[0])]}];
+  });
+}
+
 /** Icons: the usual raceway spawn and the maelstrom centre, as render-space poses to teleport to. */
 export function mapIcons(manifest,maelstrom,altitude=400) {
   return [
     {id:'raceway',label:'Steamwheedle raceway (spawn)',position:[manifest.spawn[0],manifest.spawn[2]],reset:true},
     {id:'maelstrom',label:'The Maelstrom',position:maelstrom,pose:[maelstrom[0],(manifest.sea_level||0)+altitude,maelstrom[1],0]},
     {id:'airport',label:'Ironforge airport',position:[19486,5703],pose:[19486,530,5703,-3.114]},
+    ...gateIcons(manifest),
   ];
 }
 
