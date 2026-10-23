@@ -4,6 +4,8 @@ import { readBlock } from './block.js';
 import { decodeSprite } from './image.js';
 
 const RING = 28, FACE = 29, HEAT_RING = 32, HEAT_FACE = 30, COUNTDOWN = { 1: 19, 2: 20, 3: 21 };
+// Real in-race pieces (block index = community swrSprite id): engdisp3 panel, dial_speed_wire capsule, dial_meter_only D, dial_gradient arc, lightflash lamp.
+const REAL = { panel: [49, 27, 62], capsule: [104, 71, 59], meter: [166, 40, 58], grad: [99, 36, 51], lamp: [101, 30, 30] };
 
 export async function loadHudSprites(reader) {
   const items = readBlock(await reader.read('out_spriteblock.bin'), 'sprite');
@@ -11,7 +13,9 @@ export async function loadHudSprites(reader) {
   if (!(ring?.w === 64 && ring.h === 64 && face?.w === 64 && face.h === 64)) return null;
   const [heatRing, heatFace] = [HEAT_RING, HEAT_FACE].map(i => items[i] && decodeSprite(items[i][0]));
   const heat = heatRing?.w === 64 && heatRing.h === 64 && heatFace?.w === 64 && heatFace.h === 64 ? { ring: heatRing, face: heatFace } : null;
-  return { ring, face, heat };
+    const real = {};
+  for (const [k, [i, w, h]] of Object.entries(REAL)) { const s = items[i] && decodeSprite(items[i][0]); if (s?.w !== w || s.h !== h) { real.ok = false; break; } real[k] = s; }
+  return { ring, face, heat, real: real.ok === false ? null : real };
 }
 
 // Race countdown digits (sprites 19-21, 64x64). Returns { 1: canvas, 2: canvas, 3: canvas } or null if the sprites don't match.
@@ -98,4 +102,46 @@ export function boostFx(mem,boosting,dt){
   const target=boosting?1:0;
   mem.v=Math.max(0,Math.min(1,(mem.v??0)+Math.sign(target-(mem.v??0))*dt*5));
   return mem.v;
+}
+
+// Sprite tinted to one colour keeping its alpha/luma (the original pieces are grey-white outlines).
+function tint(sprite, color) {
+  const c = bitmap(sprite), x = c.getContext('2d');
+  x.globalCompositeOperation = 'source-in'; x.fillStyle = color; x.fillRect(0, 0, c.width, c.height);
+  return c;
+}
+export const engineColor = heat => heat >= .8 ? '#ff4a3a' : heat >= .5 ? '#ffd23a' : '#46e85a';
+
+// Twin engine panels from sprite 49 (27x62) at 2x; outline and fill follow the heat stage, both engines share the one heat value.
+export function createRealEngines(real, canvas) {
+  const ctx = canvas.getContext('2d'), K = 1.2, w = 27 * K, h = 62 * K, gap = 16, cache = {};
+  return (heat, now = 0) => {
+    const col = engineColor(heat), o = cache[col] ??= tint(real.panel, col);
+    ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.imageSmoothingEnabled = false;
+    const blink = heat >= 1 && Math.floor(now * 4) % 2 === 0, y = canvas.height - h;
+    for (let i = 0; i < 2; i++) {
+      const x = i * (w + gap);
+      ctx.globalAlpha = blink ? .9 : .32; ctx.fillStyle = col; ctx.fillRect(x + 4, y + 4, w - 8, h - 8);
+      ctx.globalAlpha = 1; ctx.drawImage(bitmap(real.panel), x, y, w, h); ctx.globalAlpha = .5; ctx.drawImage(o, x, y, w, h); ctx.globalAlpha = 1;
+    }
+  };
+}
+
+// Dial from sprite 104 (71x59: speed capsule + D meter + lamp ring); heat fills the gradient arc (99, blue to red) bottom-up; lamp (101) green, red from 80%.
+export function createRealDial(real, canvas) {
+  const ctx = canvas.getContext('2d'), K = 1.8, W = canvas.width, H = canvas.height, cache = {};
+  const cap = tint(real.capsule, '#7fd8ff'), grad = bitmap(real.grad), ox = W - 71 * K - 4, oy = H - 59 * K - 2;
+  return (_speed01, heat01, speed = '000', now = 0) => {
+    const heat = Math.min(1, Math.max(0, Number.isFinite(heat01) ? heat01 : 0));
+    ctx.clearRect(0, 0, W, H); ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = 'rgba(26,74,90,.8)'; ctx.beginPath(); ctx.ellipse(ox + 35 * K, oy + 36 * K, 33 * K, 20 * K, 0, 0, 2 * Math.PI); ctx.fill();
+    ctx.drawImage(cap, ox, oy, 71 * K, 59 * K);
+    const gh = 51 * K * heat; ctx.save(); ctx.beginPath(); ctx.rect(ox, oy + 56 * K - gh, W, gh); ctx.clip();
+    ctx.drawImage(grad, ox + 35 * K, oy + 5 * K, 36 * K, 51 * K); ctx.restore();
+    const lamp = heat >= .8 ? '#ff3b30' : '#46e85a', l = cache[lamp] ??= tint(real.lamp, lamp);
+    if (heat < 1 || Math.floor(now * 4) % 2 === 0) ctx.drawImage(l, ox + 28 * K, oy + 3 * K, 18 * K, 18 * K);
+    ctx.font = 'italic 800 32px "Arial Black", Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = 4; ctx.strokeStyle = '#04202c'; ctx.fillStyle = '#d8f6ff';
+    ctx.strokeText(speed, ox + 24 * K, oy + 38 * K); ctx.fillText(speed, ox + 24 * K, oy + 38 * K);
+  };
 }
