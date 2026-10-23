@@ -106,8 +106,8 @@ test('heat smoke only appears past the warning level and grows with heat', () =>
 });
 test('ground dust needs a grounded craft, thickens when drifting and goes behind the craft', () => {
   const m = new Float32Array(16); m[0] = m[5] = m[10] = m[15] = 1;
-  const run = o => { const pool = new ParticlePool(512, () => .5); pool.quality = 1; emitGroundDust(pool, { matrix: m, origin: [0, 0], scale: 1, length: 4, speed: 100, drift: false, grounded: true, dt: .5, ...o }); return pool; };
-  assert.equal(run({ grounded: false }).count, 0); assert.equal(run({ speed: 10 }).count, 0);
+  const run = o => { const pool = new ParticlePool(512, () => .5); pool.quality = 1; emitGroundDust(pool, { matrix: m, origin: [0, 0], scale: 1, length: 4, speed: 100, drift: false, grounded: true, dt: .1, ...o }); return pool; };
+  assert.equal(run({ grounded: false }).count, 0); assert.equal(run({ speed: 3 }).count, 0); assert.ok(run({ speed: 30 }).count > 0 && run({ speed: 30 }).count < run({ speed: 120 }).count, 'ordinary driving kicks up dust, more with speed');
   assert.ok(run({ drift: true }).count > run({}).count && run({}).count > 0);
   assert.ok(run({}).data[0] < 0, 'spawned behind the craft (-x)');
 });

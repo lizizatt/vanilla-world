@@ -11,7 +11,7 @@ export const KINDS = {
   plume: { life: [.18, .34], size: [.28, .12], drag: 2.5, lift: 0, stops: [[0, .6, .78, 1, .5, 1], [.25, 1, .6, .2, .42, 1], [.7, .85, .22, .04, .18, 1], [1, .3, .08, .02, 0, 1]] },
   fire: { life: [.4, .9], size: [.5, .15], drag: 1.2, lift: 3, stops: [[0, 1, .9, .5, .9, 1], [.35, 1, .45, .08, .7, .9], [1, .35, .05, .02, 0, .8]] },
   smoke: { life: [1.2, 2.4], size: [.4, 1.8], drag: 1.5, lift: 2.5, stops: [[0, .35, .35, .37, .0, 0], [.12, .3, .3, .32, .5, 0], [1, .2, .2, .22, 0, 0]] },
-  dust: { life: [.6, 1.3], size: [.4, 1.6], drag: 2.2, lift: 1.2, stops: [[0, .62, .55, .42, .4, 0], [1, .62, .55, .42, 0, 0]] },
+  dust: { life: [.9, 1.8], size: [.5, 2], drag: 2.2, lift: 1.2, stops: [[0, .6, .48, .32, .7, 0], [1, .6, .48, .32, 0, 0]] },
   burst: { life: [.25, .5], size: [1, 3.5], drag: 4, lift: 0, stops: [[0, 1, .95, .7, 1, 1], [.4, 1, .55, .12, .7, 1], [1, .5, .1, .02, 0, 1]] },
 };
 const KIND_IDS = Object.keys(KINDS);
@@ -174,11 +174,11 @@ export function emitHeatSmoke(pool, { points, matrix: m, origin, length, heat, w
 }
 /** Dust kicked up behind a grounded craft: a thin stream at speed, a heavy cloud while drifting (sideways slip throws it out). */
 export function emitGroundDust(pool, { matrix: m, origin, scale, length, speed, drift, grounded, dt }) {
-  const rate = !grounded ? 0 : drift && speed > 25 ? 70 : speed > 40 ? 14 * Math.min(1, speed / 150) : 0;
-  const n = rate ? pool.budget('dust', rate, dt) : 0, size = length / 3.5;
+  const k = Math.min(1, speed / 120), rate = !grounded || speed < 5 ? 0 : drift && speed > 25 ? 170 : 20 + 110 * k;
+  const n = rate ? pool.budget('dust', rate, dt) : 0, size = length / 3.5 * (.5 + .5 * k);
   for (let j = 0; j < n; j++) {
-    const side = (pool.rand() - .5) * 2, back = .3 + pool.rand() * .2;
-    pool.emit('dust', m[12] + origin[0] - m[0] / scale * length * .45 + m[4] / scale * side * length * .2, m[13] - length * .05, m[14] + origin[1] - m[2] / scale * length * .45 + m[6] / scale * side * length * .2,
-      -m[0] / scale * speed * back + m[4] / scale * side * (drift ? 8 : 2), 1 + pool.rand() * 2, -m[2] / scale * speed * back + m[6] / scale * side * (drift ? 8 : 2), size * (drift ? 1.4 : .8), size * .3);
+    const side = (pool.rand() - .5) * 2, back = .05 + pool.rand() * .15;
+    pool.emit('dust', m[12] + origin[0] - m[0] / scale * length * .45 + m[4] / scale * side * length * .35, m[13] + length * .05, m[14] + origin[1] - m[2] / scale * length * .45 + m[6] / scale * side * length * .35,
+      -m[0] / scale * speed * back + m[4] / scale * side * (drift ? 8 : 3), 1.5 + pool.rand() * 2.5 * (.5 + k), -m[2] / scale * speed * back + m[6] / scale * side * (drift ? 8 : 3), size * (drift ? 1.4 : 1), size * .3);
   }
 }
