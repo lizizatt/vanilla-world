@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {CLOUD_ALTITUDE,CLOUD_ALTITUDE_FACTOR,HYJAL_SUMMIT,MAELSTROM,FUNNEL,cloudShader,cloudUniform,funnelShader,maelstromCentre,sunDirection,cloudShaderHigh,bakeCloudNoise,CLOUD_TOWER} from './clouds.js';
+import {CLOUD_ALTITUDE,CLOUD_ALTITUDE_FACTOR,HYJAL_SUMMIT,MAELSTROM,FUNNEL,cloudShader,cloudUniform,funnelShader,maelstromCentre,sunDirection,cloudShaderHigh,bakeCloudNoise,CLOUD_TOWER,resolveCloudQuality,SlowFrameGuard} from './clouds.js';
 
 const manifest={ocean:[5333,-17600,13525,17066],world_bounds:[[0,0,51,56],[24,20,45,62]],
   regions:[{placement:[-21866,-17600]},{placement:[725,-16000]}]};
@@ -64,4 +64,14 @@ test('storm columns grow only in the High tier; Standard keeps the flat slab',()
   assert.match(cloudShaderHigh,new RegExp('const UP='+CLOUD_TOWER.up+'\\.0'));assert.match(cloudShaderHigh,new RegExp('const DOWN='+CLOUD_TOWER.down+'\\.0'));
   assert.match(cloudShader,/const UP=0\.0/);assert.match(cloudShader,/const DOWN=0\.0/);
   assert.ok(CLOUD_TOWER.up>CLOUD_TOWER.down);
+});
+
+test('cloud quality: auto is High when supported, explicit choices win, slow frames drop auto only',()=>{
+  assert.equal(resolveCloudQuality('auto'),true);
+  assert.equal(resolveCloudQuality('auto',{highFailed:true}),false);
+  assert.equal(resolveCloudQuality('auto',{slow:true}),false);
+  assert.equal(resolveCloudQuality('high',{slow:true}),true);
+  assert.equal(resolveCloudQuality('standard'),false);
+  const g=new SlowFrameGuard();let r=false;for(let i=0;i<200;i++)r=g.push(40)||r;assert.ok(r);
+  const h=new SlowFrameGuard();r=false;for(let i=0;i<400;i++)r=h.push(16)||r;assert.ok(!r);assert.ok(!h.push(5000));
 });
