@@ -43,11 +43,11 @@ let choice=bootChoice(),tracks=[],race,raceBest,promptTrack,goUntil=0,boardTimer
 const raceAgain=()=>againTrack&&performance.now()<againUntil?againTrack:undefined;
 let renderer,folder,flight,running=false,busy=false,last=0,frames=0,hudTime=0,hudFrames=0,permissionNeeded=false;
 let orbit=[0,0],dragging=false,mouseButtons=0,soundAttempt=0,soundError='',soundTime=0,reportTimer,testPads,frozenPresentation=false,tuningValues=TUNING_FIELDS.map(f=>f[1]);
-const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:true,cockpit:false,night:false,clouds:true,cloudQuality:'auto',music:true,particles:'medium',animateNpcs:true};
+const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:true,cockpit:false,night:false,clouds:true,planet:true,cloudQuality:'auto',music:true,particles:'medium',animateNpcs:true};
 const settings={...defaults};
 const gib={on:true,speed:100,overheat:true},gibMem={};
 try{gib.on=localStorage.getItem('racer.gib')!=='0';gib.overheat=localStorage.getItem('racer.overheat')!=='0';gib.durable=localStorage.getItem('racer.durability')!=='0';gib.speed=Math.max(20,Math.min(400,Number(localStorage.getItem('racer.gibSpeed'))||100));}catch{}
-try{settings.night=localStorage.getItem('racer.night')==='1';settings.music=localStorage.getItem('racer.music')!=='0';settings.animateNpcs=localStorage.getItem('racer.animateNpcs')!=='0';{const cq=localStorage.getItem('racer.cloudQuality');if(cq==='high'||cq==='standard')settings.cloudQuality=cq;}const mv=localStorage.getItem('racer.masterVolume');if(mv!==null&&mv!==''&&Number.isFinite(Number(mv)))audio.setVolume(Number(mv)/100);}catch{}
+try{settings.night=localStorage.getItem('racer.night')==='1';settings.music=localStorage.getItem('racer.music')!=='0';settings.animateNpcs=localStorage.getItem('racer.animateNpcs')!=='0';settings.planet=localStorage.getItem('racer.planet')!=='0';{const cq=localStorage.getItem('racer.cloudQuality');if(cq==='high'||cq==='standard')settings.cloudQuality=cq;}const mv=localStorage.getItem('racer.masterVolume');if(mv!==null&&mv!==''&&Number.isFinite(Number(mv)))audio.setVolume(Number(mv)/100);}catch{}
 const loading=$('loading-screen');
 const loadingArt=new LoadingArt($('loading-art'),$('loading-bar-art'),loading);
 loading.addEventListener('cancel',event=>event.preventDefault());
@@ -126,7 +126,7 @@ function enabled(value) {
   $('cockpit').disabled=!value;
 }
 function syncSettings() {
-  for(const key of ['horizon','scenery','distant','sound','night','clouds'])$(key).checked=settings[key];
+  for(const key of ['horizon','scenery','distant','sound','night','clouds','planet'])$(key).checked=settings[key];
   $('particles').value=settings.particles;$('cloud-quality').value=settings.cloudQuality;$('animate-npcs').checked=settings.animateNpcs;
   music.setNight(settings.night);music.setEnabled(settings.music);$('music-on').checked=settings.music;
   $('control-profile').value=settings.controls;$('camera-distance').value=settings.cameraDistance;
@@ -316,6 +316,7 @@ $('drive').addEventListener('click',()=>{flight=undefined;renderer.camera=undefi
 $('horizon').addEventListener('change',()=>{settings.horizon=$('horizon').checked;});
 $('scenery').addEventListener('change',()=>{settings.scenery=$('scenery').checked;});
 $('clouds').addEventListener('change',()=>{settings.clouds=$('clouds').checked;});
+$('planet').addEventListener('change',()=>{settings.planet=$('planet').checked;try{localStorage.setItem('racer.planet',settings.planet?'1':'0');}catch{}});
 $('animate-npcs').addEventListener('change',()=>{settings.animateNpcs=$('animate-npcs').checked;client.animate(settings.animateNpcs);try{localStorage.setItem('racer.animateNpcs',settings.animateNpcs?'1':'0');}catch{}});
 $('particles').addEventListener('change',()=>{settings.particles=$('particles').value;});
 $('cloud-quality').addEventListener('change',()=>{settings.cloudQuality=$('cloud-quality').value;try{localStorage.setItem('racer.cloudQuality',settings.cloudQuality);}catch{}});
@@ -751,7 +752,7 @@ async function start() {
         $('permission').textContent='Click to allow reading your remembered folder.';}
     }
     if(new URLSearchParams(location.search).has('test'))window.worldTest={restore:pose=>client.request('restore',{pose}).then(s=>{client.state=s;flight=undefined;renderer.camera=undefined;running=true;return s.telemetry;}),particles:()=>renderer.particles,testCrash,wreck:()=>renderer.wreck&&{frames:renderer.wreck.frames.length,connected:renderer.wreck.connected,parts:renderer.wreck.parts.length},startRace,selectVehicle,tracks:()=>tracks,raceObj:()=>race,heldLoops:()=>Object.values(audio.held||{}).map(h=>h?.name).filter(Boolean),raceInfo:()=>race&&{state:race.state,next:race.next,finishing:race.finishing,gates:race.track.gates.length},choice:()=>choice,
-      focus:pose=>{flight=pose.slice();},sky:()=>renderer.gameSky&&{top:renderer.gameSky.top,fog:renderer.gameSky.fog,horizon:renderer.gameSky.horizon,time:renderer.timeOfDay},maelstrom:()=>import('./clouds.js').then(m=>m.maelstromCentre(client.info.manifest)),gateKit:()=>!!gateKit,propCount:()=>renderer.props?.length,props:list=>renderer.setProps(list),beamFx:o=>{renderer.fxOverride=o;},propTexture:path=>client.request('prop-texture',{path}),propModel:path=>client.request('prop-model',{path}),swe1rModel:(index,scale)=>loadPodModel(getSwe1r(),{index,scale}),mockGates:list=>{for(const g of renderer.gates)renderer.release(g);renderer.gates=list.map(({vertices,pos})=>renderer.drawable(vertices,pos));renderer.terrainView=undefined;},settings:o=>Object.assign(settings,o),showCraft:v=>{renderer.showCraftInFlight=v;},timeLock:v=>{renderer.timeLock=v;},
+      focus:pose=>{flight=pose.slice();},manifest:()=>client.info.manifest,sky:()=>renderer.gameSky&&{top:renderer.gameSky.top,fog:renderer.gameSky.fog,horizon:renderer.gameSky.horizon,time:renderer.timeOfDay},maelstrom:()=>import('./clouds.js').then(m=>m.maelstromCentre(client.info.manifest)),gateKit:()=>!!gateKit,propCount:()=>renderer.props?.length,props:list=>renderer.setProps(list),beamFx:o=>{renderer.fxOverride=o;},propTexture:path=>client.request('prop-texture',{path}),propModel:path=>client.request('prop-model',{path}),swe1rModel:(index,scale)=>loadPodModel(getSwe1r(),{index,scale}),mockGates:list=>{for(const g of renderer.gates)renderer.release(g);renderer.gates=list.map(({vertices,pos})=>renderer.drawable(vertices,pos));renderer.terrainView=undefined;},settings:o=>Object.assign(settings,o),showCraft:v=>{renderer.showCraftInFlight=v;},timeLock:v=>{renderer.timeLock=v;},
       instances:()=>renderer.instances.filter(i=>i.kind==='group').slice(0,8),
       npcs:()=>renderer.instances.filter(i=>i.id.includes(':npc:')).slice(0,5),
       request:async(action,fields)=>{const s=await client.request(action,fields);if(s.telemetry)client.state=s;return s;},
