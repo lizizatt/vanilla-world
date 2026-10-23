@@ -25,8 +25,8 @@ import {hitFlash,boostFx} from './swe1r/hud.js';
 import {WRECK_CHUNK,WRECK_CHUNKS,gibTrigger,overheatTrigger} from './wreck.js';
 import {hudModel} from './hud-model.js';
 import {loadHudSprites,loadCountdownSprites,createDial,createHeatGauge,lapText,lapTimesText,lapBanner,finishBanner} from './swe1r/hud.js';
-const flashMem={},boostMem={},meters=document.querySelector('.meters'),engines=[...document.querySelectorAll('.heat-twin i')],ownLast={};
-function ownHud(boost){const m=hudModel(boost);if(ownLast.arc===m.arc)return;ownLast.arc=m.arc;$('boost-arc').style.strokeDasharray=`${m.arc} 100`;$('boost-arc').closest('.speed-dial').dataset.low=String(m.arc<20);const g=meters.querySelector('.heat-twin');g.dataset.warn=String(m.warn);g.setAttribute('aria-label',`Engine heat ${Math.round(m.heat*100)}%`);for(const e of engines)e.style.height=`${Math.round(m.heat*100)}%`;}let dial,heatGauge,hudOn=false,countdownSprites;
+const flashMem={},boostMem={},meters=document.querySelector('.meters'),ownLast={};
+function ownHud(boost){const m=hudModel(boost);if(ownLast.arc===m.arc)return;ownLast.arc=m.arc;$('boost-arc').style.strokeDasharray=`${m.arc} 100`;$('boost-arc').closest('.speed-dial').dataset.low=String(m.arc<20);const g=meters.querySelector('.heat-twin');g.dataset.warn=String(m.warn);g.setAttribute('aria-label',`Engine heat ${Math.round(m.heat*100)}%`);g.dataset.stage=String(m.stage);g.dataset.hot=String(m.heat>=1);}if(new URLSearchParams(location.search).has('test'))window.ownHudTest=ownHud;let dial,heatGauge,hudOn=false,countdownSprites;
 
 const $=id=>document.getElementById(id),canvas=$('world'),keys=new Set();
 const input=new WorldInput(),audio=new WorldAudio();
