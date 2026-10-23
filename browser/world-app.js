@@ -23,8 +23,10 @@ import {SFX,HEAT,STINGER,WIPEOUT_NAMES,wipeoutBlast,pickRaceMusic,loadSfx} from 
 import {pickVoice,raceEndEvents} from './swe1r/voice-map.js';
 import {hitFlash,boostFx} from './swe1r/hud.js';
 import {WRECK_CHUNK,WRECK_CHUNKS,gibTrigger,overheatTrigger} from './wreck.js';
+import {hudModel} from './hud-model.js';
 import {loadHudSprites,loadCountdownSprites,createDial,createHeatGauge,lapText,lapTimesText,lapBanner,finishBanner} from './swe1r/hud.js';
-const flashMem={},boostMem={};let dial,heatGauge,hudOn=false,countdownSprites;
+const flashMem={},boostMem={},meters=document.querySelector('.meters'),engines=[...document.querySelectorAll('.heat-twin i')],ownLast={};
+function ownHud(boost){const m=hudModel(boost);if(ownLast.arc===m.arc)return;ownLast.arc=m.arc;$('boost-arc').style.strokeDasharray=`${m.arc} 100`;$('boost-arc').closest('.speed-dial').dataset.low=String(m.arc<20);const g=meters.querySelector('.heat-twin');g.dataset.warn=String(m.warn);g.setAttribute('aria-label',`Engine heat ${Math.round(m.heat*100)}%`);for(const e of engines)e.style.height=`${Math.round(m.heat*100)}%`;}let dial,heatGauge,hudOn=false,countdownSprites;
 
 const $=id=>document.getElementById(id),canvas=$('world'),keys=new Set();
 const input=new WorldInput(),audio=new WorldAudio();
@@ -320,7 +322,7 @@ $('camera-distance').addEventListener('input',()=>{
   settings.cameraDistance=Number($('camera-distance').value);
   if(settings.cockpit){settings.cockpit=false;renderer.camera=undefined;}
 });
-function syncHud(){hudOn=$('swe1r-hud-on').checked;document.querySelector('.speed-instrument').style.visibility=hudOn?'hidden':'';}
+function syncHud(){hudOn=$('swe1r-hud-on').checked;}
 $('swe1r-hud-on').addEventListener('change',syncHud);
 $('swe1r-sfx').addEventListener('change',()=>{audio.sampleOn=$('swe1r-sfx').checked;});
 $('music-on').addEventListener('change',()=>{settings.music=$('music-on').checked;music.setEnabled(settings.music);try{localStorage.setItem('racer.music',settings.music?'1':'0');}catch{}});
@@ -636,7 +638,7 @@ function frame(now) {
     if(gibTrigger(gibMem,client.state.telemetry,gib.on,gib.speed,now,!!flight||!!frozenPresentation||editor.isOpen||wreckBusy)){flashMem.at=now/1000;flashMem.strength=1;void testCrash(true,gibMem.speed);}
     else if(dial&&overheatTrigger(gibMem,client.state.telemetry,(controls.flags&2)!==0,gib.overheat,now,!!flight||!!frozenPresentation||editor.isOpen||wreckBusy)){flashMem.at=now/1000;flashMem.strength=1;void testCrash(true,client.state.telemetry[5]);}
     const flash=dial&&hudOn&&!flight?hitFlash(flashMem,client.state.telemetry[8],client.state.telemetry[5],now/1000):0;$('boost-fx').hidden=!(dial&&hudOn&&!flight&&(boostFx(boostMem,(controls.flags&2)!==0,client.state.telemetry[6],dt)>0));if(!$('boost-fx').hidden)$('boost-fx').style.opacity=(boostMem.v*.8).toFixed(2);$('hit-flash').hidden=flash<=0;if(flash>0)$('hit-flash').style.opacity=flash.toFixed(2);
-    audio.update(client.state,controls,dt,audible);if(dial){const on=hudOn&&!flight;$('swe1r-hud').hidden=!on;if(on)dial(Math.min(1,client.state.telemetry[5]/tuningValues[1]),client.state.telemetry[6]);$('swe1r-heat').hidden=!(on&&heatGauge);if(on&&heatGauge)heatGauge(1-client.state.telemetry[6],now/1000);}audio.setHeat(dial?1-client.state.telemetry[6]:0,(controls.flags&2)!==0);if(!race)music.setBattle(false);music.update(client.state.area,audible);evidence.music=music.snapshot();
+    audio.update(client.state,controls,dt,audible);ownHud(client.state.telemetry[6]);if(dial){const on=hudOn&&!flight;$('swe1r-hud').hidden=!on;if(on)dial(Math.min(1,client.state.telemetry[5]/tuningValues[1]),client.state.telemetry[6]);$('swe1r-heat').hidden=!(on&&heatGauge);if(on&&heatGauge)heatGauge(1-client.state.telemetry[6],now/1000);}audio.setHeat(dial?1-client.state.telemetry[6]:0,(controls.flags&2)!==0);if(!race)music.setBattle(false);music.update(client.state.area,audible);evidence.music=music.snapshot();
     frames++;Object.assign(evidence,{frames,state:client.state,mode:flight?'fly':'drive',camera:flight?.slice(),render:stats,adapter:renderer.adapter});
     evidence.input={...controls,device:input.device};evidence.view=renderer.camera?.slice();
     evidence.cockpit={requested:settings.cockpit,active:renderer.cameraMode==='cockpit',available:stats.cockpitAvailable};
@@ -649,10 +651,10 @@ function frame(now) {
       $('race-prompt').hidden=!promptTrack&&!again;if(again)$('race-prompt').textContent='Press F to race again';else if(promptTrack)$('race-prompt').textContent=`Press F to start race: ${promptTrack.name||promptTrack.id}`;
       $('speed').textContent=flight?'FLY':p[5]<10000?p[5].toFixed(0).padStart(3,'0'):p[5].toExponential(1);
       $('direction').textContent=flight?'FREE':p[14]<-.1?'REV':p[14]>.1?'FWD':p[5]<.1?'IDLE':'--';
-      $('drive-state').textContent=flight?'FLIGHT':scene?.waitingCollision||p[8]===1?'WAIT':p[8]===3?'CONTACT':p[8]===2?'NO GROUND':p[7]?'HOVER':'AIR';
-      document.querySelector('.meters').dataset.held=String(held);
-      $('boost').textContent=`${Math.round(p[6]*100)}%`;$('boost-meter').value=p[6];
-      $('speed-meter').value=Math.min(1,p[5]/tuningValues[1]);
+      $('drive-state').textContent=flight?'FLIGHT':scene?.waitingCollision||p[8]===1?'WAIT':p[8]===3?'CONTACT':p[8]===2?'NO GROUND':'';
+      Object.assign(meters.dataset,{held:String(held),flight:String(!!flight),sprites:String(!!(dial&&hudOn))});
+      
+      
       $('drive').hidden=!flight;$('fly').hidden=!!flight||!!race;
       $('cockpit').setAttribute('aria-pressed',String(settings.cockpit&&!flight));
       $('motion').textContent=flight?'':scene?.waitingCollision||p[8]===1?'Loading nearby ground'
