@@ -10,6 +10,7 @@ import {cloudShader,cloudUniform,maelstromCentre} from './clouds.js';
 import {oceanMesh} from './ocean-mesh.js';
 import {ParticlePool,exhaustPoints,emitPlumes,emitBurst,emitDebris,emitHeatSmoke,emitGroundDust,QUALITY,INSTANCE_FLOATS,CAPACITY,particleShader,particleUniform} from './particles.js';
 import {flagMesh,gateMesh} from './race-flags.js';
+import {beamState} from './beam.js';
 import {SkyCatalog,mapPosition,skyShader,skyDomeShader,skyUniform,advanceTime,nightAlpha,nightAngle,DAY} from './sky.js';
 import {ACTOR,actorPhase,poseKey} from './actors.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
@@ -169,7 +170,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) uv:vec
   return vec4f(mix(color,fogTint(),fog),1);
 }`;
 const sceneShader=`
-struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,settings:vec4f,model:mat4x4f,material:vec4f,sky:array<vec4f,4>};
+struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,settings:vec4f,model:mat4x4f,material:vec4f,sky:array<vec4f,4>,beam:vec4f};
 @group(0) @binding(0) var<uniform> u:U;
 @group(0) @binding(1) var image:texture_2d<f32>;
 @group(0) @binding(2) var imageSampler:sampler;
@@ -183,7 +184,11 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
 }
 @fragment fn fs(v:V)->@location(0) vec4f {
   let dx=dpdx(v.p.xz);let dy=dpdy(v.p.xz);let rampWidth=fwidth(v.uv.x);
-  let texel=textureSample(image,imageSampler,v.uv)*v.color;
+  var uv=v.uv;var tint=1.0;
+  if(u.beam.x>.5){let t=u.settings.y;uv.x+=t*.9;uv.y+=u.beam.z*.2*sin(uv.x*25.0+t*50.0);
+    tint=u.beam.y*(.75+.25*sin(t*37.0)*sin(t*23.0+uv.x*3.0));
+    if(u.beam.w>.5){tint=max(0.0,sin(t*31.0)*sin(t*17.0)-.85)*6.0;}}
+  let texel=textureSample(image,imageSampler,uv)*v.color*vec4f(vec3f(tint),min(1.0,tint));
   if(texel.a<u.material.x){discard;}
   let distance=length(v.p-u.eye.xyz);
   let coverage=u.material.w*select(1.0,1.0-smoothstep(3500.0,6000.0,distance),u.material.z>0.0);
@@ -291,7 +296,7 @@ export class WorldRenderer {
       depthStencil:{format:'depth24plus',depthWriteEnabled:true,depthCompare:'less'},
     });
     this.sceneLayout=this.device.createBindGroupLayout({entries:[
-      uniformEntry(224),
+      uniformEntry(240),
       {binding:1,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float'}},
       {binding:2,visibility:GPUShaderStage.FRAGMENT,sampler:{type:'filtering'}},
       ...waveEntries,
@@ -844,7 +849,8 @@ export class WorldRenderer {
       u[base+24]=body?0:item.placement[0]-origin[0];u[base+25]=0;
       u[base+26]=body?0:item.placement[1]-origin[1];u[base+27]=item.cell??-1;
     }
-    const draws=[],selection=this.cameraBlocked?{selected:[],omitted:0}:
+    const fxIn={...this.fxInput,...this.fxOverride},beam=beamState({throttle:fxIn.throttle,boosting:fxIn.boosting,heat:fxIn.heat,health:fxIn.health});
+const draws=[],selection=this.cameraBlocked?{selected:[],omitted:0}:
       sceneSelection(this.instances.filter(i=>(settings.distant!==false || !i.distant)&&
         (!i.distant||sceneReady(i,this.assets,this.textures))),this.assets,(instance,asset)=>
         sceneVisible(asset.bounds,this.sceneMatrix(instance,this.manifest.regions[this.sceneRegion],origin),
@@ -865,7 +871,7 @@ export class WorldRenderer {
               const sampler=this.device.createSampler({minFilter:'linear',magFilter:'linear',
                 addressModeU:batch.wrapX?'repeat':'clamp-to-edge',addressModeV:batch.wrapY?'repeat':'clamp-to-edge'});
               item={id:instance.id,key:instance.key,asset,texture,group:this.device.createBindGroup({layout:this.sceneLayout,entries:[
-                {binding:0,resource:{buffer:this.frameUniforms,size:224}},{binding:1,resource:texture.createView()},{binding:2,resource:sampler},
+                {binding:0,resource:{buffer:this.frameUniforms,size:240}},{binding:1,resource:texture.createView()},{binding:2,resource:sampler},
                 {binding:3,resource:this.waterNormals.createView()},{binding:4,resource:this.waveSampler}]} )};
               items.set(key,item);
             }
@@ -875,6 +881,7 @@ export class WorldRenderer {
           u[base+16]=aspect;u[base+17]=time;u[base+18]=batch.water?1:0;u[base+19]=near;u.set(m,base+20);
           u[base+36]=batch.alphaCutoff||0;u[base+37]=batch.emissive?1:0;u[base+38]=instance.distant?1:0;
           u[base+39]=distance<128?1:coverage;
+if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,base+60);
           draws.push({asset,batch,item,distant:instance.distant,craft:instance.craft,pipeline:batch.pipeline,distance});
         }
     };
