@@ -6,11 +6,13 @@ import {splitParts,crumple,craftFrame,partMatrix,appendWreckChunk,wreckFrame,WRE
 import {COAST_GPU_LIMIT} from './water-stream.js';
 import {WATER_NORMAL_SIZE,waterNormalMips,waterShading,dayShading} from './water-shader.js';
 import {shadowShader,shadowUniform,shadowHalf} from './shadow.js';
-import {cloudShader,cloudShaderHigh,cloudUniform,maelstromCentre,bakeCloudNoise,CLOUD_NOISE_SIZE,resolveCloudQuality,SlowFrameGuard} from './clouds.js';
+import {cloudShader,cloudShaderHigh,cloudUniform,maelstromCentre,sunDirection,bakeCloudNoise,CLOUD_NOISE_SIZE,resolveCloudQuality,SlowFrameGuard} from './clouds.js';
 import {oceanMesh} from './ocean-mesh.js';
 import {ParticlePool,exhaustPoints,emitPlumes,emitBurst,emitDebris,emitHeatSmoke,emitGroundDust,QUALITY,INSTANCE_FLOATS,CAPACITY,particleShader,particleUniform} from './particles.js';
 import {flagMesh,gateMesh} from './race-flags.js';
 import {beamState} from './beam.js';
+import {schematicRects} from './worldmap.js';
+import {planetFactors,spaceUniform,spaceShader,bendShader,FALLBACK_RECTS} from './space.js';
 import {SkyCatalog,mapPosition,skyShader,skyDomeShader,skyUniform,advanceTime,nightAlpha,nightAngle,DAY} from './sky.js';
 import {ACTOR,actorPhase,poseKey} from './actors.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
@@ -89,7 +91,7 @@ struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,body:vec4f,settings:vec4f
 @group(0) @binding(0) var<uniform> u:U;
 @group(0) @binding(1) var minimap:texture_2d<f32>;
 @group(0) @binding(2) var mapSampler:sampler;
-${dayShading}${waterShading}
+${dayShading}${waterShading}${bendShader}
 struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3f,@location(2) @interpolate(flat) material:f32,@location(3) uv:vec2f};
 @vertex fn vs(@location(0) p:vec3f,@location(1) n:vec3f,@location(2) material:f32)->V {
   var position=p+u.tile.xyz;var normal=n;
@@ -100,7 +102,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
     position=vec3f(q.x*c+q.z*s,q.y,-q.x*s+q.z*c)+u.body.xyz;
     normal=vec3f(n.x*c+n.z*s,n.y,-n.x*s+n.z*c);
   }
-  let relative=position-u.eye.xyz;let z=dot(relative,u.forward.xyz);
+  let relative=bend(position-u.eye.xyz,u.eye.y,u.pad[0].x);let z=dot(relative,u.forward.xyz);
   var v:V;v.clip=vec4f(dot(relative,u.right.xyz)/(0.55*u.settings.x),dot(relative,u.up.xyz)/0.55,
     (z-u.settings.w)*u.eye.w/(u.eye.w-u.settings.w),z);
   v.p=position;v.n=normal;v.material=material;v.uv=p.xz/(1600.0/3.0);return v;
@@ -122,7 +124,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   if(v.material==2.0 || v.material==4.0){
     color=waterColor(v.p,select(1.0,v.n.x,v.n.z>.5),rampWidth,dx,dy);
   }
-  let fog=clamp(length(v.p-u.eye.xyz)/150000.0,0.0,.93);
+  let fog=clamp(length(v.p-u.eye.xyz)/150000.0,0.0,.93)*(1.0-u.pad[0].y);
   return vec4f(mix(color,fogTint(),fog),1);
 }`;
 const splatShader=`
@@ -132,13 +134,13 @@ struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,body:vec4f,settings:vec4f
 @group(0) @binding(2) var masks:texture_2d_array<f32>;
 @group(0) @binding(3) var layerSampler:sampler;
 @group(0) @binding(4) var minimap:texture_2d<f32>;
-${dayShading}
+${dayShading}${bendShader}
 struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) uv:vec2f,
   @location(2) @interpolate(flat) layers:vec4u,@location(3) @interpolate(flat) chunk:u32,@location(4) light:f32,
   @location(5) tileUv:vec2f};
 @vertex fn vs(@location(0) p:vec3f,@location(1) n:vec3f,@location(2) uv:vec2f,
   @location(3) ids:vec4f,@location(4) chunk:f32)->V {
-  let position=p+u.tile.xyz;let relative=position-u.eye.xyz;let z=dot(relative,u.forward.xyz);
+  let position=p+u.tile.xyz;let relative=bend(position-u.eye.xyz,u.eye.y,u.pad[0].x);let z=dot(relative,u.forward.xyz);
   var v:V;v.clip=vec4f(dot(relative,u.right.xyz)/(0.55*u.settings.x),dot(relative,u.up.xyz)/0.55,
     (z-u.settings.w)*u.eye.w/(u.eye.w-u.settings.w),z);
   v.p=position;v.uv=uv;v.layers=vec4u(ids);v.chunk=u32(chunk);
@@ -166,18 +168,18 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) uv:vec
   color=mix(color,mapColor.rgb,(1.0-smoothstep(0.0,100.0/3.0,edgeDistance))*mapColor.a);
   let base=mix(vec3f(.63,.59,.40)*v.light,mapColor.rgb,mapColor.a);
   color=grade(mix(base,color,u.settings.z));
-  let fog=clamp(length(v.p-u.eye.xyz)/150000.0,0.0,.93);
+  let fog=clamp(length(v.p-u.eye.xyz)/150000.0,0.0,.93)*(1.0-u.pad[0].y);
   return vec4f(mix(color,fogTint(),fog),1);
 }`;
 const sceneShader=`
-struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,settings:vec4f,model:mat4x4f,material:vec4f,sky:array<vec4f,4>,beam:vec4f};
+struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,settings:vec4f,model:mat4x4f,material:vec4f,sky:array<vec4f,4>,beam:vec4f,bend:vec4f};
 @group(0) @binding(0) var<uniform> u:U;
 @group(0) @binding(1) var image:texture_2d<f32>;
 @group(0) @binding(2) var imageSampler:sampler;
-${dayShading}${waterShading}
+${dayShading}${waterShading}${bendShader}
 struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3f,@location(2) uv:vec2f,@location(3) color:vec4f};
 @vertex fn vs(@location(0) p:vec3f,@location(1) n:vec3f,@location(2) uv:vec2f,@location(3) color:vec4f)->V {
-  let position=(u.model*vec4f(p,1)).xyz;let relative=position-u.eye.xyz;let z=dot(relative,u.forward.xyz);
+  let position=(u.model*vec4f(p,1)).xyz;let relative=bend(position-u.eye.xyz,u.eye.y,u.bend.x);let z=dot(relative,u.forward.xyz);
   var v:V;v.clip=vec4f(dot(relative,u.right.xyz)/(0.55*u.settings.x),dot(relative,u.up.xyz)/0.55,
     (z-u.settings.w)*u.eye.w/(u.eye.w-u.settings.w),z);
   v.p=position;v.n=(u.model*vec4f(n,0)).xyz;v.uv=uv;v.color=color;return v;
@@ -194,7 +196,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   let coverage=u.material.w*select(1.0,1.0-smoothstep(3500.0,6000.0,distance),u.material.z>0.0);
   if(fract(dot(floor(v.clip.xy),vec2f(.754877666,.569840296)))>=coverage){discard;}
   let light=mix(.4+.6*max(dot(normalize(v.n),normalize(vec3f(-.3,1.0,.4))),0.0),1.0,u.material.y);
-  let fog=max(clamp(distance/150000.0,0.0,.93),u.material.z*.8*smoothstep(3500.0,6000.0,distance));
+  let fog=max(clamp(distance/150000.0,0.0,.93)*(1.0-u.bend.y),u.material.z*.8*smoothstep(3500.0,6000.0,distance));
   var color=grade(texel.rgb*light);
   if(u.settings.z>.5){color=waterColor(v.p,v.uv.x,rampWidth,dx,dy);}
   return vec4f(mix(color,fogTint(),fog),texel.a);
@@ -296,7 +298,7 @@ export class WorldRenderer {
       depthStencil:{format:'depth24plus',depthWriteEnabled:true,depthCompare:'less'},
     });
     this.sceneLayout=this.device.createBindGroupLayout({entries:[
-      uniformEntry(240),
+      uniformEntry(256),
       {binding:1,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float'}},
       {binding:2,visibility:GPUShaderStage.FRAGMENT,sampler:{type:'filtering'}},
       ...waveEntries,
@@ -339,6 +341,12 @@ export class WorldRenderer {
       fragment:{module:skyModule,entryPoint:'fs',targets:[{format:this.format}]},primitive:{topology:'triangle-list'},
       depthStencil:{format:'depth24plus',depthWriteEnabled:false,depthCompare:'always'}});
     this.skyGroup=this.device.createBindGroup({layout:this.skyPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:this.skyBuffer}}]});
+    this.spaceBuffer=this.device.createBuffer({size:256,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
+    const spaceModule=await shader(spaceShader);
+    this.spacePipeline=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module:spaceModule,entryPoint:'vs'},
+      fragment:{module:spaceModule,entryPoint:'fs',targets:[{format:this.format,blend:{color:{srcFactor:'one',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},primitive:{topology:'triangle-list'},
+      depthStencil:{format:'depth24plus',depthWriteEnabled:true,depthCompare:'always'}});
+    this.spaceGroup=this.device.createBindGroup({layout:this.spacePipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:this.spaceBuffer}}]});
     const domeModule=await shader(skyDomeShader);
     this.domeBuffer=this.device.createBuffer({size:64,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
     this.domePipeline=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module:domeModule,entryPoint:'vs',buffers:[{arrayStride:48,attributes:[
@@ -748,6 +756,11 @@ export class WorldRenderer {
         layout:this.domePipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:this.domeBuffer}},
           {binding:1,resource:(textures.get(b.texture)||this.white).createView()},{binding:2,resource:sampler}]})}))};
   }
+  drawPlanet(pass,pf,near) {
+    const rects=this.manifest?.world_bounds?schematicRects(this.manifest):FALLBACK_RECTS;
+    this.device.queue.writeBuffer(this.spaceBuffer,0,spaceUniform(this.view,sunDirection(this.timeOfDay),pf,rects,this.timeOfDay,near,200000));
+    pass.setPipeline(this.spacePipeline);pass.setBindGroup(0,this.spaceGroup);pass.draw(3);
+  }
   drawSkyDome(pass) {
     const alpha=nightAlpha(this.timeOfDay);
     if(!this.skyDome||alpha<.01)return;
@@ -789,7 +802,9 @@ export class WorldRenderer {
       {binding:1,resource:this.depth.createView()},{binding:2,resource:this.cloudNoise},{binding:3,resource:this.cloudNoiseSampler}]});
   }
   drawClouds(pass,time,daylight,near,high) {
-    this.device.queue.writeBuffer(this.cloudBuffer,0,cloudUniform(this.view,time,daylight,this.manifest,near,this.gameSky,undefined,this.timeOfDay));
+    const cu=cloudUniform(this.view,time,daylight,this.manifest,near,this.gameSky,undefined,this.timeOfDay);
+    cu[19]*=Math.max(.02,this.planet?.cloud??1);
+    this.device.queue.writeBuffer(this.cloudBuffer,0,cu);
     const useHigh=high&&this.cloudHighGroup;
     pass.setPipeline(useHigh?this.cloudHigh:this.cloudPipeline);pass.setBindGroup(0,useHigh?this.cloudHighGroup:this.cloudGroup);pass.draw(3);
   }
@@ -835,6 +850,7 @@ export class WorldRenderer {
     this.cameraLook=look;
     const aspect=width/height;
     this.view={eye:[this.camera[0]+origin[0],this.camera[1],this.camera[2]+origin[1]],right,up,look,aspect};
+    const planetOn=!!flight&&settings.planet!==false,pf=this.planet=planetFactors(planetOn?this.view.eye[1]:0,planetOn);
     const target=settings.night?0:1,previous=this.daylight??target;
     const daylight=this.daylight=Math.abs(target-previous)<.002?target:previous+(target-previous)*Math.min(1,dt*1.5);
     const sky0=DAY_SKY.map((v,i)=>NIGHT_SKY[i]+(v-NIGHT_SKY[i])*daylight);
@@ -850,10 +866,10 @@ export class WorldRenderer {
     const allTerrain=this.cameraBlocked?[]:[...distant,...this.tiles.values(),...(settings.horizon?this.seams.values():[]),...this.water,...coastal,...this.flags,...this.gates];
     if(!flight&&!this.craft&&!this.cameraBlocked)allTerrain.push(this.body);
     const cachedView=this.terrainView;
-    if(!cachedView || viewChanged(cachedView.view,this.view) ||
+    if(!cachedView || cachedView.bent!==(pf.bend>0) || viewChanged(cachedView.view,this.view) ||
       cachedView.all.length!==allTerrain.length || allTerrain.some((item,i)=>cachedView.all[i]!==item))
-      this.terrainView={view:this.view,all:allTerrain,
-        visible:allTerrain.filter(item=>item===this.body || boundsVisible(item.bounds,this.view))};
+      this.terrainView={view:this.view,all:allTerrain,bent:pf.bend>0,
+        visible:allTerrain.filter(item=>item===this.body || pf.bend>0 || boundsVisible(item.bounds,this.view))};
     const terrain=this.terrainView.visible;
     this.fadeTime=Math.max(this.fadeTime||0,time);
     const fadeTime=this.fadeTime;
@@ -862,7 +878,7 @@ export class WorldRenderer {
     const writeUniform=item=>{
       if(uniformCount>=16384)throw Error('World draw uniform budget exceeded');
       const base=uniformCount++*64;
-      item.offset=base*4;u.set(view,base);u.set(skyFloats,base+40);return base;
+      item.offset=base*4;u.set(view,base);u.set(skyFloats,base+40);u[base+28]=u[base+60]=pf.bend;u[base+29]=u[base+61]=pf.space;return base;
     };
     for(const item of terrain){
       const base=writeUniform(item),body=item===this.body;
@@ -895,7 +911,7 @@ const draws=[],selection=this.cameraBlocked?{selected:[],omitted:0}:
               const sampler=this.device.createSampler({minFilter:'linear',magFilter:'linear',
                 addressModeU:batch.wrapX?'repeat':'clamp-to-edge',addressModeV:batch.wrapY?'repeat':'clamp-to-edge'});
               item={id:instance.id,key:instance.key,asset,texture,group:this.device.createBindGroup({layout:this.sceneLayout,entries:[
-                {binding:0,resource:{buffer:this.frameUniforms,size:240}},{binding:1,resource:texture.createView()},{binding:2,resource:sampler},
+                {binding:0,resource:{buffer:this.frameUniforms,size:256}},{binding:1,resource:texture.createView()},{binding:2,resource:sampler},
                 {binding:3,resource:this.waterNormals.createView()},{binding:4,resource:this.waveSampler}]} )};
               items.set(key,item);
             }
@@ -945,6 +961,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
     });
     if(!this.cameraBlocked){
       if(game){this.device.queue.writeBuffer(this.skyBuffer,0,skyUniform(this.view,game,this.timeOfDay));pass.setPipeline(this.skyPipeline);pass.setBindGroup(0,this.skyGroup);pass.draw(3);this.drawSkyDome(pass);}
+      if(pf.globe>0)this.drawPlanet(pass,pf,near);
       this.drawTerrain(pass,terrain);this.drawScene(pass,draws);
     }
     pass.end();
@@ -958,7 +975,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
     this.lastRenderMs=nowMs;
     const highClouds=resolveCloudQuality(settings.cloudQuality,{highFailed:this.cloudHighFailed,slow:this.cloudSlow});
     if(highClouds&&!this.cloudHigh&&!this.cloudHighFailed)this.enableHighClouds();
-    if(!this.cameraBlocked&&settings.clouds!==false) {
+    if(!this.cameraBlocked&&settings.clouds!==false&&pf.cloud>0) {
       // Clouds read the finished scene depth to clip their ray march, so they never need a depth-test bias.
       const cloudPass=encoder.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}]});
       this.drawClouds(cloudPass,time,daylight,near,highClouds);cloudPass.end();
