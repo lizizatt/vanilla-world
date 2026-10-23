@@ -537,11 +537,14 @@ function startRace(track) {
 let lastCount=0,voiceMap,voiceReader,lastVoice,lastLap=1;
 let raceTune=null;
 // Debug crash (Ctrl+Alt+K): the Rust wreck sim runs in the worker in 0.5 s chunks; the renderer replays the recorded poses.
-let wreckBusy=false;
+let wreckBusy=false,wasLocked=false;
+const wreckLocked=()=>wreckBusy||!!renderer.wreck;
+// After a wreck the dead pod is replaced: same spot but 10 m up (Unstuck poses), repaired and cooled, at rest.
+async function respawn(){const p=client.state?.telemetry;if(!p)return;for(const pose of unstuckPoses(p)){try{client.state=await client.request('restore',{pose,repair:true});race?.jump();renderer.camera=undefined;return;}catch{}}}
 async function testCrash(auto=false,speed){
   if(wreckBusy||!client.state)return;
   const input=renderer.startWreck(client.state.telemetry,Math.floor(Math.random()*1e9),speed);
-  if(!input)return;
+  if(!input){void respawn();return;}
   wreckBusy=true;
   if(auto&&audio.sampleOn){(audio.was??={}).crashAt=audio.context.currentTime;}
   if(auto&&audio.sampleOn)for(const n of wipeoutBlast(Object.keys(audio.samples?.buffers||{})))audio.cue(n,.9);
@@ -621,8 +624,8 @@ function frame(now) {
     if(controls.cockpit)cockpit();
     if(controls.zoom)zoom(controls.zoom);
     const cameraOrbit=orbit;orbit=[0,0];const keyDrive=!!(controls.throttle||controls.steer),right=!flight&&!!(mouseButtons&2);
-    if(renderer.wreck)Object.assign(controls,{throttle:0,steer:0,flags:0});
     if(right){controls.steer=Math.max(-1,Math.min(1,(renderer.chase?.[0]||0)*4));if(mouseButtons&1)controls.throttle=1;}
+    const locked=wreckLocked();if(locked){Object.assign(controls,{throttle:0,steer:0,flags:0});client.pendingHop=0;}else if(wasLocked&&!flight)void respawn();wasLocked=locked;
     if(flight) {
       flight=moveFlight(flight,keys,dt);flight[3]-=cameraOrbit[0]*.004;
       flight[4]=Math.max(-1.55,Math.min(1.55,flight[4]-cameraOrbit[1]*.004));
@@ -630,7 +633,7 @@ function frame(now) {
     if(race){flight=undefined;if(!raceMenu.open)raceFrame(controls,now/1000);}
     if(editor.isOpen)flight=editor.pose();
     syncGates();
-    if(!frozenPresentation)client.frame(dt,controls.throttle,controls.steer,controls.flags,flight?.slice(0,3),settings.distant,renderer.view);
+    if(!frozenPresentation&&!locked)client.frame(dt,controls.throttle,controls.steer,controls.flags,flight?.slice(0,3),settings.distant,renderer.view);
     cameraCollision.frame(client.state,renderer.sceneRegion ?? client.state.telemetry[10]);
     renderer.fxInput={throttle:Math.max(0,controls.throttle),boosting:(controls.flags&2)!==0,heat:dial?client.state.telemetry[6]:0,drifting:(controls.flags&4)!==0};
     const stats=renderer.draw(frozenPresentation || flight?client.state.telemetry:client.presentation(),flight,dt,frozenPresentation?0:now/1000,
