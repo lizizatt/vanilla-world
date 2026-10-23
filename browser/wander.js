@@ -3,8 +3,9 @@
 // pack carries no creature type, wander radius or movement type (see SCENE.md "NPC pack provenance").
 export const WANDER = Object.freeze({
   critter: { radius: 8, speed: 1.4, chance: 1 },
-  civilian: { radius: 5, speed: 2.2, chance: 0.2 },
-  period: [14, 30],
+  civilian: { radius: 6, speed: 2.2, chance: 0.5 },
+  creature: { radius: 5, speed: 1.6, chance: 0.35 },
+  period: [8, 16],
   maxHeightDelta: 2,
   maxSlope: 1.2,
   turnRate: 4,
@@ -15,7 +16,8 @@ const CRITTER = /(^|[\\/])(rabbit|squirrel|rat|mouse|cat|chicken|frog|toad|crab|
 
 export function npcClass(path) {
   if (/^character[\\/]/i.test(path)) return 'civilian';
-  return CRITTER.test(path) ? 'critter' : undefined;
+  if (CRITTER.test(path)) return 'critter';
+  return /^creature[\\\\/]/i.test(path) ? 'creature' : undefined;
 }
 
 const hash = (a, b = 0) => {

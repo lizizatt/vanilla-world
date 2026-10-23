@@ -6,8 +6,8 @@ import { npcClass, idSeed, wanders, wanderState, WANDER } from './wander.js';
 export const ACTOR = Object.freeze({
   maxWanderers: 48,
   radius: 120,
-  maxGroups: 16,
-  maxModels: 24,
+  maxGroups: 32,
+  maxModels: 32,
   phases: 3,
   tickMs: 100,
   budgetMs: 2,
@@ -48,13 +48,15 @@ export class ActorService {
     near.sort((a, b) => a[0] - b[0]);
     const groups = new Map();
     let bytes = 0;
-    for (const [, i] of near) {
+    const seen = new Set(); // pass 0 gives every nearby model one group before any model gets extra phases
+    for (const [pass, [, i]] of [...near.map(n => [0, n]), ...near.map(n => [1, n])]) {
       const model = this.model(i);
       if (!model?.actor) continue;
       const sp = this.speedOf(i, model), phase = actorPhase(i.id) + (sp ? ACTOR.phases : 0);
       const id = poseKey(i.key, phase);
-      if (groups.has(id)) continue;
+      if (groups.has(id) || (pass === 0 && seen.has(i.key))) continue;
       if (groups.size >= ACTOR.maxGroups || bytes + model.bytes > ACTOR.maxBytes) continue;
+      seen.add(i.key);
       groups.set(id, { key: i.key, phase, model, rate: sp ? sp / model.walkSpeed : 0 });
       bytes += model.bytes;
     }
