@@ -37,3 +37,16 @@ export async function loadCraft(source,wasm,emit) {
   throw error;
  }
 }
+
+// Preview tooling: any M2 in the user's Data folder as a craft-style payload (vertices in scene space, textures decoded).
+export async function loadProp(source,wasm,path) {
+  const handle=wasm.SceneModel.m2(await source.read(path),path,'[]'),posed=JSON.parse(handle.metadata());
+  let asset;
+  try{asset={vertices:handle.vertices(),indices:handle.indices(),batches:posed.batches};}finally{handle.free();}
+  const textures=[];
+  for(const key of new Set(asset.batches.map(b=>b.texture&&modelPath(b.texture)).filter(Boolean))){
+    const tex=new wasm.SceneTexture(await source.read(key));
+    try{textures.push({key,...JSON.parse(tex.metadata()),rgba:tex.rgba()});}finally{tex.free();}
+  }
+  return {asset,textures,bounds:posed.bounds};
+}
