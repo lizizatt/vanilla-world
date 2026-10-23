@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PLANET_RADIUS, CONTINENT_YD, CONTINENT_DEG, MOONS, planetFactors, planetFrame, moonPlanetPosition } from './space.js';
-import { FLIGHT_CEILING, flightBoost } from './flight.js';
+import { PLANET_RADIUS, CONTINENT_YD, CONTINENT_DEG, MOONS, planetFactors, planetFrame, moonPlanetPosition, subPoint, globeToFlat, wrapFlat, placeName, spaceHud, WORLD_CENTRE, FALLBACK_RECTS } from './space.js';
+import { FLIGHT_CEILING, flightBoost, moveFlight } from './flight.js';
 
 test('radius makes one continent span 40 degrees', () => {
   const deg = CONTINENT_YD / PLANET_RADIUS * 180 / Math.PI;
@@ -37,9 +37,68 @@ test('moons are periodic over their orbit', () => {
   }
 });
 
-test('fly boost leaves ground flight alone and reaches space', () => {
-  assert.equal(flightBoost(0), 1);
-  assert.equal(flightBoost(1500), 1);
-  assert.equal(flightBoost(1e6), 60);
+test('fly speed law is continuous, monotonic and 1x on the ground', () => {
+  assert.equal(flightBoost(-500), 1);
+  assert.equal(flightBoost(1000), 1);
+  assert.ok(Math.abs(flightBoost(1e6) - 40) < 1e-9 && flightBoost(2e6) === flightBoost(1e6));
+  let prev = 1;
+  for (let a = 900; a <= 1.1e6; a *= 1.001) {
+    const b = flightBoost(a);
+    assert.ok(b >= prev - 1e-12 && b - prev < .01 * b, `jump at ${a}`);
+    prev = b;
+  }
   assert.ok(FLIGHT_CEILING >= 500000);
+});
+
+test('moveFlight is continuous and never flips direction (seeded sweep)', () => {
+  let s = 12345;
+  const rnd = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296;
+  const keysets = [['KeyW'], ['KeyS'], ['KeyW', 'ShiftLeft'], ['KeyD'], ['KeyE', 'ShiftLeft'], ['KeyQ']];
+  for (let n = 0; n < 4000; n++) {
+    const alt = (rnd() < .5 ? rnd() * 3000 : 10 ** (3 + rnd() * 3)), yaw = rnd() * 6.28, pitch = (rnd() - .5) * 3;
+    const keys = new Set(keysets[n % keysets.length]);
+    const a = moveFlight([0, alt, 0, yaw, pitch], keys, 1 / 60), b = moveFlight([0, alt * 1.001 + .5, 0, yaw, pitch], keys, 1 / 60);
+    const da = [a[0], a[1] - alt, a[2]], db = [b[0], b[1] - alt * 1.001 - .5, b[2]];
+    for (let i = 0; i < 3; i++) {
+      assert.ok(Number.isFinite(a[i]));
+      assert.ok(Math.abs(da[i] - db[i]) <= .01 * Math.hypot(...da) + 1e-6, 'speed jump');
+      assert.ok(da[i] * db[i] >= -1e-9, 'sign flip');
+    }
+    assert.ok(Math.hypot(...da) < 8000 / 60 * 40 + 1e-6);
+    assert.equal(a[3], yaw + 0);
+  }
+});
+
+test('turn rate does not depend on altitude', () => {
+  const keys = new Set(['ArrowLeft']);
+  const lo = moveFlight([0, 10, 0, 0, 0], keys, .1)[3], hi = moveFlight([0, 5e5, 0, 0, 0], keys, .1)[3];
+  assert.equal(lo, hi);
+});
+test('flat -> globe -> flat round trip is exact, incl. world edges, and matches the render frame', () => {
+  let s = 99;
+  const rnd = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296;
+  const pts = [[-21867, -17600], [24725, 17067], [5333, 12267], [13525, -5333], [1429, -267], ...Array.from({ length: 2000 }, () => [-30000 + rnd() * 60000, -30000 + rnd() * 60000])];
+  for (const [x, z] of pts) {
+    const { lat, lon } = subPoint(x, z);
+    const [rx, rz] = globeToFlat(lat, lon);
+    assert.ok(Math.abs(rx - x) < 1e-6 && Math.abs(rz - z) < 1e-6);
+    const up = planetFrame(x, z).up, lat2 = Math.asin(up[1]), lon2 = Math.atan2(up[2], up[0]);
+    assert.ok(Math.abs(lat2 - lat) < 1e-9 && Math.abs(lon2 - lon) < 1e-9);
+  }
+  const k = subPoint(-21867, 0), e = subPoint(5333, 0);
+  assert.ok(Math.abs((e.lon - k.lon) * 180 / Math.PI - 36.9) < 1);
+});
+
+test('wrapFlat wraps longitude and clamps latitude without moving points inside the world', () => {
+  assert.deepEqual(wrapFlat(1000, 2000), [1000, 2000]);
+  const turn = 2 * Math.PI * PLANET_RADIUS, [x] = wrapFlat(WORLD_CENTRE[0] + turn + 5, 0);
+  assert.ok(Math.abs(x - (WORLD_CENTRE[0] + 5)) < 1e-6);
+  assert.ok(wrapFlat(0, 1e9)[1] <= WORLD_CENTRE[1] + 1.4 * PLANET_RADIUS + 1e-6);
+});
+
+test('place name and HUD text', () => {
+  assert.equal(placeName(-810, 5589), 'KALIMDOR');
+  assert.equal(placeName(20000, 0), 'EASTERN KINGDOMS');
+  assert.equal(placeName(9000, 0), 'THE GREAT SEA');
+  assert.match(spaceHud([-810, 12345, 5589, 0, 0], 800, FALLBACK_RECTS), /KALIMDOR .* ALT 12\.3k yd .* 800 yd\/s/);
 });

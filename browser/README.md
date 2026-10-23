@@ -1864,3 +1864,9 @@ Rising in fly mode shows Azeroth as a sphere and then space. Camera/render only;
 - Fly boost scales with altitude (up to 60x) and the ceiling is 1,000,000 yd, so 10k yd is ~4 s away.
 - Limits: the cloud sheet, particles and shadow pass are not bent; the bent terrain and equirectangular globe differ by up to ~8% at the world's extremes; the old screen-space sky moons can double with the space moons mid-transition.
 - Captures: `node race-space-alt.mjs <tag> [planet:0|1] [sky]` writes `runtime/gate-preview/space-<tag>-<alt>-<yaw>.png`.
+
+### Phase A polish: position and shell clouds
+
+- Fly speed is a continuous log law (1x to 1k yd, 40x at 1M yd); the flat (x,z) pose is the globe sub-point, so descent is radial. Above 150 yd a HUD shows altitude, speed, lat/lon and continent; an amber ring marks the sub-point on the globe and in the M map. **X** looks straight down.
+- Clouds are spherical shells that arc with the planet and stay visible from orbit. Limits: JS sweep mirror (cloud-march.js) still mirrors the flat slab; antimeridian seam on the globe backside; funnel fades with curvature; Standard steps are coarse from orbit; teal globe rectangle and pale sea patches not fixed; no landmark names or craft-to-nadir line.
+

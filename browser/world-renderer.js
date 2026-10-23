@@ -314,7 +314,7 @@ export class WorldRenderer {
       primitive:{topology:'triangle-list',cullMode:'none'},
       depthStencil:{format:'depth24plus',depthWriteEnabled:true,depthCompare:'less'},
     });
-    this.cloudBuffer=this.device.createBuffer({size:176,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
+    this.cloudBuffer=this.device.createBuffer({size:240,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
     const cloudModule=await shader(cloudShader);
     this.cloudPipeline=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module:cloudModule,entryPoint:'vs'},
       fragment:{module:cloudModule,entryPoint:'fs',targets:[{format:this.format,blend:{color:{srcFactor:'src-alpha',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},
@@ -756,8 +756,9 @@ export class WorldRenderer {
         layout:this.domePipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:this.domeBuffer}},
           {binding:1,resource:(textures.get(b.texture)||this.white).createView()},{binding:2,resource:sampler}]})}))};
   }
+  planetRects() {return this.manifest?.world_bounds?schematicRects(this.manifest):FALLBACK_RECTS;}
   drawPlanet(pass,pf,near) {
-    const rects=this.manifest?.world_bounds?schematicRects(this.manifest):FALLBACK_RECTS;
+    const rects=this.planetRects();
     this.device.queue.writeBuffer(this.spaceBuffer,0,spaceUniform(this.view,sunDirection(this.timeOfDay),pf,rects,this.timeOfDay,near,200000));
     pass.setPipeline(this.spacePipeline);pass.setBindGroup(0,this.spaceGroup);pass.draw(3);
   }
@@ -802,8 +803,7 @@ export class WorldRenderer {
       {binding:1,resource:this.depth.createView()},{binding:2,resource:this.cloudNoise},{binding:3,resource:this.cloudNoiseSampler}]});
   }
   drawClouds(pass,time,daylight,near,high) {
-    const cu=cloudUniform(this.view,time,daylight,this.manifest,near,this.gameSky,undefined,this.timeOfDay);
-    cu[19]*=Math.max(.02,this.planet?.cloud??1);
+    const cu=cloudUniform(this.view,time,daylight,this.manifest,near,this.gameSky,undefined,this.timeOfDay,this.planet);
     this.device.queue.writeBuffer(this.cloudBuffer,0,cu);
     const useHigh=high&&this.cloudHighGroup;
     pass.setPipeline(useHigh?this.cloudHigh:this.cloudPipeline);pass.setBindGroup(0,useHigh?this.cloudHighGroup:this.cloudGroup);pass.draw(3);
@@ -975,7 +975,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
     this.lastRenderMs=nowMs;
     const highClouds=resolveCloudQuality(settings.cloudQuality,{highFailed:this.cloudHighFailed,slow:this.cloudSlow});
     if(highClouds&&!this.cloudHigh&&!this.cloudHighFailed)this.enableHighClouds();
-    if(!this.cameraBlocked&&settings.clouds!==false&&pf.cloud>0) {
+    if(!this.cameraBlocked&&settings.clouds!==false) {
       // Clouds read the finished scene depth to clip their ray march, so they never need a depth-test bias.
       const cloudPass=encoder.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}]});
       this.drawClouds(cloudPass,time,daylight,near,highClouds);cloudPass.end();
