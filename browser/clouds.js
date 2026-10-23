@@ -137,14 +137,15 @@ const NF=14;
   var sceneDist=1e9;
   if(d<1.0){sceneDist=c.near.x*c.eye.w/(c.eye.w-d*(c.eye.w-c.near.x))/max(dot(dir,c.look.xyz),.05);}
   // Sheet slab extent.
-  var s0=0.0;var s1=0.0;var ns=0;var sEdge=1.0;
+  var s0=0.0;var s1=0.0;var ns=0;var sEdge=1.0;var capped=false;
   let ya=c.cloud.z-THICK*.5-DOWN;let yb=c.cloud.z+THICK*.5+UP;
-  if(abs(dir.y)>.0005){
-    let ta=(ya-c.eye.y)/dir.y;let tb=(yb-c.eye.y)/dir.y;
-    s0=max(0.0,min(ta,tb));s1=min(max(ta,tb),s0+max(9000.0,.3*s0));
-    if(sceneDist<1e8){sEdge=smoothstep(0.0,350.0,sceneDist-s0);s1=min(s1,sceneDist);}
-    if(s1>s0&&sEdge>0.0){ns=NS;}
-  }
+  // Near-horizontal rays are clamped to a minimum slope so the horizon has no gap; a march cut by the span cap fades out instead of ending hard.
+  let dy=select(select(-.0005,.0005,dir.y>=0.0),dir.y,abs(dir.y)>=.0005);
+  let ta=(ya-c.eye.y)/dy;let tb=(yb-c.eye.y)/dy;
+  s0=max(0.0,min(ta,tb));let sFull=max(ta,tb);let sCap=s0+max(9000.0,.3*s0);s1=min(sFull,sCap);
+  if(sceneDist<1e8){sEdge=smoothstep(0.0,350.0,sceneDist-s0);s1=min(s1,sceneDist);}
+  capped=sFull>sCap&&s1==sCap;
+  if(s1>s0&&sEdge>0.0&&s0<c.cloud.w){ns=NS;}
   // Funnel cylinder-and-height extent.
   var f0=0.0;var f1=1e9;var nf=NF;var fEdge=1.0;
   let o=c.eye.xz-c.cloud.xy;let dxz=dir.xz;
@@ -161,7 +162,7 @@ const NF=14;
   if(sceneDist<1e8){fEdge=smoothstep(0.0,300.0,sceneDist-f0);f1=min(f1,sceneDist);}
   if(f1<=f0||fEdge<=0.0){nf=0;}
   if(ns==0&&nf==0){discard;}
-  let ss=(s1-s0)/f32(NS);let fstep=(f1-f0)/f32(NF);
+  let Ls=s1-s0;let ss=Ls/f32(NS);let fstep=(f1-f0)/f32(NF);
   let sJit=fract(52.9829189*fract(dot(v.clip.xy,vec2f(.06711056,.00583715))));
   let fJit=.3*hash(v.clip.xy);
   let fDist=length(c.eye.xyz-vec3f(c.cloud.x,(BASE+TOP)*.5,c.cloud.y));
@@ -177,7 +178,8 @@ const NF=14;
       let s=sheetDensity(pos,t);
       if(s.x<=.001){continue;}
       let hf=s.z;
-      let w=(1.0-smoothstep(30000.0,c.cloud.w,ts))*.96*sEdge;
+      let tail=select(1.0,1.0-smoothstep(.55,1.0,(ts-s0)/Ls),capped);
+      let w=(1.0-smoothstep(30000.0,c.cloud.w,ts))*.96*sEdge*tail;
       let absorb=(1.0-exp(-s.x*ss*.008))*w;
       ${high?HIGH_TAP:'let shade=1.0;'}
       let lit=mix(.62,1.0,hf)*mix(.75,1.0,s.y)*(.7+.3*trans)*shade;
@@ -200,7 +202,7 @@ const NF=14;
   }
   let alpha=1.0-trans;
   if(alpha<.01){discard;}
-  return vec4f(light/alpha,alpha);
+  return vec4f(min(light/alpha,vec3f(1.0)),alpha);
 }`;
 export const cloudShader=build(false);
 export const cloudShaderHigh=build(true);
