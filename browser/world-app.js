@@ -46,7 +46,7 @@ const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraD
 const settings={...defaults};
 const gib={on:true,speed:100,overheat:true},gibMem={};
 try{gib.on=localStorage.getItem('racer.gib')!=='0';gib.overheat=localStorage.getItem('racer.overheat')!=='0';gib.durable=localStorage.getItem('racer.durability')!=='0';gib.speed=Math.max(20,Math.min(400,Number(localStorage.getItem('racer.gibSpeed'))||100));}catch{}
-try{settings.night=localStorage.getItem('racer.night')==='1';settings.music=localStorage.getItem('racer.music')!=='0';settings.animateNpcs=localStorage.getItem('racer.animateNpcs')!=='0';}catch{}
+try{settings.night=localStorage.getItem('racer.night')==='1';settings.music=localStorage.getItem('racer.music')!=='0';settings.animateNpcs=localStorage.getItem('racer.animateNpcs')!=='0';const mv=localStorage.getItem('racer.masterVolume');if(mv!==null&&mv!==''&&Number.isFinite(Number(mv)))audio.setVolume(Number(mv)/100);}catch{}
 const loading=$('loading-screen');
 const loadingArt=new LoadingArt($('loading-art'),$('loading-bar-art'),loading);
 loading.addEventListener('cancel',event=>event.preventDefault());
@@ -138,7 +138,7 @@ function syncSettings() {
 function syncSound() {
   const paused=audio.context?.state!=='running' || !audio.enabled;
   evidence.audio={wanted:settings.sound,enabled:audio.enabled,state:audio.context?.state || 'off',voices:audio.voices.length,
-    active:audio.active&&!paused,masterGain:audio.master?.gain.value || 0,error:soundError};
+    active:audio.active&&!paused,masterGain:audio.master?.gain.value || 0,outGain:audio.out?.gain.value ?? -1,masterVolume:audio.volume,error:soundError};
   $('sound').checked=settings.sound;
   $('resume-sound').hidden=!settings.sound || !paused;
   $('sound-status').textContent=!settings.sound?'':soundError || (paused?'':flight?'Paused in flight':!audio.active?'Paused':'');
@@ -331,6 +331,7 @@ function syncHud(){hudOn=$('swe1r-hud-on').checked;}
 $('swe1r-hud-on').addEventListener('change',syncHud);
 $('swe1r-sfx').addEventListener('change',()=>{audio.sampleOn=$('swe1r-sfx').checked;});
 $('music-on').addEventListener('change',()=>{settings.music=$('music-on').checked;music.setEnabled(settings.music);try{localStorage.setItem('racer.music',settings.music?'1':'0');}catch{}});
+$('master-volume').value=String(Math.round(audio.volume*100));$('master-volume').addEventListener('input',()=>{audio.setVolume(Number($('master-volume').value)/100);try{localStorage.setItem('racer.masterVolume',$('master-volume').value);}catch{}});
 $('music-volume').addEventListener('input',()=>music.setVolume(Number($('music-volume').value)/100));
 $('gib').addEventListener('change',()=>{gib.on=$('gib').checked;syncDurability();try{localStorage.setItem('racer.gib',gib.on?'1':'0');}catch{}});
 $('gib-speed').addEventListener('input',()=>{gib.speed=Number($('gib-speed').value);syncDurability();$('gib-speed-label').textContent=gib.speed;try{localStorage.setItem('racer.gibSpeed',String(gib.speed));}catch{}});

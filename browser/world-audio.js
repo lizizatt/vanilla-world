@@ -62,8 +62,11 @@ export class EngineEnvelope {
     return this.layers;
   }
 }
+/** Perceptual master curve: slider 0..1 -> amplitude v^2 (50% = 0.25, about -12 dB). */
+export const masterGain=v=>unit(v)**2;
 export class WorldAudio {
-  constructor(){this.envelope=new EngineEnvelope();this.enabled=false;this.voices=[];this.active=false;this.activation=0;}
+  constructor(){this.volume=.5;this.envelope=new EngineEnvelope();this.enabled=false;this.voices=[];this.active=false;this.activation=0;}
+  setVolume(v) {this.volume=unit(v);if(this.out)this.out.gain.setTargetAtTime(masterGain(this.volume),this.context.currentTime,.03);}
   async enable() {
     if(this.enabled && this.context?.state==='running')return;
     const activation=++this.activation;
@@ -73,7 +76,7 @@ export class WorldAudio {
       this.voices=[];
       this.context=new AudioContext();
       this.master=this.context.createGain();this.master.gain.value=0;
-      this.analyser=this.context.createAnalyser();this.master.connect(this.analyser);this.analyser.connect(this.context.destination);
+      this.analyser=this.context.createAnalyser();this.master.connect(this.analyser);this.out=this.context.createGain();this.out.gain.value=masterGain(this.volume);this.context.masterOut=this.out;this.analyser.connect(this.out);this.out.connect(this.context.destination);
       for(let layer=0;layer<3;layer++) {
         const buffer=this.context.createBuffer(2,48000,24000);
         fillEngineBuffer(buffer,layer);

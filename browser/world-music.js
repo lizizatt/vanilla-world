@@ -15,7 +15,7 @@ export class MusicPlayer {
   }
   output(ctx) {
     if(!this.master||this.master.context!==ctx){
-      this.master=ctx.createGain();this.master.gain.value=this.volume;this.master.connect(ctx.destination);
+      this.master=ctx.createGain();this.master.gain.value=this.volume;this.master.connect(ctx.masterOut||ctx.destination);
     }
     return this.master;
   }
@@ -67,7 +67,7 @@ export class MusicPlayer {
     const ctx=this.context(),buffer=this.cues.get(name);
     if(!this.enabled||!ctx||ctx.state!=='running'||!buffer)return false;
     const source=ctx.createBufferSource(),gain=ctx.createGain();
-    source.buffer=buffer;gain.gain.value=volume*this.volume;source.connect(gain);gain.connect(ctx.destination);source.start();
+    source.buffer=buffer;gain.gain.value=volume*this.volume;source.connect(gain);gain.connect(ctx.masterOut||ctx.destination);source.start();
     source.onended=()=>{source.disconnect();gain.disconnect();};
     return true;
   }
