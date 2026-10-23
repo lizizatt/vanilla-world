@@ -64,3 +64,12 @@ Steamwheedle (-900.2, 5664.8), Track To Sea (-787.4, 5722.9), IF Airport Track (
 | flag | PVP\BattlefieldBanners\PvPNeutralBannerFlag | label cloth |
 
 Cost: one extra batch per texture; no gameplay wiring.
+
+## Gameplay wiring (race-gates.js)
+
+Scene per frame from the race state (`gateScene`), drawn as craft-space props with the 3.5 yd ground fade:
+- `A:start` gantry 14 yd ahead of the start while the race is lineup/countdown/running; lights follow the countdown (3 red, 2-1 amber, GO green). Last gate = `A:finish` gantry with chequered band. Replaces race-flags.js gates.
+- `C:next` amber checkpoint at the next gate, `C:passed` dim at the previous one; later gates hidden. Trigger planes unchanged; props never collide.
+- `L:<track>` flagpole + banner + 700 yd beacon at every track start in free-roam; hidden for the actively raced track (the gantry marks it). The map (M) shows a flag pin per start (informational).
+- WoW textures/models and SWE1R part 309 load from local data (`loadGateKit`); any failure gives the flat procedural hosted look.
+- Not done: fog-immune/min-width beacon (additive columns still fog; they thin to hairlines beyond ~800 yd), beacon pulse is static. On-demand captures: `node browser/race-gates-shots.mjs`.

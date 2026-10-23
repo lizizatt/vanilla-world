@@ -1,4 +1,4 @@
-// PREVIEW ONLY (not used by gameplay): builds the start gantry (A), checkpoint gate (C) and overworld flag-beacon as prop lists
+// Builds the start gantry (A), checkpoint gate (C) and overworld flag-beacon as prop lists
 // for worldTest.props(). Frame: +x along the road (heading), +y left, +z up, yards. `real` carries preloaded local-asset models
 // ({pole,banner,bannerBig,brazier,lens}: {asset,textures,k}); without it the same shapes are procedural boxes (hosted fallback).
 const WHITE={key:'white',width:1,height:1,rgba:new Uint8Array([255,255,255,255])};
@@ -103,7 +103,7 @@ export function gantry({ at, yaw, width = 30, phase = 3, real }) {
   out.push(faded(mk(m, at, yaw)));
   if (real) {
     for (const s of [-1, 1]) out.push(faded(model(at, yaw, [0, s * h, 0], real.pole, 1.7)));
-    for (let i = 0; i < 3; i++) out.push(model(at, yaw, [-1.3, -2.8 + i * 2.8, 12.4], real.lens, 1, { asset: tint(real.lens.asset, i + 1 === phase ? lamp[i] : [.15, .15, .15, 1]) }));
+    for (let i = 0; i < 3 && real.lens; i++) out.push(model(at, yaw, [-1.3, -2.8 + i * 2.8, 12.4], real.lens, 1, { asset: tint(real.lens.asset, i + 1 === phase ? lamp[i] : [.15, .15, .15, 1]) }));
     for (const s of [-1, 1]) out.push(model(at, yaw, [-1, s * h * .55, 15 - 6.19 * 1.4], real.banner, 1.4));
   }
   return out;
@@ -115,7 +115,7 @@ export function checkpoint({ at, yaw, width = 24, state = 'next', pulse = 1, rea
   const out = [];
   if (!real) for (const s of [-1, 1]) { m.box('opaque', [-.4, s * h - .4, 0], [.8, .8, 10], COL.pole); m.box('add', [-1.1, s * h - 1.1, 10], [2.2, 2.2, 2.2], [...c.slice(0, 3), 1]); }
   const beams = new Mesh();
-  for (const s of [-1, 1]) { const g = new Mesh().column('add', hot ? .7 : .4, 10.5, 140, [...c.slice(0, 3), a], [...c.slice(0, 3), 0], 6); for (const q of g.g['add|']) beams.quad('add', q.p.map(([x, y, z]) => [x, y + s * h, z]), q.c); }
+  for (const s of [-1, 1]) { const g = new Mesh().column('add', hot ? 1.6 : .8, 10.5, 140, [...c.slice(0, 3), a], [...c.slice(0, 3), 0], 6); for (const q of g.g['add|']) beams.quad('add', q.p.map(([x, y, z]) => [x, y + s * h, z]), q.c); }
   const beamTex = new Mesh(real?.tex);
   beamTex.quad('add', [[0, -h, 0], [0, h, 0], [0, h, 9], [0, -h, 9]], [[...c.slice(0, 3), .02], [...c.slice(0, 3), .02], [...c.slice(0, 3), .22 * (hot ? pulse : .5)], [...c.slice(0, 3), .22 * (hot ? pulse : .5)]], 'zap');
   if (real) for (const s of [-1, 1]) m.box('opaque', [-1, s * h - 1, 0], [2, 2, 1.3], COL.white, 'metal');

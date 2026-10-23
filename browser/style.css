@@ -78,6 +78,7 @@ dialog::backdrop { background: transparent; }
 #map-status { position: absolute; bottom: 8px; left: 8px; margin: 0; padding: 2px 8px; }
 .map-icon { position: absolute; transform: translate(-50%, -50%); min-width: 28px; height: 28px; padding: 0 8px; border-radius: 14px; border: 2px solid #ffd36b; background: rgba(120,20,20,.9); color: #fff; font-size: 12px; white-space: nowrap; cursor: pointer; pointer-events: auto; }
 .map-icon:focus-visible { outline: 3px solid #fff; }
+.map-track { position: absolute; transform: translate(-50%, -100%); color: #ffb62e; font-size: 20px; line-height: 1; text-shadow: 0 0 4px #000, 0 0 8px #f90; pointer-events: none; }
 #map-you { position: absolute; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 22px solid #4df; transform-origin: 50% 70%; pointer-events: none; }
 dialog h2 { color: #ffb34d; margin-top: 0; }
 #tuning-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 20px; }
