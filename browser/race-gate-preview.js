@@ -132,9 +132,11 @@ export function beacon({ at, yaw, pulse = 1, height = 700, real }) {
   const m = new Mesh(real?.tex);
   if (real) { m.box('opaque', [-3, -3, 0], [6, 6, 1.6], COL.white, 'stone'); m.box('alpha', [-.2, .3, 20], [.3, 9, 9], [1, 1, 1, 1], 'flag'); }
   if (!real) { m.box('opaque', [-.5, -.5, 0], [1, 1, 30], COL.pole); m.box('opaque', [-.2, .5, 24], [.4, 6, 4.5], COL.red); m.box('opaque', [-.2, .5, 28.5], [.4, 6, 1], COL.white); }
-  m.column('add', 1.6, 30, height, [1, .75, .25, .6 * pulse], [1, .75, .25, 0], 8);
-  m.column('add', 5, 30, height * .6, [1, .6, .2, .12 * pulse], [1, .6, .2, 0], 8);
-  const out = [mk(m, at, yaw)];
+  // The sky beam is its own prop (marker) so the renderer can widen it with altitude, scaling about the ground.
+  const col = new Mesh();
+  col.column('add', 1.6, 0, height, [1, .75, .25, .6 * pulse], [1, .75, .25, 0], 8);
+  col.column('add', 5, 0, height * .6, [1, .6, .2, .12 * pulse], [1, .6, .2, 0], 8);
+  const out = [mk(m, at, yaw), { ...mk(col, at, yaw), marker: true }];
   if (real) {
     out.push(model(at, yaw, [0, 0, 0], real.pole, 3));
     out.push(model(at, yaw, [.8, 0, 29 - 5.58 * 2.4], real.bannerBig, 2.4));
