@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {CLOUD_ALTITUDE,CLOUD_ALTITUDE_FACTOR,HYJAL_SUMMIT,MAELSTROM,FUNNEL,cloudShader,cloudUniform,funnelShader,maelstromCentre} from './clouds.js';
+import {CLOUD_ALTITUDE,CLOUD_ALTITUDE_FACTOR,HYJAL_SUMMIT,MAELSTROM,FUNNEL,cloudShader,cloudUniform,funnelShader,maelstromCentre,sunDirection} from './clouds.js';
 
 const manifest={ocean:[5333,-17600,13525,17066],world_bounds:[[0,0,51,56],[24,20,45,62]],
   regions:[{placement:[-21866,-17600]},{placement:[725,-16000]}]};
@@ -36,4 +36,13 @@ test('funnel rises far above the sheet, tapers wider upward and shares the cloud
 
 test('sheet and funnel share one ray march ordered by distance',()=>{
   assert.equal(funnelShader,cloudShader);assert.match(cloudShader,/ts<=tf/);assert.match(cloudShader,/sheetDensity[\s\S]*funnelDensity/);
+});
+
+test('sun direction follows the half-minute clock and lighting reaches the cloud uniform',()=>{
+  const noon=sunDirection(1440),dusk=sunDirection(2160),night=sunDirection(0);
+  assert.ok(noon[1]>.9);assert.ok(Math.abs(dusk[1])<1e-6&&dusk[0]<-.9);assert.ok(night[1]<-.9);
+  const view={eye:[0,0,0],right:[1,0,0],up:[0,1,0],look:[0,0,1],aspect:1};
+  const u=cloudUniform(view,0,1,manifest,0,{cloud:[.1,.2,.3],fog:[.4,.5,.6],sun:[.9,.8,.7],cloud2:[.2,.3,.4]},undefined,2160);
+  assert.ok(Math.abs(u[32]-dusk[0])<1e-6);assert.ok(Math.abs(u[36]-.9)<1e-6);assert.ok(Math.abs(u[40]-.2)<1e-6&&u[43]===1);
+  assert.match(cloudShader,/cloud2:vec4f/);assert.match(cloudShader,/fn silver/);
 });
