@@ -172,7 +172,7 @@ fn moon(d:vec3f,az:f32,el:f32,radius:f32,phase:f32,tint:vec3f)->vec4f {
   let x=dot(d,r)/radius;let y=dot(d,u)/radius;let d2=x*x+y*y;
   let disc=select(0.0,1.0,d2<1.0&&dot(d,m)>0.0)*mix(.3,1.0,smoothstep(-.4,.4,x+phase));
   let glow=.25*exp(-d2*.35)*select(0.0,1.0,dot(d,m)>0.0);
-  return vec4f(tint*(disc+glow*.6),(disc+glow)*smoothstep(0.0,.08,m.y)*s.k.y);
+  return vec4f(tint*(disc+glow*.6),(disc+glow)*smoothstep(0.0,.08,m.y)*s.k.y*(1.0-s.k.w));
 }
 @group(0) @binding(0) var<uniform> s:S;
 struct V {@builtin(position) clip:vec4f,@location(0) ndc:vec2f};
@@ -182,7 +182,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) ndc:vec2f};
 }
 @fragment fn fs(v:V)->@location(0) vec4f {
   let d=normalize(s.look.xyz+s.right.xyz*v.ndc.x*.55*s.look.w+s.up.xyz*v.ndc.y*.55);
-  let h=max(d.y,0.0);
+  let h=max((d.y+s.k.z)/(1.0+s.k.z),0.0);
   var c=mix(s.c[4].rgb,s.c[3].rgb,smoothstep(0.0,.12,h));
   c=mix(c,s.c[2].rgb,smoothstep(.12,.3,h));
   c=mix(c,s.c[1].rgb,smoothstep(.3,.6,h));
@@ -195,11 +195,11 @@ struct V {@builtin(position) clip:vec4f,@location(0) ndc:vec2f};
 }`;
 
 /** Per-frame sky uniform: view axes plus top, mid, band1, band2 and horizon colours. */
-export function skyUniform(view,sky,time=DAY) {
+export function skyUniform(view,sky,time=DAY,dip=0,space=0) {
   const out=new Float32Array(36);
   out.set(view.look,0);out[3]=view.aspect;out.set(view.right,4);out.set(view.up,8);
   [sky.top,sky.mid,sky.band1,sky.band2,sky.horizon].forEach((c,i)=>out.set(c,12+i*4));
-  out[32]=nightAngle(time);out[33]=nightAlpha(time);
+  out[32]=nightAngle(time);out[33]=nightAlpha(time);out[34]=dip;out[35]=space;
   return out;
 }
 

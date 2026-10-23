@@ -3,6 +3,9 @@ import {WorldRenderer} from './world-renderer.js';
 import {rememberDataFolder,restoreDataFolder,forgetDataFolder,authorizeDataFolder} from './asset-folder.js';
 import {worldSave,worldTuning,validateWorldSave,LAYOUT_VERSION,raceScores,trackOverride} from './world-store.js';
 import {overview,moveFlight,FLIGHT_PITCH} from './flight.js';
+import {mapIcons} from './worldmap.js';
+import {maelstromCentre} from './clouds.js';
+import {basis,fromEuler,toEuler,stepOrient} from './orient.js';
 import {spaceHud} from './space.js';
 import {WorldInput,DRIVE_KEYS} from './world-input.js';
 import {WorldAudio} from './world-audio.js';
@@ -42,7 +45,7 @@ const evidence={ready:false,frames:0,errors:[],mode:'drive'};
 window.worldEvidence=evidence;
 let choice=bootChoice(),tracks=[],race,raceBest,promptTrack,goUntil=0,boardTimer=0,againTrack,againUntil=0;
 const raceAgain=()=>againTrack&&performance.now()<againUntil?againTrack:undefined;
-let flightSpeed=0,renderer,folder,flight,running=false,busy=false,last=0,frames=0,hudTime=0,hudFrames=0,permissionNeeded=false;
+let landmarkCache,flightSpeed=0,renderer,folder,flight,running=false,busy=false,last=0,frames=0,hudTime=0,hudFrames=0,permissionNeeded=false;
 let orbit=[0,0],dragging=false,mouseButtons=0,soundAttempt=0,soundError='',soundTime=0,reportTimer,testPads,frozenPresentation=false,tuningValues=TUNING_FIELDS.map(f=>f[1]);
 const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:true,cockpit:false,night:false,clouds:true,planet:true,cloudQuality:'auto',music:true,particles:'medium',animateNpcs:true};
 const settings={...defaults};
@@ -53,6 +56,7 @@ const loading=$('loading-screen');
 const loadingArt=new LoadingArt($('loading-art'),$('loading-bar-art'),loading);
 loading.addEventListener('cancel',event=>event.preventDefault());
 loading.addEventListener('close',()=>{if(!loading.open){loadingArt.clear();client.stopLoadingArt();}});
+function landmarks(){const m=client.info?.manifest;return landmarkCache??=m?mapIcons(m,maelstromCentre(m)):[];}
 function loadingProgress({text,completed,total}) {
   if(!loading.open)return;
   $('loading-stage').textContent=text;
@@ -654,9 +658,14 @@ function frame(now) {
     if(right){controls.steer=Math.max(-1,Math.min(1,(renderer.chase?.[0]||0)*4));if(mouseButtons&1)controls.throttle=1;}
     const locked=wreckLocked();if(locked){Object.assign(controls,{throttle:0,steer:0,flags:0});client.pendingHop=0;}else if(wasLocked&&!flight)void respawn();wasLocked=locked;
     if(flight) {
-      const before=flight;flight=moveFlight(flight,keys,dt);flightSpeed=dt>0?Math.hypot(flight[0]-before[0],flight[1]-before[1],flight[2]-before[2])/dt:0;flight[3]-=cameraOrbit[0]*.004;
-      flight[4]=Math.max(-FLIGHT_PITCH,Math.min(FLIGHT_PITCH,flight[4]-cameraOrbit[1]*.004));
-      if(keys.has('KeyX'))flight[4]=-FLIGHT_PITCH;
+      const before=flight,[yaw,pitch]=flight.length>=9?toEuler(flight.slice(5,9),flight[3]):[0,0];
+      // A pose without a matching quaternion (fresh, loaded, or moved by a test hook) is rebuilt from its yaw/pitch.
+      let q=flight.length>=9&&Math.abs(Math.sin(yaw-flight[3]))<1e-6&&Math.abs(pitch-flight[4])<1e-6?flight.slice(5,9):fromEuler(flight[3],flight[4]);
+      const dk=k=>Number(keys.has(k));
+      q=keys.has('KeyX')?fromEuler(toEuler(q,flight[3])[0],-FLIGHT_PITCH):stepOrient(q,{yaw:(dk('ArrowLeft')-dk('ArrowRight'))*dt-cameraOrbit[0]*.004,pitch:(dk('ArrowUp')-dk('ArrowDown'))*dt-cameraOrbit[1]*.004},flight[1],dt);
+      const aim=basis(q),[ny,np]=toEuler(q,flight[3]);
+      flight=moveFlight(flight,keys,dt,aim);flightSpeed=dt>0?Math.hypot(flight[0]-before[0],flight[1]-before[1],flight[2]-before[2])/dt:0;
+      flight[3]=ny;flight[4]=np;flight.length=5;flight.push(...q);
     }
     if(race){flight=undefined;if(!raceMenu.open)raceFrame(controls,now/1000);}
     if(editor.isOpen)flight=editor.pose();
@@ -701,7 +710,7 @@ function frame(now) {
       $('camera-status').textContent=flight?'Flight camera is collision-free':settings.cockpit
         ?cameraWarning||(renderer.cameraMode==='cockpit'?'Cockpit / exact posed seat':'Cockpit waiting for craft'):!cameraCollision.ready?'Chase clearance waiting for geometry'
         :cameraCollision.coverageLimited?'Chase distance limited to its collision window':'Vehicle-relative chase collision ready';
-      $('space-hud').hidden=!flight||flight[1]<150;if(flight&&flight[1]>=150)$('space-hud').textContent=spaceHud(flight,flightSpeed,renderer.planetRects?.());
+      $('space-hud').hidden=!flight||flight[1]<150;if(flight&&flight[1]>=150)$('space-hud').textContent=spaceHud(flight,flightSpeed,renderer.planetRects?.(),landmarks());
       $('place').textContent=flight?'FREE FLIGHT':p[10]===-1?'THE GREAT SEA':p[10]===1?'EASTERN KINGDOMS':'KALIMDOR';
       $('coordinates').textContent=`${(flight?.[0]??p[0]).toFixed(0)} E / ${(flight?.[2]??p[2]).toFixed(0)} S`;
       $('resident').textContent=`${s.resident.length}/${s.limit} terrain tiles · ${stats.horizonTiles} distant patches · ${stats.sceneInstances||0} scene instances`;

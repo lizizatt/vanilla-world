@@ -12,7 +12,7 @@ import {ParticlePool,exhaustPoints,emitPlumes,emitBurst,emitDebris,emitHeatSmoke
 import {flagMesh,gateMesh} from './race-flags.js';
 import {beamState} from './beam.js';
 import {schematicRects} from './worldmap.js';
-import {planetFactors,spaceUniform,spaceShader,bendShader,FALLBACK_RECTS} from './space.js';
+import {planetFactors,horizonDip,spaceUniform,spaceShader,bendShader,FALLBACK_RECTS} from './space.js';
 import {SkyCatalog,mapPosition,skyShader,skyDomeShader,skyUniform,advanceTime,nightAlpha,nightAngle,DAY} from './sky.js';
 import {ACTOR,actorPhase,poseKey} from './actors.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
@@ -960,7 +960,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
       depthStencilAttachment:{view:this.depth.createView(),depthClearValue:1,depthLoadOp:'clear',depthStoreOp:'store'},
     });
     if(!this.cameraBlocked){
-      if(game){this.device.queue.writeBuffer(this.skyBuffer,0,skyUniform(this.view,game,this.timeOfDay));pass.setPipeline(this.skyPipeline);pass.setBindGroup(0,this.skyGroup);pass.draw(3);this.drawSkyDome(pass);}
+      if(game){this.device.queue.writeBuffer(this.skyBuffer,0,skyUniform(this.view,game,this.timeOfDay,horizonDip(this.view.eye[1],pf.bend),pf.space));pass.setPipeline(this.skyPipeline);pass.setBindGroup(0,this.skyGroup);pass.draw(3);this.drawSkyDome(pass);}
       if(pf.globe>0)this.drawPlanet(pass,pf,near);
       this.drawTerrain(pass,terrain);this.drawScene(pass,draws);
     }

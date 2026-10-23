@@ -20,15 +20,17 @@ export const FLIGHT_CEILING=1000000,FLIGHT_PITCH=Math.PI/2;
 export function flightBoost(altitude) {
   const t=Math.min(1,Math.max(0,Math.log(Math.max(altitude,1)/1000)/Math.log(1000)));
   return 40**(t*t*(3-2*t));
-}export function moveFlight(pose,keys,dt) {
+}/** With `aim` ({look,right} from the quaternion camera) the caller owns turning and the direction vectors come from it. */
+export function moveFlight(pose,keys,dt,aim) {
   const p=pose.slice(),down=k=>Number(keys.has(k));
-  p[3]+=(down('ArrowLeft')-down('ArrowRight'))*dt;
-  p[4]=Math.max(-FLIGHT_PITCH,Math.min(FLIGHT_PITCH,p[4]+(down('ArrowUp')-down('ArrowDown'))*dt));
+  if(!aim){p[3]+=(down('ArrowLeft')-down('ArrowRight'))*dt;
+    p[4]=Math.max(-FLIGHT_PITCH,Math.min(FLIGHT_PITCH,p[4]+(down('ArrowUp')-down('ArrowDown'))*dt));}
+  const look=aim?.look??[-Math.sin(p[3])*Math.cos(p[4]),Math.sin(p[4]),-Math.cos(p[3])*Math.cos(p[4])],right=aim?.right??[Math.cos(p[3]),0,-Math.sin(p[3])];
   const speed=(keys.has('ShiftLeft') || keys.has('ShiftRight') ? 8000 : 1200)*dt,boost=flightBoost(p[1]),horizontal=speed*Math.sqrt(boost),vertical=speed*boost;
   const f=down('KeyW')-down('KeyS'),s=down('KeyD')-down('KeyA');
-  p[0]+=(-Math.sin(p[3])*Math.cos(p[4])*f+Math.cos(p[3])*s)*horizontal;
-  p[2]+=(-Math.cos(p[3])*Math.cos(p[4])*f-Math.sin(p[3])*s)*horizontal;
-  p[1]=Math.max(-10000,Math.min(FLIGHT_CEILING,p[1]+(Math.sin(p[4])*f+down('KeyE')-down('KeyQ'))*vertical));
+  p[0]+=(look[0]*f+right[0]*s)*horizontal;
+  p[2]+=(look[2]*f+right[2]*s)*horizontal;
+  p[1]=Math.max(-10000,Math.min(FLIGHT_CEILING,p[1]+(look[1]*f+down('KeyE')-down('KeyQ'))*vertical));
   [p[0],p[2]]=wrapFlat(p[0],p[2]);
   return p;
 }

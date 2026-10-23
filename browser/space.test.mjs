@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PLANET_RADIUS, CONTINENT_YD, CONTINENT_DEG, MOONS, planetFactors, planetFrame, moonPlanetPosition, subPoint, globeToFlat, wrapFlat, placeName, spaceHud, WORLD_CENTRE, FALLBACK_RECTS } from './space.js';
+import { nearestLandmark, PLANET_RADIUS, CONTINENT_YD, CONTINENT_DEG, MOONS, planetFactors, planetFrame, moonPlanetPosition, subPoint, globeToFlat, wrapFlat, placeName, spaceHud, WORLD_CENTRE, FALLBACK_RECTS } from './space.js';
 import { FLIGHT_CEILING, flightBoost, moveFlight } from './flight.js';
 
 test('radius makes one continent span 40 degrees', () => {
@@ -101,4 +101,12 @@ test('place name and HUD text', () => {
   assert.equal(placeName(20000, 0), 'EASTERN KINGDOMS');
   assert.equal(placeName(9000, 0), 'THE GREAT SEA');
   assert.match(spaceHud([-810, 12345, 5589, 0, 0], 800, FALLBACK_RECTS), /KALIMDOR .* ALT 12\.3k yd .* 800 yd\/s/);
+});
+test('nearest landmark names the closest icon and wraps around the planet', () => {
+  const icons = [{ label: 'A', position: [0, 0] }, { label: 'B', position: [5000, 0] }];
+  assert.equal(nearestLandmark(4000, 0, icons).label, 'B');
+  const turn = 2 * Math.PI * PLANET_RADIUS, wrapped = nearestLandmark(turn - 100, 0, icons);
+  assert.deepEqual([wrapped.label, Math.round(wrapped.distance)], ['A', 100]);
+  assert.equal(nearestLandmark(0, 0, []), undefined);
+  assert.match(spaceHud([0, 3000, 0, 0, 0], 100, undefined, icons), /from A/);
 });

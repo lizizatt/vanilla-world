@@ -23,6 +23,10 @@ export function planetFactors(altitude,enabled=true) {
 }
 
 /** Local-to-planet frame at a render position: columns east, up, south (render x east, y up, z south). */
+/** Sine of the angle the true horizon sits below level at an altitude, faded in with the terrain bend, so the sky gradient meets the limb instead of a flat horizon. */
+export function horizonDip(altitude,bend=1,radius=PLANET_RADIUS) {
+  const k=radius/(radius+Math.max(0,altitude));return Math.sqrt(1-k*k)*bend;
+}
 export function planetFrame(x,z,centre=WORLD_CENTRE,radius=PLANET_RADIUS) {
   const lon=(x-centre[0])/radius,lat=Math.max(-1.4,Math.min(1.4,-(z-centre[1])/radius));
   const [sl,cl,sp,cp]=[Math.sin(lon),Math.cos(lon),Math.sin(lat),Math.cos(lat)];
@@ -47,10 +51,18 @@ export function placeName(x,z,rects=FALLBACK_RECTS) {
   const inside=r=>x>=r[0]&&x<=r[2]&&z>=r[1]&&z<=r[3];
   return inside(rects[0])?'KALIMDOR':rects[1]&&inside(rects[1])?'EASTERN KINGDOMS':'THE GREAT SEA';
 }
-export function spaceHud(pose,speed,rects) {
-  const {lat,lon}=subPoint(pose[0],pose[2]),d=r=>(Math.abs(r*180/Math.PI)).toFixed(1);
+/** Nearest map landmark (icons have a label and a flat `position`), by great-circle arc scaled back to yards, or undefined without any. */
+export function nearestLandmark(x,z,icons=[]) {
+  let best;
+  for(const i of icons){const d=Math.hypot(...wrapDelta(i.position[0]-x,i.position[1]-z));if(!best||d<best.distance)best={label:i.label,distance:d};}
+  return best;
+}
+const wrapDelta=(dx,dz)=>{const turn=2*Math.PI*PLANET_RADIUS;return [((dx+turn/2)%turn+turn)%turn-turn/2,dz];};
+export function spaceHud(pose,speed,rects,icons) {
+  const {lat,lon}=subPoint(pose[0],pose[2]),d=r=>(Math.abs(r*180/Math.PI)).toFixed(1),near=nearestLandmark(pose[0],pose[2],icons),
+    nearText=near?` · ${near.distance>=1000?(near.distance/1000).toFixed(1)+"k":near.distance.toFixed(0)} yd from ${near.label}`:"";
   const alt=Math.max(0,pose[1]),altText=alt>=10000?`${(alt/1000).toFixed(1)}k`:alt.toFixed(0);
-  return `${placeName(pose[0],pose[2],rects)} · ${d(lat)}°${lat>=0?'N':'S'} ${d(lon)}°${lon>=0?'E':'W'} · ALT ${altText} yd · ${speed>=10000?(speed/1000).toFixed(1)+'k':speed.toFixed(0)} yd/s`;
+  return `${placeName(pose[0],pose[2],rects)}${nearText} · ${d(lat)}°${lat>=0?'N':'S'} ${d(lon)}°${lon>=0?'E':'W'} · ALT ${altText} yd · ${speed>=10000?(speed/1000).toFixed(1)+'k':speed.toFixed(0)} yd/s`;
 }
 
 /** Moon position in the planet frame (static planet, slow rails: whole turns per day clock so the wrap never pops). */
@@ -145,19 +157,19 @@ struct FO {@location(0) color:vec4f,@builtin(frag_depth) depth:f32};
       for(var r=0;r<i32(s.s.w);r++){
         let q=s.rect[r];sdist=max(sdist,min(min(m.x-q.x,q.z-m.x),min(m.y-q.y,q.w-m.y)));
       }
-      let land=smoothstep(-600.0,600.0,sdist-2200.0+(fbm(m*.00035)-.5)*9000.0);
-      let tex=fbm(m*.002);
+      // Noise is sampled on the unit sphere (x,z circle plus y offset), so it has no seam at the antimeridian.
+      let sp=pv.xz*15.0+vec2f(pv.y*5.7,pv.y*3.1);
+      let edge=sdist-2200.0+(fbm(sp)-.5)*9000.0;
+      let land=smoothstep(-600.0,600.0,edge);
+      let tex=fbm(pv.xz*85.0+vec2f(pv.y*31.0,pv.y*17.0));
       let ground=mix(vec3f(.2,.38,.14),vec3f(.5,.42,.26),smoothstep(.35,.7,tex));
-      let sea=mix(vec3f(.02,.1,.22),vec3f(.06,.3,.42),smoothstep(-6000.0,2000.0,sdist));
+      let sea=mix(vec3f(.02,.1,.22),vec3f(.06,.3,.42),smoothstep(-6000.0,2000.0,edge));
       var col=mix(sea,ground,land);
       let cloud=0.0;
       let lit=clamp(dot(n,sun)*1.6+.15,0.0,1.0);
       let spec=pow(max(dot(reflect(-sun,n),-d),0.0),40.0)*(1.0-land)*(1.0-cloud);
       let rim=pow(1.0-max(dot(n,-d),0.0),3.0);
       col=col*(.03+lit)+vec3f(.5,.6,.7)*spec*lit+vec3f(.25,.5,1.0)*rim*(.15+lit)*.8;
-      let phi=acos(clamp(n.y,-1.0,1.0));let rho=.05*alt/(R+alt);
-      let ring=(1.0-smoothstep(0.0,rho*.3,abs(phi-rho)))+(1.0-smoothstep(0.0,rho*.22,phi));
-      col=mix(col,vec3f(1.0,.75,.2),clamp(ring,0.0,1.0)*.9);
       acc=over(acc,col,globe);
       let dz=dot(d,s.look.xyz);
       let dt=sphereT(o,d,centre,R-40.0);
