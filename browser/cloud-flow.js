@@ -15,7 +15,7 @@ export const FLOW={
   // Cloud coverage offsets by latitude band (ITCZ boost, subtropical clearing, storm-track boost, thin polar cloud).
   bands:{itcz:.16,itczWidth:.12,clear:.22,clearAt:.49,clearWidth:.11,track:.14,trackAt:.87,trackWidth:.14,polar:.12,polarFrom:[1.2,1.45]},
   // Two-phase flow-map warp: cycle length (s) and the blend window of the triangle wave (pure single phase outside it).
-  period:90,blend:[.35,.65],
+  period:90,blend:[.4,.6],
   // Pinned Maelstrom vortex: Rankine core (yd) and far-field decay, peak tangential speed, and inflow angle off tangential.
   vortex:{core:5200,decay:14000,speed:50,inflow:.35},
 };
@@ -41,6 +41,22 @@ export function flowPhase(t) {
 
 /** Wind (east, north) at a point: belt winds. */
 export const wind=(lat,lon)=>beltWind(lat);
+
+
+/** Tangential speed of the pinned Rankine-style Maelstrom vortex at flat distance r (yd): solid-body inside the core, decaying outside. */
+export const vortexSpeed=r=>{const V=FLOW.vortex;return V.speed*(r<V.core?r/V.core:(V.core/r)*Math.exp(-(r-V.core)/V.decay));};
+/** Vortex wind (east, north) at offset (dx, dz) from the centre (flat render axes, north = -z): counter-clockwise on the map, spiralling inward. */
+export function vortex(dx,dz) {
+  const r=Math.hypot(dx,dz);if(r<1e-6)return [0,0];
+  const e=dx/r,n=-dz/r,v=vortexSpeed(r),ci=Math.cos(FLOW.vortex.inflow),si=Math.sin(FLOW.vortex.inflow);
+  return [v*(-ci*n-si*e),v*(ci*e-si*n)];
+}
+/** Offset of the noise sample point (flat east, north yards) for a flow-map phase of age tau: the belt wind advects linearly, the vortex turns the sample about the centre. */
+export function flowShift(lat,dx,dz,tau) {
+  const r=Math.hypot(dx,dz),turn=tau*vortexSpeed(r)*Math.cos(FLOW.vortex.inflow)/Math.max(r,1),cs=Math.cos(turn),sn=Math.sin(turn);
+  const [u,v]=beltWind(lat);
+  return [dx*cs-dz*sn-dx-u*tau,-(dx*sn+dz*cs-dz)-v*tau];
+}
 
 /** Sphere-safe noise: the flat render (x, z) is the equirect position (lon = (x-cx)/R, lat = (cz-z)/R); noise is sampled at the 3D point on
  * the planet, so it is isotropic at every latitude (lon/lat noise pinched into streaks toward the poles and tore at the antimeridian).
@@ -88,5 +104,17 @@ fn g2(x:f32)->f32 {return exp(-x*x);}
 fn bandCoverage(lat:f32)->f32 {
   let a=abs(lat);
   return ${f(B.itcz)}*g2(lat/${f(B.itczWidth)})-${f(B.clear)}*g2((a-${f(B.clearAt)})/${f(B.clearWidth)})+${f(B.track)}*g2((a-${f(B.trackAt)})/${f(B.trackWidth)})-${f(B.polar)}*smoothstep(${f(B.polarFrom[0])},${f(B.polarFrom[1])},a);
-}`;
+  }
+  fn vortexSpeed(r:f32)->f32 {return ${f(FLOW.vortex.speed)}*select((${f(FLOW.vortex.core)}/max(r,1.0))*exp(-(r-${f(FLOW.vortex.core)})/${f(FLOW.vortex.decay)}),r/${f(FLOW.vortex.core)},r<${f(FLOW.vortex.core)});}
+  // Flow-map shift of the noise sample (east, north yd) for a phase of age tau: belt wind advects, the vortex turns the sample about the centre.
+  fn flowShift(lat:f32,d:vec2f,tau:f32)->vec2f {
+    let r=length(d);let turn=tau*vortexSpeed(r)*${f(Math.cos(FLOW.vortex.inflow))}/max(r,1.0);let cs=cos(turn);let sn=sin(turn);
+    let bw=beltWind(lat);
+    return vec2f(d.x*cs-d.y*sn-d.x-bw.x*tau,-(d.x*sn+d.y*cs-d.y)-bw.y*tau);
+  }
+  // (tauA, tauB, weight of phase A): two phases half a cycle apart, crossfaded where the triangle wave nears a phase reset.
+  fn flowPhase(t:f32)->vec3f {
+    let g=${f(FLOW.period)};let fr=fract(t/g);let tri=1.0-abs(2.0*fr-1.0);
+    return vec3f(fr*g,fract(fr+.5)*g,smoothstep(${f(FLOW.blend[0])},${f(FLOW.blend[1])},tri));
+  }`;
 }

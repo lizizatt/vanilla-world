@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {FLOW,beltWind,bandCoverage,flowPhase,wind,flowWGSL} from './cloud-flow.js';
+import {FLOW,beltWind,bandCoverage,flowPhase,wind,flowWGSL,vortex,vortexSpeed,flowShift} from './cloud-flow.js';
 const rng=s=>()=>(s=(s*1664525+1013904223)>>>0)/4294967296;
 const deg=Math.PI/180,N=3000;
 
@@ -79,4 +79,27 @@ test('pole isotropy: noise gradients along east and north stay balanced at every
 
 test('shaders sample noise on the sphere',()=>{
   for(const s of [cloudShader,cloudShaderHigh])assert.ok(s.includes('sphereAt(pos.xz)')&&s.includes('fn vnoise3')&&s.includes('fn beltWind'));
+});
+
+test('vortex: pinned, counter-clockwise on the map, spirals inward, peaks at the core and decays to nothing',()=>{
+  assert.deepEqual(vortex(0,0),[0,0]);
+  const V=FLOW.vortex,r=rng(31);
+  for(let i=0;i<2000;i++) {
+    const a=r()*2*Math.PI,rad=200+r()*60000,dx=rad*Math.cos(a),dz=-rad*Math.sin(a),[we,wn]=vortex(dx,dz);
+    const e=dx/rad,n=-dz/rad;
+    assert.ok(we*-n+wn*e>0,'counter-clockwise (north is -z)');
+    assert.ok(we*e+wn*n<0,'inward');
+    assert.ok(Math.hypot(we,wn)<=V.speed+1e-9);
+  }
+  assert.ok(vortexSpeed(V.core)>=vortexSpeed(V.core*.5)&&vortexSpeed(V.core)>vortexSpeed(V.core*3));
+  for(let k=1;k<30;k++)assert.ok(vortexSpeed(V.core*(1+k*.1))>vortexSpeed(V.core*(1+(k+1)*.1)),'monotonic outside the wall');
+  assert.ok(vortexSpeed(200000)<.01);
+});
+
+test('flowShift: zero age is the identity; the sample trails the wind; the vortex turns it about the centre',()=>{
+  assert.deepEqual(flowShift(.4,3000,-2000,0).map(Math.abs),[0,0]);
+  const [s0,s1]=flowShift(0,1e6,1e6,60),[u,v]=beltWind(0);
+  assert.ok(Math.abs(s0+u*60)<1,'east trails the belt wind far from the vortex');
+  const [a,b]=flowShift(0,4000,0,30);
+  assert.ok(Math.abs(Math.hypot(4000+a,b)-4000)<5,'rotation preserves distance from the centre (equator: no belt wind)');
 });
