@@ -9,7 +9,7 @@ import {shadowShader,shadowUniform,shadowHalf} from './shadow.js';
 import {cloudShader,cloudShaderHigh,cloudUniform,maelstromCentre,sunDirection,bakeCloudNoise,CLOUD_NOISE_SIZE,resolveCloudQuality,SlowFrameGuard} from './clouds.js';
 import {oceanMesh} from './ocean-mesh.js';
 import {ParticlePool,exhaustPoints,emitPlumes,emitBurst,emitDebris,emitHeatSmoke,emitGroundDust,QUALITY,INSTANCE_FLOATS,CAPACITY,particleShader,particleUniform} from './particles.js';
-import {flagMesh,gateMesh,beaconScale} from './race-flags.js';
+import {flagMesh,gateMesh} from './race-flags.js';
 import {beamState} from './beam.js';
 import {schematicRects} from './worldmap.js';
 import {planetFactors,horizonDip,spaceUniform,spaceShader,bendShader,FALLBACK_RECTS} from './space.js';
@@ -395,23 +395,14 @@ export class WorldRenderer {
         {binding:3,resource:this.waterNormals.createView()},{binding:4,resource:this.waveSampler}]})};
   }
   setFlags(positions) {
-    this.flagList=positions;
     for(const item of this.flags)this.release(item);
-    this.flags=positions.map(p=>this.drawable(flagMesh(p[1],this.markerScale),[p[0],p[2]]));
+    this.flags=positions.map(p=>this.drawable(flagMesh(p[1]),[p[0],p[2]]));
     this.terrainView=undefined;
   }
   setGates(items) {
-    this.gateList=items;
     for(const item of this.gates)this.release(item);
-    this.gates=items.map(({gate,next,finish})=>this.drawable(gateMesh(gate,gate.pos[1],next,finish,this.markerScale),[gate.pos[0],gate.pos[2]]));
+    this.gates=items.map(({gate,next,finish})=>this.drawable(gateMesh(gate,gate.pos[1],next,finish),[gate.pos[0],gate.pos[2]]));
     this.terrainView=undefined;
-  }
-  growMarkers(altitude) {
-    const k=beaconScale(altitude);
-    if(k===(this.markerScale??1))return;
-    this.markerScale=k;
-    if(this.flagList)this.setFlags(this.flagList);
-    if(this.gateList)this.setGates(this.gateList);
   }
   releaseMaterial(item){if(item)for(const resource of [item.vertices,item.indices,item.layers,item.masks])resource?.destroy();}
   release(item){item?.buffer.destroy();this.releaseMaterial(item?.material);}
@@ -464,7 +455,7 @@ export class WorldRenderer {
       const craft=this.buildCraft({asset:p.asset,textures:p.textures,metadata:{display:0,scale:p.scale||1,pose:'prop',exhausts:[],
         posedAttachment0:{space:'model-local',pose:'stand-frame-0',position:[0,0,0]}}},0,`prop:${i}`,2000000);
       craft.instance={id:`prop:${i}`,key:`prop:${i}`,craft:true};
-      return {craft,pos:p.pos,yaw:p.yaw||0,scale:p.scale||1,space:p.space||'world',marker:!!p.marker};
+      return {craft,pos:p.pos,yaw:p.yaw||0,scale:p.scale||1,space:p.space||'world'};
     });
   }
   setCraftOverride(model) {
@@ -869,7 +860,6 @@ export class WorldRenderer {
     const skyFloats=game?[...game.fog,1,...game.sun,0,...game.horizon,0,...game.mid,0]:new Array(16).fill(0);
     if(this.manifest?.world_bounds){const [mx,mz]=maelstromCentre(this.manifest);skyFloats[7]=mx-origin[0];skyFloats[11]=mz-origin[1];skyFloats[15]=1;}
     const view=[...this.camera,200000,...right,origin[0]%4096,...up,origin[1]%4096,...look,daylight];
-    this.growMarkers(this.camera[1]);
     const distant=settings.horizon?this.horizon.filter(h=>!this.tiles.has(h.near)):[];
     const coastal=[...this.coast].flatMap(([index,item])=>
       this.tiles.has(index)?item.backing?[item.backing]:[]:settings.horizon?[item]:[]);
@@ -949,7 +939,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
     if(wreckFrameNow)this.wreck.parts.forEach((p,i)=>append(p.asset,p.instance,partMatrix(wreckFrameNow.subarray(i*7,i*7+7),p.center,this.wreck.scale,origin),this.craft.textures,this.craft.items));
     else if((!flight||this.showCraftInFlight)&&this.craft&&this.cameraMode!=='cockpit')append(this.craft.asset,this.craft.instance,
       craftMatrix(state,origin,this.craft.metadata.scale),this.craft.textures,this.craft.items);
-    for(const p of this.props||[]){const c=Math.cos(p.yaw),s=Math.sin(p.yaw),k=p.scale*(p.marker?this.markerScale??1:1);
+    for(const p of this.props||[]){const c=Math.cos(p.yaw),s=Math.sin(p.yaw),k=p.scale;
       append(p.craft.asset,p.craft.instance,p.space==='craft'?craftMatrix([p.pos[0],p.pos[1],p.pos[2],p.yaw,0],origin,k):
         new Float32Array([c*k,0,-s*k,0,0,k,0,0,s*k,0,c*k,0,p.pos[0]-origin[0],p.pos[1],p.pos[2]-origin[1],1]),p.craft.textures,p.craft.items);}
     if(!this.wreck&&!flight&&this.craft?.flame&&this.cameraMode!=='cockpit') {

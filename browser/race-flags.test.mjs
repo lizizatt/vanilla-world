@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {beaconScale,gateMesh,flagPosition,flagMesh,nearestFlag,loadTracks,FLAG_RANGE} from './race-flags.js';
+import {flagPosition,flagMesh,nearestFlag,loadTracks,FLAG_RANGE} from './race-flags.js';
 
 const track={id:'a',start:{pos:[100,10,100],yaw:0},gates:[{pos:[100,10,0],yaw:0,width:30}]};
 
@@ -37,16 +37,4 @@ test('gateMesh spans the gate width along its heading and the next gate has a ta
   assert.ok(Math.max(...zs)>=29&&Math.min(...zs)<=-29);
   assert.ok(top(gateMesh(g,0,true))>top(m));
   assert.ok(gateMesh(g,0,true,true).length>gateMesh(g,0,true).length,'finish banner is checkered');
-});
-test('race markers grow with altitude so they stay visible until the globe takes over', () => {
-  assert.equal(beaconScale(0), 1);
-  assert.equal(beaconScale(800), 1);
-  let last = 1;
-  for (let a = 0; a <= 20000; a += 50) { const k = beaconScale(a); assert.ok(k >= last && k <= 32); last = k; }
-  assert.equal(beaconScale(1e6), 32);
-  // projected beam width (yd * scale / distance) stays above 1/1000 of the distance out to 10k yd
-  for (let a = 800; a <= 20000; a += 100) assert.ok(1.5 * beaconScale(a) / a >= 1.5 / 1700, String(a));
-  const span = mesh => { let hi = 0; for (let i = 1; i < mesh.length; i += 7) hi = Math.max(hi, mesh[i]); return hi; };
-  assert.ok(span(flagMesh(0, 8)) > span(flagMesh(0, 1)));
-  assert.ok(gateMesh({ width: 30, yaw: 0 }, 0, true, false, 8).length === gateMesh({ width: 30, yaw: 0 }, 0, true, false, 1).length);
 });

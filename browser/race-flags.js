@@ -16,27 +16,25 @@ export function box(out,[x,y,z],[w,h,d],material) {
 }
 
 // Flag standing at local x/z 0 with its base at world height y.
-/** Beacon/beam size multiplier for an eye altitude: 1 near the ground, doubling per octave above 800 yd (steps, so meshes rebuild rarely) to 32x, keeping the beam ~0.1-0.4% of the view distance, so markers stay visible until the globe takes over. */
-export const beaconScale=altitude=>altitude>800?Math.min(32,2**Math.floor(Math.log2(altitude/800)+1)):1;
-export function flagMesh(y,k=1) {
+export function flagMesh(y) {
   const v=[];
   box(v,[-.3,y-2,-.3],[.6,26,.6],5);
   for(let row=0;row<2;row++)for(let col=0;col<3;col++)box(v,[.3+col*3,y+18-row*3,-.1],[3,3,.2],(row+col)%2?7:6);
-  box(v,[-.75*k,y+24,-.75*k],[1.5*k,260*k,1.5*k],8);
+  box(v,[-.75,y+24,-.75],[1.5,260,1.5],8);
   return new Float32Array(v);
 }
 
 // Gate drawn around local x/z 0, base at world height y: two pylons, a crossbar spanning the width and a
 // tall beam. The next gate is amber with a much taller beam so it can be seen from far away.
 // finish=true swaps the crossbar for a checkered banner.
-export function gateMesh(gate,y,next=false,finish=false,k=1) {
+export function gateMesh(gate,y,next=false,finish=false) {
   const v=[],half=gate.width/2,post=next?8:6,bar=next?8:7,beam=next?8:6;
   box(v,[-half-1,y-3,-1],[2,17,2],post);
   box(v,[half-1,y-3,-1],[2,17,2],post);
   if(finish){const n=Math.max(2,Math.round(gate.width/4)),cw=gate.width/n;
     for(let row=0;row<3;row++)for(let col=0;col<n;col++)box(v,[-half+col*cw,y+9+row*2.5,-.3],[cw,2.5,.6],(row+col)%2?7:6);}
   else box(v,[-half,y+12,-.5],[gate.width,2,1],bar);
-  const w=(next?3:1.6)*k,h=(next?380:110)*k;
+  const w=next?3:1.6,h=next?380:110;
   box(v,[-half-w/2,y+14,-w/2],[w,h,w],beam);
   box(v,[half-w/2,y+14,-w/2],[w,h,w],beam);
   const c=Math.cos(gate.yaw),s=Math.sin(gate.yaw);
