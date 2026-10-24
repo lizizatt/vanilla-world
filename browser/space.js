@@ -1,6 +1,7 @@
 // Planet view: a stylised globe (Azeroth), sky thinning to space, stars, a sun and two moons, drawn when flying high.
 // Camera/render only; physics stays flat. The globe is analytic (one fullscreen ray-sphere pass), the near terrain bends onto it.
 // Sizing: Kalimdor is the largest populated continent, about 29,870 yd north-south, and is meant to span 40 degrees of latitude.
+import {HEIGHT_RANGE,HEIGHT_MIN} from './height-bake.js';
 export const CONTINENT_YD=29867,CONTINENT_DEG=40;
 export const PLANET_RADIUS=Math.round(CONTINENT_YD/(CONTINENT_DEG*Math.PI/180));
 // World centre (render yd) at lat/lon 0, and the fallback continent rectangles [x0,z0,x1,z1] when no manifest is loaded (hosted build).
@@ -84,15 +85,15 @@ export function spaceUniform(view,sun,factors,rects,timeOfDay,near,far,out=new F
   out.fill(0);
   out.set([...view.look,view.aspect,...view.right,near,...view.up,far,altitude,factors.space,factors.globe,PLANET_RADIUS],0);
   out.set([...sun,timeOfDay],16);
-  out.set([...f.east,WORLD_CENTRE[0],...f.up,WORLD_CENTRE[1],...f.south,Math.min(4,rects.length)],20);
-  rects.slice(0,4).forEach((r,i)=>out.set(r,32+i*4));
+  out.set([...f.east,WORLD_CENTRE[0],...f.up,WORLD_CENTRE[1],...f.south,Math.min(3,rects.length)],20);
+  rects.slice(0,3).forEach((r,i)=>out.set(r,32+i*4));
   const centre=[0,-(PLANET_RADIUS+altitude),0];
   MOONS.forEach((moon,i)=>{
     const p=moonPlanetPosition(moon,timeOfDay),local=[f.east,f.up,f.south].map(axis=>axis[0]*p[0]+axis[1]*p[1]+axis[2]*p[2]);
     out.set([centre[0]+local[0],centre[1]+local[1],centre[2]+local[2],moon.radius],48+i*4);
     out.set([...moon.tint,0],56+i*4);
   });
-  out[59]=factors.mesh?1:0;out[63]=factors.registry?1:0;
+  out.set(factors.fog||[0,0,0],44);out[59]=factors.mesh?1:0;out[63]=factors.registry?1:0;
   return out;
 }
 
@@ -168,8 +169,10 @@ fn surface(pv:vec3f,n:vec3f,d:vec3f,sun:vec3f)->vec3f {
   let lit=clamp(dot(n,sun)*1.6+.15,0.0,1.0);
   let spec=pow(max(dot(reflect(-sun,n),-d),0.0),40.0)*(1.0-land);
   let rim=pow(1.0-max(dot(n,-d),0.0),3.0);
-  return col*(.03+lit)+vec3f(.5,.6,.7)*spec*lit+vec3f(.25,.5,1.0)*rim*(.15+lit)*.8;
+  return col*(.03+lit)+vec3f(.5,.6,.7)*spec*lit+vec3f(.25,.5,1.0)*rim*(.15+lit)*.8*clamp(s.p.x/3000.0,0.0,1.0);
 }
+// Same haze law as the terrain/water shaders (distance/150000, gone once the bend takes over); fog colour rides in the unused fourth rect slot.
+fn fogGlobe(c:vec3f,t:f32,n:vec3f,d:vec3f)->vec3f {let low=1.0-smoothstep(150.0,1500.0,s.p.x);let f=pow(1.0-abs(dot(normalize(n),normalize(d))),3.0);let k=max(clamp(t/150000.0,0.0,.93),.85*f)*low;return mix(c,s.rect[3].xyz,k);}
 struct FO {@location(0) color:vec4f,@builtin(frag_depth) depth:f32};
 @fragment fn fs(v:V)->FO {
   let d=normalize(s.look.xyz+s.right.xyz*v.ndc.x*.55*s.look.w+s.up.xyz*v.ndc.y*.55);
@@ -190,7 +193,7 @@ struct FO {@location(0) color:vec4f,@builtin(frag_depth) depth:f32};
     if(id==0){
       if(s.tint[0].w>.5){continue;}
       let n=normalize(d*t-centre);
-      acc=over(acc,surface(toPlanet(n),n,d,sun),globe);
+      acc=over(acc,fogGlobe(surface(toPlanet(n),n,d,sun),t,n,d),globe);
       let dz=dot(d,s.look.xyz);
       let dt=sphereT(o,d,centre,DEPTH_R);
       let zz=max(dt,t)*dz;
@@ -208,13 +211,14 @@ struct FO {@location(0) color:vec4f,@builtin(frag_depth) depth:f32};
   if(!hitGlobe&&b<0.0){
     let near=exp(-max(closest-R,0.0)/(R*.035));
     let np=normalize(oc+d*(-b));
-    acc=over(acc,vec3f(.3,.55,1.0)*(.2+.8*clamp(dot(np,sun)+.3,0.0,1.0)),near*.8*globe);
+    acc=over(acc,vec3f(.3,.55,1.0)*(.2+.8*clamp(dot(np,sun)+.3,0.0,1.0)),near*.8*globe*clamp(alt/3000.0,0.0,1.0));
   }
   var out:FO;out.color=acc;out.depth=depth;return out;
 }`;
 
 // Patch mesh (globe-patches.js): each instance is one lat/lon patch drawn as a 16x16 grid. Edge vertices sink a little so LOD cracks stay hidden.
 export const patchShader=spaceShader.slice(0,spaceShader.indexOf('@fragment fn fs'))+`
+@group(0) @binding(3) var heightTex:texture_2d<f32>;
 struct PV {@builtin(position) clip:vec4f,@location(0) pv:vec3f,@location(1) n:vec3f,@location(2) w:vec3f};
 @vertex fn pvs(@builtin(vertex_index) vi:u32,@location(0) p:vec4f)->PV {
   let corner=array<vec2u,6>(vec2u(0,0),vec2u(1,0),vec2u(0,1),vec2u(0,1),vec2u(1,0),vec2u(1,1));
@@ -225,7 +229,8 @@ struct PV {@builtin(position) clip:vec4f,@location(0) pv:vec3f,@location(1) n:ve
   let n=vec3f(dot(s.e.xyz,pv),dot(s.u.xyz,pv),dot(s.s.xyz,pv));
   let edge=ij.x==0u||ij.y==0u||ij.x==16u||ij.y==16u;
   let sink=select(0.0,R*(p.y-p.x)/16.0*.02,edge);
-  let w=vec3f(0.0,-(R+s.p.x),0.0)+n*(R-sink);
+  let hm=textureSampleLevel(heightTex,surfaceSamp,vec2f(lon/6.2831853+.5,.5-lat/3.1415927),0.0).r*${HEIGHT_RANGE}.0+${HEIGHT_MIN}.0;
+  let w=vec3f(0.0,-(R+s.p.x),0.0)+n*(R-sink+max(hm,0.0));
   let z=dot(w,s.look.xyz);
   var o:PV;
   o.clip=vec4f(dot(w,s.right.xyz)/(.55*s.look.w),dot(w,s.up.xyz)/.55,min((z-s.right.w)*s.up.w/(s.up.w-s.right.w),.9999*z),z);
@@ -235,6 +240,6 @@ struct PV {@builtin(position) clip:vec4f,@location(0) pv:vec3f,@location(1) n:ve
   let n=normalize(v.n);let d=normalize(v.w);
   let dz=dot(d,s.look.xyz);let dt=sphereT(vec3f(0.0),d,vec3f(0.0,-(R+s.p.x),0.0),DEPTH_R);
   let zz=max(dt*dz,1.0/v.clip.w);
-  var o:FO;o.color=vec4f(surface(normalize(v.pv),n,d,normalize(s.sun.xyz))*s.p.z,s.p.z);
+  var o:FO;o.color=vec4f(fogGlobe(surface(normalize(v.pv),n,d,normalize(s.sun.xyz)),zz/max(dz,.05),n,d)*s.p.z,s.p.z);
   o.depth=clamp((zz-s.right.w)*s.up.w/((s.up.w-s.right.w)*zz),0.0,1.0);return o;
 }`;

@@ -15,7 +15,8 @@ import {beamState} from './beam.js';
 import {schematicRects} from './worldmap.js';
 import {patchesAt,packPatches,PATCH_GRID,MAX_PATCHES} from './globe-patches.js';
 import {createRegistry,defaultManifest,bakeSurface} from './tile-registry.js';
-import {planetFactors,horizonDip,spaceUniform,spaceShader,patchShader,bendShader,FALLBACK_RECTS} from './space.js';
+import {HEIGHT_W,HEIGHT_H,splatHeights,encodeHeights} from './height-bake.js';
+import {PLANET_RADIUS,WORLD_CENTRE,planetFactors,horizonDip,spaceUniform,spaceShader,patchShader,bendShader,FALLBACK_RECTS} from './space.js';
 import {SkyCatalog,mapPosition,skyShader,skyDomeShader,skyUniform,advanceTime,nightAlpha,nightAngle,DAY} from './sky.js';
 import {ACTOR,actorPhase,poseKey} from './actors.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
@@ -346,6 +347,8 @@ export class WorldRenderer {
     this.skyGroup=this.device.createBindGroup({layout:this.skyPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:this.skyBuffer}}]});
     this.spaceBuffer=this.device.createBuffer({size:256,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
     this.surfaceTex=this.device.createTexture({size:[1024,512],format:'rgba8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});
+    this.heightTex=this.device.createTexture({size:[HEIGHT_W,HEIGHT_H],format:'r8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});
+    this.heightGrid=new Float32Array(HEIGHT_W*HEIGHT_H).fill(-Infinity);this.heightDirty=false;
     this.surfaceSamp=this.device.createSampler({magFilter:'linear',minFilter:'linear',addressModeU:'repeat',addressModeV:'clamp-to-edge'});
     const spaceModule=await shader(spaceShader);
     this.spacePipeline=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module:spaceModule,entryPoint:'vs'},
@@ -357,7 +360,7 @@ export class WorldRenderer {
     this.patchPipeline=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module:patchModule,entryPoint:'pvs',buffers:[{arrayStride:16,stepMode:'instance',attributes:[{shaderLocation:0,offset:0,format:'float32x4'}]}]},
       fragment:{module:patchModule,entryPoint:'pfs',targets:[{format:this.format,blend:{color:{srcFactor:'one',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},primitive:{topology:'triangle-list'},
       depthStencil:{format:'depth24plus',depthWriteEnabled:true,depthCompare:'less-equal'}});
-    this.patchGroup=this.device.createBindGroup({layout:this.patchPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:this.spaceBuffer}},{binding:1,resource:this.surfaceTex.createView()},{binding:2,resource:this.surfaceSamp}]});
+    this.patchGroup=this.device.createBindGroup({layout:this.patchPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:this.spaceBuffer}},{binding:1,resource:this.surfaceTex.createView()},{binding:2,resource:this.surfaceSamp},{binding:3,resource:this.heightTex.createView()}]});
     const domeModule=await shader(skyDomeShader);
     this.domeBuffer=this.device.createBuffer({size:64,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
     this.domePipeline=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module:domeModule,entryPoint:'vs',buffers:[{arrayStride:48,attributes:[
@@ -525,8 +528,8 @@ export class WorldRenderer {
       this.indices.set(data.region,this.buffer(data.indices,GPUBufferUsage.INDEX));
       this.terrainBundle=undefined;
     }
-    else if(data.event==='horizon')this.horizon.push({...this.drawable(data.vertices,data.placement,this.minimapAtlases[data.region]),
-      region:data.region,near:data.near,cell:data.source[0]+64*data.source[1]});
+    else if(data.event==='horizon'){splatHeights(this.heightGrid,data.vertices,data.placement,WORLD_CENTRE,PLANET_RADIUS);this.heightDirty=true;this.horizon.push({...this.drawable(data.vertices,data.placement,this.minimapAtlases[data.region]),
+      region:data.region,near:data.near,cell:data.source[0]+64*data.source[1]});}
     else if(data.event==='horizon-material'){
       if(data.rgba.length!==MINIMAP_SIZE*MINIMAP_SIZE*4||!this.minimapAtlases[data.region]||
         !Number.isInteger(data.x)||!Number.isInteger(data.y)||data.x<0||data.x>=64||data.y<0||data.y>=64)
@@ -780,6 +783,10 @@ export class WorldRenderer {
     pass.setPipeline(this.spacePipeline);pass.setBindGroup(0,this.spaceGroup);pass.draw(3);
   }
   drawPatches(pass) {
+    if(this.heightDirty&&performance.now()-(this.heightAt||0)>1000){
+      this.device.queue.writeTexture({texture:this.heightTex},encodeHeights(this.heightGrid),{bytesPerRow:HEIGHT_W},[HEIGHT_W,HEIGHT_H]);
+      this.heightDirty=false;this.heightAt=performance.now();
+    }
     const eye=this.view.eye,patches=patchesAt(eye[0],eye[2],Math.max(0,eye[1]));
     this.device.queue.writeBuffer(this.patchBuffer,0,packPatches(patches));
     this.patchCount=patches.length;
@@ -878,7 +885,7 @@ export class WorldRenderer {
     const daylight=this.daylight=Math.abs(target-previous)<.002?target:previous+(target-previous)*Math.min(1,dt*1.5);
     const sky0=DAY_SKY.map((v,i)=>NIGHT_SKY[i]+(v-NIGHT_SKY[i])*daylight);
     this.timeOfDay=this.timeLock??advanceTime(this.timeOfDay??(settings.night?0:DAY),settings.night,dt);
-    const game=this.sampleSky(),sky=game?game.fog:sky0;
+    const game=this.sampleSky(),sky=game?game.fog:sky0;pf.fog=sky.slice(0,3);
     this.gameSky=game;
     const skyFloats=game?[...game.fog,1,...game.sun,0,...game.horizon,0,...game.mid,0]:new Array(16).fill(0);
     if(this.manifest?.world_bounds){const [mx,mz]=maelstromCentre(this.manifest);skyFloats[7]=mx-origin[0];skyFloats[11]=mz-origin[1];skyFloats[15]=1;}
