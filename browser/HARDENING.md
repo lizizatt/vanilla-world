@@ -26,6 +26,6 @@
 - `ascent-continuity.mjs`: vertical ascent step gate (open sea gated at 30, Maelstrom reported).
 - `audit-culling.mjs`: Monte Carlo pose sweep; `void` only gates below 20k yd (above, dark is legitimately space: at 100k yd the planet subtends ~0.3 rad half-angle so most poses see sky). Run `node audit-culling.mjs 40 7` (ground/maelstrom/openSea/pole, 50..100k yd, muted Edge): 0/40 void or pop (>30) failures. Max pop seen 26 at a ground 500 yd pose (low-altitude move of 2 yd; threshold is untuned, no visible issue). Valley-haze pose still not located by the sweep.
 
-- M3 heights (c803899): pale cyan block near the limb at 8k yd (pose-h3d-b) not yet diagnosed; colour lookup is not displaced (parallax). Reversed-Z audit still open.
+- M3 heights (c803899): pale cyan block near the limb at 8k yd (pose-h3d-b) FIXED: displaced-face normal shading + zero relief where registry says sea; verified at 8000 yd pitch -0.8, block is now land-coloured. Reversed-Z audit still open.
 
 - Reversed-Z audit: all passes use depth24plus, clear 1, compare less/less-equal/always (8 pipelines + analytic patch depth). No precision artifact seen in ascent (POPS 0), so reversed-Z is deferred until one is measured; switching means changing every pipeline, the projection and the patch-shader depth together.
