@@ -12,7 +12,7 @@ export const CLOUD_THICKNESS=520;
 export const CLOUD_TOWER={up:2400,down:160};
 export const CLOUD_HALF_SIZE=250000;
 // Tunables in yards / radians per second. Arms rotate counter-clockwise as seen on the world map (north up).
-export const MAELSTROM={eyeRadius:2200,wallRadius:5200,radius:24000,arms:3,pitch:.7,spin:.08,drift:.006};
+export const MAELSTROM={eyeRadius:2200,wallRadius:5200,radius:24000,arms:3,pitch:.7,spin:.012,drift:.006};
 // World-map registration: the eye sits 43% of the way from Kalimdor's east coast to the Eastern Kingdoms' west coast,
 // and at 35% / 40% of the way down each continent's tile rows, averaged because the two continents are offset provisionally.
 export const MAELSTROM_MAP={across:.43,kalimdorDown:.35,easternDown:.4};
