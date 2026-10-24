@@ -206,11 +206,13 @@ struct FO {@location(0) color:vec4f,@builtin(frag_depth) depth:f32};
     }
   }
   // Limb glow for rays that miss the globe.
-  let oc=o-centre;let b=dot(oc,d);let closest=sqrt(max(dot(oc,oc)-b*b,0.0));
+  let oc=o-centre;let b=dot(oc,d);
   let hitGlobe=sphereT(o,d,centre,R)>0.0;
-  if(!hitGlobe&&b<0.0){
-    let near=exp(-max(closest-R,0.0)/(R*.035));
-    let np=normalize(oc+d*(-b));
+  if(!hitGlobe){
+    // Decays smoothly with the angle above the limb; a b<0 test cut a hard step at level.
+    let reach=sqrt(max(dot(oc,oc)-R*R,0.0));let dip=reach/length(oc);
+    let near=exp(-max(d.y+dip,0.0)*reach/(R*.035));
+    let np=normalize(oc-d*min(b,0.0));
     acc=over(acc,vec3f(.3,.55,1.0)*(.2+.8*clamp(dot(np,sun)+.3,0.0,1.0)),near*.8*globe*clamp(alt/3000.0,0.0,1.0));
   }
   var out:FO;out.color=acc;out.depth=depth;return out;
