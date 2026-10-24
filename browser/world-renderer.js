@@ -2,6 +2,7 @@ export {sceneReady} from './scene-stream.js';
 export {sceneVisible} from './world-view.js';
 export {craftMatrix} from './world-camera.js';
 export {cameraAxes,renderMatrix,sceneSelection,terrainEdgeMask,readySceneInstances,AdmissionFade} from './renderer-helpers.js';
+import {depthAttachment,depthTexture} from './render-passes.js';
 import {sceneReady} from './scene-stream.js';
 import {MINIMAP_SIZE} from './terrain-stream.js';
 import {cameraView,craftMatrix} from './world-camera.js';
@@ -99,8 +100,7 @@ export class WorldRenderer {
     const height=Math.max(1,Math.round(canvas.clientHeight*Math.min(devicePixelRatio,2)));
     if(!this.depth || canvas.width!==width || canvas.height!==height) {
       canvas.width=width;canvas.height=height;this.depth?.destroy();
-      this.depth=this.device.createTexture({size:[width,height],format:'depth24plus',
-        usage:GPUTextureUsage.RENDER_ATTACHMENT|GPUTextureUsage.TEXTURE_BINDING});
+      this.depth=depthTexture(this.device,width,height);
       this.shadowGroup=this.device.createBindGroup({layout:this.shadowPipeline.getBindGroupLayout(0),
         entries:[{binding:0,resource:{buffer:this.shadowBuffer}},{binding:1,resource:this.depth.createView()}]});
       this.cloudGroup=this.device.createBindGroup({layout:this.cloudPipeline.getBindGroupLayout(0),
@@ -222,7 +222,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
     if(uniformCount)this.device.queue.writeBuffer(this.frameUniforms,0,this.uniformData.buffer,0,uniformCount*256);
     const encoder=this.device.createCommandEncoder(),pass=encoder.beginRenderPass({
       colorAttachments:[{view:this.context.getCurrentTexture().createView(),clearValue:{r:sky[0],g:sky[1],b:sky[2],a:1},loadOp:'clear',storeOp:'store'}],
-      depthStencilAttachment:{view:this.depth.createView(),depthClearValue:1,depthLoadOp:'clear',depthStoreOp:'store'},
+      depthStencilAttachment:depthAttachment('main',this.depth.createView()),
     });
     if(!this.cameraBlocked){
       if(game){this.device.queue.writeBuffer(this.skyBuffer,0,skyUniform(this.view,game,this.timeOfDay,horizonDip(this.view.eye[1],pf.bend),pf.space));pass.setPipeline(this.skyPipeline);pass.setBindGroup(0,this.skyGroup);pass.draw(3);this.drawSkyDome(pass);}
@@ -248,7 +248,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
     }
     if(!this.cameraBlocked&&propDraws.length) {
       const propPass=encoder.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}],
-        depthStencilAttachment:{view:this.depth.createView(),depthLoadOp:'load',depthStoreOp:'store'}});
+        depthStencilAttachment:depthAttachment('props',this.depth.createView())});
       for(const {asset,batch,item,pipeline} of propDraws) {
         propPass.setPipeline(pipeline);propPass.setBindGroup(0,item.group,[item.offset]);propPass.setVertexBuffer(0,asset.vertices);
         propPass.setIndexBuffer(asset.indices,'uint32');propPass.drawIndexed(batch.indexCount,1,batch.firstIndex);
@@ -273,7 +273,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
         this.device.queue.writeBuffer(this.particleBuffer,0,this.particleInstances,0,count*INSTANCE_FLOATS);
         this.device.queue.writeBuffer(this.particleUniformBuffer,0,particleUniform(this.view,near));
         const fxPass=encoder.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}],
-          depthStencilAttachment:{view:this.depth.createView(),depthReadOnly:true}});
+          depthStencilAttachment:depthAttachment('fx',this.depth.createView())});
         fxPass.setPipeline(this.particlePipeline);fxPass.setBindGroup(0,this.particleGroup);fxPass.setVertexBuffer(0,this.particleBuffer);
         fxPass.draw(6,count);fxPass.end();
       }

@@ -1,3 +1,4 @@
+import {depthState,bundleFormats} from './render-passes.js';
 import {modelPath} from './scene-stream.js';
 import {renderMatrix} from './renderer-helpers.js';
 export function scenePipeline(r,batch) {
@@ -14,7 +15,7 @@ export function scenePipeline(r,batch) {
       {shaderLocation:2,offset:24,format:'float32x2'},{shaderLocation:3,offset:32,format:'float32x4'}]}]},
     fragment:{module:r.sceneModule,entryPoint:'fs',targets:[{format:r.format,...(colorBlend?{blend:colorBlend}:{})}]},
     primitive:{topology:'triangle-list',cullMode:batch.doubleSided?'none':'back'},
-    depthStencil:{format:'depth24plus',depthWriteEnabled:!batch.noDepthWrite && !colorBlend,depthCompare:'less'},
+    depthStencil:depthState('scene',!batch.noDepthWrite && !colorBlend),
   });
   r.pipelines.set(key,pipeline);return pipeline;
 }
@@ -43,7 +44,7 @@ export function drawScene(r,pass,draws) {
   if(!cached || cached.draws.length!==count || cached.draws.some((draw,i)=>
     draw.asset!==draws[i].asset || draw.batch!==draws[i].batch || draw.item!==draws[i].item ||
     draw.offset!==draws[i].item.offset)) {
-    const encoder=r.device.createRenderBundleEncoder({colorFormats:[r.format],depthStencilFormat:'depth24plus'});
+    const encoder=r.device.createRenderBundleEncoder(bundleFormats(r.format));
     for(let i=0;i<count;i++)encode(encoder,draws[i]);
     r.sceneBundle={draws:draws.slice(0,count).map(({asset,batch,item})=>({asset,batch,item,offset:item.offset})),
       bundle:encoder.finish()};
