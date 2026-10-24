@@ -47,8 +47,8 @@ flowchart TB
     STORE["world-store (IndexedDB cache)"]
   end
 
-  subgraph Native["Native path (Rust, client/)"]
-    CR["benilla-* crates<br/>mpq, adt, wdt, wmo, m2, blp, dbc, world"]
+  subgraph Native["Wasm build (Rust, client/)"]
+    CR["benilla-formats + mpq, adt, wdt, wmo, m2, blp, dbc"]
     FR["flats-racer-physics / -web"]
   end
 
@@ -90,6 +90,5 @@ flowchart TB
 - **Frames:** world units are yards; flat tiles are bent onto the sphere by a shader (M5b, removing it, is deferred). The globe uses a coarse baked height texture (~130 yd/texel); authored ADT is only used near-field.
 - **Handoff:** the flat ocean mesh hides above 25k yd and the globe sea takes over. Zone lighting fades to global sun lighting in space.
 - **Files:** `sw.js` FILES is the single source for the shell list; `server.mjs` and `build-dist` read it.
-- **C++ server is not in the stack:** `server/` (VMaNGOS, a vanilla WoW server emulator) is not used by the browser racer. Nothing in `browser/` connects to it (no sockets, auth or realm code), and the racer is single-player and fully client-side. It lives in the monorepo as an independent upstream snapshot; `scripts/` bootstrap it for the separate native client.
-- **Also not in this diagram:** `runtime/`, `tools/`, and the Rust `benilla-*` app crates (the native Bevy client, separate from the browser racer).
+- **Removed material:** the VMaNGOS C++ server, native Bevy client crates, runtime/, tools/ and bootstrap scripts are no longer in the tree; see the root README for the commit that last contained them.
 - **Next (rocket phase):** unified space physics per `SPACE-PHYSICS.md`; see `GLOBE-REFACTOR.md`, `CLOUD-FLOW.md`, `HARDENING.md`, `DEBT.md`.
