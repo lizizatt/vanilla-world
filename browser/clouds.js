@@ -1,7 +1,7 @@
 // Procedural cumulus slab: one camera-following quad whose fragments march a short ray through a layer of
 // analytic noise density, with a maelstrom (eye, eye wall, spiral arms) around a vortex centre. No textures or extra passes.
 import {PLANET_RADIUS,WORLD_CENTRE,planetFrame} from './space.js';
-import {flowWGSL} from './cloud-flow.js';
+import {flowWGSL,FLOW} from './cloud-flow.js';
 export const CLOUD_ALTITUDE_FACTOR=.8;
 // Mt Hyjal summit height in yards, measured from the user's Kalimdor terrain (tile bounds near Hyjal, see README "Clouds").
 export const HYJAL_SUMMIT=1971;
@@ -128,27 +128,36 @@ const THICK=${CLOUD_THICKNESS.toFixed(1)};
 const UP=${high?CLOUD_TOWER.up:0}.0;
 const DOWN=${high?CLOUD_TOWER.down:0}.0;
 ${high?HIGH_NOISE:STD_NOISE}
+fn cloudBody(sp:Sph,d:vec2f,pos:vec3f,t:f32,tau:f32,coverage:f32,wall:f32)->vec2f {
+  let s=flowShift(sp.lat,d,tau);
+  let Q=sp.up*${PLANET_RADIUS}.0+sp.e*s.x+sp.n*s.y;
+  // Dense columns grow upward (towering tops) and a little downward, billowing slowly; low coverage keeps the flat sheet.
+  let grow=smoothstep(.45,.95,coverage)*mix(.4,1.0,vnoise3(Q/3800.0+vec3f(t*.012,-t*.009,0.0)));
+  let hf=clamp((pos.y-(c.cloud.z-THICK*.5-DOWN*grow))/(THICK+(UP+DOWN)*grow),0.0,1.0);
+  let n=cloudNoise(Q,sp.up,pos,t,hf);
+  let top=(n-(1.0-coverage))*(2.2+1.6*wall);
+  return vec2f(smoothstep(0.0,.3,top-hf*.9)*smoothstep(0.0,.1,hf+.05),hf);
+}
 fn sheetDensity(pos:vec3f,t:f32)->vec3f {
   let d=pos.xz-c.cloud.xy;let r=length(d);
-  let turn=t*${M.drift}*exp(-r/${M.radius.toFixed(1)});
-  let cs=cos(turn);let sn=sin(turn);
-  let w=vec2f(d.x*cs-d.y*sn,d.x*sn+d.y*cs);
-  // Noise is sampled at the 3D point on the planet (cloud-flow.js sphereAt), so it stays isotropic toward the poles; the near-field swirl turns that point.
+  // Noise is sampled at the 3D point on the planet (cloud-flow.js sphereAt), so it stays isotropic toward the poles; flowShift advects that point.
   let sp=sphereAt(pos.xz);
-  let Q=sp.up*.0+sp.e*(w.x-d.x)-sp.n*(w.y-d.y);
   // North is -z, so atan2(-z,x) grows counter-clockwise on the map.
   let a=atan2(-d.y,d.x);
   let arm=smoothstep(.2,.8,.5+.5*cos(${M.arms.toFixed(1)}*(a+${M.pitch}*log(max(r,1.0)/1000.0)-t*${M.spin})));
   let storm=exp(-r/${M.radius.toFixed(1)});
   let wall=exp(-pow((r-${M.wallRadius.toFixed(1)})/(${M.wallRadius.toFixed(1)}*.35),2.0));
   let eye=smoothstep(${M.eyeRadius.toFixed(1)},${(M.eyeRadius*1.5).toFixed(1)},r);
-  let coverage=clamp(mix(.4,mix(.1,.95,arm),storm)+.6*wall,0.0,.95)*eye;
-  // Dense columns grow upward (towering tops) and a little downward, billowing slowly; low coverage keeps the flat sheet.
-  let grow=smoothstep(.45,.95,coverage)*mix(.4,1.0,vnoise3(Q/3800.0+vec3f(t*.012,-t*.009,0.0)));
-  let hf=clamp((pos.y-(c.cloud.z-THICK*.5-DOWN*grow))/(THICK+(UP+DOWN)*grow),0.0,1.0);
-  let n=cloudNoise(Q,sp.up,pos,t,hf);
-  let top=(n-(1.0-coverage))*(2.2+1.6*wall);
-  let body=smoothstep(0.0,.3,top-hf*.9)*smoothstep(0.0,.1,hf+.05);
+  // Away from the storm the global cells set the cover, with faint spiral arms reaching far out.
+  let base=.4+(bandCoverage(sp.lat)+exp(-r/${FLOW.vortex.armReach.toFixed(1)})*(arm-.5)*${FLOW.vortex.armCover})*(1.0-storm);
+  let coverage=clamp(mix(base,mix(.1,.95,arm),storm)+.6*wall,0.0,.95)*eye;
+  // Two-phase flow map: each phase samples the noise displaced by the wind for its age, crossfaded near the resets; a single phase most of the time.
+  let fp=flowPhase(t);
+  var bh:vec2f;
+  if(fp.z>=1.0){bh=cloudBody(sp,d,pos,t,fp.x,coverage,wall);}
+  else if(fp.z<=0.0){bh=cloudBody(sp,d,pos,t,fp.y,coverage,wall);}
+  else{bh=mix(cloudBody(sp,d,pos,t,fp.y,coverage,wall),cloudBody(sp,d,pos,t,fp.x,coverage,wall),fp.z);}
+  let body=bh.x;let hf=bh.y;
   return vec3f(body,storm*(.55+.45*smoothstep(${(M.eyeRadius).toFixed(1)},${(M.wallRadius*2).toFixed(1)},r)),hf);
 }
 const BASE=${(CLOUD_ALTITUDE-CLOUD_THICKNESS*.5).toFixed(1)};

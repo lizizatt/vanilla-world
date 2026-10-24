@@ -58,7 +58,7 @@ test('WGSL twin carries the same constants',()=>{
   for(const v of [FLOW.zonal,FLOW.meridional,FLOW.westerlyBoost,FLOW.bands.clearAt])assert.ok(w.includes(String(Number.isInteger(v)?v.toFixed(1):v)));
 });
 
-import {density} from './cloud-march.js';
+import {density as density} from './cloud-march.js';
 import {PLANET_RADIUS as R,WORLD_CENTRE} from './space.js';
 import {cloudShader,cloudShaderHigh} from './clouds.js';
 
@@ -134,4 +134,16 @@ test('land mask: inland air is drier than the open ocean on average',()=>{
   const m=bakeLandMask(ridge);let inland=0,sea=0;
   for(let k=0;k<20;k++){inland+=landCoverage(maskAt(m,(41+k*.4)*deg,(k%3-1)*3*deg));sea+=landCoverage(maskAt(m,-(41+k*.4)*deg,150*deg));}
   assert.ok(sea>inland,`sea ${sea.toFixed(2)} inland ${inland.toFixed(2)}`);
+});
+
+import {CLOUD_ALTITUDE} from './clouds.js';
+test('flow map: cloud density is continuous in time across the phase resets, far from the storm',()=>{
+  const r=rng(77),T=FLOW.period;let worst=0;
+  for(let i=0;i<600;i++) {
+    const pos=[80000+r()*40000,CLOUD_ALTITUDE+(r()-.5)*400,(r()*2-1)*60000],t0=(Math.floor(r()*40)+r()*.999)*T/2+(r()<.5?0:.0),k=Math.floor(t0/(T/2)+1)*T/2;
+    for(const [ta,tb] of [[k-.05,k+.05],[t0,t0+.05]]) {
+      const a=density(pos,ta,false,[0,0])[0],b=density(pos,tb,false,[0,0])[0];worst=Math.max(worst,Math.abs(a-b));
+    }
+  }
+  assert.ok(worst<.05,`density jumps ${worst.toFixed(3)} in 0.1 s`);
 });

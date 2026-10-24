@@ -2,7 +2,7 @@
 // Monte Carlo sweep in clouds-sweep.test.mjs with no GPU. Keep it consistent with the WGSL: the sweep test checks the shared constants and
 // the extent/fade expressions appear verbatim in the shader. The High tier's 3D noise texture is replaced here by the Standard analytic
 // noise (the texture is baked from the same kind of value noise), so High geometry (towers, 28 steps, light tap) is covered, its noise is not.
-import {sphereAt,vnoise3} from './cloud-flow.js';
+import {sphereAt,vnoise3,bandCoverage,flowShift,flowPhase,FLOW} from './cloud-flow.js';
 import {CLOUD_ALTITUDE,CLOUD_THICKNESS,CLOUD_HALF_SIZE,CLOUD_TOWER,MAELSTROM as M,sunDirection} from './clouds.js';
 import {PLANET_RADIUS} from './space.js';
 
@@ -53,26 +53,28 @@ function extentLegacy(eyeY,dirY,sceneDist,high,ya,yb) {
 export function density(pos,t,high,centre=[0,0],coverageOverride) {
   const {ya,up,down}=slab(high);
   const dx=pos[0]-centre[0],dz=pos[2]-centre[1],r=Math.hypot(dx,dz);
-  const turn=t*M.drift*Math.exp(-r/M.radius),cs=Math.cos(turn),sn=Math.sin(turn);
-  const wx=dx*cs-dz*sn,wz=dx*sn+dz*cs;
-  const sp=sphereAt(pos[0],pos[2]),Q=[0,1,2].map(i=>sp.up[i]*PLANET_RADIUS+sp.east[i]*(wx-dx)-sp.north[i]*(wz-dz));
+  const sp=sphereAt(pos[0],pos[2]);
   const a=Math.atan2(-dz,dx);
   const arm=smoothstep(.2,.8,.5+.5*Math.cos(M.arms*(a+M.pitch*Math.log(Math.max(r,1)/1000)-t*M.spin)));
   const storm=Math.exp(-r/M.radius);
   const wall=Math.exp(-(((r-M.wallRadius)/(M.wallRadius*.35))**2));
   const eye=smoothstep(M.eyeRadius,M.eyeRadius*1.5,r);
-  const coverage=coverageOverride??clamp(mix(.4,mix(.1,.95,arm),storm)+.6*wall,0,.95)*eye;
-  const grow=smoothstep(.45,.95,coverage)*mix(.4,1,vnoise3(Q[0]/3800+t*.012,Q[1]/3800-t*.009,Q[2]/3800));
-  const base=CLOUD_ALTITUDE-CLOUD_THICKNESS/2-down*grow;
-  const hf=clamp((pos[1]-base)/(CLOUD_THICKNESS+(up+down)*grow),0,1);
-  const [q0,q1,q2]=[Q[0]/2600,Q[1]/2600,Q[2]/2600];
-  let n=.55*vnoise3(q0,q1,q2)+.3*vnoise3(q0*2.3+7,q1*2.3+7,q2*2.3+7)+.15*vnoise3(q0*5.1+3,q1*5.1+3,q2*5.1+3);
-  n=n*.78+.22*vnoise3(Q[0]/650+hf*3.1,Q[1]/650+hf*1.7,Q[2]/650+hf*2.3);
-  const top=(n-(1-coverage))*(2.2+1.6*wall);
-  const body=smoothstep(0,.3,top-hf*.9)*smoothstep(0,.1,hf+.05);
-  return [body,storm*(.55+.45*smoothstep(M.eyeRadius,M.wallRadius*2,r)),hf,ya];
+  const base=.4+(bandCoverage(sp.lat)+Math.exp(-r/FLOW.vortex.armReach)*(arm-.5)*FLOW.vortex.armCover)*(1-storm);
+  const coverage=coverageOverride??clamp(mix(base,mix(.1,.95,arm),storm)+.6*wall,0,.95)*eye;
+  const body=tau=>{
+    const s=flowShift(sp.lat,dx,dz,tau),Q=[0,1,2].map(i=>sp.up[i]*PLANET_RADIUS+sp.east[i]*s[0]+sp.north[i]*s[1]);
+    const grow=smoothstep(.45,.95,coverage)*mix(.4,1,vnoise3(Q[0]/3800+t*.012,Q[1]/3800-t*.009,Q[2]/3800));
+    const base=CLOUD_ALTITUDE-CLOUD_THICKNESS/2-down*grow;
+    const hf=clamp((pos[1]-base)/(CLOUD_THICKNESS+(up+down)*grow),0,1);
+    const [q0,q1,q2]=[Q[0]/2600,Q[1]/2600,Q[2]/2600];
+    let n=.55*vnoise3(q0,q1,q2)+.3*vnoise3(q0*2.3+7,q1*2.3+7,q2*2.3+7)+.15*vnoise3(q0*5.1+3,q1*5.1+3,q2*5.1+3);
+    n=n*.78+.22*vnoise3(Q[0]/650+hf*3.1,Q[1]/650+hf*1.7,Q[2]/650+hf*2.3);
+    const top=(n-(1-coverage))*(2.2+1.6*wall);
+    return [smoothstep(0,.3,top-hf*.9)*smoothstep(0,.1,hf+.05),hf];
+  };
+  const fp=flowPhase(t),bh=fp.wA>=1?body(fp.tauA):fp.wA<=0?body(fp.tauB):(()=>{const b=body(fp.tauB),a2=body(fp.tauA);return [mix(b[0],a2[0],fp.wA),mix(b[1],a2[1],fp.wA)];})();
+  return [bh[0],storm*(.55+.45*smoothstep(M.eyeRadius,M.wallRadius*2,r)),bh[1],ya];
 }
-
 /**
  * Marches one ray exactly like the fragment shader's sheet branch. Returns {alpha, rgb (premultiplied-free colour), extent}.
  * `o`: {eye:[x,y,z], dir:[x,y,z] (unit), t, high, time (Light.dbc half-minutes), centre, coverage, sceneDist, jitter (0..1), night (0..1)}.

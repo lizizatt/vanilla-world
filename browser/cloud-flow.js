@@ -17,7 +17,7 @@ export const FLOW={
   // Two-phase flow-map warp: cycle length (s) and the blend window of the triangle wave (pure single phase outside it).
   period:90,blend:[.4,.6],
   // Pinned Maelstrom vortex: Rankine core (yd) and far-field decay, peak tangential speed, and inflow angle off tangential.
-  vortex:{core:5200,decay:14000,speed:50,inflow:.35},
+  vortex:{core:5200,decay:14000,speed:50,inflow:.35,armReach:70000,armCover:.22},
 };
 
 /** Zonal (east) and meridional (north) belt wind at a latitude. Mirror-symmetric in hemispheres, Coriolis sign included. */

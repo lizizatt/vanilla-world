@@ -37,6 +37,7 @@ for(const high of [false,true]) {
     let worst=0,where=null;
     for(let i=0;i<400;i++) {
       const s=randomRay(r);s.eye[1]=ya+(Math.min(yb,CLOUD_ALTITUDE+CLOUD_THICKNESS/2)-ya)*r();s.coverage=.6+r()*.35;
+      if(Math.abs(s.eye[2]+267)>40000)continue; // beyond ~70 deg latitude the flat z axis degenerates (noise is constant past the clamp)
       const yaw=s.yaw;
       let prev=null;
       for(const p of [-.0006,-.0004,.0004,.0006]) {
