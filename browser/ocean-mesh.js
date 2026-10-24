@@ -15,12 +15,23 @@ export function oceanMesh(manifest,cells=96,land=[]) {
   for(const r of land)for(let j=Math.floor((r[1]-z)/OCEAN_CELL);j<=Math.floor((r[3]-z)/OCEAN_CELL);j++)for(let i=Math.floor((r[0]-x)/OCEAN_CELL);i<=Math.floor((r[2]-x)/OCEAN_CELL);i++){
     const k=j*100000+i;(buckets.get(k)||buckets.set(k,[]).get(k)).push(r);
   }
-  const cell=(x0,z0,x1,z1)=>{
+  const nearOf=(x0,z0,x1,z1)=>{
     let near;
     if(buckets.size)for(let j=Math.floor(z0/OCEAN_CELL);j<=Math.floor(z1/OCEAN_CELL);j++)for(let i=Math.floor(x0/OCEAN_CELL);i<=Math.floor(x1/OCEAN_CELL);i++){
       const b=buckets.get(j*100000+i);if(b)near=near?near.concat(b):b;
     }
-    if(!near)return tri(x0,z0,x1,z1);
+    return near;
+  };
+  // A whole cell beside a split cell gets the split cell's edge vertices (flags: z0, x1, z1, x0 sides) so the bend moves both sides of the shared edge identically and no T-junction crack opens.
+  const fan=(x0,z0,x1,z1,flags)=>{
+    const ring=[],step=(ax,az,bx,bz,split)=>{ring.push([ax,az]);if(split)for(let k=1;k<SUB;k++)ring.push([ax+(bx-ax)*k/SUB,az+(bz-az)*k/SUB]);};
+    step(x0,z0,x1,z0,flags[0]);step(x1,z0,x1,z1,flags[1]);step(x1,z1,x0,z1,flags[2]);step(x0,z1,x0,z0,flags[3]);
+    const cx=(x0+x1)/2,cz=(z0+z1)/2,v=(p,q)=>out.push(p,y,q,0,1,0,2);
+    for(let k=0;k<ring.length;k++){const a=ring[k],b=ring[(k+1)%ring.length];v(cx,cz);v(a[0],a[1]);v(b[0],b[1]);}
+  };
+  const cell=(x0,z0,x1,z1,flags)=>{
+    const near=nearOf(x0,z0,x1,z1);
+    if(!near)return flags&&flags.some(Boolean)?fan(x0,z0,x1,z1,flags):tri(x0,z0,x1,z1);
     for(let j=0;j<SUB;j++)for(let i=0;i<SUB;i++){
       const a=x0+(x1-x0)*i/SUB,b=z0+(z1-z0)*j/SUB,c=x0+(x1-x0)*(i+1)/SUB,d=z0+(z1-z0)*(j+1)/SUB,mx=x+(a+c)/2,mz=z+(b+d)/2;
       if(!near.some(r=>mx>=r[0]&&mx<r[2]&&mz>=r[1]&&mz<r[3]))tri(a,b,c,d);
@@ -29,7 +40,9 @@ export function oceanMesh(manifest,cells=96,land=[]) {
   const quad=(x0,z0,x1,z1)=>{
     if(!(x1>x0&&z1>z0))return;
     const nx=Math.ceil((x1-x0)/OCEAN_CELL),nz=Math.ceil((z1-z0)/OCEAN_CELL);
-    for(let j=0;j<nz;j++)for(let i=0;i<nx;i++)cell(x0+(x1-x0)*i/nx,z0+(z1-z0)*j/nz,x0+(x1-x0)*(i+1)/nx,z0+(z1-z0)*(j+1)/nz);
+    const X=i=>x0+(x1-x0)*i/nx,Z=j=>z0+(z1-z0)*j/nz;
+    const split=(i,j)=>i>=0&&j>=0&&i<nx&&j<nz&&!!nearOf(X(i),Z(j),X(i+1),Z(j+1));
+    for(let j=0;j<nz;j++)for(let i=0;i<nx;i++)cell(X(i),Z(j),X(i+1),Z(j+1),buckets.size?[split(i,j-1),split(i+1,j),split(i,j+1),split(i-1,j)]:undefined);
   };
   let centre;
   if(manifest.world_bounds)centre=maelstromCentre(manifest);
