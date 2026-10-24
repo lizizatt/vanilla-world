@@ -86,7 +86,7 @@ export function spaceUniform(view,sun,factors,rects,timeOfDay,near,far,out=new F
     out.set([centre[0]+local[0],centre[1]+local[1],centre[2]+local[2],moon.radius],48+i*4);
     out.set([...moon.tint,0],56+i*4);
   });
-  out[59]=factors.mesh?1:0;
+  out[59]=factors.mesh?1:0;out[63]=factors.registry?1:0;
   return out;
 }
 
@@ -105,6 +105,8 @@ fn bend(rel:vec3f,eyeY:f32,k:f32)->vec3f {
 export const spaceShader=`
 struct S {look:vec4f,right:vec4f,up:vec4f,p:vec4f,sun:vec4f,e:vec4f,u:vec4f,s:vec4f,rect:array<vec4f,4>,moon:array<vec4f,2>,tint:array<vec4f,2>};
 @group(0) @binding(0) var<uniform> s:S;
+@group(0) @binding(1) var surfaceTex:texture_2d<f32>;
+@group(0) @binding(2) var surfaceSamp:sampler;
 const R=${PLANET_RADIUS}.0;
 struct V {@builtin(position) clip:vec4f,@location(0) ndc:vec2f};
 @vertex fn vs(@builtin(vertex_index) i:u32)->V {
@@ -143,10 +145,17 @@ fn surface(pv:vec3f,n:vec3f,d:vec3f,sun:vec3f)->vec3f {
   }
   // Noise is sampled on the unit sphere (x,z circle plus y offset), so it has no seam at the antimeridian.
   let sp=pv.xz*15.0+vec2f(pv.y*5.7,pv.y*3.1);
-  let edge=sdist-2200.0+(fbm(sp)-.5)*9000.0;
+  var edge=sdist-2200.0+(fbm(sp)-.5)*9000.0;
+  var regCol=vec3f(0.0);
+  if(s.tint[1].w>.5){
+    // Registry authority: land weight and colour come from the baked chunk registry, not the rectangle + noise mask.
+    let r=textureSampleLevel(surfaceTex,surfaceSamp,vec2f(lon/6.2831853+.5,.5-lat/3.1415927),0.0);
+    edge=(r.a-.5)*3000.0;regCol=r.rgb;
+  }
   let land=smoothstep(-600.0,600.0,edge);
   let tex=fbm(pv.xz*85.0+vec2f(pv.y*31.0,pv.y*17.0));
-  let ground=mix(vec3f(.2,.38,.14),vec3f(.5,.42,.26),smoothstep(.35,.7,tex));
+  var ground=mix(vec3f(.2,.38,.14),vec3f(.5,.42,.26),smoothstep(.35,.7,tex));
+  if(s.tint[1].w>.5){ground=ground*.5+regCol*(.6+tex*.5);}
   // Deep/shallow body colours are the terrain water shader's, so the sea has no colour step at the loaded-tile edge.
   let sea=mix(vec3f(.025,.18,.29),vec3f(.09,.43,.39),smoothstep(-3000.0,1500.0,edge));
   var col=mix(sea,ground,land);

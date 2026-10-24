@@ -5,7 +5,7 @@ import {FALLBACK_RECTS,globeToFlat,PLANET_RADIUS} from './space.js';
 
 test('uncovered bins are open ocean',() => {
   const r=createRegistry(defaultManifest());
-  assert.deepEqual(r.sample(0,Math.PI),OCEAN);
+  assert.deepEqual(r.sample(0,Math.PI),{...OCEAN,land:0});
   assert.equal(r.cover(0,Math.PI).length,0);
 });
 
