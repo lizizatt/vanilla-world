@@ -1,0 +1,24 @@
+# Globe pivot: status and hardening list
+
+## Milestones
+- M1 seam colour: done (`a7c1445`). M2 planet frame module: done (`39bac14`, not yet used by the renderer).
+- M3: gravity/atmosphere hooks done (`planet-physics.js`). Reversed-Z and WDL globe height NOT done.
+- M4: patch-tree globe + sparse registry, default ON (`257f4ba`..`5cb41fa`).
+- M5 NOT done: bend shader, crossfade ramps and the analytic sphere are still present. The analytic pass still draws
+  atmosphere limb, stars and moons, so it can only shrink, not be deleted outright.
+- M6 NOT verified: hosted fallback (no WoW data) uses `FALLBACK_RECTS`/procedural providers but has no final captures.
+
+## Culling / visibility issues known
+1. Maelstrom: rectangular water-mesh edge (teal vs navy globe) inside the hole at ~5-10k yd.
+2. Ocean fill is one flat quad (130k yd pad); quad edge vs globe at 130k yd is not blended.
+3. Grey horizon band at 200 yd over open ocean.
+4. Patch-tree T-junction cracks hidden only by a 2% edge sink; level-0 sag ~52 yd.
+5. Authored-tile rectangles show as navy rectangles against the globe at ~60k yd (no `adt` provider colour yet).
+6. Valley-haze pose (screenshot) still dim; root cause unconfirmed.
+7. 500 yd Maelstrom pose sits inside the cloud layer.
+8. HUD speed spike for one frame at the pole flip.
+9. Bend vs globe mapping differs ~8% at world edges.
+
+## Harness
+- `ascent-continuity.mjs`: vertical ascent step gate (open sea gated at 30, Maelstrom reported).
+- `audit-culling.mjs`: Monte Carlo pose sweep; the `dark` void test false-positives in space (alt >= 20k looking at sky/limb) and needs a per-altitude expectation before it can gate.
