@@ -23,3 +23,5 @@
 ## Harness
 - `ascent-continuity.mjs`: vertical ascent step gate (open sea gated at 30, Maelstrom reported).
 - `audit-culling.mjs`: Monte Carlo pose sweep; the `dark` void test false-positives in space (alt >= 20k looking at sky/limb) and needs a per-altitude expectation before it can gate.
+
+- M3 heights (c803899): pale cyan block near the limb at 8k yd (pose-h3d-b) not yet diagnosed; colour lookup is not displaced (parallax). Reversed-Z audit still open.
