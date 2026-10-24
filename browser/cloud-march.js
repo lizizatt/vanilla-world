@@ -2,7 +2,7 @@
 // Monte Carlo sweep in clouds-sweep.test.mjs with no GPU. Keep it consistent with the WGSL: the sweep test checks the shared constants and
 // the extent/fade expressions appear verbatim in the shader. The High tier's 3D noise texture is replaced here by the Standard analytic
 // noise (the texture is baked from the same kind of value noise), so High geometry (towers, 28 steps, light tap) is covered, its noise is not.
-import {sphereAt,vnoise3,bandCoverage,flowShift,flowPhase,FLOW} from './cloud-flow.js';
+import {sphereAt,vnoise3,bandCoverage,flowShift,flowPhase,FLOW,maskAt,landCoverage,landDrag} from './cloud-flow.js';
 import {CLOUD_ALTITUDE,CLOUD_THICKNESS,CLOUD_HALF_SIZE,CLOUD_TOWER,MAELSTROM as M,sunDirection} from './clouds.js';
 import {PLANET_RADIUS} from './space.js';
 
@@ -50,7 +50,7 @@ function extentLegacy(eyeY,dirY,sceneDist,high,ya,yb) {
 }
 
 /** Density at a world position: [body, storm, height fraction]; `coverage` may be forced to sweep storm values. */
-export function density(pos,t,high,centre=[0,0],coverageOverride) {
+export function density(pos,t,high,centre=[0,0],coverageOverride,mask) {
   const {ya,up,down}=slab(high);
   const dx=pos[0]-centre[0],dz=pos[2]-centre[1],r=Math.hypot(dx,dz);
   const sp=sphereAt(pos[0],pos[2]);
@@ -59,10 +59,11 @@ export function density(pos,t,high,centre=[0,0],coverageOverride) {
   const storm=Math.exp(-r/M.radius);
   const wall=Math.exp(-(((r-M.wallRadius)/(M.wallRadius*.35))**2));
   const eye=smoothstep(M.eyeRadius,M.eyeRadius*1.5,r);
-  const base=.4+(bandCoverage(sp.lat)+Math.exp(-r/FLOW.vortex.armReach)*(arm-.5)*FLOW.vortex.armCover)*(1-storm);
+  const lm=mask?maskAt(mask,sp.lat,sp.lon):{land:0,lift:0,coast:0},drag=landDrag(lm);
+  const base=.4+(bandCoverage(sp.lat)+landCoverage(lm)+Math.exp(-r/FLOW.vortex.armReach)*(arm-.5)*FLOW.vortex.armCover)*(1-storm);
   const coverage=coverageOverride??clamp(mix(base,mix(.1,.95,arm),storm)+.6*wall,0,.95)*eye;
   const body=tau=>{
-    const s=flowShift(sp.lat,dx,dz,tau),Q=[0,1,2].map(i=>sp.up[i]*PLANET_RADIUS+sp.east[i]*s[0]+sp.north[i]*s[1]);
+    const s=flowShift(sp.lat,dx,dz,tau,drag),Q=[0,1,2].map(i=>sp.up[i]*PLANET_RADIUS+sp.east[i]*s[0]+sp.north[i]*s[1]);
     const grow=smoothstep(.45,.95,coverage)*mix(.4,1,vnoise3(Q[0]/3800+t*.012,Q[1]/3800-t*.009,Q[2]/3800));
     const base=CLOUD_ALTITUDE-CLOUD_THICKNESS/2-down*grow;
     const hf=clamp((pos[1]-base)/(CLOUD_THICKNESS+(up+down)*grow),0,1);
@@ -88,13 +89,13 @@ export function march(o) {
   let trans=1;const light=[0,0,0];
   for(let i=0;i<ns;i++) {
     const ts=ex.s0+ss*(i+jitter),pos=[eye[0]+dir[0]*ts,eye[1]+dir[1]*ts,eye[2]+dir[2]*ts];
-    const s=density(pos,t,high,centre,coverage);
+    const s=density(pos,t,high,centre,coverage,o.mask);
     if(s[0]<=.001)continue;
     const tail=ex.capped?1-ex.cutK*smoothstep(.55,1,(ts-ex.s0)/(ex.s1-ex.s0)):1;
     const w=(1-smoothstep(FADE_START,CLOUD_HALF_SIZE,ts))*.96*ex.sEdge*tail;
     const absorb=(1-Math.exp(-s[0]*ss*.008))*w;
     let shade=1;
-    if(high){const sd=density([pos[0]+sun[0]*ss*2.5,pos[1]+sun[1]*ss*2.5,pos[2]+sun[2]*ss*2.5],t,high,centre,coverage)[0];shade=mix(mix(.65,1,Math.exp(-sd*2)),1,smoothstep(.7,1,s[2]))*(1+.8*Math.max(dot(dir,sun),0)**6);}
+    if(high){const sd=density([pos[0]+sun[0]*ss*2.5,pos[1]+sun[1]*ss*2.5,pos[2]+sun[2]*ss*2.5],t,high,centre,coverage,o.mask)[0];shade=mix(mix(.65,1,Math.exp(-sd*2)),1,smoothstep(.7,1,s[2]))*(1+.8*Math.max(dot(dir,sun),0)**6);}
     const lit=mix(.62,1,s[2])*mix(.75,1,s[1])*(.7+.3*trans)*shade;
     const mixFog=clamp(ts/FOG_RANGE,0,.93);
     for(let k=0;k<3;k++) {

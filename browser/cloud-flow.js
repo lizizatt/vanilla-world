@@ -42,7 +42,7 @@ export function flowPhase(t) {
 /** Wind (east, north) at a point: belt winds. */
 export const wind=(lat,lon)=>beltWind(lat);
 
-export const MASK={w:512,h:256,blur:3,drag:.3,dry:.3,lift:.25,coast:.12,liftScale:.08};
+export const MASK={w:256,h:128,blur:2,drag:.3,dry:.3,lift:.25,coast:.12,liftScale:.08};
 
 /**
  * Land/ocean mask baked once from the tile registry (procedural fallback included), equirect, row 0 = north pole, RGBA8:
@@ -56,13 +56,11 @@ export function bakeLandMask(registry,w=MASK.w,h=MASK.h) {
     land[y*w+x]=s.land??(s.water?0:1);hgt[y*w+x]=s.water?0:Math.max(0,s.h);
   }
   const blur=a=>{
+    const k=MASK.blur,n=2*k+1;
     for(let pass=0;pass<2;pass++) {
-      const b=new Float32Array(w*h),k=MASK.blur;
-      for(let y=0;y<h;y++)for(let x=0;x<w;x++) {
-        let s=0,n=0;
-        for(let j=-k;j<=k;j++){const yy=y+j;if(yy<0||yy>=h)continue;for(let i=-k;i<=k;i++){s+=a[yy*w+(x+i+w)%w];n++;}}
-        b[y*w+x]=s/n;
-      }
+      const t=new Float32Array(w*h),b=new Float32Array(w*h);
+      for(let y=0;y<h;y++)for(let x=0;x<w;x++){let s=0;for(let i=-k;i<=k;i++)s+=a[y*w+(x+i+w)%w];t[y*w+x]=s/n;}
+      for(let y=0;y<h;y++)for(let x=0;x<w;x++){let s=0;for(let j=-k;j<=k;j++)s+=t[Math.min(h-1,Math.max(0,y+j))*w+x];b[y*w+x]=s/n;}
       a=b;
     }
     return a;
@@ -100,9 +98,9 @@ export function vortex(dx,dz) {
   return [v*(-ci*n-si*e),v*(ci*e-si*n)];
 }
 /** Offset of the noise sample point (flat east, north yards) for a flow-map phase of age tau: the belt wind advects linearly, the vortex turns the sample about the centre. */
-export function flowShift(lat,dx,dz,tau) {
+export function flowShift(lat,dx,dz,tau,drag=1) {
   const r=Math.hypot(dx,dz),turn=tau*vortexSpeed(r)*Math.cos(FLOW.vortex.inflow)/Math.max(r,1),cs=Math.cos(turn),sn=Math.sin(turn);
-  const [u,v]=beltWind(lat);
+  const [u,v]=beltWind(lat).map(x=>x*drag);
   return [dx*cs-dz*sn-dx-u*tau,-(dx*sn+dz*cs-dz)-v*tau];
 }
 
@@ -130,12 +128,12 @@ export function vnoise3(x,y,z) {
 export function flowWGSL() {
   const f=x=>Number.isInteger(x)?x.toFixed(1):String(x),B=FLOW.bands;
   return `
-struct Sph {up:vec3f,e:vec3f,n:vec3f,lat:f32};
+struct Sph {up:vec3f,e:vec3f,n:vec3f,lat:f32,lon:f32};
 fn latAt(z:f32)->f32 {return clamp((c.fu.w-z)/${PLANET_RADIUS}.0,-${f(LAT_MAX)},${f(LAT_MAX)});}
 fn sphereAt(xz:vec2f)->Sph {
   let lat=latAt(xz.y);let lon=(xz.x-c.fe.w)/${PLANET_RADIUS}.0;
   let sl=sin(lat);let cl=cos(lat);let so=sin(lon);let co=cos(lon);
-  return Sph(vec3f(cl*co,sl,cl*so),vec3f(-so,0.0,co),vec3f(-sl*co,cl,-sl*so),lat);
+  return Sph(vec3f(cl*co,sl,cl*so),vec3f(-so,0.0,co),vec3f(-sl*co,cl,-sl*so),lat,lon);
 }
 fn hash3(p:vec3f)->f32 {var q=fract(p*.1031);q+=dot(q,q.zyx+31.32);return fract((q.x+q.y)*q.z);}
 fn vnoise3(p:vec3f)->f32 {
@@ -155,9 +153,9 @@ fn bandCoverage(lat:f32)->f32 {
   }
   fn vortexSpeed(r:f32)->f32 {return ${f(FLOW.vortex.speed)}*select((${f(FLOW.vortex.core)}/max(r,1.0))*exp(-(r-${f(FLOW.vortex.core)})/${f(FLOW.vortex.decay)}),r/${f(FLOW.vortex.core)},r<${f(FLOW.vortex.core)});}
   // Flow-map shift of the noise sample (east, north yd) for a phase of age tau: belt wind advects, the vortex turns the sample about the centre.
-  fn flowShift(lat:f32,d:vec2f,tau:f32)->vec2f {
+  fn flowShift(lat:f32,d:vec2f,tau:f32,drag:f32)->vec2f {
     let r=length(d);let turn=tau*vortexSpeed(r)*${f(Math.cos(FLOW.vortex.inflow))}/max(r,1.0);let cs=cos(turn);let sn=sin(turn);
-    let bw=beltWind(lat);
+    let bw=beltWind(lat)*drag;
     return vec2f(d.x*cs-d.y*sn-d.x-bw.x*tau,-(d.x*sn+d.y*cs-d.y)-bw.y*tau);
   }
   // (tauA, tauB, weight of phase A): two phases half a cycle apart, crossfaded where the triangle wave nears a phase reset.
