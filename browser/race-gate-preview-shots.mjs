@@ -13,7 +13,6 @@ const ahead = d => [pos[0] + f[0] * d, pos[1], pos[2] + f[1] * d];
 const WOW = {
   pole: 'World\\Generic\\Human\\Passive Doodads\\FlagPole\\Flagpole01.m2',
   banner: 'World\\Generic\\PVP\\BattlefieldBanners\\BattlefieldBannerHorde.m2',
-  bannerBig: 'World\\Generic\\Orc\\Passive Doodads\\HordeBanners\\HordeBanner01.m2',
   brazier: 'World\\Generic\\Orc\\Passive Doodads\\Braziers\\TallBrazier01.m2',
 };
 

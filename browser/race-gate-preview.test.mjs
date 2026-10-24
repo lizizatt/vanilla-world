@@ -20,6 +20,14 @@ test('A / C / beacon build valid payloads in hosted mode', () => {
   }
 });
 
+test('beacon in real mode draws the pole and ground flag only (no Horde banner model)', () => {
+  const m = new Mesh().box('opaque', [0, 0, 0], [1, 1, 1], [1, 1, 1, 1]).build();
+  const part = { asset: m.asset, textures: m.textures };
+  const list = beacon({ at: [0, 0, 0], yaw: 0, real: { tex: {}, pole: part, bannerBig: part } });
+  assert.equal(list.length, 2);
+  assert.ok(list.every(valid));
+});
+
 test('place follows the craft basis (forward is -z at yaw 0)', () => {
   assert.deepEqual(place([0, 0, 0], 0, [1, 0, 2]).map(v => v + 0), [0, 2, -1]);
 });

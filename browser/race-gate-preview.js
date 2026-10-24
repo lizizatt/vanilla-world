@@ -1,6 +1,6 @@
 // Builds the start gantry (A), checkpoint gate (C) and overworld flag-beacon as prop lists
 // for worldTest.props(). Frame: +x along the road (heading), +y left, +z up, yards. `real` carries preloaded local-asset models
-// ({pole,banner,bannerBig,brazier,lens}: {asset,textures,k}); without it the same shapes are procedural boxes (hosted fallback).
+// ({pole,banner,brazier,lens}: {asset,textures,k}); without it the same shapes are procedural boxes (hosted fallback).
 const WHITE={key:'white',width:1,height:1,rgba:new Uint8Array([255,255,255,255])};
 export const FADE_YD=3.5;
 export const COL={amber:[1,.7,.15,1],red:[1,.12,.08,1],green:[.2,1,.3,1],pole:[.34,.3,.28,1],white:[.95,.95,.95,1],black:[.05,.05,.06,1],dim:[.35,.5,.62,1]};
@@ -135,9 +135,6 @@ export function beacon({ at, yaw, pulse = 1, height = 700, real }) {
   m.column('add', 1.6, 30, height, [1, .75, .25, .6 * pulse], [1, .75, .25, 0], 8);
   m.column('add', 5, 30, height * .6, [1, .6, .2, .12 * pulse], [1, .6, .2, 0], 8);
   const out = [mk(m, at, yaw)];
-  if (real) {
-    out.push(model(at, yaw, [0, 0, 0], real.pole, 3));
-    out.push(model(at, yaw, [.8, 0, 29 - 5.58 * 2.4], real.bannerBig, 2.4));
-  }
+  if (real) out.push(model(at, yaw, [0, 0, 0], real.pole, 3));
   return out;
 }
