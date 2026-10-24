@@ -59,6 +59,12 @@ async function open(page) {
   await page.waitForFunction(()=>worldEvidence.ready||worldEvidence.errors.length,null,{timeout:60000});
   assert.deepEqual(await page.evaluate(()=>worldEvidence.errors),[]);
 }
+// Controls moved into the Game Menu dialog, which opens on Escape.
+async function menuClick(page,selector) {
+  if(!await page.evaluate(()=>document.getElementById('race-menu').open))await page.keyboard.press('Escape');
+  if(selector==='#save')await page.locator('[data-tab=data]').click();
+  await page.locator(selector).click();
+}
 async function retain(page,label) {
   const data=await page.evaluate(()=>{
     const {client,collision,...trace}=coldTrace;
@@ -76,14 +82,20 @@ async function retain(page,label) {
 try {
   const context=await browser.newContext({viewport:{width:1280,height:800},serviceWorkers:'block',
     recordVideo:{dir:fileURLToPath(new URL('video/',output)),size:{width:1280,height:800}}});
-  await context.route('**/world-worker.js',async route=>{
-    const response=await route.fetch();let body=await response.text();
-    for(const [before,after] of [
-      ['let world,source,manifest,','const coldClock={input:0,steps:0};let world,source,manifest,'],
-      ["if(message.action==='frame') {","if(message.action==='frame') {coldClock.input+=message.dt;"],
+  // Worker hooks live in different modules; the clock is shared through globalThis.
+  const coldHooks=new Set();
+  for(const [file,hooks] of [
+    ['world-engine.js',[
+      ['export let world,source,manifest,','const coldClock=globalThis.coldClock={input:0,steps:0};export let world,source,manifest,'],
       ['world.tick(message.throttle,message.steer,tickFlags);','world.tick(message.throttle,message.steer,tickFlags);coldClock.steps++;'],
       ['return {telemetry:Array.from(world.telemetry()),','return {coldClock:{...coldClock,remainder:accumulator},telemetry:Array.from(world.telemetry()),'],
-    ]){assert(body.includes(before),`Missing cold trace hook: ${before}`);body=body.replace(before,after);}
+    ]],
+    ['world-worker-protocol.js',[
+      ["if(message.action==='frame') {","if(message.action==='frame') {globalThis.coldClock.input+=message.dt;"],
+    ]],
+  ])await context.route('**/'+file,async route=>{
+    const response=await route.fetch();let body=await response.text();
+    for(const [before,after] of hooks){assert(body.includes(before),`Missing cold trace hook in ${file}: ${before}`);body=body.replace(before,after);coldHooks.add(before);}
     await route.fulfill({response,body});
   });
   const page=await context.newPage();
@@ -91,15 +103,15 @@ try {
   await page.goto(base);await instrument(page,'fresh');await open(page);
   await page.waitForTimeout(2000);
   await page.keyboard.down('w');await page.waitForTimeout(2000);
-  await page.locator('#fly').click();await page.waitForTimeout(1500);
-  await page.locator('#drive').click();await page.waitForTimeout(2500);await page.keyboard.up('w');
+  await menuClick(page,'#fly');await page.waitForTimeout(1500);
+  await menuClick(page,'#drive');await page.waitForTimeout(2500);await page.keyboard.up('w');
   const fresh=await retain(page,'fresh');
   const idle=fresh.draws.filter(d=>d.t<fresh.draws[0].t+1800);
   assert(Math.max(...idle.map(d=>d.p[1]))-Math.min(...idle.map(d=>d.p[1]))<.001,'Default spawn must not settle from an unrelated height');
   for(const input of fresh.inputs.filter(i=>i.flight!==i.previousFlight)){
     assert(input.pendingAfter<=input.dt+1e-9,'Mode transition must discard old-mode pending time');
   }
-  await page.locator('#save').click();
+  await menuClick(page,'#save');
   await page.waitForFunction(()=>document.getElementById('status').textContent==='Saved.');
   await page.reload();await instrument(page,'saved-reload');await open(page);await page.waitForTimeout(4000);
   const reload=await retain(page,'saved-reload');
@@ -121,7 +133,7 @@ try {
     'Persisted hover must not launch the stationary vehicle');
   const reset=tuned.requests.find(r=>r.action==='reset'),tune=tuned.requests.find(r=>r.action==='tuning');
   assert(reset&&reset.t>=tune.end&&reset.end<=tuned.draws[0].t,'Reinitialize after tuning and before camera reveal');
-  await page.locator('#save').click();
+  await menuClick(page,'#save');
   await page.waitForFunction(()=>document.getElementById('status').textContent==='Saved.');
   await page.reload();await instrument(page,'tuned-saved-reload');await open(page);await page.waitForTimeout(4000);
   const restored=await retain(page,'tuned-saved-reload');

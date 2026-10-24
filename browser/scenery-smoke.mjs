@@ -56,13 +56,20 @@ try {
     const name=new URL(route.request().url()).pathname.slice(1);
     if(name.includes('/'))return route.continue();
     const baseline=process.env.BASELINE==='1';
-    if(!baseline&&name!=='world-worker.js')return route.continue();
+    if(!baseline&&name!=='world-worker-protocol.js')return route.continue();
     let body=baseline?execFileSync('git',['show',`${process.env.BASELINE_REF||'07e1332'}:browser/${name}`],{encoding:'utf8'}):
       await (await route.fetch()).text();
-    if(name==='world-worker.js')body=body.replace("if(message.action==='open')",`if(message.action==='scene-probe')
+    if(name==='world-worker-protocol.js'||(baseline&&name==='world-worker.js')){
+      const probe=`if(message.action==='scene-probe')
       return {missing:[...scene.requests.values()].filter(r=>!scene.cache.has(r.key)),capacity:scene.capacityBlocked,
         roots:[...scene.cache].filter(([k])=>k.startsWith('wmo:')).map(([k,e])=>({key:k,groups:e.value.groups.length}))};
-    if(message.action==='open')`);
+    if(message.action==='open')`;
+      const patched=body.replace("if(message.action==='open')",probe);
+      assert.notEqual(patched,body,'Missing scene-probe injection point');
+      // The probe reads engine state, which the protocol module must import.
+      body=baseline?patched:patched.replace("import {ready,","import {scene,ready,");
+      assert(baseline||body.includes('import {scene,ready,'),'Missing protocol engine import');
+    }
     await route.fulfill({contentType:'text/javascript',body});
   });
   await context.addInitScript(()=>{
