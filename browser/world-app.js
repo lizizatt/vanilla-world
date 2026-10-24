@@ -5,7 +5,7 @@ import {worldSave,worldTuning,validateWorldSave,LAYOUT_VERSION,raceScores,trackO
 import {overview,moveFlight,FLIGHT_PITCH} from './flight.js';
 import {mapIcons} from './worldmap.js';
 import {maelstromCentre} from './clouds.js';
-import {basis,fromEuler,toEuler,stepOrient} from './orient.js';
+import {basis,fromEuler,toEuler,stepOrient,turnAround} from './orient.js';
 import {spaceHud} from './space.js';
 import {WorldInput,DRIVE_KEYS} from './world-input.js';
 import {WorldAudio} from './world-audio.js';
@@ -663,8 +663,8 @@ function frame(now) {
       let q=flight.length>=9&&Math.abs(Math.sin(yaw-flight[3]))<1e-6&&Math.abs(pitch-flight[4])<1e-6?flight.slice(5,9):fromEuler(flight[3],flight[4]);
       const dk=k=>Number(keys.has(k));
       q=keys.has('KeyX')?fromEuler(toEuler(q,flight[3])[0],-FLIGHT_PITCH):stepOrient(q,{yaw:(dk('ArrowLeft')-dk('ArrowRight'))*dt-cameraOrbit[0]*.004,pitch:(dk('ArrowUp')-dk('ArrowDown'))*dt-cameraOrbit[1]*.004},flight[1],dt);
-      const aim=basis(q),[ny,np]=toEuler(q,flight[3]);
-      flight=moveFlight(flight,keys,dt,aim);flightSpeed=dt>0?Math.hypot(flight[0]-before[0],flight[1]-before[1],flight[2]-before[2])/dt:0;
+      const aim=basis(q);
+      flight=moveFlight(flight,keys,dt,aim);if(flight.poleFlip)q=turnAround(q);const [ny,np]=toEuler(q,flight[3]);flightSpeed=dt>0?Math.hypot(flight[0]-before[0],flight[1]-before[1],flight[2]-before[2])/dt:0;
       flight[3]=ny;flight[4]=np;flight.length=5;flight.push(...q);
     }
     if(race){flight=undefined;if(!raceMenu.open)raceFrame(controls,now/1000);}

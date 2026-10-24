@@ -30,7 +30,7 @@ export function horizonDip(altitude,bend=1,radius=PLANET_RADIUS) {
   const k=radius/(radius+Math.max(0,altitude));return Math.sqrt(1-k*k)*bend;
 }
 export function planetFrame(x,z,centre=WORLD_CENTRE,radius=PLANET_RADIUS) {
-  const lon=(x-centre[0])/radius,lat=Math.max(-1.4,Math.min(1.4,-(z-centre[1])/radius));
+  const lon=(x-centre[0])/radius,lat=Math.max(-LAT_MAX,Math.min(LAT_MAX,-(z-centre[1])/radius));
   const [sl,cl,sp,cp]=[Math.sin(lon),Math.cos(lon),Math.sin(lat),Math.cos(lat)];
   return {east:[-sl,0,cl],up:[cp*cl,sp,cp*sl],south:[sp*cl,-cp,sp*sl]};
 }
@@ -42,13 +42,17 @@ export function subPoint(x,z,centre=WORLD_CENTRE,radius=PLANET_RADIUS) {
 export function globeToFlat(lat,lon,centre=WORLD_CENTRE,radius=PLANET_RADIUS) {
   return [centre[0]+radius*lon,centre[1]-radius*lat];
 }
-/** Flight stays on the globe: longitude wraps around the planet and latitude stops short of the poles (the frame clamps there). */
+/** Flight stays on the globe: longitude wraps and flying over a pole continues down the far meridian (lat' = pi - lat, lon + pi), returning flipped=true so the caller turns the heading half a turn. */
 export function wrapFlat(x,z,centre=WORLD_CENTRE,radius=PLANET_RADIUS) {
-  const turn=2*Math.PI*radius,half=turn/2;
-  const dx=((x-centre[0]+half)%turn+turn)%turn-half,lim=1.4*radius;
-  return [centre[0]+dx,Math.max(centre[1]-lim,Math.min(centre[1]+lim,z))];
+  const turn=2*Math.PI*radius,half=turn/2,TAU=2*Math.PI;
+  let lat=-(z-centre[1])/radius,dx=x-centre[0],flipped=false;
+  lat=((lat+Math.PI)%TAU+TAU)%TAU-Math.PI;
+  if(Math.abs(lat)>Math.PI/2){lat=Math.sign(lat)*Math.PI-lat;dx+=half;flipped=true;}
+  dx=((dx+half)%turn+turn)%turn-half;
+  const k=Math.PI/2-1e-4;
+  return [centre[0]+dx,Math.abs(z-centre[1])>k*radius?centre[1]-radius*Math.max(-k,Math.min(k,lat)):z,flipped];
 }
-/** Continent under a flat position from the populated continent rectangles (first = Kalimdor, second = Eastern Kingdoms). */
+export const LAT_MAX=Math.PI/2-1e-4;/** Continent under a flat position from the populated continent rectangles (first = Kalimdor, second = Eastern Kingdoms). */
 export function placeName(x,z,rects=FALLBACK_RECTS) {
   const inside=r=>x>=r[0]&&x<=r[2]&&z>=r[1]&&z<=r[3];
   return inside(rects[0])?'KALIMDOR':rects[1]&&inside(rects[1])?'EASTERN KINGDOMS':'THE GREAT SEA';

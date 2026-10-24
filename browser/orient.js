@@ -10,6 +10,7 @@ export function rotate(q,v) {
   const [x,y,z,w]=q,t=[2*(y*v[2]-z*v[1]),2*(z*v[0]-x*v[2]),2*(x*v[1]-y*v[0])];
   return [v[0]+w*t[0]+y*t[2]-z*t[1],v[1]+w*t[1]+z*t[0]-x*t[2],v[2]+w*t[2]+x*t[1]-y*t[0]];
 }
+export const turnAround=q=>mul(axisAngle([0,1,0],Math.PI),q);
 export const basis=q=>({right:rotate(q,[1,0,0]),up:rotate(q,[0,1,0]),look:rotate(q,[0,0,-1])});
 export const fromEuler=(yaw,pitch)=>unit(mul(axisAngle([0,1,0],yaw),axisAngle([1,0,0],pitch)));
 /** Yaw/pitch of the forward direction; at the poles the previous yaw is kept so it never snaps. */

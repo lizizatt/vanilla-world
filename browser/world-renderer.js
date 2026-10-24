@@ -8,6 +8,7 @@ import {WATER_NORMAL_SIZE,waterNormalMips,waterShading,dayShading} from './water
 import {shadowShader,shadowUniform,shadowHalf} from './shadow.js';
 import {cloudShader,cloudShaderHigh,cloudUniform,maelstromCentre,sunDirection,bakeCloudNoise,CLOUD_NOISE_SIZE,resolveCloudQuality,SlowFrameGuard} from './clouds.js';
 import {oceanMesh} from './ocean-mesh.js';
+const OCEAN_FILL=130000;
 import {ParticlePool,exhaustPoints,emitPlumes,emitBurst,emitDebris,emitHeatSmoke,emitGroundDust,QUALITY,INSTANCE_FLOATS,CAPACITY,particleShader,particleUniform} from './particles.js';
 import {flagMesh,gateMesh} from './race-flags.js';
 import {beamState} from './beam.js';
@@ -500,7 +501,9 @@ export class WorldRenderer {
       size:[64*MINIMAP_SIZE,64*MINIMAP_SIZE],format:'rgba8unorm',
       usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST}));
     const [x,z]=manifest.ocean;
-    this.water.push(this.drawable(oceanMesh(manifest),[x,z]));
+    // Open ocean beyond the authored rectangle: the same water mesh extended to roughly half the planet circumference.
+    const pad=OCEAN_FILL,[,,right,bottom]=manifest.ocean;
+    this.water.push(this.drawable(oceanMesh({...manifest,ocean:[x-pad,z-pad,right+pad,bottom+pad]}),[x-pad,z-pad]));
     const pending=this.pendingEvents;this.pendingEvents=[];
     for(const data of pending)this.event(data);
   }

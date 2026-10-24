@@ -31,6 +31,6 @@ export function moveFlight(pose,keys,dt,aim) {
   p[0]+=(look[0]*f+right[0]*s)*horizontal;
   p[2]+=(look[2]*f+right[2]*s)*horizontal;
   p[1]=Math.max(-10000,Math.min(FLIGHT_CEILING,p[1]+(look[1]*f+down('KeyE')-down('KeyQ'))*vertical));
-  [p[0],p[2]]=wrapFlat(p[0],p[2]);
+  let flipped;[p[0],p[2],flipped]=wrapFlat(p[0],p[2]);if(flipped){p[3]+=Math.PI;p.poleFlip=true;}
   return p;
 }
