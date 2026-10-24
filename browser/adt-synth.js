@@ -10,7 +10,7 @@ export const mcvtOffsets=()=>{const o=[],s=ADT_CHUNK/8;
   for(let r=0;r<17;r++)for(let c=0;c<(r%2?8:9);c++)o.push([c*s+(r%2?s/2:0),(r>>1)*s+(r%2?s/2:0)]);return o;};
 
 /** `height(x,z)` takes tile-local yd (x east, z south) and returns yd above sea level. */
-export function synthAdt(height,texture='Tileset\\Generic\\Black.blp') {
+export function synthAdt(height,tx=0,ty=0,texture='Tileset\\Generic\\Black.blp') {
   const parts=[],ver=new Uint8Array(4);ver[0]=18;parts.push(chunk('MVER',ver));
   parts.push(chunk('MTEX',new TextEncoder().encode(texture+'\0')));
   const offs=mcvtOffsets();
@@ -23,7 +23,8 @@ export function synthAdt(height,texture='Tileset\\Generic\\Black.blp') {
     const head=new Uint8Array(128),hv=new DataView(head.buffer);
     hv.setUint32(4,cx,true);hv.setUint32(8,cy,true);
     let at=128;[0x14,0x18,0x1c].forEach((slot,i)=>{hv.setUint32(slot,at,true);at+=sub[i].length;});
-    hv.setFloat32(0x68,0,true);hv.setFloat32(0x6c,0,true);hv.setFloat32(0x70,0,true);
+    // header position is the chunk's north-west corner in WoW axes (x north, y west)
+    hv.setFloat32(0x68,(32-ty)*ADT_TILE-cy*ADT_CHUNK,true);hv.setFloat32(0x6c,(32-tx)*ADT_TILE-cx*ADT_CHUNK,true);hv.setFloat32(0x70,0,true);
     const body=new Uint8Array(at);body.set(head);let p=128;for(const s of sub){body.set(s,p);p+=s.length;}
     parts.push(chunk('MCNK',body));
   }
