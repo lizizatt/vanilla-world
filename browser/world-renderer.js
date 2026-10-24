@@ -508,7 +508,7 @@ export class WorldRenderer {
     const [x,z]=manifest.ocean;
     // Open ocean beyond the authored rectangle: the same water mesh extended to roughly half the planet circumference.
     const pad=OCEAN_FILL,[,,right,bottom]=manifest.ocean;
-    this.oceanSpec={manifest:{...manifest,ocean:[x-pad,z-pad,right+pad,bottom+pad]},origin:[x-pad,z-pad]};this.landRects=[];this.oceanFill=this.drawable(oceanMesh(this.oceanSpec.manifest),this.oceanSpec.origin);this.water.push(this.oceanFill);
+    this.oceanSpec={manifest:{...manifest,ocean:[x-pad,z-pad,right+pad,bottom+pad],whirlpool:manifest.world_bounds&&maelstromCentre(manifest)},origin:[x-pad,z-pad]};this.landRects=[];this.oceanFill=this.drawable(oceanMesh(this.oceanSpec.manifest),this.oceanSpec.origin);this.water.push(this.oceanFill);
     const pending=this.pendingEvents;this.pendingEvents=[];
     for(const data of pending)this.event(data);
   }

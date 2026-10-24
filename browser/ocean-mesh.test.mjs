@@ -20,6 +20,11 @@ test('ocean mesh dips to the profile bottom and stays flat elsewhere',()=>{
   assert.equal(m.length%21,0);
   assert.ok(cx>-30000&&cz>-30000);
 });
+test('an explicit whirlpool centre wins over the one derived from a padded ocean',()=>{
+  const centre=maelstromCentre(manifest),padded={...manifest,ocean:[-130000,-130000,130000,130000],whirlpool:centre},m=oceanMesh(padded,16);
+  let at;for(let i=0;i<m.length;i+=7)if(m[i+1]===-WHIRLPOOL_DIP.depth)at=[m[i]+padded.ocean[0],m[i+2]+padded.ocean[1]];
+  assert.ok(Math.hypot(at[0]-centre[0],at[1]-centre[1])<1e-6*Math.max(1,Math.abs(centre[0])));
+});
 test('without world bounds the ocean is a flat grid of bendable cells',()=>{
   const m=oceanMesh({...manifest,world_bounds:undefined});
   assert.equal(m.length,42*Math.ceil(60000/OCEAN_CELL)**2);assert.ok(m.every((v,i)=>i%7!==1||v===0));

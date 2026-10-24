@@ -31,8 +31,8 @@ export function oceanMesh(manifest,cells=96,land=[]) {
     const nx=Math.ceil((x1-x0)/OCEAN_CELL),nz=Math.ceil((z1-z0)/OCEAN_CELL);
     for(let j=0;j<nz;j++)for(let i=0;i<nx;i++)cell(x0+(x1-x0)*i/nx,z0+(z1-z0)*j/nz,x0+(x1-x0)*(i+1)/nx,z0+(z1-z0)*(j+1)/nz);
   };
-  let centre;
-  if(manifest.world_bounds)centre=maelstromCentre(manifest);
+  // The renderer pads manifest.ocean, which moves the map-derived centre, so it passes the true one in manifest.whirlpool.
+  const centre=manifest.whirlpool||(manifest.world_bounds?maelstromCentre(manifest):undefined);
   const R=WHIRLPOOL_DIP.radius;
   if(!centre||centre[0]-R<x||centre[0]+R>right||centre[1]-R<z||centre[1]+R>bottom||!(WHIRLPOOL_DIP.depth>0)) {
     quad(0,0,w,h);return new Float32Array(out);
