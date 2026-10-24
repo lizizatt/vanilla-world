@@ -103,7 +103,7 @@ export const bendShader=`
 fn bend(rel:vec3f,eyeY:f32,k:f32)->vec3f {
   let d=length(rel.xz);
   if(k<=0.0||d<1.0){return rel;}
-  let R=${PLANET_RADIUS}.0;let th=d/R;let rr=R+rel.y+eyeY;
+  let R=${PLANET_RADIUS}.0;let th=min(d/R,3.0);let rr=R+rel.y+eyeY;
   let h=rr*sin(th);let y=rr*cos(th)-R-eyeY;
   let s=mix(d,h,k)/d;
   return vec3f(rel.x*s,mix(rel.y,y,k),rel.z*s);
@@ -251,6 +251,8 @@ fn patchPos(p:vec4f,ij:vec2u)->vec3f {
   let n=normalize(v.n);let d=normalize(v.w);
   // Shade with the displaced face normal: the radial normal made cliffs seen at the limb glow rim-cyan.
   var ng=cross(dpdx(v.w),dpdy(v.w));ng=select(n,normalize(ng),dot(ng,ng)>1e-6);ng=select(-ng,ng,dot(ng,n)>=0.0);
+  // Open sea (no relief) keeps the smooth radial normal; chord facets of the 16x16 grid otherwise show as blocky specular glint.
+  ng=normalize(mix(n,ng,smoothstep(2.0,30.0,length(v.w-vec3f(0.0,-(R+s.p.x),0.0))-R)));
   let dz=dot(d,s.look.xyz);let dt=sphereT(vec3f(0.0),d,vec3f(0.0,-(R+s.p.x),0.0),DEPTH_R);
   // Rays that miss the depth sphere graze the surface; write far depth so terrain behind the limb is never culled by the globe.
   let zz=select(1.0e9,max(dt*dz,1.0/v.clip.w),dt>0.0);
