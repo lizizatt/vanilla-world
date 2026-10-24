@@ -75,3 +75,9 @@ test('cloud quality: auto is High when supported, explicit choices win, slow fra
   const g=new SlowFrameGuard();let r=false;for(let i=0;i<200;i++)r=g.push(40)||r;assert.ok(r);
   const h=new SlowFrameGuard();r=false;for(let i=0;i<400;i++)r=h.push(16)||r;assert.ok(!r);assert.ok(!h.push(5000));
 });
+
+test('funnel base is sparse and un-bent onto the curved water',()=>{
+  assert.ok(FUNNEL.baseDensity>0&&FUNNEL.baseDensity<.3&&FUNNEL.sparseHeight>500);
+  assert.match(cloudShader,/mix\(0\.120,1\.0,smoothstep\(SEA,SEA\+2200\.0,pos\.y\)\)/);
+  assert.match(cloudShader,/bendInv\(dir\*tf\)/);
+});

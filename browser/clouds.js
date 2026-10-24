@@ -51,7 +51,7 @@ export function cloudUniform(view,time,daylight,manifest,near,game,out=new Float
 
 // Funnel: a tapered, rotating column rising far above the sheet at the maelstrom centre (yards). Tunable.
 // The column continues below the sheet down to sea level, flaring into a mist skirt (skirtRadius) at the whirlpool.
-export const FUNNEL={top:7500,seaLevel:-WHIRLPOOL_DIP.depth,skirtRadius:1700,baseRadius:500,topRadius:3200,flare:1.5,spin:.5,twist:5,fadeStart:90000,fadeEnd:170000};
+export const FUNNEL={top:7500,seaLevel:-WHIRLPOOL_DIP.depth,skirtRadius:1700,baseRadius:500,baseDensity:.12,sparseHeight:2200,topRadius:3200,flare:1.5,spin:.5,twist:5,fadeStart:90000,fadeEnd:170000};
 const COMMON=`
 struct C {eye:vec4f,right:vec4f,up:vec4f,look:vec4f,cloud:vec4f,near:vec4f,tint:vec4f,fog:vec4f,sun:vec4f,sunCol:vec4f,cloud2:vec4f,bend:vec4f,fe:vec4f,fu:vec4f,fs:vec4f};
 @group(0) @binding(0) var<uniform> c:C;
@@ -178,6 +178,28 @@ fn radius(h:f32,y:f32)->f32 {
   let up=mix(${F.baseRadius.toFixed(1)},${F.topRadius.toFixed(1)},pow(h,${F.flare.toFixed(2)}));
   return mix(${F.skirtRadius.toFixed(1)},up,pow(smoothstep(SEA,BASE,y),.5));
 }
+// Terrain/water bend (space.js bendShader) forward, and its inverse for a render-frame point: the funnel is defined in the flat world, so
+// each march sample is un-bent to keep its base on the curved water surface.
+fn bendK()->f32 {return clamp(c.bend.x*${PLANET_RADIUS}.0,0.0,1.0);}
+fn bendFwd(rel:vec3f)->vec3f {
+  let k=bendK();let d=length(rel.xz);
+  if(k<=0.0||d<1.0){return rel;}
+  let R=${PLANET_RADIUS}.0;let th=min(d/R,3.0);let rr=R+rel.y+c.eye.y;
+  let s=mix(d,rr*sin(th),k)/d;
+  return vec3f(rel.x*s,mix(rel.y,rr*cos(th)-R-c.eye.y,k),rel.z*s);
+}
+fn bendInv(rel:vec3f)->vec3f {
+  let k=bendK();let dr=length(rel.xz);
+  if(k<=0.0||dr<1.0){return rel;}
+  let R=${PLANET_RADIUS}.0;let E=R+c.eye.y;
+  var d=dr;var y0=rel.y;
+  for(var i=0;i<3;i++){
+    let th=min(d/R,3.0);let ct=cos(th);
+    y0=(rel.y-k*E*(ct-1.0))/(1.0-k+k*ct);
+    d=d+dr-mix(d,(E+y0)*sin(th),k);
+  }
+  return vec3f(rel.xz.x*d/dr,y0,rel.xz.y*d/dr);
+}
 fn funnelDensity(pos:vec3f,t:f32)->vec2f {
   let h=clamp((pos.y-BASE)/(TOP-BASE),0.0,1.0);
   let d=pos.xz-c.cloud.xy;let r=length(d);
@@ -186,7 +208,9 @@ fn funnelDensity(pos:vec3f,t:f32)->vec2f {
   let a=atan2(-d.y,d.x)+${F.twist.toFixed(2)}*h-t*${F.spin.toFixed(2)};
   let n=.6*vnoise(vec2f(cos(a),sin(a))*2.6+vec2f(h*9.0,rel*3.0))+.4*vnoise(vec2f(cos(a*2.0),sin(a*2.0))*4.0+vec2f(h*23.0-t*.3,rel*6.0));
   let shell=smoothstep(1.05,.55,rel)*(.5+.9*n);
-  let body=shell*smoothstep(SEA,SEA+250.0,pos.y)*smoothstep(1.0,.82,h);
+  // Sparse near the base: dust thins to baseDensity at sea level, full density by sparseHeight above it.
+  let thin=mix(${F.baseDensity.toFixed(3)},1.0,smoothstep(SEA,SEA+${F.sparseHeight.toFixed(1)},pos.y));
+  let body=shell*thin*smoothstep(SEA,SEA+250.0,pos.y)*smoothstep(1.0,.82,h);
   return vec2f(body,h);
 }
 // Sun-lit edges: forward scatter (silver lining, strongest looking toward the sun through thin cloud), fading out as the sun sets.
@@ -231,7 +255,7 @@ const NF=14;
   if(live&&s1>s0&&sEdge>0.0&&s0<select(c.cloud.w,1e8,shell)){ns=NS;}
   // Funnel cylinder-and-height extent.
   var f0=0.0;var f1=1e9;var nf=NF;var fEdge=1.0;
-  let o=c.eye.xz-c.cloud.xy;let dxz=dir.xz;
+  let oc=bendFwd(vec3f(c.cloud.x-c.eye.x,0.0,c.cloud.y-c.eye.z));let o=-oc.xz;let dxz=dir.xz;
   let R=${Math.max(F.topRadius,F.skirtRadius).toFixed(1)}*1.05;
   let qa=dot(dxz,dxz);let qb=dot(o,dxz);let qk=dot(o,o)-R*R;
   if(qa>1e-8){
@@ -239,9 +263,9 @@ const NF=14;
     if(disc<0.0){nf=0;} else {let sq=sqrt(disc);f0=max(0.0,(-qb-sq)/qa);f1=(-qb+sq)/qa;}
   } else if(qk>0.0){nf=0;}
   if(abs(dir.y)>1e-4){
-    let ta=(SEA-c.eye.y)/dir.y;let tb=(TOP-c.eye.y)/dir.y;
+    let ta=(SEA-120.0+oc.y-c.eye.y)/dir.y;let tb=(TOP+120.0+oc.y-c.eye.y)/dir.y;
     f0=max(f0,min(ta,tb));f1=min(f1,max(ta,tb));
-  } else if(c.eye.y<SEA||c.eye.y>TOP){nf=0;}
+  } else if(c.eye.y<SEA+oc.y-120.0||c.eye.y>TOP+oc.y+120.0){nf=0;}
   if(sceneDist<1e8){fEdge=smoothstep(0.0,300.0,sceneDist-f0);f1=min(f1,sceneDist);}
   if(f1<=f0||fEdge<=0.0){nf=0;}
   if(ns==0&&nf==0){discard;}
@@ -275,7 +299,7 @@ const NF=14;
       light+=trans*absorb*mix(tone*grade,fog,clamp(dd/150000.0,0.0,.93));trans*=1.0-absorb;
     } else {
       j++;
-      let pos=c.eye.xyz+dir*tf;
+      let pos=c.eye.xyz+bendInv(dir*tf);
       let s=funnelDensity(pos,t);
       if(s.x<=.001){continue;}
       let absorb=(1.0-exp(-s.x*fstep*.004))*fWeight;
