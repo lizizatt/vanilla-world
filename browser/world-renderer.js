@@ -9,6 +9,8 @@ import {shadowShader,shadowUniform,shadowHalf} from './shadow.js';
 import {cloudShader,cloudShaderHigh,cloudUniform,maelstromCentre,sunDirection,bakeCloudNoise,CloudMask,CLOUD_NOISE_SIZE,resolveCloudQuality,SlowFrameGuard} from './clouds.js';
 import {oceanMesh} from './ocean-mesh.js';
 const OCEAN_FILL=130000;
+// Above this the globe's own sea replaces the flat ocean mesh, whose padded edge otherwise shows as a hard lit/unlit seam on the planet.
+const OCEAN_MESH_CEILING=25000;
 import {ParticlePool,exhaustPoints,emitPlumes,emitBurst,emitDebris,emitHeatSmoke,emitGroundDust,QUALITY,INSTANCE_FLOATS,CAPACITY,particleShader,particleUniform} from './particles.js';
 import {flagMesh,gateMesh} from './race-flags.js';
 import {beamState} from './beam.js';
@@ -919,7 +921,7 @@ export class WorldRenderer {
     const coastal=[...this.coast].flatMap(([index,item])=>
       this.tiles.has(index)?item.backing?[item.backing]:[]:settings.horizon?[item]:[]);
     this.refreshOcean();
-    const allTerrain=this.cameraBlocked?[]:[...distant,...this.tiles.values(),...(settings.horizon?this.seams.values():[]),...this.water,...coastal,...this.flags,...this.gates];
+    const allTerrain=this.cameraBlocked?[]:[...distant,...this.tiles.values(),...(settings.horizon?this.seams.values():[]),...(this.view.eye[1]>OCEAN_MESH_CEILING&&planetOn?this.water.filter(w=>w!==this.oceanFill):this.water),...coastal,...this.flags,...this.gates];
     if(!flight&&!this.craft&&!this.cameraBlocked)allTerrain.push(this.body);
     const cachedView=this.terrainView;
     if(!cachedView || cachedView.bent!==(pf.bend>0) || viewChanged(cachedView.view,this.view) ||
