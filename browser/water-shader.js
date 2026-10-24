@@ -30,7 +30,7 @@ export function waterNormalMips() {
 }
 
 // Maelstrom whirlpool (visual only): tunables in yards. The centre arrives local to the camera origin in u.sky[1..2].w, enabled by u.sky[3].w.
-export const WHIRLPOOL={radius:2600,core:260,tilt:.8,spin:.35,twist:2.4,arms:4,pitch:1.1};
+const WHIRLPOOL={radius:2600,core:260,tilt:.8,spin:.35,twist:2.4,arms:4,pitch:1.1};
 const W=WHIRLPOOL;
 export const dayShading=`
 fn nightK()->f32 {return 1.0-u.forward.w;}

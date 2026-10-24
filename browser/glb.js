@@ -4,7 +4,7 @@
 // +z up), which `craftMatrix` maps into the world. Markers: nodes named Cockpit, EngineL/EngineR (kept as parts)
 // and ExhaustL/ExhaustR (empties where flames are drawn) are reported in model space.
 const MAGIC=0x46546C67,JSON_CHUNK=0x4E4F534A,BIN_CHUNK=0x004E4942;
-export const LIMITS={indices:120000,vertices:120000,textures:16};
+const LIMITS={indices:120000,vertices:120000,textures:16};
 const TYPES={5120:Int8Array,5121:Uint8Array,5122:Int16Array,5123:Uint16Array,5125:Uint32Array,5126:Float32Array};
 const WIDTH={SCALAR:1,VEC2:2,VEC3:3,VEC4:4};
 const NORMALIZE={5120:127,5121:255,5122:32767,5123:65535};

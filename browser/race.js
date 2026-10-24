@@ -1,9 +1,9 @@
 // Pure race state machine. Positions are render-space yards [x,y,z]; yaw is radians, forward = (-sin yaw, -cos yaw) like the craft.
 // idle -> lineup -> countdown -> running -> finished | cancelled. No DOM, no clocks: callers pass `now` seconds.
 export const BREAKOFF_MARGIN=500;
-export const COUNTDOWN_SECONDS=3;
+const COUNTDOWN_SECONDS=3;
 // Vehicle classes that can race (free flight has no races); see vehicles.js.
-export const RACE_VEHICLES={podracer:1};
+const RACE_VEHICLES={podracer:1};
 
 const dist=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2]);
 const finite=v=>Array.isArray(v)&&v.length===3&&v.every(Number.isFinite);

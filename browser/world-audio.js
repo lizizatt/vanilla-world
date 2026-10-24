@@ -142,7 +142,7 @@ export class WorldAudio {
     try {
       const source=this.context.createBufferSource(),node=this.context.createGain();
       source.buffer=await this.context.decodeAudioData(bytes.slice().buffer);node.gain.value=gain;source.connect(node);node.connect(this.master);source.start();
-    } catch {}
+    } catch {/* undecodable stinger: stay silent */}
   }
   // Looping music (race track); a newer call or stopLoop() replaces it.
   async loopMusic(bytes,gain=.6) {
@@ -157,7 +157,7 @@ export class WorldAudio {
       this.loop=source;return true;
     } catch {return false;}
   }
-  stopLoop() {this.loopToken=(this.loopToken||0)+1;try{this.loop?.stop();}catch{}this.loop=undefined;}
+  stopLoop() {this.loopToken=(this.loopToken||0)+1;try{this.loop?.stop();}catch{/* already stopped */}this.loop=undefined;}
   cue(name,gain=.8) {
     const buffer=this.samples?.buffers[name];
     if(!buffer || !this.sampleOn || !this.enabled || !this.active || this.context.state!=='running')return;
@@ -169,7 +169,7 @@ export class WorldAudio {
     const b=this.samples?.buffers,start=b?.sfx_pod_binder_activate_a,loop=b?.sfx_pod_binder_steady_loop;
     on=on&&!!start&&!!loop&&this.sampleOn&&this.enabled&&this.context?.state==='running';
     if(on===!!this.drifting)return;
-    if(!on){try{this.drifting.stop();}catch{}this.drifting=undefined;return;}
+    if(!on){try{this.drifting.stop();}catch{/* already stopped */}this.drifting=undefined;return;}
     const t=this.context.currentTime,gain=this.context.createGain(),source=this.context.createBufferSource();
     gain.gain.value=.5;gain.connect(this.master);source.buffer=loop;source.loop=true;source.connect(gain);source.start(t+start.duration);
     this.cue('sfx_pod_binder_activate_a',.6);this.drifting=source;
@@ -179,7 +179,7 @@ export class WorldAudio {
     const held=this.held??={},b=name&&this.samples?.buffers[name];
     const want=b&&this.sampleOn&&this.enabled&&this.active&&this.context?.state==='running'?name:undefined;
     if(held[key]?.name===want)return;
-    try{held[key]?.source.stop();}catch{}
+    try{held[key]?.source.stop();}catch{/* already stopped */}
     delete held[key];
     if(!want)return;
     const gainNode=this.context.createGain(),source=this.context.createBufferSource();

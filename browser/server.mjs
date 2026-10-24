@@ -2,14 +2,25 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.json':'application/json', '.svg':'image/svg+xml', '.glb':'model/gltf-binary' };
-const allowed = /^\/(?:index\.html|world-(?:app|client|worker|store|renderer|camera|input|audio|music|tuning|view)\.js|far-(?:worker|stream|channel)\.js|asset-(?:source|folder|channel|worker)\.js|(?:scene|terrain|water|craft)-stream\.js|npc-pack\.js|actors\.js|hud-model\.js|wander\.js|loading-art\.js|wreck\.js|beam\.js|water-shader\.js|clouds\.js|cloud-flow\.js|particles\.js|shadow\.js|race(?:-flags|-gate-preview|-gates)?\.js|track-edit(?:or)?\.js|vehicles\.js|swe1r\/(?:folder|attach|cache|ui|voice-map|block|comp|image|names|model|pod|skin|sfx|hud)\.js|swe1r\/voice-map\.json|glb\.js|vehicle-model\.js|vehicles\/[a-z0-9-]+\.glb|tracks\/[a-z0-9-]+\.json|ocean-mesh\.js|worldmap\.js|map-panel\.js|music\.js|sky\.js|space\.js|globe-patches\.js|planet-frame\.js|tile-registry\.js|height-bake\.js|adt-synth\.js|demo-source\.js|orient\.js|camera-collision\.js|flight\.js|style\.css|icon\.svg|sw\.js|npc-pack\.json|local\/npc-spawns\.json|pkg\/flats_racer_web(?:_bg\.wasm|\.js))$/;
+// Served files = the service worker's precache list (single source of truth, re-read per request so new files need no restart) plus optional local-only assets.
+const optional = /^\/(?:vehicles\/[a-z0-9-]+\.glb|local\/npc-spawns\.json|npc-pack\.json)$/;
+let cached = { at: 0, set: new Set() };
+async function shellFiles() {
+  if (Date.now() - cached.at > 1000) {
+    const sw = await readFile(new URL('./sw.js', import.meta.url), 'utf8');
+    const list = /const FILES = (\[[\s\S]*?\]);/.exec(sw);
+    const files = list ? JSON.parse(list[1].replace(/'/g, '"')) : [];
+    cached = { at: Date.now(), set: new Set([...files.map(f => f.slice(1)), '/sw.js', '/index.html']) };
+  }
+  return cached.set;
+}
 const server = http.createServer(async (request, response) => {
   let path;
   try { path = new URL(request.url, 'http://localhost').pathname; }
   catch { response.writeHead(400).end('Invalid URL'); return; }
   const file = path === '/' ? '/index.html' : path;
   if(file==='/favicon.ico' && request.method==='GET'){response.writeHead(204).end();return;}
-  if (request.method !== 'GET' || !allowed.test(file)) {
+  if (request.method !== 'GET' || !((await shellFiles()).has(file) || optional.test(file))) {
     response.writeHead(404).end('Not found');
     return;
   }

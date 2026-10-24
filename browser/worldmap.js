@@ -24,7 +24,7 @@ export function worldMapAreas(bytes) {
   });
 }
 
-export const continentRows=(rows,regions)=>regions.map(region=>
+const continentRows=(rows,regions)=>regions.map(region=>
   rows.find(row=>row.area===0&&row.name.toLowerCase()===region.map.toLowerCase()&&NAME.test(row.name)));
 
 /** Render-space offset of a region's WoW origin. */
@@ -59,13 +59,13 @@ export const toMap=(frame,x,z)=>[(x-frame.x0)/frame.width,(z-frame.z0)/frame.hei
 export const fromMap=(frame,u,v)=>[frame.x0+u*frame.width,frame.z0+v*frame.height];
 
 /** City gate spawns in WoW world coordinates (x north, y west): map, [x,y,z], direction into the city as [dx,dy]. Render x=-y+offset, z=-x+offset, forward=(-sin yaw,-cos yaw). */
-export const GATES=[
+const GATES=[
   {id:'stormwind',label:'Stormwind gate',map:'Azeroth',wow:[-8985,497,102],into:[.8,.6]},
   {id:'orgrimmar',label:'Orgrimmar gate',map:'Kalimdor',wow:[1330,-4420,35],into:[1,0]},
   {id:'undercity',label:'Undercity gate',map:'Azeroth',wow:[1890,240,70],into:[-1,0]},
   {id:'darnassus',label:'Darnassus gate',map:'Kalimdor',wow:[9950,2150,1330],into:[0,1]},
 ];
-export function gateIcons(manifest) {
+function gateIcons(manifest) {
   return GATES.flatMap(g=>{
     const region=manifest.regions?.find(r=>r.map===g.map);
     if(!region)return [];

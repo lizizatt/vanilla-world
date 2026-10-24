@@ -57,7 +57,7 @@ function decrypt(bytes, key) {
 const view = bytes => new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 const u32 = (bytes, offset) => view(bytes).getUint32(offset, true);
 const asciiLower = name => name.replace(/[A-Z]/g, ch => ch.toLowerCase());
-export function normalizeGamePath(path) {
+function normalizeGamePath(path) {
   if (typeof path !== 'string' || !path || /[\0-\x1f]/.test(path)) fail('INVALID_PATH', 'Expected a game asset path');
   const parts = path.replaceAll('/', '\\').split('\\');
   if (parts.some(p => !p || p === '.' || p === '..' || p.includes(':'))) fail('INVALID_PATH', `Invalid game path: ${path}`);
@@ -74,7 +74,7 @@ export function mountOrder(catalog) {
     find('speech2.mpq')].filter(Boolean);
 }
 
-export async function catalogDataFolder(handle) {
+async function catalogDataFolder(handle) {
   if (handle?.kind !== 'directory') fail('INVALID_FOLDER', 'Select the WoW 1.12 Data folder');
   try {
     const catalog = [];

@@ -1,6 +1,6 @@
 // Fly-camera orientation as a unit quaternion [x,y,z,w] (camera local: right +x, up +y, forward -z), so there is no pole to lock at.
 // World up is +Y: the planet is rebuilt under the eye every frame, so +Y is always the local radial.
-export const LEVEL_ALT=[800,4000];
+const LEVEL_ALT=[800,4000];
 const smooth=(a,b,x)=>{const t=Math.min(1,Math.max(0,(x-a)/(b-a)));return t*t*(3-2*t);};
 export const spaceBlend=altitude=>smooth(LEVEL_ALT[0],LEVEL_ALT[1],altitude);
 const mul=(a,b)=>[a[3]*b[0]+a[0]*b[3]+a[1]*b[2]-a[2]*b[1],a[3]*b[1]-a[0]*b[2]+a[1]*b[3]+a[2]*b[0],a[3]*b[2]+a[0]*b[1]-a[1]*b[0]+a[2]*b[3],a[3]*b[3]-a[0]*b[0]-a[1]*b[1]-a[2]*b[2]];

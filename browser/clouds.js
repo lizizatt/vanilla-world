@@ -15,7 +15,7 @@ export const CLOUD_HALF_SIZE=250000;
 export const MAELSTROM={eyeRadius:2200,wallRadius:5200,radius:24000,arms:3,pitch:.7,spin:.012,drift:.006};
 // World-map registration: the eye sits 43% of the way from Kalimdor's east coast to the Eastern Kingdoms' west coast,
 // and at 35% / 40% of the way down each continent's tile rows, averaged because the two continents are offset provisionally.
-export const MAELSTROM_MAP={across:.43,kalimdorDown:.35,easternDown:.4};
+const MAELSTROM_MAP={across:.43,kalimdorDown:.35,easternDown:.4};
 
 // Whirlpool dip, the single source of truth for JS and Rust (set_whirlpool in voyage.rs): the ocean surface at distance r
 // from the centre sits depth*(1-(r/radius)^2)^2 yd below sea level (zero value and slope at the rim). The funnel ends at the bottom.

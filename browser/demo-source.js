@@ -2,7 +2,7 @@
 import {synthAdt,ADT_TILE} from './adt-synth.js';
 
 const MAPS={Kalimdor:{centre:[39,43]},Azeroth:{centre:[28,51]}},REACH=2;
-export const DEMO_ID='demo-procedural-v1';
+const DEMO_ID='demo-procedural-v1';
 
 /** Island height in yd at tile-space coordinates (tiles, fractional) for a map. */
 export function demoHeight(map,tx,ty) {
@@ -17,7 +17,7 @@ const ver=()=>{const b=new Uint8Array(4);b[0]=18;return chunk('MVER',b);};
 const present=(map,x,y)=>{const [cx,cy]=MAPS[map].centre;return Math.abs(x-cx)<=REACH&&Math.abs(y-cy)<=REACH;};
 
 /** Palettized BLP2, size x size, two-tone grass-like checker; stands in for every texture the world asks for. */
-export function demoBlp(size=64) {
+function demoBlp(size=64) {
   const out=new Uint8Array(148+1024+size*size),v=new DataView(out.buffer);
   out.set([0x42,0x4c,0x50,0x32]);v.setUint32(4,1,true);out[8]=1;v.setUint32(12,size,true);v.setUint32(16,size,true);
   v.setUint32(20,148+1024,true);v.setUint32(84,size*size,true);
