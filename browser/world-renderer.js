@@ -14,7 +14,7 @@ import {flagMesh,gateMesh} from './race-flags.js';
 import {beamState} from './beam.js';
 import {schematicRects} from './worldmap.js';
 import {patchesAt,packPatches,PATCH_GRID,MAX_PATCHES} from './globe-patches.js';
-import {createRegistry,defaultManifest,bakeSurface} from './tile-registry.js';
+import {createRegistry,defaultManifest,bakeSurface,surfaceTexel,createColourGrid,splatMinimap,adtChunk} from './tile-registry.js';
 import {HEIGHT_W,HEIGHT_H,splatHeights,encodeHeights} from './height-bake.js';
 import {PLANET_RADIUS,WORLD_CENTRE,planetFactors,horizonDip,spaceUniform,spaceShader,patchShader,bendShader,FALLBACK_RECTS} from './space.js';
 import {SkyCatalog,mapPosition,skyShader,skyDomeShader,skyUniform,advanceTime,nightAlpha,nightAngle,DAY} from './sky.js';
@@ -349,6 +349,7 @@ export class WorldRenderer {
     this.surfaceTex=this.device.createTexture({size:[1024,512],format:'rgba8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});
     this.heightTex=this.device.createTexture({size:[HEIGHT_W,HEIGHT_H],format:'r8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});
     this.heightGrid=new Float32Array(HEIGHT_W*HEIGHT_H).fill(-Infinity);this.heightDirty=false;
+    this.colourGrid=createColourGrid();this.colourDirty=new Set();this.horizonMini=new Map();
     this.surfaceSamp=this.device.createSampler({magFilter:'linear',minFilter:'linear',addressModeU:'repeat',addressModeV:'clamp-to-edge'});
     const spaceModule=await shader(spaceShader);
     this.spacePipeline=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module:spaceModule,entryPoint:'vs'},
@@ -528,7 +529,8 @@ export class WorldRenderer {
       this.indices.set(data.region,this.buffer(data.indices,GPUBufferUsage.INDEX));
       this.terrainBundle=undefined;
     }
-    else if(data.event==='horizon'){splatHeights(this.heightGrid,data.vertices,data.placement,WORLD_CENTRE,PLANET_RADIUS);this.heightDirty=true;this.horizon.push({...this.drawable(data.vertices,data.placement,this.minimapAtlases[data.region]),
+    else if(data.event==='horizon'){splatHeights(this.heightGrid,data.vertices,data.placement,WORLD_CENTRE,PLANET_RADIUS);this.heightDirty=true;
+      this.horizonColour(data.region*4096+data.source[0]+64*data.source[1],{placement:data.placement});this.horizon.push({...this.drawable(data.vertices,data.placement,this.minimapAtlases[data.region]),
       region:data.region,near:data.near,cell:data.source[0]+64*data.source[1]});}
     else if(data.event==='horizon-material'){
       if(data.rgba.length!==MINIMAP_SIZE*MINIMAP_SIZE*4||!this.minimapAtlases[data.region]||
@@ -772,13 +774,23 @@ export class WorldRenderer {
         layout:this.domePipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:this.domeBuffer}},
           {binding:1,resource:(textures.get(b.texture)||this.white).createView()},{binding:2,resource:sampler}]})}))};
   }
+  /** Feeds the globe colour grid: a tile needs both its WDL placement and its minimap, in either arrival order. */
+  horizonColour(key,part) {
+    const e={...this.horizonMini.get(key),...part};this.horizonMini.set(key,e);
+    if(e.placement&&e.rgba){splatMinimap(this.colourGrid,e.rgba,MINIMAP_SIZE,e.placement,WORLD_CENTRE,PLANET_RADIUS,this.colourDirty);this.horizonMini.delete(key);}
+  }
   planetRects() {return this.manifest?.world_bounds?schematicRects(this.manifest):FALLBACK_RECTS;}
   drawPlanet(pass,pf,near) {
     const rects=this.planetRects(),key=JSON.stringify(rects);
     if(pf.registry&&this.surfaceKey!==key){
-      this.device.queue.writeTexture({texture:this.surfaceTex},bakeSurface(createRegistry(defaultManifest(undefined,rects))),{bytesPerRow:4096},[1024,512]);
-      this.surfaceKey=key;
+      this.surfaceRegistry=createRegistry([...defaultManifest(undefined,rects),adtChunk(this.colourGrid)]);
+      this.surfaceBytes=bakeSurface(this.surfaceRegistry);this.colourDirty.clear();this.surfaceDirty=true;this.surfaceKey=key;
     }
+    if(pf.registry&&this.colourDirty.size&&performance.now()-(this.colourAt||0)>1000){
+      for(const k of this.colourDirty)this.surfaceBytes.set(surfaceTexel(this.surfaceRegistry,k%1024,Math.floor(k/1024),1024,512),k*4);
+      this.colourDirty.clear();this.colourAt=performance.now();this.surfaceDirty=true;
+    }
+    if(this.surfaceDirty){this.device.queue.writeTexture({texture:this.surfaceTex},this.surfaceBytes,{bytesPerRow:4096},[1024,512]);this.surfaceDirty=false;}
     this.device.queue.writeBuffer(this.spaceBuffer,0,spaceUniform(this.view,sunDirection(this.timeOfDay),pf,rects,this.timeOfDay,near,200000));
     pass.setPipeline(this.spacePipeline);pass.setBindGroup(0,this.spaceGroup);pass.draw(3);
   }
