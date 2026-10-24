@@ -1,13 +1,20 @@
 import {maelstromCentre,WHIRLPOOL_DIP} from './clouds.js';
 
 /** Surface drop (yd, >= 0) at squared distance q=(r/R)^2 from the whirlpool centre; mirrors `whirlpool_dip` in voyage.rs. */
+// Flat quads are split into cells so the vertex-shader bend curves water onto the globe; one big quad bends as a chord and dips under the globe.
+export const OCEAN_CELL=2500;
 export const dipDepth=(r,{radius,depth}=WHIRLPOOL_DIP)=>r>=radius?0:depth*(1-(r/radius)**2)**2;
 
 /** Ocean triangles (7 floats per vertex: pos, normal, material 2) local to the ocean origin: a flat quad, or four flat
  * quads around a dense displaced square patch when the whirlpool centre lies inside the ocean. */
 export function oceanMesh(manifest,cells=96) {
   const [x,z,right,bottom]=manifest.ocean,y=manifest.sea_level,w=right-x,h=bottom-z,out=[];
-  const quad=(x0,z0,x1,z1)=>{if(x1>x0&&z1>z0)out.push(x0,y,z0,0,1,0,2,x1,y,z0,0,1,0,2,x1,y,z1,0,1,0,2,x0,y,z0,0,1,0,2,x1,y,z1,0,1,0,2,x0,y,z1,0,1,0,2);};
+  const cell=(x0,z0,x1,z1)=>out.push(x0,y,z0,0,1,0,2,x1,y,z0,0,1,0,2,x1,y,z1,0,1,0,2,x0,y,z0,0,1,0,2,x1,y,z1,0,1,0,2,x0,y,z1,0,1,0,2);
+  const quad=(x0,z0,x1,z1)=>{
+    if(!(x1>x0&&z1>z0))return;
+    const nx=Math.ceil((x1-x0)/OCEAN_CELL),nz=Math.ceil((z1-z0)/OCEAN_CELL);
+    for(let j=0;j<nz;j++)for(let i=0;i<nx;i++)cell(x0+(x1-x0)*i/nx,z0+(z1-z0)*j/nz,x0+(x1-x0)*(i+1)/nx,z0+(z1-z0)*(j+1)/nz);
+  };
   let centre;
   if(manifest.world_bounds)centre=maelstromCentre(manifest);
   const R=WHIRLPOOL_DIP.radius;

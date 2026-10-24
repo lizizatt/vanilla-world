@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {oceanMesh,dipDepth} from './ocean-mesh.js';
+import {oceanMesh,dipDepth,OCEAN_CELL} from './ocean-mesh.js';
 import {maelstromCentre,WHIRLPOOL_DIP,FUNNEL} from './clouds.js';
 
 const manifest={ocean:[-30000,-30000,30000,30000],sea_level:0,
@@ -20,7 +20,7 @@ test('ocean mesh dips to the profile bottom and stays flat elsewhere',()=>{
   assert.equal(m.length%21,0);
   assert.ok(cx>-30000&&cz>-30000);
 });
-test('without world bounds the ocean is one flat quad',()=>{
+test('without world bounds the ocean is a flat grid of bendable cells',()=>{
   const m=oceanMesh({...manifest,world_bounds:undefined});
-  assert.equal(m.length,42);assert.ok(m.every((v,i)=>i%7!==1||v===0));
+  assert.equal(m.length,42*Math.ceil(60000/OCEAN_CELL)**2);assert.ok(m.every((v,i)=>i%7!==1||v===0));
 });
