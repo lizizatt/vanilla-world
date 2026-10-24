@@ -1,7 +1,9 @@
 import {basis} from './orient.js';
 const wrap=a=>Math.atan2(Math.sin(a),Math.cos(a));
 const unit=v=>{const length=Math.hypot(...v);return length?v.map(n=>n/length):[0,0,-1];};
-const PITCH_LIMIT=89*Math.PI/180;
+// Tuning: cockpit look pitch limit (rad), mouse-orbit sensitivity (rad/px), return-to-centre rate (1/s).
+export const CAMERA=Object.freeze({pitchLimit:89*Math.PI/180,orbitSense:.004,recentre:7});
+const PITCH_LIMIT=CAMERA.pitchLimit;
 
 export function craftMatrix(state,origin,scale) {
   const c=Math.cos(state[3]),s=Math.sin(state[3]),cb=Math.cos(state[4]),sb=-Math.sin(state[4]); // physics bank is negative for a left steer; render left side down
@@ -37,10 +39,10 @@ export function cameraView(rig,state,flight,dt,origin,settings={},lookBack=false
     if(!rig.camera || !rig.cockpitLook || lookBack!==rig.lookBack)rig.cockpitLook=[0,0];
     const look=settings.cameraLook||[0,0],orbit=settings.cameraOrbit||[0,0];
     if(look.some(Boolean)||orbit.some(Boolean)){
-      rig.cockpitLook[0]=wrap(rig.cockpitLook[0]-look[0]*Math.PI*dt-orbit[0]*.004);
-      rig.cockpitLook[1]=Math.max(-PITCH_LIMIT,Math.min(PITCH_LIMIT,rig.cockpitLook[1]+look[1]*Math.PI/2*dt-orbit[1]*.004));
+      rig.cockpitLook[0]=wrap(rig.cockpitLook[0]-look[0]*Math.PI*dt-orbit[0]*CAMERA.orbitSense);
+      rig.cockpitLook[1]=Math.max(-PITCH_LIMIT,Math.min(PITCH_LIMIT,rig.cockpitLook[1]+look[1]*Math.PI/2*dt-orbit[1]*CAMERA.orbitSense));
     } else {
-      const follow=Math.exp(-7*Math.max(0,dt));
+      const follow=Math.exp(-CAMERA.recentre*Math.max(0,dt));
       rig.cockpitLook=rig.cockpitLook.map(n=>n*follow);
     }
     rig.lookBack=lookBack;
@@ -61,8 +63,8 @@ export function cameraView(rig,state,flight,dt,origin,settings={},lookBack=false
   const look=settings.cameraLook || [0,0],orbit=settings.cameraOrbit || [0,0];
   if(reset || !rig.chase || lookBack!==rig.lookBack)rig.chase=[0,pitch];
   else if(look.some(Boolean) || orbit.some(Boolean)) {
-    rig.chase[0]=wrap(rig.chase[0]-look[0]*Math.PI*dt-orbit[0]*.004);
-    rig.chase[1]=Math.max(-PITCH_LIMIT,Math.min(PITCH_LIMIT,rig.chase[1]+look[1]*Math.PI/2*dt-orbit[1]*.004));
+    rig.chase[0]=wrap(rig.chase[0]-look[0]*Math.PI*dt-orbit[0]*CAMERA.orbitSense);
+    rig.chase[1]=Math.max(-PITCH_LIMIT,Math.min(PITCH_LIMIT,rig.chase[1]+look[1]*Math.PI/2*dt-orbit[1]*CAMERA.orbitSense));
   } else if(settings.cameraRecentre) {
     // Recentre only while the user drives with keys/pad; a mouse orbit otherwise stays where it was left.
     const follow=-Math.expm1(-7*Math.max(0,dt));
