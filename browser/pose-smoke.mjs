@@ -48,6 +48,8 @@ for(const speed of [250,500])for(const shift of [0,1e9]){
 }
 
 function clearCeiling(world){
+  // Default hover height (3 yd) legitimately rises into the 1.65 yd ceiling; the Rust test pins 1.1 yd too.
+  const tuning=world.tuning();tuning[11]=1.1;world.set_tuning(tuning);
   world.set_scene_mesh(new Float64Array());
   world.restore(new Float64Array([700,1.1,64,0]));
   world.set_scene_mesh(new Float64Array([

@@ -261,11 +261,11 @@ try{
       await worldTest.request('restore',{pose:p});
       function assertReady(s){if(s[0]!==0)throw Error(`Unavailable start surface ${s}`);}
     });
-  }else if(process.env.YAW){
+  }else{
     await page.evaluate(async yaw=>{
       const p=worldEvidence.state.telemetry;
       await worldTest.request('restore',{pose:[...p.slice(0,3),yaw]});
-    },Number(process.env.YAW));
+    },Number(process.env.YAW??0));// default spawn heading faces a solid shore after ~83 m
   }
   if(await page.locator('#drive').evaluate(e=>!e.hidden)){await page.locator('#drive').evaluate(e=>e.click());await page.locator('#world').focus();}
   else await page.locator('#world').click();
