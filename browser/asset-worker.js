@@ -3,6 +3,7 @@ import {openDataSource} from './asset-source.js';
 import {terrainMips,resizeRgba,MINIMAP_SIZE} from './terrain-stream.js';
 import {prepareDetail} from './camera-collision.js';
 import {loadLoadingArt} from './loading-art.js';
+import {demoSource} from './demo-source.js';
 
 let source,wasm,busy=false,receipt,active;
 let artStopped=false;
@@ -28,7 +29,7 @@ async function pump() {
   try {
     if(job.action==='open') {
       if(source)throw Error('Asset source already open');
-      wasm=await init();source=await openDataSource(job.folder,progress=>
+      wasm=await init();source=job.folder==='demo'?demoSource():await openDataSource(job.folder,progress=>
         postMessage({event:'progress',stage:'archives',text:'Indexing local archives',...progress}));
       if(job.loadingArt&&!artStopped)void loadLoadingArt(source,bytes=>{
         const texture=new SceneTexture(bytes);

@@ -741,6 +741,7 @@ async function handle(message) {
     const horizonReady=buildHorizon(wdls);
     await Promise.all([horizonReady,(async()=>{
       await stream([manifest.spawn[0],manifest.spawn[2]],true,true);
+      if(failures.size)throw new Error([...failures.values()].slice(0,3).join('\n'));
       world.initialize_spawn();
       await preparePoseScene(Array.from(world.telemetry()).slice(0,4));
     })()]);

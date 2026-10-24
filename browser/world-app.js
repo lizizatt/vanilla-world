@@ -267,6 +267,7 @@ async function select() {
   }
 }
 $('select').addEventListener('click',select);
+$('demo').addEventListener('click',()=>{if(renderer)void open('demo');});
 $('fallback').addEventListener('click',()=>$('files').click());
 $('files').addEventListener('change',()=>{
   const files=[...$('files').files];
