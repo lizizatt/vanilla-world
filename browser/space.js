@@ -252,7 +252,8 @@ fn patchPos(p:vec4f,ij:vec2u)->vec3f {
   // Shade with the displaced face normal: the radial normal made cliffs seen at the limb glow rim-cyan.
   var ng=cross(dpdx(v.w),dpdy(v.w));ng=select(n,normalize(ng),dot(ng,ng)>1e-6);ng=select(-ng,ng,dot(ng,n)>=0.0);
   let dz=dot(d,s.look.xyz);let dt=sphereT(vec3f(0.0),d,vec3f(0.0,-(R+s.p.x),0.0),DEPTH_R);
-  let zz=max(dt*dz,1.0/v.clip.w);
+  // Rays that miss the depth sphere graze the surface; write far depth so terrain behind the limb is never culled by the globe.
+  let zz=select(1.0e9,max(dt*dz,1.0/v.clip.w),dt>0.0);
   var o:FO;o.color=vec4f(fogGlobe(surface(normalize(v.pv),ng,d,normalize(s.sun.xyz)),zz/max(dz,.05),n,d)*s.p.z,s.p.z);
   o.depth=clamp((zz-s.right.w)*s.up.w/((s.up.w-s.right.w)*zz),0.0,1.0);return o;
 }`;
