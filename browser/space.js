@@ -216,23 +216,32 @@ struct FO {@location(0) color:vec4f,@builtin(frag_depth) depth:f32};
   var out:FO;out.color=acc;out.depth=depth;return out;
 }`;
 
-// Patch mesh (globe-patches.js): each instance is one lat/lon patch drawn as a 16x16 grid. Edge vertices sink a little so LOD cracks stay hidden.
+// Patch mesh (globe-patches.js): each instance is one lat/lon patch drawn as a 16x16 grid. Edge vertices of finer patches snap onto coarser neighbours (flags) so LOD cracks close exactly.
 export const patchShader=spaceShader.slice(0,spaceShader.indexOf('@fragment fn fs'))+`
 @group(0) @binding(3) var heightTex:texture_2d<f32>;
 struct PV {@builtin(position) clip:vec4f,@location(0) pv:vec3f,@location(1) n:vec3f,@location(2) w:vec3f};
-@vertex fn pvs(@builtin(vertex_index) vi:u32,@location(0) p:vec4f)->PV {
+fn patchPos(p:vec4f,ij:vec2u)->vec3f {
+  let uv=vec2f(ij)/16.0;
+  let lat=mix(p.x,p.y,uv.y);let lon=mix(p.z,p.w,uv.x);
+  let pv=vec3f(cos(lat)*cos(lon),sin(lat),cos(lat)*sin(lon));
+  let n=vec3f(dot(s.e.xyz,pv),dot(s.u.xyz,pv),dot(s.s.xyz,pv));
+  let tc=vec2f(lon/6.2831853+.5,.5-lat/3.1415927);
+  var hm=textureSampleLevel(heightTex,surfaceSamp,tc,0.0).r*${HEIGHT_RANGE}.0+${HEIGHT_MIN}.0;
+  // Only lift where the registry says land, so relief never stands on sea-coloured ground (the cyan limb block).
+  if(s.tint[1].w>.5&&textureSampleLevel(surfaceTex,surfaceSamp,tc,0.0).a<.5){hm=0.0;}
+  return vec3f(0.0,-(R+s.p.x),0.0)+n*(R+max(hm,0.0));
+}
+@vertex fn pvs(@builtin(vertex_index) vi:u32,@location(0) p:vec4f,@location(1) f:vec4f)->PV {
   let corner=array<vec2u,6>(vec2u(0,0),vec2u(1,0),vec2u(0,1),vec2u(0,1),vec2u(1,0),vec2u(1,1));
   let cell=vi/6u;let c=corner[vi%6u];
   let ij=vec2u(cell%16u,cell/16u)+c;let uv=vec2f(ij)/16.0;
   let lat=mix(p.x,p.y,uv.y);let lon=mix(p.z,p.w,uv.x);
   let pv=vec3f(cos(lat)*cos(lon),sin(lat),cos(lat)*sin(lon));
   let n=vec3f(dot(s.e.xyz,pv),dot(s.u.xyz,pv),dot(s.s.xyz,pv));
-  let edge=ij.x==0u||ij.y==0u||ij.x==16u||ij.y==16u;
-  let sink=select(0.0,R*(p.y-p.x)/16.0*.02,edge);
-  var hm=textureSampleLevel(heightTex,surfaceSamp,vec2f(lon/6.2831853+.5,.5-lat/3.1415927),0.0).r*${HEIGHT_RANGE}.0+${HEIGHT_MIN}.0;
-  // Only lift where the registry says land, so relief never stands on sea-coloured ground (the cyan limb block).
-  if(s.tint[1].w>.5&&textureSampleLevel(surfaceTex,surfaceSamp,vec2f(lon/6.2831853+.5,.5-lat/3.1415927),0.0).a<.5){hm=0.0;}
-  let w=vec3f(0.0,-(R+s.p.x),0.0)+n*(R-sink+max(hm,0.0));
+  var w=patchPos(p,ij);
+  // A finer patch beside a coarser one: odd edge vertices sit on the neighbour's straight edge so no T-junction crack opens.
+  if((ij.x&1u)==1u&&((ij.y==0u&&f.x>.5)||(ij.y==16u&&f.y>.5))){w=.5*(patchPos(p,ij-vec2u(1,0))+patchPos(p,ij+vec2u(1,0)));}
+  if((ij.y&1u)==1u&&((ij.x==0u&&f.z>.5)||(ij.x==16u&&f.w>.5))){w=.5*(patchPos(p,ij-vec2u(0,1))+patchPos(p,ij+vec2u(0,1)));}
   let z=dot(w,s.look.xyz);
   var o:PV;
   o.clip=vec4f(dot(w,s.right.xyz)/(.55*s.look.w),dot(w,s.up.xyz)/.55,min((z-s.right.w)*s.up.w/(s.up.w-s.right.w),.9999*z),z);
