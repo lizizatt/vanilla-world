@@ -1,6 +1,7 @@
 // Planet view: a stylised globe (Azeroth), sky thinning to space, stars, a sun and two moons, drawn when flying high.
 // Camera/render only; physics stays flat. The globe is analytic (one fullscreen ray-sphere pass), the near terrain bends onto it.
 // Sizing: Kalimdor is the largest populated continent, about 29,870 yd north-south, and is meant to span 40 degrees of latitude.
+import {HEIGHT_RANGE,HEIGHT_MIN} from './height-bake.js';
 export const CONTINENT_YD=29867,CONTINENT_DEG=40;
 export const PLANET_RADIUS=Math.round(CONTINENT_YD/(CONTINENT_DEG*Math.PI/180));
 // World centre (render yd) at lat/lon 0, and the fallback continent rectangles [x0,z0,x1,z1] when no manifest is loaded (hosted build).
@@ -217,6 +218,7 @@ struct FO {@location(0) color:vec4f,@builtin(frag_depth) depth:f32};
 
 // Patch mesh (globe-patches.js): each instance is one lat/lon patch drawn as a 16x16 grid. Edge vertices sink a little so LOD cracks stay hidden.
 export const patchShader=spaceShader.slice(0,spaceShader.indexOf('@fragment fn fs'))+`
+@group(0) @binding(3) var heightTex:texture_2d<f32>;
 struct PV {@builtin(position) clip:vec4f,@location(0) pv:vec3f,@location(1) n:vec3f,@location(2) w:vec3f};
 @vertex fn pvs(@builtin(vertex_index) vi:u32,@location(0) p:vec4f)->PV {
   let corner=array<vec2u,6>(vec2u(0,0),vec2u(1,0),vec2u(0,1),vec2u(0,1),vec2u(1,0),vec2u(1,1));
@@ -227,7 +229,8 @@ struct PV {@builtin(position) clip:vec4f,@location(0) pv:vec3f,@location(1) n:ve
   let n=vec3f(dot(s.e.xyz,pv),dot(s.u.xyz,pv),dot(s.s.xyz,pv));
   let edge=ij.x==0u||ij.y==0u||ij.x==16u||ij.y==16u;
   let sink=select(0.0,R*(p.y-p.x)/16.0*.02,edge);
-  let w=vec3f(0.0,-(R+s.p.x),0.0)+n*(R-sink);
+  let hm=textureSampleLevel(heightTex,surfaceSamp,vec2f(lon/6.2831853+.5,.5-lat/3.1415927),0.0).r*${HEIGHT_RANGE}.0+${HEIGHT_MIN}.0;
+  let w=vec3f(0.0,-(R+s.p.x),0.0)+n*(R-sink+max(hm,0.0));
   let z=dot(w,s.look.xyz);
   var o:PV;
   o.clip=vec4f(dot(w,s.right.xyz)/(.55*s.look.w),dot(w,s.up.xyz)/.55,min((z-s.right.w)*s.up.w/(s.up.w-s.right.w),.9999*z),z);
