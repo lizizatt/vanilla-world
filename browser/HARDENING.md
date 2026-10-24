@@ -4,6 +4,8 @@
 - M1 seam colour: done (`a7c1445`). M2 planet frame module: done (`39bac14`, not yet used by the renderer).
 - M3: gravity/atmosphere hooks done (`planet-physics.js`). Reversed-Z and WDL globe height NOT done.
 - M4: patch-tree globe + sparse registry, default ON (`257f4ba`..`5cb41fa`).
+- M5b still blocked after M3: the baked height texture is 2048x1024 over the whole sphere (~130 yd/texel) so it carries WDL-scale relief only; authored ADT ground (~4 yd) still needs the bend shader to sit on the sphere. Removing it needs a near-field authored-terrain path (per-tile curved/sphere-mapped ADT meshes or a high-res local height tile on the patch tree) first; not a safe small step.
+- M6: the landing now has "Play demo world" (procedural providers only, no game files; `8998dee`), verified in muted Edge; save/reload in demo not yet re-verified.
 - M5 blocked on M3: the globe crossfade is already ~0 ([0,60] yd) but the bend shader is what curves the authored ADT tiles, so it can only go once the patch tree carries ADT/WDL height. Do M3 first.
 - M5 NOT done: bend shader, crossfade ramps and the analytic sphere are still present. The analytic pass still draws
   atmosphere limb, stars and moons, so it can only shrink, not be deleted outright.
