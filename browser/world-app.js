@@ -50,8 +50,8 @@ let orbit=[0,0],dragging=false,mouseButtons=0,soundAttempt=0,soundError='',sound
 const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:true,cockpit:false,night:false,clouds:true,planet:true,globeMesh:true,globeRegistry:true,cloudQuality:'auto',music:true,particles:'medium',animateNpcs:true};
 const settings={...defaults};
 const gib={on:true,speed:100,overheat:true},gibMem={};
-try{gib.on=localStorage.getItem('racer.gib')!=='0';gib.overheat=localStorage.getItem('racer.overheat')!=='0';gib.durable=localStorage.getItem('racer.durability')!=='0';gib.speed=Math.max(20,Math.min(400,Number(localStorage.getItem('racer.gibSpeed'))||100));}catch{}
-try{settings.night=localStorage.getItem('racer.night')==='1';settings.music=localStorage.getItem('racer.music')!=='0';settings.animateNpcs=localStorage.getItem('racer.animateNpcs')!=='0';settings.planet=localStorage.getItem('racer.planet')!=='0';settings.globeMesh=localStorage.getItem('racer.globeMesh')!=='0';settings.globeRegistry=localStorage.getItem('racer.globeRegistry')!=='0';{const cq=localStorage.getItem('racer.cloudQuality');if(cq==='high'||cq==='standard')settings.cloudQuality=cq;}const mv=localStorage.getItem('racer.masterVolume');if(mv!==null&&mv!==''&&Number.isFinite(Number(mv)))audio.setVolume(Number(mv)/100);}catch{}
+try{gib.on=localStorage.getItem('racer.gib')!=='0';gib.overheat=localStorage.getItem('racer.overheat')!=='0';gib.durable=localStorage.getItem('racer.durability')!=='0';gib.speed=Math.max(20,Math.min(400,Number(localStorage.getItem('racer.gibSpeed'))||100));}catch{/* storage unavailable (private mode): setting is not persisted */}
+try{settings.night=localStorage.getItem('racer.night')==='1';settings.music=localStorage.getItem('racer.music')!=='0';settings.animateNpcs=localStorage.getItem('racer.animateNpcs')!=='0';settings.planet=localStorage.getItem('racer.planet')!=='0';settings.globeMesh=localStorage.getItem('racer.globeMesh')!=='0';settings.globeRegistry=localStorage.getItem('racer.globeRegistry')!=='0';{const cq=localStorage.getItem('racer.cloudQuality');if(cq==='high'||cq==='standard')settings.cloudQuality=cq;}const mv=localStorage.getItem('racer.masterVolume');if(mv!==null&&mv!==''&&Number.isFinite(Number(mv)))audio.setVolume(Number(mv)/100);}catch{/* storage unavailable (private mode): setting is not persisted */}
 const loading=$('loading-screen');
 const loadingArt=new LoadingArt($('loading-art'),$('loading-bar-art'),loading);
 loading.addEventListener('cancel',event=>event.preventDefault());
@@ -303,7 +303,7 @@ $('load').addEventListener('click',()=>operation(async()=>{
 $('unstuck').addEventListener('click',()=>operation(async()=>{
   const p=client.state?.telemetry;if(!p)return;
   for(const pose of unstuckPoses(p)){
-    try{client.state=await client.request('restore',{pose});flight=undefined;race?.jump();renderer.camera=undefined;running=true;report('Unstuck: moved 10 m up.',true);return;}catch{}
+    try{client.state=await client.request('restore',{pose});flight=undefined;race?.jump();renderer.camera=undefined;running=true;report('Unstuck: moved 10 m up.',true);return;}catch{/* fall through to the next recovery pose */}
   }
   report('Unstuck failed: no free space above.',true);
 }));
@@ -323,14 +323,14 @@ $('drive').addEventListener('click',()=>{flight=undefined;renderer.camera=undefi
 $('horizon').addEventListener('change',()=>{settings.horizon=$('horizon').checked;});
 $('scenery').addEventListener('change',()=>{settings.scenery=$('scenery').checked;});
 $('clouds').addEventListener('change',()=>{settings.clouds=$('clouds').checked;});
-$('planet').addEventListener('change',()=>{settings.planet=$('planet').checked;try{localStorage.setItem('racer.planet',settings.planet?'1':'0');}catch{}});
-$('animate-npcs').addEventListener('change',()=>{settings.animateNpcs=$('animate-npcs').checked;client.animate(settings.animateNpcs);try{localStorage.setItem('racer.animateNpcs',settings.animateNpcs?'1':'0');}catch{}});
+$('planet').addEventListener('change',()=>{settings.planet=$('planet').checked;try{localStorage.setItem('racer.planet',settings.planet?'1':'0');}catch{/* storage unavailable (private mode): setting is not persisted */}});
+$('animate-npcs').addEventListener('change',()=>{settings.animateNpcs=$('animate-npcs').checked;client.animate(settings.animateNpcs);try{localStorage.setItem('racer.animateNpcs',settings.animateNpcs?'1':'0');}catch{/* storage unavailable (private mode): setting is not persisted */}});
 $('particles').addEventListener('change',()=>{settings.particles=$('particles').value;});
-$('cloud-quality').addEventListener('change',()=>{settings.cloudQuality=$('cloud-quality').value;try{localStorage.setItem('racer.cloudQuality',settings.cloudQuality);}catch{}});
+$('cloud-quality').addEventListener('change',()=>{settings.cloudQuality=$('cloud-quality').value;try{localStorage.setItem('racer.cloudQuality',settings.cloudQuality);}catch{/* storage unavailable (private mode): setting is not persisted */}});
 $('distant').addEventListener('change',()=>{settings.distant=$('distant').checked;});
 function setNight(night) {
   settings.night=night;syncSettings();
-  try{localStorage.setItem('racer.night',night?'1':'0');}catch{}
+  try{localStorage.setItem('racer.night',night?'1':'0');}catch{/* storage unavailable (private mode): setting is not persisted */}
 }
 $('night').addEventListener('change',()=>{setNight($('night').checked);canvas.focus();});
 $('control-profile').addEventListener('change',()=>{settings.controls=$('control-profile').value;keys.clear();input.keyboard();syncSettings();});
@@ -341,13 +341,13 @@ $('camera-distance').addEventListener('input',()=>{
 function syncHud(){hudOn=$('swe1r-hud-on').checked;}
 $('swe1r-hud-on').addEventListener('change',syncHud);
 $('swe1r-sfx').addEventListener('change',()=>{audio.sampleOn=$('swe1r-sfx').checked;});
-$('music-on').addEventListener('change',()=>{settings.music=$('music-on').checked;music.setEnabled(settings.music);try{localStorage.setItem('racer.music',settings.music?'1':'0');}catch{}});
-$('master-volume').value=String(Math.round(audio.volume*100));$('master-volume').addEventListener('input',()=>{audio.setVolume(Number($('master-volume').value)/100);try{localStorage.setItem('racer.masterVolume',$('master-volume').value);}catch{}});
+$('music-on').addEventListener('change',()=>{settings.music=$('music-on').checked;music.setEnabled(settings.music);try{localStorage.setItem('racer.music',settings.music?'1':'0');}catch{/* storage unavailable (private mode): setting is not persisted */}});
+$('master-volume').value=String(Math.round(audio.volume*100));$('master-volume').addEventListener('input',()=>{audio.setVolume(Number($('master-volume').value)/100);try{localStorage.setItem('racer.masterVolume',$('master-volume').value);}catch{/* storage unavailable (private mode): setting is not persisted */}});
 $('music-volume').addEventListener('input',()=>music.setVolume(Number($('music-volume').value)/100));
-$('gib').addEventListener('change',()=>{gib.on=$('gib').checked;syncDurability();try{localStorage.setItem('racer.gib',gib.on?'1':'0');}catch{}});
-$('gib-speed').addEventListener('input',()=>{gib.speed=Number($('gib-speed').value);syncDurability();$('gib-speed-label').textContent=gib.speed;try{localStorage.setItem('racer.gibSpeed',String(gib.speed));}catch{}});
-$('durability').addEventListener('change',()=>{gib.durable=$('durability').checked;try{localStorage.setItem('racer.durability',gib.durable?'1':'0');}catch{}syncDurability();});
-$('overheat').addEventListener('change',()=>{gib.overheat=$('overheat').checked;try{localStorage.setItem('racer.overheat',gib.overheat?'1':'0');}catch{}});
+$('gib').addEventListener('change',()=>{gib.on=$('gib').checked;syncDurability();try{localStorage.setItem('racer.gib',gib.on?'1':'0');}catch{/* storage unavailable (private mode): setting is not persisted */}});
+$('gib-speed').addEventListener('input',()=>{gib.speed=Number($('gib-speed').value);syncDurability();$('gib-speed-label').textContent=gib.speed;try{localStorage.setItem('racer.gibSpeed',String(gib.speed));}catch{/* storage unavailable (private mode): setting is not persisted */}});
+$('durability').addEventListener('change',()=>{gib.durable=$('durability').checked;try{localStorage.setItem('racer.durability',gib.durable?'1':'0');}catch{/* storage unavailable (private mode): setting is not persisted */}syncDurability();});
+$('overheat').addEventListener('change',()=>{gib.overheat=$('overheat').checked;try{localStorage.setItem('racer.overheat',gib.overheat?'1':'0');}catch{/* storage unavailable (private mode): setting is not persisted */}});
 $('gib').checked=gib.on;$('durability').checked=gib.durable;$('overheat').checked=gib.overheat;$('gib-speed').value=gib.speed;$('gib-speed-label').textContent=gib.speed;
 $('sound').addEventListener('change',()=>{settings.sound=$('sound').checked;if(settings.sound)resumeAudio(true);else pauseAudio();canvas.focus();});
 $('resume-sound').addEventListener('click',()=>{canvas.focus();resumeAudio(true);});
@@ -387,9 +387,9 @@ function exportPose() {
   const t=client.state?.telemetry;
   const view={v:1,flight:flight?flight.slice():undefined,drive:!flight&&t?Array.from(t.slice(0,4)):undefined,time:renderer.timeOfDay,settings:{...settings}};
   const link=`${location.origin}${location.pathname}?pose=${encodeURIComponent(JSON.stringify(view))}`;
-  window.lastPoseLink=link;console.log('pose',link);
+  window.lastPoseLink=link;
   const done=ok=>{if(ok)toast('Pose link copied to clipboard');else showLink(link);};
-  const legacy=()=>{const t=document.createElement('textarea');t.value=link;t.style.cssText='position:fixed;opacity:0';document.body.append(t);t.select();let ok=false;try{ok=document.execCommand('copy');}catch{}t.remove();return ok;};
+  const legacy=()=>{const t=document.createElement('textarea');t.value=link;t.style.cssText='position:fixed;opacity:0';document.body.append(t);t.select();let ok=false;try{ok=document.execCommand('copy');}catch{/* copy unsupported: ok stays false */}t.remove();return ok;};
   if(navigator.clipboard?.writeText)navigator.clipboard.writeText(link).then(()=>done(true),()=>done(legacy()));else done(legacy());
   return link;
 }
@@ -523,9 +523,9 @@ async function withOverrides(found) {
   let list=found;
   try {
     for(const id of (await trackOverride('~index'))||[]) {
-      try{list=mergeTrack(list,validateTrack(await trackOverride(id)));}catch{}
+      try{list=mergeTrack(list,validateTrack(await trackOverride(id)));}catch{/* a bad override is skipped */}
     }
-  } catch {}
+  } catch {/* no override index: keep the built-in tracks */}
   return list;
 }
 const editor=createTrackEditor({
@@ -560,7 +560,7 @@ async function settleGates(list,key) {
     if(key!==gateKey)return;
     const fixed=list.map((d,i)=>{const y=Math.min(...g.slice(i*SETTLE_SPAN.length,(i+1)*SETTLE_SPAN.length).map(s=>s[1]))-SETTLE_SINK;return {...d,at:[d.at[0],Number.isFinite(y)?y:d.at[1],d.at[2]]};});
     renderer.setProps(sceneProps(fixed,gateKit));
-  } catch {}
+  } catch {/* surface probe failed: gates keep their authored height */}
 }
 function syncGates(force) {
   const live=editor.isOpen?tracks:tracksFor(tracks,choice.vehicle);
@@ -604,7 +604,7 @@ let raceTune=null;
 let wreckBusy=false,wasLocked=false;
 const wreckLocked=()=>wreckBusy||!!renderer.wreck;
 // After a wreck the dead pod is replaced: same spot but 10 m up (Unstuck poses), repaired and cooled, at rest.
-async function respawn(){const p=client.state?.telemetry;if(!p)return;for(const pose of unstuckPoses(p)){try{client.state=await client.request('restore',{pose,repair:true});race?.jump();renderer.camera=undefined;return;}catch{}}}
+async function respawn(){const p=client.state?.telemetry;if(!p)return;for(const pose of unstuckPoses(p)){try{client.state=await client.request('restore',{pose,repair:true});race?.jump();renderer.camera=undefined;return;}catch{/* try the next candidate pose */}}}
 async function testCrash(auto=false,speed){
   if(wreckBusy||!client.state)return;
   const input=renderer.startWreck(client.state.telemetry,Math.floor(Math.random()*1e9),speed);

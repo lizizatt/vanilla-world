@@ -35,7 +35,7 @@ const D=(v,w,y,m)=>{ // D: masts with a pennant line
   box(v,[-h,y+22.6,-.1],[w,.3,.2],5);
 };
 
-export const CONCEPTS={A,B,C,D};
+const CONCEPTS={A,B,C,D};
 
 export function conceptMesh(id,{width=34,yaw=0,y=0,hot=true}={}) {
   const v=[];CONCEPTS[id](v,width,y,hot?8:6);

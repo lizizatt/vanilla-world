@@ -2,8 +2,8 @@
 // for worldTest.props(). Frame: +x along the road (heading), +y left, +z up, yards. `real` carries preloaded local-asset models
 // ({pole,banner,brazier,lens}: {asset,textures,k}); without it the same shapes are procedural boxes (hosted fallback).
 const WHITE={key:'white',width:1,height:1,rgba:new Uint8Array([255,255,255,255])};
-export const FADE_YD=3.5;
-export const COL={amber:[1,.7,.15,1],red:[1,.12,.08,1],green:[.2,1,.3,1],pole:[.34,.3,.28,1],white:[.95,.95,.95,1],black:[.05,.05,.06,1],dim:[.35,.5,.62,1]};
+const FADE_YD=3.5;
+const COL={amber:[1,.7,.15,1],red:[1,.12,.08,1],green:[.2,1,.3,1],pole:[.34,.3,.28,1],white:[.95,.95,.95,1],black:[.05,.05,.06,1],dim:[.35,.5,.62,1]};
 const FACES=[[[0,0,0],[0,1,0],[0,1,1],[0,0,1],[-1,0,0]],[[1,0,0],[1,0,1],[1,1,1],[1,1,0],[1,0,0]],[[0,0,0],[0,0,1],[1,0,1],[1,0,0],[0,-1,0]],
   [[0,1,0],[1,1,0],[1,1,1],[0,1,1],[0,1,0]],[[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,-1]],[[0,0,1],[0,1,1],[1,1,1],[1,0,1],[0,0,1]]];
 

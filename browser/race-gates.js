@@ -4,7 +4,7 @@ import {gantry,checkpoint,beacon} from './race-gate-preview.js';
 import {flagPosition} from './race-flags.js';
 
 export const START_AHEAD=14; // yd the gantry stands ahead of the lined-up craft
-export const GANTRY_WIDTH=30;
+const GANTRY_WIDTH=30;
 const forward=yaw=>[-Math.sin(yaw),-Math.cos(yaw)];
 const ACTIVE={lineup:1,countdown:1,running:1};
 

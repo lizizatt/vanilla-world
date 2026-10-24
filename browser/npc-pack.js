@@ -1,6 +1,6 @@
 // NPC population loading. Two packs, same runtime shape: the private full pack (/local/npc-spawns.json, loopback only) and the
 // optional trimmed public pack (./npc-pack.json: positions + display ids only; models are resolved from the user's own Data).
-export const PUBLIC_PACK_URL = './npc-pack.json';
+const PUBLIC_PACK_URL = './npc-pack.json';
 const DBC = 'DBFilesClient\\';
 const json = r => r?.ok && /json/.test(r.headers.get('content-type') || '');
 

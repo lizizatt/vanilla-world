@@ -71,7 +71,7 @@ export class MusicCatalog {
 }
 
 // Race cues: fixed interface sounds read at runtime from the user's Data, never stored.
-export const CUES={click:'Sound\\interface\\iUiInterfaceButtonA.wav',quest:'Sound\\interface\\iQuestActivate.wav'};
+const CUES={click:'Sound\\interface\\iUiInterfaceButtonA.wav',quest:'Sound\\interface\\iQuestActivate.wav'};
 const BATTLE_DIR=/^sound\\music\\musical moments\\battle$/i;
 
 export class MusicService {

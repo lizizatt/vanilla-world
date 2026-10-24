@@ -3,10 +3,8 @@
 // Skin `source`: 'data' = authored model read at runtime from the user's Data (never shipped), 'glb' = original
 // model shipped in browser/vehicles/ (`model`), 'procedural' = drawn in code, 'none' = no body.
 export const DEFAULT_CHOICE=Object.freeze({vehicle:'podracer',skin:'rocket'});
-export const STORAGE_KEY='racer.vehicle';
+const STORAGE_KEY='racer.vehicle';
 
-// glb skins: \scale\ converts the model's own units to yards (models are authored in metres; tuned against the rocket's footprint).
-export const METRES=1.0936;
 export const VEHICLES=Object.freeze({
   'free-flight':{id:'free-flight',name:'Free flight',races:false,stats:{Speed:.6,Handling:.7,Boost:.5},
     note:'No race class: explore freely with the free camera.',
@@ -18,7 +16,7 @@ export const VEHICLES=Object.freeze({
 
 export const vehicleOf=track=>track?.vehicle??'podracer';
 export const tracksFor=(tracks,vehicle)=>tracks.filter(t=>vehicleOf(t)===vehicle);
-export const isVehicle=id=>typeof id==='string'&&Object.hasOwn(VEHICLES,id);
+const isVehicle=id=>typeof id==='string'&&Object.hasOwn(VEHICLES,id);
 
 // Runtime skins from the user's own SWE1R folder ('swe1r' source); replaced wholesale, removed with an empty list.
 export function setRuntimeSkins(source,skins,vehicle='podracer') {
@@ -47,7 +45,7 @@ export function bootChoice(storage=globalThis.localStorage) {
   const saved=readChoice(storage);return saved.vehicle==='podracer'?saved:{...DEFAULT_CHOICE};
 }
 export function writeChoice(choice,storage=globalThis.localStorage) {
-  try{storage.setItem(STORAGE_KEY,JSON.stringify(normalizeChoice(choice)));}catch{}
+  try{storage.setItem(STORAGE_KEY,JSON.stringify(normalizeChoice(choice)));}catch{/* storage unavailable: choice is not persisted */}
 }
 export const skinOf=choice=>VEHICLES[choice.vehicle].skins.find(s=>s.id===choice.skin);
 

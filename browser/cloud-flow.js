@@ -107,14 +107,14 @@ export function flowShift(lat,dx,dz,tau,drag=1) {
 /** Sphere-safe noise: the flat render (x, z) is the equirect position (lon = (x-cx)/R, lat = (cz-z)/R); noise is sampled at the 3D point on
  * the planet, so it is isotropic at every latitude (lon/lat noise pinched into streaks toward the poles and tore at the antimeridian).
  * Returns the unit radial `up`, and the tangent `east` / `north` unit vectors (the planet frame of space.js, north = -south). */
-export const latAt=z=>clamp((WORLD_CENTRE[1]-z)/PLANET_RADIUS,-LAT_MAX,LAT_MAX);
+const latAt=z=>clamp((WORLD_CENTRE[1]-z)/PLANET_RADIUS,-LAT_MAX,LAT_MAX);
 export function sphereAt(x,z) {
   const lat=latAt(z),lon=(x-WORLD_CENTRE[0])/PLANET_RADIUS,sl=Math.sin(lat),cl=Math.cos(lat),so=Math.sin(lon),co=Math.cos(lon);
   return {lat,lon,up:[cl*co,sl,cl*so],east:[-so,0,co],north:[-sl*co,cl,-sl*so]};
 }
 const fract=x=>x-Math.floor(x);
 // Sine-free 3D hash (Hoskins) and value noise: cheap on the GPU and exact in the mirror up to float rounding.
-export function hash3(x,y,z) {
+function hash3(x,y,z) {
   let a=fract(x*.1031),b=fract(y*.1031),c=fract(z*.1031);
   const d=a*(c+31.32)+b*(b+31.32)+c*(a+31.32);a+=d;b+=d;c+=d;
   return fract((a+b)*c);
