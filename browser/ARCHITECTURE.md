@@ -90,5 +90,6 @@ flowchart TB
 - **Frames:** world units are yards; flat tiles are bent onto the sphere by a shader (M5b, removing it, is deferred). The globe uses a coarse baked height texture (~130 yd/texel); authored ADT is only used near-field.
 - **Handoff:** the flat ocean mesh hides above 25k yd and the globe sea takes over. Zone lighting fades to global sun lighting in space.
 - **Files:** `sw.js` FILES is the single source for the shell list; `server.mjs` and `build-dist` read it.
-- **Not in this diagram:** `server/` (C++ game server), `runtime/`, `tools/`, and the other Rust `benilla-*` app crates are the older native client and are separate from the browser racer.
+- **C++ server is not in the stack:** `server/` (VMaNGOS, a vanilla WoW server emulator) is not used by the browser racer. Nothing in `browser/` connects to it (no sockets, auth or realm code), and the racer is single-player and fully client-side. It lives in the monorepo as an independent upstream snapshot; `scripts/` bootstrap it for the separate native client.
+- **Also not in this diagram:** `runtime/`, `tools/`, and the Rust `benilla-*` app crates (the native Bevy client, separate from the browser racer).
 - **Next (rocket phase):** unified space physics per `SPACE-PHYSICS.md`; see `GLOBE-REFACTOR.md`, `CLOUD-FLOW.md`, `HARDENING.md`, `DEBT.md`.
