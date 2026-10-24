@@ -1,3 +1,4 @@
+import {DEPTH_STATE} from './render-passes.js';
 import {WATER_NORMAL_SIZE,waterNormalMips} from './water-shader.js';
 import {shadowShader} from './shadow.js';
 import {cloudShader,CloudMask} from './clouds.js';
@@ -36,7 +37,7 @@ export async function initialize(r) {
       {shaderLocation:0,offset:0,format:'float32x3'},{shaderLocation:1,offset:12,format:'float32x3'},{shaderLocation:2,offset:24,format:'float32'}]}]},
     fragment:{module:terrain,entryPoint:'fs',targets:[{format:r.format}]},
     primitive:{topology:'triangle-list',cullMode:'none'},
-    depthStencil:{format:'depth24plus',depthWriteEnabled:true,depthCompare:'less'},
+    depthStencil:DEPTH_STATE.terrain,
   });
   r.sceneLayout=r.device.createBindGroupLayout({entries:[
     uniformEntry(256),
@@ -53,7 +54,7 @@ export async function initialize(r) {
       {shaderLocation:4,offset:48,format:'float32'}]}]},
     fragment:{module:splat,entryPoint:'fs',targets:[{format:r.format}]},
     primitive:{topology:'triangle-list',cullMode:'none'},
-    depthStencil:{format:'depth24plus',depthWriteEnabled:true,depthCompare:'less'},
+    depthStencil:DEPTH_STATE.splat,
   });
   r.cloudBuffer=r.device.createBuffer({size:240,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
   r.cloudMask=new CloudMask(r.device);
@@ -70,7 +71,7 @@ export async function initialize(r) {
   r.particlePipeline=await r.device.createRenderPipelineAsync({layout:'auto',
     vertex:{module:particleModule,entryPoint:'vs',buffers:[{arrayStride:32,stepMode:'instance',attributes:[{shaderLocation:0,offset:0,format:'float32x4'},{shaderLocation:1,offset:16,format:'float32x4'}]}]},
     fragment:{module:particleModule,entryPoint:'fs',targets:[{format:r.format,blend:{color:{srcFactor:'one',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},
-    primitive:{topology:'triangle-list',cullMode:'none'},depthStencil:{format:'depth24plus',depthWriteEnabled:false,depthCompare:'less'}});
+    primitive:{topology:'triangle-list',cullMode:'none'},depthStencil:DEPTH_STATE.particles});
   r.particleGroup=r.device.createBindGroup({layout:r.particlePipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.particleUniformBuffer}}]});
   r.shadowBuffer=r.device.createBuffer({size:144,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
   const shadowModule=await shader(shadowShader);
@@ -81,7 +82,7 @@ export async function initialize(r) {
   const skyModule=await shader(skyShader);
   r.skyPipeline=await r.device.createRenderPipelineAsync({layout:'auto',vertex:{module:skyModule,entryPoint:'vs'},
     fragment:{module:skyModule,entryPoint:'fs',targets:[{format:r.format}]},primitive:{topology:'triangle-list'},
-    depthStencil:{format:'depth24plus',depthWriteEnabled:false,depthCompare:'always'}});
+    depthStencil:DEPTH_STATE.sky});
   r.skyGroup=r.device.createBindGroup({layout:r.skyPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.skyBuffer}}]});
   r.spaceBuffer=r.device.createBuffer({size:256,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
   r.surfaceTex=r.device.createTexture({size:[1024,512],format:'rgba8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});
@@ -92,13 +93,13 @@ export async function initialize(r) {
   const spaceModule=await shader(spaceShader);
   r.spacePipeline=await r.device.createRenderPipelineAsync({layout:'auto',vertex:{module:spaceModule,entryPoint:'vs'},
     fragment:{module:spaceModule,entryPoint:'fs',targets:[{format:r.format,blend:{color:{srcFactor:'one',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},primitive:{topology:'triangle-list'},
-    depthStencil:{format:'depth24plus',depthWriteEnabled:true,depthCompare:'always'}});
+    depthStencil:DEPTH_STATE.space});
   r.spaceGroup=r.device.createBindGroup({layout:r.spacePipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.spaceBuffer}},{binding:1,resource:r.surfaceTex.createView()},{binding:2,resource:r.surfaceSamp}]});
   const patchModule=await shader(patchShader);
   r.patchBuffer=r.device.createBuffer({size:MAX_PATCHES*32,usage:GPUBufferUsage.VERTEX|GPUBufferUsage.COPY_DST});
   r.patchPipeline=await r.device.createRenderPipelineAsync({layout:'auto',vertex:{module:patchModule,entryPoint:'pvs',buffers:[{arrayStride:32,stepMode:'instance',attributes:[{shaderLocation:0,offset:0,format:'float32x4'},{shaderLocation:1,offset:16,format:'float32x4'}]}]},
     fragment:{module:patchModule,entryPoint:'pfs',targets:[{format:r.format,blend:{color:{srcFactor:'one',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},primitive:{topology:'triangle-list'},
-    depthStencil:{format:'depth24plus',depthWriteEnabled:true,depthCompare:'less-equal'}});
+    depthStencil:DEPTH_STATE.patch});
   r.patchGroup=r.device.createBindGroup({layout:r.patchPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.spaceBuffer}},{binding:1,resource:r.surfaceTex.createView()},{binding:2,resource:r.surfaceSamp},{binding:3,resource:r.heightTex.createView()}]});
   const domeModule=await shader(skyDomeShader);
   r.domeBuffer=r.device.createBuffer({size:64,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
@@ -106,7 +107,7 @@ export async function initialize(r) {
     {shaderLocation:0,offset:0,format:'float32x3'},{shaderLocation:1,offset:12,format:'float32x3'},
     {shaderLocation:2,offset:24,format:'float32x2'},{shaderLocation:3,offset:32,format:'float32x4'}]}]},
     fragment:{module:domeModule,entryPoint:'fs',targets:[{format:r.format,blend:{color:{srcFactor:'src-alpha',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},
-    primitive:{topology:'triangle-list',cullMode:'none'},depthStencil:{format:'depth24plus',depthWriteEnabled:false,depthCompare:'always'}});
+    primitive:{topology:'triangle-list',cullMode:'none'},depthStencil:DEPTH_STATE.dome});
   r.mapSampler=r.device.createSampler({minFilter:'linear',magFilter:'linear'});
   r.layerSampler=r.device.createSampler({minFilter:'linear',magFilter:'linear',mipmapFilter:'linear',
     addressModeU:'repeat',addressModeV:'repeat',maxAnisotropy:4});

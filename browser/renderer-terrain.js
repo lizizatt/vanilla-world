@@ -1,3 +1,4 @@
+import {bundleFormats} from './render-passes.js';
 import {TERRAIN_TEXTURE_SIZE} from './terrain-stream.js';
 import {oceanMesh} from './ocean-mesh.js';
 import {flagMesh,gateMesh} from './race-flags.js';
@@ -85,7 +86,7 @@ export function drawTerrain(r,pass,terrain) {
   const cached=r.terrainBundle;
   if(!cached || cached.items.length!==terrain.length ||
     terrain.some((item,i)=>cached.items[i]!==item || cached.materials[i]!==item.material)) {
-    const encoder=r.device.createRenderBundleEncoder({colorFormats:[r.format],depthStencilFormat:'depth24plus'});
+    const encoder=r.device.createRenderBundleEncoder(bundleFormats(r.format));
     encoder.setPipeline(r.pipeline);
     for(const item of terrain){
       encoder.setBindGroup(0,item.group,[item.offset]);encoder.setVertexBuffer(0,item.buffer);
