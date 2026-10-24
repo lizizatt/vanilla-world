@@ -12,7 +12,9 @@ import {ParticlePool,exhaustPoints,emitPlumes,emitBurst,emitDebris,emitHeatSmoke
 import {flagMesh,gateMesh} from './race-flags.js';
 import {beamState} from './beam.js';
 import {schematicRects} from './worldmap.js';
-import {planetFactors,horizonDip,spaceUniform,spaceShader,bendShader,FALLBACK_RECTS} from './space.js';
+import {patchesAt,packPatches,PATCH_GRID,MAX_PATCHES} from './globe-patches.js';
+import {createRegistry,defaultManifest,bakeSurface} from './tile-registry.js';
+import {planetFactors,horizonDip,spaceUniform,spaceShader,patchShader,bendShader,FALLBACK_RECTS} from './space.js';
 import {SkyCatalog,mapPosition,skyShader,skyDomeShader,skyUniform,advanceTime,nightAlpha,nightAngle,DAY} from './sky.js';
 import {ACTOR,actorPhase,poseKey} from './actors.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
@@ -342,11 +344,19 @@ export class WorldRenderer {
       depthStencil:{format:'depth24plus',depthWriteEnabled:false,depthCompare:'always'}});
     this.skyGroup=this.device.createBindGroup({layout:this.skyPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:this.skyBuffer}}]});
     this.spaceBuffer=this.device.createBuffer({size:256,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
+    this.surfaceTex=this.device.createTexture({size:[1024,512],format:'rgba8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});
+    this.surfaceSamp=this.device.createSampler({magFilter:'linear',minFilter:'linear',addressModeU:'repeat',addressModeV:'clamp-to-edge'});
     const spaceModule=await shader(spaceShader);
     this.spacePipeline=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module:spaceModule,entryPoint:'vs'},
       fragment:{module:spaceModule,entryPoint:'fs',targets:[{format:this.format,blend:{color:{srcFactor:'one',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},primitive:{topology:'triangle-list'},
       depthStencil:{format:'depth24plus',depthWriteEnabled:true,depthCompare:'always'}});
-    this.spaceGroup=this.device.createBindGroup({layout:this.spacePipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:this.spaceBuffer}}]});
+    this.spaceGroup=this.device.createBindGroup({layout:this.spacePipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:this.spaceBuffer}},{binding:1,resource:this.surfaceTex.createView()},{binding:2,resource:this.surfaceSamp}]});
+    const patchModule=await shader(patchShader);
+    this.patchBuffer=this.device.createBuffer({size:MAX_PATCHES*16,usage:GPUBufferUsage.VERTEX|GPUBufferUsage.COPY_DST});
+    this.patchPipeline=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module:patchModule,entryPoint:'pvs',buffers:[{arrayStride:16,stepMode:'instance',attributes:[{shaderLocation:0,offset:0,format:'float32x4'}]}]},
+      fragment:{module:patchModule,entryPoint:'pfs',targets:[{format:this.format,blend:{color:{srcFactor:'one',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},primitive:{topology:'triangle-list'},
+      depthStencil:{format:'depth24plus',depthWriteEnabled:true,depthCompare:'less-equal'}});
+    this.patchGroup=this.device.createBindGroup({layout:this.patchPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:this.spaceBuffer}},{binding:1,resource:this.surfaceTex.createView()},{binding:2,resource:this.surfaceSamp}]});
     const domeModule=await shader(skyDomeShader);
     this.domeBuffer=this.device.createBuffer({size:64,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
     this.domePipeline=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module:domeModule,entryPoint:'vs',buffers:[{arrayStride:48,attributes:[
@@ -758,9 +768,19 @@ export class WorldRenderer {
   }
   planetRects() {return this.manifest?.world_bounds?schematicRects(this.manifest):FALLBACK_RECTS;}
   drawPlanet(pass,pf,near) {
-    const rects=this.planetRects();
+    const rects=this.planetRects(),key=JSON.stringify(rects);
+    if(pf.registry&&this.surfaceKey!==key){
+      this.device.queue.writeTexture({texture:this.surfaceTex},bakeSurface(createRegistry(defaultManifest(undefined,rects))),{bytesPerRow:4096},[1024,512]);
+      this.surfaceKey=key;
+    }
     this.device.queue.writeBuffer(this.spaceBuffer,0,spaceUniform(this.view,sunDirection(this.timeOfDay),pf,rects,this.timeOfDay,near,200000));
     pass.setPipeline(this.spacePipeline);pass.setBindGroup(0,this.spaceGroup);pass.draw(3);
+  }
+  drawPatches(pass) {
+    const eye=this.view.eye,patches=patchesAt(eye[0],eye[2],Math.max(0,eye[1]));
+    this.device.queue.writeBuffer(this.patchBuffer,0,packPatches(patches));
+    this.patchCount=patches.length;
+    pass.setPipeline(this.patchPipeline);pass.setBindGroup(0,this.patchGroup);pass.setVertexBuffer(0,this.patchBuffer);pass.draw(PATCH_GRID*PATCH_GRID*6,patches.length);
   }
   drawSkyDome(pass) {
     const alpha=nightAlpha(this.timeOfDay);
@@ -850,7 +870,7 @@ export class WorldRenderer {
     this.cameraLook=look;
     const aspect=width/height;
     this.view={eye:[this.camera[0]+origin[0],this.camera[1],this.camera[2]+origin[1]],right,up,look,aspect};
-    const planetOn=!!flight&&settings.planet!==false,pf=this.planet=planetFactors(planetOn?this.view.eye[1]:0,planetOn);
+    const planetOn=!!flight&&settings.planet!==false,pf=this.planet=planetFactors(planetOn?this.view.eye[1]:0,planetOn);pf.mesh=planetOn&&!!settings.globeMesh;pf.registry=planetOn&&!!settings.globeRegistry;
     const target=settings.night?0:1,previous=this.daylight??target;
     const daylight=this.daylight=Math.abs(target-previous)<.002?target:previous+(target-previous)*Math.min(1,dt*1.5);
     const sky0=DAY_SKY.map((v,i)=>NIGHT_SKY[i]+(v-NIGHT_SKY[i])*daylight);
@@ -962,6 +982,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
     if(!this.cameraBlocked){
       if(game){this.device.queue.writeBuffer(this.skyBuffer,0,skyUniform(this.view,game,this.timeOfDay,horizonDip(this.view.eye[1],pf.bend),pf.space));pass.setPipeline(this.skyPipeline);pass.setBindGroup(0,this.skyGroup);pass.draw(3);this.drawSkyDome(pass);}
       if(pf.globe>0)this.drawPlanet(pass,pf,near);
+      if(pf.globe>0&&pf.mesh)this.drawPatches(pass);
       this.drawTerrain(pass,terrain);this.drawScene(pass,draws);
     }
     pass.end();

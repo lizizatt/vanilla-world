@@ -6,7 +6,7 @@ const { ctx, page } = await openLab({ clouds: true });
 await page.waitForFunction(() => window.worldTest?.manifest && worldTest.manifest(), null, { timeout: 90000 });
 const spawn = await page.evaluate(() => worldTest.manifest().spawn);
 for (const [name, alt, pitch, yaw, settings = {}] of shots) {
-  await page.evaluate(([s, x, z, a, p, y]) => { worldTest.settings({ planet: true, clouds: true, ...s }); worldTest.timeLock(1440); worldTest.focus([x, a, z, y, p]); }, [settings, spawn[0] + dx, spawn[2] + dz, alt, pitch, yaw]);
+  await page.evaluate(([s, x, z, a, p, y, t]) => { worldTest.settings({ planet: true, clouds: true, ...s }); worldTest.timeLock(t); worldTest.focus([x, a, z, y, p]); }, [settings, spawn[0] + dx, spawn[2] + dz, alt, pitch, yaw, +process.env.TIME || 1440]);
   await page.waitForTimeout(alt > 10000 ? 6000 : 9000);
   await page.screenshot({ path: path.join(out, `pose-${tag}-${name}.png`) });
 }
