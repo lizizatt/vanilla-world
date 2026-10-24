@@ -3,23 +3,8 @@
 import {PLANET_RADIUS,WORLD_CENTRE,planetFrame} from './space.js';
 import {flowWGSL,FLOW,MASK,bakeLandMask} from './cloud-flow.js';
 import {createRegistry,defaultManifest} from './tile-registry.js';
-export const CLOUD_ALTITUDE_FACTOR=.8;
-// Mt Hyjal summit height in yards, measured from the user's Kalimdor terrain (tile bounds near Hyjal, see README "Clouds").
-export const HYJAL_SUMMIT=1971;
-export const CLOUD_ALTITUDE=CLOUD_ALTITUDE_FACTOR*HYJAL_SUMMIT;
-export const CLOUD_THICKNESS=520;
-// High tier only: how far dense storm columns grow above / below the slab (yards, at full storm density).
-export const CLOUD_TOWER={up:2400,down:160};
-export const CLOUD_HALF_SIZE=250000;
-// Tunables in yards / radians per second. Arms rotate counter-clockwise as seen on the world map (north up).
-export const MAELSTROM={eyeRadius:2200,wallRadius:5200,radius:24000,arms:3,pitch:.7,spin:.012,drift:.006};
-// World-map registration: the eye sits 43% of the way from Kalimdor's east coast to the Eastern Kingdoms' west coast,
-// and at 35% / 40% of the way down each continent's tile rows, averaged because the two continents are offset provisionally.
-const MAELSTROM_MAP={across:.43,kalimdorDown:.35,easternDown:.4};
-
-// Whirlpool dip, the single source of truth for JS and Rust (set_whirlpool in voyage.rs): the ocean surface at distance r
-// from the centre sits depth*(1-(r/radius)^2)^2 yd below sea level (zero value and slope at the rim). The funnel ends at the bottom.
-export const WHIRLPOOL_DIP={radius:2400,depth:330};
+import {CLOUD_ALTITUDE,CLOUD_THICKNESS,CLOUD_HALF_SIZE,HYJAL_SUMMIT,CLOUD_ALTITUDE_FACTOR,CLOUD_TOWER,WHIRLPOOL_DIP,MAELSTROM,MAELSTROM_MAP,FUNNEL,FUNNEL_STEPS,tier} from './cloud-config.js';
+export * from './cloud-config.js';
 
 export function maelstromCentre(manifest) {
   const o=manifest.ocean,[kalimdor,east]=manifest.world_bounds.map((b,i)=>{
@@ -54,9 +39,6 @@ export function cloudUniform(view,time,daylight,manifest,near,game,out=new Float
   return out;
 }
 
-// Funnel: a tapered, rotating column rising far above the sheet at the maelstrom centre (yards). Tunable.
-// The column continues below the sheet down to sea level, flaring into a mist skirt (skirtRadius) at the whirlpool.
-export const FUNNEL={top:7500,seaLevel:-WHIRLPOOL_DIP.depth,skirtRadius:1700,baseRadius:500,baseDensity:.12,sparseHeight:2200,topRadius:3200,flare:1.5,spin:.5,twist:5,fadeStart:90000,fadeEnd:170000};
 const COMMON=`
 struct C {eye:vec4f,right:vec4f,up:vec4f,look:vec4f,cloud:vec4f,near:vec4f,tint:vec4f,fog:vec4f,sun:vec4f,sunCol:vec4f,cloud2:vec4f,bend:vec4f,fe:vec4f,fu:vec4f,fs:vec4f};
 @group(0) @binding(0) var<uniform> c:C;
@@ -139,8 +121,8 @@ struct V {@builtin(position) clip:vec4f,@location(0) ndc:vec2f};
   var v:V;v.clip=vec4f(q[i],0.5,1);v.ndc=q[i];return v;
 }
 const THICK=${CLOUD_THICKNESS.toFixed(1)};
-const UP=${high?CLOUD_TOWER.up:0}.0;
-const DOWN=${high?CLOUD_TOWER.down:0}.0;
+const UP=${tier(high).tower.up}.0;
+const DOWN=${tier(high).tower.down}.0;
 ${high?HIGH_NOISE:STD_NOISE}
 fn cloudBody(sp:Sph,d:vec2f,pos:vec3f,t:f32,tau:f32,drag:f32,coverage:f32,wall:f32)->vec2f {
   let s=flowShift(sp.lat,d,tau,drag);
@@ -223,8 +205,8 @@ fn silver(dir:vec3f,thin:f32,sunY:f32)->vec3f {
   let day=smoothstep(-.1,.25,sunY);
   return c.sunCol.rgb*pow(max(dot(dir,c.sun.xyz),0.0),4.0)*(.4+1.4*thin)*day;
 }
-const NS=${high?28:8};
-const NF=14;
+const NS=${tier(high).steps};
+const NF=${FUNNEL_STEPS};
 @fragment fn fs(v:V)->@location(0) vec4f {
   let t=c.up.w;let night=1.0-c.look.w;
   let dir=normalize(c.look.xyz+c.right.xyz*v.ndc.x*.55*c.right.w+c.up.xyz*v.ndc.y*.55);
@@ -255,7 +237,7 @@ const NF=14;
     let ta=(ya-c.eye.y)/dy;let tb=(yb-c.eye.y)/dy;
     s0=max(0.0,min(ta,tb));sFull=max(ta,tb);
   }
-  let sCap=s0+max(${high?"40000.0":"9000.0"},.3*s0);s1=min(sFull,sCap);
+  let sCap=s0+max(${tier(high).minSpan.toFixed(1)},.3*s0);s1=min(sFull,sCap);
   if(sceneDist<1e8){sEdge=smoothstep(0.0,350.0,sceneDist-s0);s1=min(s1,sceneDist);}
   capped=sFull>sCap&&s1==sCap;let cutK=smoothstep(0.0,.5,(sFull-sCap)/max(sCap-s0,1.0));
   if(live&&s1>s0&&sEdge>0.0&&s0<select(c.cloud.w,1e8,shell)){ns=NS;}
