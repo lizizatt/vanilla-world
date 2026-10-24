@@ -163,7 +163,7 @@ fn surface(pv:vec3f,n:vec3f,d:vec3f,sun:vec3f)->vec3f {
   var ground=mix(vec3f(.2,.38,.14),vec3f(.5,.42,.26),smoothstep(.35,.7,tex));
   if(s.tint[1].w>.5){ground=ground*.5+regCol*(.6+tex*.5);}
   // Deep/shallow body colours are the terrain water shader's, so the sea has no colour step at the loaded-tile edge.
-  let sea=mix(vec3f(.025,.18,.29),vec3f(.09,.43,.39),smoothstep(-3000.0,1500.0,edge));
+  let sea=mix(vec3f(.025,.18,.29),vec3f(.09,.43,.39),smoothstep(-1500.0,1500.0,edge));
   var col=mix(sea,ground,land);
   let lit=clamp(dot(n,sun)*1.6+.15,0.0,1.0);
   let spec=pow(max(dot(reflect(-sun,n),-d),0.0),40.0)*(1.0-land);
