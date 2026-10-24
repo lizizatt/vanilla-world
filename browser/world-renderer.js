@@ -483,7 +483,7 @@ export class WorldRenderer {
     this.releaseCraft();
     this.craftError=undefined;
     for(const item of [...this.tiles.values(),...this.seams.values(),...this.horizon,...this.water,...this.flags,...this.gates,...this.coast.values()])this.release(item);
-    this.tiles.clear();this.seams.clear();this.horizon=[];this.water=[];this.flags=[];this.gates=[];this.coast.clear();this.coastBytes=0;
+    this.tiles.clear();this.seams.clear();this.horizon=[];this.water=[];this.flags=[];this.gates=[];this.coast.clear();this.oceanSpec=undefined;this.oceanFill=undefined;this.landRects=[];this.coastBytes=0;
     for(const index of this.indices.values())index.destroy();this.indices.clear();
     for(const asset of this.assets.values()){asset.vertices.destroy();asset.indices.destroy();}this.assets.clear();
     for(const texture of this.textures.values())texture.destroy();this.textures.clear();
@@ -507,7 +507,7 @@ export class WorldRenderer {
     const [x,z]=manifest.ocean;
     // Open ocean beyond the authored rectangle: the same water mesh extended to roughly half the planet circumference.
     const pad=OCEAN_FILL,[,,right,bottom]=manifest.ocean;
-    this.water.push(this.drawable(oceanMesh({...manifest,ocean:[x-pad,z-pad,right+pad,bottom+pad]}),[x-pad,z-pad]));
+    this.oceanSpec={manifest:{...manifest,ocean:[x-pad,z-pad,right+pad,bottom+pad]},origin:[x-pad,z-pad]};this.landRects=[];this.oceanFill=this.drawable(oceanMesh(this.oceanSpec.manifest),this.oceanSpec.origin);this.water.push(this.oceanFill);
     const pending=this.pendingEvents;this.pendingEvents=[];
     for(const data of pending)this.event(data);
   }
@@ -531,7 +531,10 @@ export class WorldRenderer {
     }
     else if(data.event==='horizon'){splatHeights(this.heightGrid,data.vertices,data.placement,WORLD_CENTRE,PLANET_RADIUS);this.heightDirty=true;
       this.horizonColour(data.region*4096+data.source[0]+64*data.source[1],{placement:data.placement});this.horizon.push({...this.drawable(data.vertices,data.placement,this.minimapAtlases[data.region]),
-      region:data.region,near:data.near,cell:data.source[0]+64*data.source[1]});}
+      region:data.region,near:data.near,cell:data.source[0]+64*data.source[1]});
+      const hb=this.horizon[this.horizon.length-1].bounds;
+      // WDL ocean tiles sit near -503 yd; anything higher is land that must not be flooded by the sea-level fill.
+      if(hb&&hb[1][1]>-450&&this.oceanSpec){this.landRects.push([hb[0][0],hb[0][2],hb[1][0],hb[1][2]]);this.oceanDirty=true;}}
     else if(data.event==='horizon-material'){
       if(data.rgba.length!==MINIMAP_SIZE*MINIMAP_SIZE*4||!this.minimapAtlases[data.region]||
         !Number.isInteger(data.x)||!Number.isInteger(data.y)||data.x<0||data.x>=64||data.y<0||data.y>=64)
@@ -779,6 +782,13 @@ export class WorldRenderer {
     const e={...this.horizonMini.get(key),...part};this.horizonMini.set(key,e);
     if(e.placement&&e.rgba){splatMinimap(this.colourGrid,e.rgba,MINIMAP_SIZE,e.placement,WORLD_CENTRE,PLANET_RADIUS,this.colourDirty);this.horizonMini.delete(key);}
   }
+  /** Rebuilds the sea fill with land tiles cut out, at most once a second while horizon tiles are still arriving. */
+  refreshOcean() {
+    if(!this.oceanDirty||!this.oceanSpec||performance.now()-(this.oceanAt||0)<1000)return;
+    this.oceanDirty=false;this.oceanAt=performance.now();
+    const next=this.drawable(oceanMesh(this.oceanSpec.manifest,96,this.landRects),this.oceanSpec.origin),i=this.water.indexOf(this.oceanFill);
+    this.release(this.oceanFill);if(i>=0)this.water[i]=next;else this.water.push(next);this.oceanFill=next;this.terrainBundle=undefined;
+  }
   planetRects() {return this.manifest?.world_bounds?schematicRects(this.manifest):FALLBACK_RECTS;}
   drawPlanet(pass,pf,near) {
     const rects=this.planetRects(),key=JSON.stringify(rects);
@@ -905,6 +915,7 @@ export class WorldRenderer {
     const distant=settings.horizon?this.horizon.filter(h=>!this.tiles.has(h.near)):[];
     const coastal=[...this.coast].flatMap(([index,item])=>
       this.tiles.has(index)?item.backing?[item.backing]:[]:settings.horizon?[item]:[]);
+    this.refreshOcean();
     const allTerrain=this.cameraBlocked?[]:[...distant,...this.tiles.values(),...(settings.horizon?this.seams.values():[]),...this.water,...coastal,...this.flags,...this.gates];
     if(!flight&&!this.craft&&!this.cameraBlocked)allTerrain.push(this.body);
     const cachedView=this.terrainView;

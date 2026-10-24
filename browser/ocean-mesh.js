@@ -7,9 +7,25 @@ export const dipDepth=(r,{radius,depth}=WHIRLPOOL_DIP)=>r>=radius?0:depth*(1-(r/
 
 /** Ocean triangles (7 floats per vertex: pos, normal, material 2) local to the ocean origin: a flat quad, or four flat
  * quads around a dense displaced square patch when the whirlpool centre lies inside the ocean. */
-export function oceanMesh(manifest,cells=96) {
+export function oceanMesh(manifest,cells=96,land=[]) {
   const [x,z,right,bottom]=manifest.ocean,y=manifest.sea_level,w=right-x,h=bottom-z,out=[];
-  const cell=(x0,z0,x1,z1)=>out.push(x0,y,z0,0,1,0,2,x1,y,z0,0,1,0,2,x1,y,z1,0,1,0,2,x0,y,z0,0,1,0,2,x1,y,z1,0,1,0,2,x0,y,z1,0,1,0,2);
+  const tri=(x0,z0,x1,z1)=>out.push(x0,y,z0,0,1,0,2,x1,y,z0,0,1,0,2,x1,y,z1,0,1,0,2,x0,y,z0,0,1,0,2,x1,y,z1,0,1,0,2,x0,y,z1,0,1,0,2);
+  // Land tiles (absolute rects) are cut out of the fill so below-sea-level ground is not flooded; cells touching land split into SUB steps.
+  const buckets=new Map(),SUB=5;
+  for(const r of land)for(let j=Math.floor((r[1]-z)/OCEAN_CELL);j<=Math.floor((r[3]-z)/OCEAN_CELL);j++)for(let i=Math.floor((r[0]-x)/OCEAN_CELL);i<=Math.floor((r[2]-x)/OCEAN_CELL);i++){
+    const k=j*100000+i;(buckets.get(k)||buckets.set(k,[]).get(k)).push(r);
+  }
+  const cell=(x0,z0,x1,z1)=>{
+    let near;
+    if(buckets.size)for(let j=Math.floor(z0/OCEAN_CELL);j<=Math.floor(z1/OCEAN_CELL);j++)for(let i=Math.floor(x0/OCEAN_CELL);i<=Math.floor(x1/OCEAN_CELL);i++){
+      const b=buckets.get(j*100000+i);if(b)near=near?near.concat(b):b;
+    }
+    if(!near)return tri(x0,z0,x1,z1);
+    for(let j=0;j<SUB;j++)for(let i=0;i<SUB;i++){
+      const a=x0+(x1-x0)*i/SUB,b=z0+(z1-z0)*j/SUB,c=x0+(x1-x0)*(i+1)/SUB,d=z0+(z1-z0)*(j+1)/SUB,mx=x+(a+c)/2,mz=z+(b+d)/2;
+      if(!near.some(r=>mx>=r[0]&&mx<r[2]&&mz>=r[1]&&mz<r[3]))tri(a,b,c,d);
+    }
+  };
   const quad=(x0,z0,x1,z1)=>{
     if(!(x1>x0&&z1>z0))return;
     const nx=Math.ceil((x1-x0)/OCEAN_CELL),nz=Math.ceil((z1-z0)/OCEAN_CELL);
