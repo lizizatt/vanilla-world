@@ -6,6 +6,10 @@ const axis=(value,deadzone)=>Number.isFinite(value) && Math.abs(value)>deadzone
 const button=(pad,index)=>pad.buttons[index]?.pressed || (pad.buttons[index]?.value || 0)>.5;
 const value=(pad,index)=>axis(pad.buttons[index]?.value, .08);
 
+/** The canonical Intent every device maps to: throttle/steer in [-1,1], bit flags (1 handbrake, 2 boost, 4 brake, 8 jump),
+ *  look axes in [-1,1], zoom step and one-shot edge actions. */
+export const idleIntent=(brake=true)=>({throttle:0,steer:0,flags:brake?1:0,look:[0,0],zoom:0,cockpit:false,reset:false,flight:false,help:false});
+
 export class WorldInput {
   constructor(){this.device='keyboard';this.active=undefined;this.previous=new Map();}
   keyboard(){this.device='keyboard';}
@@ -27,7 +31,7 @@ export class WorldInput {
       if(accepts && activity){this.active=pad.index;if(!keyboardHeld)this.device='controller';}
       if(pad.index===this.active){selected={pad,analog};edges=rising;}
     }
-    const idle={throttle:0,steer:0,flags:brakeWhenInactive?1:0,look:[0,0],zoom:0,cockpit:false,reset:false,flight:false,help:false};
+    const idle=idleIntent(brakeWhenInactive);
     if(!accepts)return idle;
     const actions={zoom:Number(!!edges[12])-Number(!!edges[13]),cockpit:!!edges[11],
       reset:!!edges[3],flight:!!edges[9],help:!!edges[8]};

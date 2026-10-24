@@ -1,6 +1,7 @@
 import {moveFlight,FLIGHT_PITCH} from './flight.js';
 import {basis,fromEuler,toEuler,stepOrient,turnAround} from './orient.js';
 import {spaceHud} from './space.js';
+import {regimeOf} from './regime.js';
 import {nearestFlag} from './race-flags.js';
 import {tracksFor,skinOf} from './vehicles.js';
 import {hitFlash,boostFx} from './swe1r/hud.js';
@@ -83,7 +84,7 @@ function frame(now) {
       $('camera-status').textContent=app.flight?'Flight camera is collision-free':settings.cockpit
         ?cameraWarning||(app.renderer.cameraMode==='cockpit'?'Cockpit / exact posed seat':'Cockpit waiting for craft'):!cameraCollision.ready?'Chase clearance waiting for geometry'
         :cameraCollision.coverageLimited?'Chase distance limited to its collision window':'Vehicle-relative chase collision ready';
-      $('space-hud').hidden=!app.flight||app.flight[1]<150;if(app.flight&&app.flight[1]>=150)$('space-hud').textContent=spaceHud(app.flight,app.flightSpeed,app.renderer.planetRects?.(),app.landmarks());
+      const airborne=!!app.flight&&regimeOf(app.flight[1])!=='ground';$('space-hud').hidden=!airborne;if(airborne)$('space-hud').textContent=spaceHud(app.flight,app.flightSpeed,app.renderer.planetRects?.(),app.landmarks());
       $('place').textContent=app.flight?'FREE FLIGHT':p[10]===-1?'THE GREAT SEA':p[10]===1?'EASTERN KINGDOMS':'KALIMDOR';
       $('coordinates').textContent=`${(app.flight?.[0]??p[0]).toFixed(0)} E / ${(app.flight?.[2]??p[2]).toFixed(0)} S`;
       $('resident').textContent=`${s.resident.length}/${s.limit} terrain tiles · ${stats.horizonTiles} distant patches · ${stats.sceneInstances||0} scene instances`;
