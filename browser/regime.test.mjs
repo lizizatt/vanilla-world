@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {regimeOf,REGIME_BANDS} from './regime.js';
-import {PLANET_RAMPS,planetFactors} from './space.js';
+import {BEND_RANGE,GLOBE_RANGE,SPACE_RANGE,CLOUD_RANGE,planetFactors,wgslRamp} from './terrain-transition.js';
+import {spaceShader} from './space.js';
 import {FLIGHT,flightBoost,moveFlight} from './flight.js';
 import {ORIENT,spaceBlend,stepOrient,fromEuler,basis} from './orient.js';
 import {CAMERA} from './world-camera.js';
@@ -13,15 +14,16 @@ test('regime tag follows the planet ramps at the band edges', () => {
   assert.equal(regimeOf(150),'atmosphere');
   assert.equal(regimeOf(8999),'atmosphere');
   assert.equal(regimeOf(9000),'orbit');
-  assert.equal(REGIME_BANDS.atmosphere,PLANET_RAMPS.bend[0]);
+  assert.equal(REGIME_BANDS.atmosphere,BEND_RANGE[0]);
   assert.equal(planetFactors(REGIME_BANDS.atmosphere).bend,0);
   assert.equal(planetFactors(REGIME_BANDS.orbit).space,1);
 });
 
 test('tuning tables are frozen and keep their shipped values', () => {
-  for(const t of [FLIGHT,ORIENT,CAMERA,PLANET_RAMPS])assert.ok(Object.isFrozen(t));
+  for(const t of [FLIGHT,ORIENT,CAMERA,BEND_RANGE,GLOBE_RANGE,SPACE_RANGE,CLOUD_RANGE])assert.ok(Object.isFrozen(t));
   assert.deepEqual({...FLIGHT},{walkSpeed:1200,fastSpeed:8000,floor:-10000,ceiling:1000000,pitch:Math.PI/2,boostFrom:1000,boostMax:40});
   assert.deepEqual([...ORIENT.levelAlt],[800,4000]);
+  assert.deepEqual([BEND_RANGE,GLOBE_RANGE,SPACE_RANGE,CLOUD_RANGE].map(r=>[...r]),[[150,1500],[0,60],[2000,9000],[3000,9000]]);
   assert.equal(CAMERA.recentre,7);
 });
 
@@ -62,4 +64,8 @@ test('keyboard and controller map to the same Intent shape', () => {
   assert.deepEqual(Object.keys(pd).sort(),idle);
   assert.ok(pd.throttle>0.9);
   assert.deepEqual(input.sample(new Set(),[],false),idleIntent(true));
+});
+
+test('globe fog shader takes its ramp from the transition owner', () => {
+  assert.ok(spaceShader.includes(wgslRamp(BEND_RANGE)+'s.p.x)'));
 });
