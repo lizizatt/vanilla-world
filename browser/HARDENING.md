@@ -7,7 +7,7 @@
 - M5 blocked on M3: the globe crossfade is already ~0 ([0,60] yd) but the bend shader is what curves the authored ADT tiles, so it can only go once the patch tree carries ADT/WDL height. Do M3 first.
 - M5 NOT done: bend shader, crossfade ramps and the analytic sphere are still present. The analytic pass still draws
   atmosphere limb, stars and moons, so it can only shrink, not be deleted outright.
-- M6 NOT verified: hosted fallback (no WoW data) uses `FALLBACK_RECTS`/procedural providers but has no final captures.
+- M6 checked (muted Edge, no WoW data): hosted page loads with no console errors but stops at the "Select your World Data folder" landing gate, so the procedural-only world is unreachable without data (no demo-mode entry yet). Providers use `FALLBACK_RECTS`/procedural providers but has no final captures.
 
 ## Culling / visibility issues known
 1. Maelstrom: rectangular water-mesh edge (teal vs navy globe) inside the hole at ~5-10k yd.
