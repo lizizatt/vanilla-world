@@ -374,11 +374,24 @@ $('tuning-defaults').addEventListener('click',()=>{
     .catch(error=>{$('tuning-status').textContent=error.message;}).finally(()=>{busy=false;});
 });
 /** Exact-view export/import: Ctrl+Alt+P copies a repro link (world pose, time, settings); opening it restores the same view. */
+function toast(text) {
+  let t=document.getElementById('pose-toast');if(!t){t=document.createElement('div');t.id='pose-toast';t.style.cssText='position:fixed;left:50%;top:18px;transform:translateX(-50%);z-index:99999;background:#103040e6;color:#fff;border:1px solid #4cd;padding:10px 16px;font:14px sans-serif;border-radius:6px;pointer-events:none';document.body.append(t);}
+  t.textContent=text;t.hidden=false;clearTimeout(t.timer);t.timer=setTimeout(()=>{t.hidden=true;},2500);
+}
+function showLink(link) {
+  document.exitPointerLock?.();document.getElementById('pose-box')?.remove();
+  const box=document.createElement('div');box.id='pose-box';box.style.cssText='position:fixed;left:10%;right:10%;top:30%;z-index:99999;background:#102030;color:#fff;border:1px solid #4cd;padding:12px;font:14px sans-serif';
+  box.innerHTML='<div>Copy this pose link (Ctrl+C), then close:</div>';const t=document.createElement('textarea');t.value=link;t.readOnly=true;t.style.cssText='width:100%;height:90px';const x=document.createElement('button');x.textContent='Close';x.onclick=()=>box.remove();box.append(t,x);document.body.append(box);t.focus();t.select();
+}
 function exportPose() {
   const t=client.state?.telemetry;
   const view={v:1,flight:flight?flight.slice():undefined,drive:!flight&&t?Array.from(t.slice(0,4)):undefined,time:renderer.timeOfDay,settings:{...settings}};
   const link=`${location.origin}${location.pathname}?pose=${encodeURIComponent(JSON.stringify(view))}`;
-  navigator.clipboard?.writeText(link).catch(()=>{});console.log('pose',link);window.lastPoseLink=link;report('Pose link copied.',true);return link;
+  window.lastPoseLink=link;console.log('pose',link);
+  const done=ok=>{if(ok)toast('Pose link copied to clipboard');else showLink(link);};
+  const legacy=()=>{const t=document.createElement('textarea');t.value=link;t.style.cssText='position:fixed;opacity:0';document.body.append(t);t.select();let ok=false;try{ok=document.execCommand('copy');}catch{}t.remove();return ok;};
+  if(navigator.clipboard?.writeText)navigator.clipboard.writeText(link).then(()=>done(true),()=>done(legacy()));else done(legacy());
+  return link;
 }
 async function applyUrlPose() {
   const raw=new URLSearchParams(location.search).get('pose');if(!raw)return;
@@ -390,8 +403,8 @@ async function applyUrlPose() {
   running=true;
 }
 window.exportPose=exportPose;
+window.addEventListener('keydown',event=>{if(!event.repeat&&running&&(event.code==='F8'||(event.code==='KeyY'&&event.ctrlKey&&event.altKey))){event.preventDefault();event.stopPropagation();exportPose();}},true);
 canvas.addEventListener('keydown',event=>{
-  if(!event.repeat && event.code==='KeyP' && event.ctrlKey && event.altKey && running){event.preventDefault();exportPose();return;}
   if(!event.repeat && event.code==='KeyK' && event.ctrlKey && event.altKey && running){event.preventDefault();testCrash();return;}
   if(!event.repeat && event.code==='KeyN' && !event.ctrlKey && !event.altKey && !event.metaKey)setNight(!settings.night);
   if(!event.repeat && event.code==='KeyM' && !event.ctrlKey && !event.altKey && !event.metaKey && running){event.preventDefault();mapPanel.toggle();}
