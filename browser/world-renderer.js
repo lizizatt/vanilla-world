@@ -356,8 +356,8 @@ export class WorldRenderer {
       depthStencil:{format:'depth24plus',depthWriteEnabled:true,depthCompare:'always'}});
     this.spaceGroup=this.device.createBindGroup({layout:this.spacePipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:this.spaceBuffer}},{binding:1,resource:this.surfaceTex.createView()},{binding:2,resource:this.surfaceSamp}]});
     const patchModule=await shader(patchShader);
-    this.patchBuffer=this.device.createBuffer({size:MAX_PATCHES*16,usage:GPUBufferUsage.VERTEX|GPUBufferUsage.COPY_DST});
-    this.patchPipeline=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module:patchModule,entryPoint:'pvs',buffers:[{arrayStride:16,stepMode:'instance',attributes:[{shaderLocation:0,offset:0,format:'float32x4'}]}]},
+    this.patchBuffer=this.device.createBuffer({size:MAX_PATCHES*32,usage:GPUBufferUsage.VERTEX|GPUBufferUsage.COPY_DST});
+    this.patchPipeline=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module:patchModule,entryPoint:'pvs',buffers:[{arrayStride:32,stepMode:'instance',attributes:[{shaderLocation:0,offset:0,format:'float32x4'},{shaderLocation:1,offset:16,format:'float32x4'}]}]},
       fragment:{module:patchModule,entryPoint:'pfs',targets:[{format:this.format,blend:{color:{srcFactor:'one',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},primitive:{topology:'triangle-list'},
       depthStencil:{format:'depth24plus',depthWriteEnabled:true,depthCompare:'less-equal'}});
     this.patchGroup=this.device.createBindGroup({layout:this.patchPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:this.spaceBuffer}},{binding:1,resource:this.surfaceTex.createView()},{binding:2,resource:this.surfaceSamp},{binding:3,resource:this.heightTex.createView()}]});

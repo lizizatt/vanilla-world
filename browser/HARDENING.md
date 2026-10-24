@@ -15,7 +15,7 @@
 1. Maelstrom: rectangular water-mesh edge (teal vs navy globe) inside the hole at ~5-10k yd.
 2. Ocean fill is one flat quad (130k yd pad); quad edge vs globe at 130k yd is not blended.
 3. FIXED (065b94d): grey/navy horizon ring at 200 yd over open sea - the 130k ocean quad was bent as a chord; now 2500 yd cells.
-4. Patch-tree T-junction cracks hidden only by a 2% edge sink; level-0 sag ~52 yd.
+4. FIXED: patch tree is 2:1 edge-balanced and finer patches snap odd edge vertices onto coarser neighbours (instance flags S,N,W,E); the 2% edge sink is gone. Level-0 sag ~52 yd remains.
 5. Authored-tile rectangles show as navy rectangles against the globe at ~60k yd (no `adt` provider colour yet).
 6. Valley-haze pose (screenshot) still dim; root cause unconfirmed.
 7. 500 yd Maelstrom pose sits inside the cloud layer.

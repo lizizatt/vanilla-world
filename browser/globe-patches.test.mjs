@@ -28,3 +28,23 @@ test('wraps across the antimeridian', () => {
   const x=1429+Math.PI*42785+30,p=patchesAt(x,-267,200);
   assert.ok(p.some(q=>q[2]>=2.9||q[3]<=-2.9));
 });
+
+test('leaves are 2:1 balanced and coarse neighbours are flagged', () => {
+  for(const [lat,lon,alt] of [[.3,1.2,200],[-.2,-2.5,3000],[0,3.1,50]]){
+    const p=selectPatches(lat,lon,alt);
+    assert.ok(p.length<=MAX_PATCHES);
+    const at=(la,lo)=>p.find(q=>la>=q[0]&&la<q[1]&&lo>=q[2]&&lo<q[3]);
+    let flagged=0;
+    for(const q of p){
+      const s=q[1]-q[0],e=s*1e-3,mid=[(q[0]+q[1])/2,(q[2]+q[3])/2];
+      [[mid[0],q[2]-e],[mid[0],q[3]+e],[q[0]-e,mid[1]],[q[1]+e,mid[1]]].forEach(([la,lo],k)=>{
+        if(Math.abs(la)>=Math.PI/2)return;
+        const n=at(la,lo<-Math.PI?lo+2*Math.PI:lo>=Math.PI?lo-2*Math.PI:lo);
+        if(!n)return;
+        assert.ok(Math.abs(n[4]-q[4])<=1,`unbalanced ${q[4]} vs ${n[4]}`);
+        const side=[2,3,0,1][k];assert.equal(q[5+side],n[4]<q[4]?1:0);flagged+=q[5+side];
+      });
+    }
+    assert.ok(flagged>0);
+  }
+});
