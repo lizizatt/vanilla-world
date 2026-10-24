@@ -42,6 +42,54 @@ export function flowPhase(t) {
 /** Wind (east, north) at a point: belt winds. */
 export const wind=(lat,lon)=>beltWind(lat);
 
+export const MASK={w:512,h:256,blur:3,drag:.3,dry:.3,lift:.25,coast:.12,liftScale:.08};
+
+/**
+ * Land/ocean mask baked once from the tile registry (procedural fallback included), equirect, row 0 = north pole, RGBA8:
+ * R = blurred land fraction, G = .5+.5*orographic lift (belt wind blowing up the blurred terrain), B = .5+.5*coastal convergence (belt wind
+ * blowing onshore). Land dries and slows the air, windward slopes and coasts raise cloud.
+ */
+export function bakeLandMask(registry,w=MASK.w,h=MASK.h) {
+  const land=new Float32Array(w*h),hgt=new Float32Array(w*h),lonStep=2*Math.PI/w,latStep=Math.PI/h;
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++) {
+    const s=registry.sample(Math.PI/2-(y+.5)*latStep,((x+.5)/w-.5)*2*Math.PI);
+    land[y*w+x]=s.land??(s.water?0:1);hgt[y*w+x]=s.water?0:Math.max(0,s.h);
+  }
+  const blur=a=>{
+    for(let pass=0;pass<2;pass++) {
+      const b=new Float32Array(w*h),k=MASK.blur;
+      for(let y=0;y<h;y++)for(let x=0;x<w;x++) {
+        let s=0,n=0;
+        for(let j=-k;j<=k;j++){const yy=y+j;if(yy<0||yy>=h)continue;for(let i=-k;i<=k;i++){s+=a[yy*w+(x+i+w)%w];n++;}}
+        b[y*w+x]=s/n;
+      }
+      a=b;
+    }
+    return a;
+  };
+  const M=blur(land),H=blur(hgt),out=new Uint8Array(w*h*4);
+  for(let y=0;y<h;y++) {
+    const lat=Math.PI/2-(y+.5)*latStep,dxY=Math.max(Math.cos(lat),.05)*lonStep*PLANET_RADIUS*2,dyY=latStep*PLANET_RADIUS*2,[u,v]=beltWind(lat),sp=Math.hypot(u,v)||1;
+    for(let x=0;x<w;x++) {
+      const i=y*w+x,at=(xx,yy)=>(yy<0?0:yy>=h?h-1:yy)*w+(xx+w)%w;
+      const dHe=(H[at(x+1,y)]-H[at(x-1,y)])/dxY,dHn=(H[at(x,y-1)]-H[at(x,y+1)])/dyY;
+      const dMe=(M[at(x+1,y)]-M[at(x-1,y)])/dxY,dMn=(M[at(x,y-1)]-M[at(x,y+1)])/dyY;
+      const lift=clamp((u*dHe+v*dHn)/sp/MASK.liftScale,-1,1),coast=clamp((u*dMe+v*dMn)/sp*MASK.blur*lonStep*PLANET_RADIUS*2,-1,1);
+      out[i*4]=Math.round(clamp(M[i],0,1)*255);out[i*4+1]=Math.round((.5+.5*lift)*255);out[i*4+2]=Math.round((.5+.5*coast)*255);out[i*4+3]=255;
+    }
+  }
+  return {w,h,data:out};
+}
+/** Bilinear mask lookup at (lat, lon): {land (0..1), lift (-1..1), coast (-1..1)}. */
+export function maskAt(mask,lat,lon) {
+  const {w,h,data}=mask,x=((lon/(2*Math.PI)+.5)%1+1)%1*w-.5,y=clamp((.5-lat/Math.PI)*h-.5,0,h-1),x0=Math.floor(x),y0=Math.floor(y),fx=x-x0,fy=y-y0,y1=Math.min(y0+1,h-1);
+  const px=(xx,yy,c)=>data[(yy*w+(xx+w)%w)*4+c]/255,lerp=(c)=>(px(x0,y0,c)*(1-fx)+px(x0+1,y0,c)*fx)*(1-fy)+(px(x0,y1,c)*(1-fx)+px(x0+1,y1,c)*fx)*fy;
+  return {land:lerp(0),lift:lerp(1)*2-1,coast:lerp(2)*2-1};
+}
+/** Coverage offset and wind drag factor from the mask sample. */
+export const landCoverage=m=>MASK.lift*Math.max(m.lift,0)*m.land+MASK.coast*Math.max(m.coast,0)-MASK.dry*m.land*.5;
+export const landDrag=m=>1-MASK.drag*m.land;
+
 
 /** Tangential speed of the pinned Rankine-style Maelstrom vortex at flat distance r (yd): solid-body inside the core, decaying outside. */
 export const vortexSpeed=r=>{const V=FLOW.vortex;return V.speed*(r<V.core?r/V.core:(V.core/r)*Math.exp(-(r-V.core)/V.decay));};
