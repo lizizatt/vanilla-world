@@ -2,6 +2,7 @@
 // Camera/render only; physics stays flat. The globe is analytic (one fullscreen ray-sphere pass), the near terrain bends onto it.
 // Sizing: Kalimdor is the largest populated continent, about 29,870 yd north-south, and is meant to span 40 degrees of latitude.
 import {HEIGHT_RANGE,HEIGHT_MIN} from './height-bake.js';
+import {BEND_RANGE,wgslRamp} from './terrain-transition.js';
 export const CONTINENT_YD=29867,CONTINENT_DEG=40;
 export const PLANET_RADIUS=Math.round(CONTINENT_YD/(CONTINENT_DEG*Math.PI/180));
 // World centre (render yd) at lat/lon 0, and the fallback continent rectangles [x0,z0,x1,z1] when no manifest is loaded (hosted build).
@@ -12,20 +13,8 @@ export const FALLBACK_RECTS=[[-21867,-17600,5333,12267],[13525,-5333,24725,17067
 // (the atmosphere is about 12% of R, ~5 kyd, so space is complete by 9 kyd).
 // Globe depth sits this far below sea level so terrain, the whirlpool hole (180 yd) and low valleys are never hidden by the globe.
 const GLOBE_DEPTH_DROP=400;
-// Altitude ramps (yd): [start,end] of each smoothstep fade. Tuning table; regime.js derives its bands from it.
-export const PLANET_RAMPS=Object.freeze({bend:Object.freeze([150,1500]),globe:Object.freeze([0,60]),space:Object.freeze([2000,9000]),cloud:Object.freeze([3000,9000])});
 export const MOONS=[{radius:9000,orbit:300000,phase:2.4,turns:1,plane:[0,0],tint:[.9,.93,1]},
   {radius:5500,orbit:480000,phase:.9,turns:-2,plane:[.5,.35],tint:[.4,.65,1]}];
-const smooth=(a,b,x)=>{const t=Math.min(1,Math.max(0,(x-a)/(b-a)));return t*t*(3-2*t);};
-const fix=n=>Number(n.toFixed(6));
-
-/** Fade factors for an altitude: bend (terrain curvature), globe (sphere alpha), space (black sky, stars), cloud (cloud visibility). */
-export function planetFactors(altitude,enabled=true) {
-  if(!enabled||!(altitude>0))return {bend:0,globe:0,space:0,cloud:1};
-  const r=PLANET_RAMPS,s=name=>fix(smooth(r[name][0],r[name][1],altitude));
-  return {bend:s('bend'),globe:s('globe'),space:s('space'),cloud:fix(1-s('cloud'))};
-}
-
 /** Local-to-planet frame at a render position: columns east, up, south (render x east, y up, z south). */
 /** Sine of the angle the true horizon sits below level at an altitude, faded in with the terrain bend, so the sky gradient meets the limb instead of a flat horizon. */
 export function horizonDip(altitude,bend=1,radius=PLANET_RADIUS) {
@@ -173,7 +162,7 @@ fn surface(pv:vec3f,n:vec3f,d:vec3f,sun:vec3f)->vec3f {
   return col*(.03+lit)+vec3f(.5,.6,.7)*spec*lit+vec3f(.25,.5,1.0)*rim*(.15+lit)*.8*clamp(s.p.x/3000.0,0.0,1.0);
 }
 // Same haze law as the terrain/water shaders (distance/150000, gone once the bend takes over); fog colour rides in the unused fourth rect slot.
-fn fogGlobe(c:vec3f,t:f32,n:vec3f,d:vec3f)->vec3f {let low=1.0-smoothstep(150.0,1500.0,s.p.x);let f=pow(1.0-abs(dot(normalize(n),normalize(d))),3.0);let k=max(clamp(t/150000.0,0.0,.93),.85*f)*low;return mix(c,s.rect[3].xyz,k);}
+fn fogGlobe(c:vec3f,t:f32,n:vec3f,d:vec3f)->vec3f {let low=1.0-${wgslRamp(BEND_RANGE)}s.p.x);let f=pow(1.0-abs(dot(normalize(n),normalize(d))),3.0);let k=max(clamp(t/150000.0,0.0,.93),.85*f)*low;return mix(c,s.rect[3].xyz,k);}
 struct FO {@location(0) color:vec4f,@builtin(frag_depth) depth:f32};
 @fragment fn fs(v:V)->FO {
   let d=normalize(s.look.xyz+s.right.xyz*v.ndc.x*.55*s.look.w+s.up.xyz*v.ndc.y*.55);

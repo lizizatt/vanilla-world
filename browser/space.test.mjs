@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nearestLandmark, PLANET_RADIUS, CONTINENT_YD, CONTINENT_DEG, MOONS, planetFactors, planetFrame, moonPlanetPosition, subPoint, globeToFlat, wrapFlat, placeName, spaceHud, WORLD_CENTRE, FALLBACK_RECTS } from './space.js';
+import { nearestLandmark, PLANET_RADIUS, CONTINENT_YD, CONTINENT_DEG, MOONS, planetFrame, moonPlanetPosition, subPoint, globeToFlat, wrapFlat, placeName, spaceHud, WORLD_CENTRE, FALLBACK_RECTS } from './space.js';
+import { planetFactors } from './terrain-transition.js';
 import { FLIGHT_CEILING, flightBoost, moveFlight } from './flight.js';
 
 test('radius makes one continent span 40 degrees', () => {
