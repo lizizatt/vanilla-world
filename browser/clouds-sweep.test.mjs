@@ -141,3 +141,8 @@ test('far sheet stays visible below a tall High slab (right-side-culled regressi
   const mean=(high,yaw)=>{let a=0,n=0;for(let p=-.1;p<=-.02;p+=.01)for(let j=0;j<4;j++){a+=march({eye:[0,6000,0],dir:[Math.cos(p)*Math.cos(yaw),Math.sin(p),Math.cos(p)*Math.sin(yaw)],t:500,coverage:.8,high,jitter:(j+.5)/4}).alpha;n++;}return a/n;};
   for(const yaw of [0,1,2,3,4,5]) assert.ok(mean(true,yaw)>mean(false,yaw)*.7,`High loses the sheet at yaw ${yaw}`);
 });
+
+test('storm arms sweep slowly enough that a fixed view never flips clear/overcast within seconds',async()=>{
+  const {MAELSTROM}=await import('./clouds.js');
+  assert.ok(2*Math.PI/(MAELSTROM.arms*MAELSTROM.spin)>=120);
+});
