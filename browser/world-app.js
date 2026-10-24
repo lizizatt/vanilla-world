@@ -239,6 +239,7 @@ gateKit=undefined;void loadGateKit((a,p)=>client.request(a,p),()=>getSwe1r()&&lo
     }
     loading.close();
     evidence.ready=true;report(restored?'Loaded.':'',restored);canvas.focus();applySkin();
+    await applyUrlPose();
   } catch(error) {
     fail(error);report('');
     if(opened){enabled(true);running=true;evidence.ready=true;}
@@ -372,7 +373,25 @@ $('tuning-defaults').addEventListener('click',()=>{
   applyTuning({version:1,values:TUNING_FIELDS.map(f=>f[1]),cameraSeconds:.5})
     .catch(error=>{$('tuning-status').textContent=error.message;}).finally(()=>{busy=false;});
 });
+/** Exact-view export/import: Ctrl+Alt+P copies a repro link (world pose, time, settings); opening it restores the same view. */
+function exportPose() {
+  const t=client.state?.telemetry;
+  const view={v:1,flight:flight?flight.slice():undefined,drive:!flight&&t?Array.from(t.slice(0,4)):undefined,time:renderer.timeOfDay,settings:{...settings}};
+  const link=`${location.origin}${location.pathname}?pose=${encodeURIComponent(JSON.stringify(view))}`;
+  navigator.clipboard?.writeText(link).catch(()=>{});console.log('pose',link);window.lastPoseLink=link;report('Pose link copied.',true);return link;
+}
+async function applyUrlPose() {
+  const raw=new URLSearchParams(location.search).get('pose');if(!raw)return;
+  let view;try{view=JSON.parse(raw);}catch{return;}
+  Object.assign(settings,view.settings||{});syncSettings();
+  if(view.time!==undefined)renderer.timeLock=view.time;
+  if(view.flight)flight=view.flight.slice();
+  else if(view.drive){client.state=await client.request('restore',{pose:view.drive});flight=undefined;renderer.camera=undefined;}
+  running=true;
+}
+window.exportPose=exportPose;
 canvas.addEventListener('keydown',event=>{
+  if(!event.repeat && event.code==='KeyP' && event.ctrlKey && event.altKey && running){event.preventDefault();exportPose();return;}
   if(!event.repeat && event.code==='KeyK' && event.ctrlKey && event.altKey && running){event.preventDefault();testCrash();return;}
   if(!event.repeat && event.code==='KeyN' && !event.ctrlKey && !event.altKey && !event.metaKey)setNight(!settings.night);
   if(!event.repeat && event.code==='KeyM' && !event.ctrlKey && !event.altKey && !event.metaKey && running){event.preventDefault();mapPanel.toggle();}
@@ -764,7 +783,7 @@ async function start() {
       else {permissionNeeded=true;showReconnect(true);
         $('permission').textContent='Click to allow reading your remembered folder.';}
     }
-    if(new URLSearchParams(location.search).has('test'))window.worldTest={restore:pose=>client.request('restore',{pose}).then(s=>{client.state=s;flight=undefined;renderer.camera=undefined;running=true;return s.telemetry;}),particles:()=>renderer.particles,testCrash,wreck:()=>renderer.wreck&&{frames:renderer.wreck.frames.length,connected:renderer.wreck.connected,parts:renderer.wreck.parts.length},startRace,selectVehicle,tracks:()=>tracks,raceObj:()=>race,heldLoops:()=>Object.values(audio.held||{}).map(h=>h?.name).filter(Boolean),raceInfo:()=>race&&{state:race.state,next:race.next,finishing:race.finishing,gates:race.track.gates.length},choice:()=>choice,
+    if(new URLSearchParams(location.search).has('test'))window.worldTest={renderer:()=>renderer,restore:pose=>client.request('restore',{pose}).then(s=>{client.state=s;flight=undefined;renderer.camera=undefined;running=true;return s.telemetry;}),particles:()=>renderer.particles,testCrash,wreck:()=>renderer.wreck&&{frames:renderer.wreck.frames.length,connected:renderer.wreck.connected,parts:renderer.wreck.parts.length},startRace,selectVehicle,tracks:()=>tracks,raceObj:()=>race,heldLoops:()=>Object.values(audio.held||{}).map(h=>h?.name).filter(Boolean),raceInfo:()=>race&&{state:race.state,next:race.next,finishing:race.finishing,gates:race.track.gates.length},choice:()=>choice,
       focus:pose=>{flight=pose.slice();},manifest:()=>client.info.manifest,sky:()=>renderer.gameSky&&{top:renderer.gameSky.top,fog:renderer.gameSky.fog,horizon:renderer.gameSky.horizon,time:renderer.timeOfDay},maelstrom:()=>import('./clouds.js').then(m=>m.maelstromCentre(client.info.manifest)),gateKit:()=>!!gateKit,propCount:()=>renderer.props?.length,props:list=>renderer.setProps(list),beamFx:o=>{renderer.fxOverride=o;},propTexture:path=>client.request('prop-texture',{path}),propModel:path=>client.request('prop-model',{path}),swe1rModel:(index,scale)=>loadPodModel(getSwe1r(),{index,scale}),mockGates:list=>{for(const g of renderer.gates)renderer.release(g);renderer.gates=list.map(({vertices,pos})=>renderer.drawable(vertices,pos));renderer.terrainView=undefined;},settings:o=>Object.assign(settings,o),showCraft:v=>{renderer.showCraftInFlight=v;},timeLock:v=>{renderer.timeLock=v;},
       instances:()=>renderer.instances.filter(i=>i.kind==='group').slice(0,8),
       npcs:()=>renderer.instances.filter(i=>i.id.includes(':npc:')).slice(0,5),
