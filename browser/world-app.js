@@ -47,11 +47,11 @@ let choice=bootChoice(),tracks=[],race,raceBest,promptTrack,goUntil=0,boardTimer
 const raceAgain=()=>againTrack&&performance.now()<againUntil?againTrack:undefined;
 let landmarkCache,flightSpeed=0,renderer,folder,flight,running=false,busy=false,last=0,frames=0,hudTime=0,hudFrames=0,permissionNeeded=false;
 let orbit=[0,0],dragging=false,mouseButtons=0,soundAttempt=0,soundError='',soundTime=0,reportTimer,testPads,frozenPresentation=false,tuningValues=TUNING_FIELDS.map(f=>f[1]);
-const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:true,cockpit:false,night:false,clouds:true,planet:true,globeMesh:false,cloudQuality:'auto',music:true,particles:'medium',animateNpcs:true};
+const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:true,cockpit:false,night:false,clouds:true,planet:true,globeMesh:true,globeRegistry:true,cloudQuality:'auto',music:true,particles:'medium',animateNpcs:true};
 const settings={...defaults};
 const gib={on:true,speed:100,overheat:true},gibMem={};
 try{gib.on=localStorage.getItem('racer.gib')!=='0';gib.overheat=localStorage.getItem('racer.overheat')!=='0';gib.durable=localStorage.getItem('racer.durability')!=='0';gib.speed=Math.max(20,Math.min(400,Number(localStorage.getItem('racer.gibSpeed'))||100));}catch{}
-try{settings.night=localStorage.getItem('racer.night')==='1';settings.music=localStorage.getItem('racer.music')!=='0';settings.animateNpcs=localStorage.getItem('racer.animateNpcs')!=='0';settings.planet=localStorage.getItem('racer.planet')!=='0';settings.globeMesh=localStorage.getItem('racer.globeMesh')==='1';{const cq=localStorage.getItem('racer.cloudQuality');if(cq==='high'||cq==='standard')settings.cloudQuality=cq;}const mv=localStorage.getItem('racer.masterVolume');if(mv!==null&&mv!==''&&Number.isFinite(Number(mv)))audio.setVolume(Number(mv)/100);}catch{}
+try{settings.night=localStorage.getItem('racer.night')==='1';settings.music=localStorage.getItem('racer.music')!=='0';settings.animateNpcs=localStorage.getItem('racer.animateNpcs')!=='0';settings.planet=localStorage.getItem('racer.planet')!=='0';settings.globeMesh=localStorage.getItem('racer.globeMesh')!=='0';settings.globeRegistry=localStorage.getItem('racer.globeRegistry')!=='0';{const cq=localStorage.getItem('racer.cloudQuality');if(cq==='high'||cq==='standard')settings.cloudQuality=cq;}const mv=localStorage.getItem('racer.masterVolume');if(mv!==null&&mv!==''&&Number.isFinite(Number(mv)))audio.setVolume(Number(mv)/100);}catch{}
 const loading=$('loading-screen');
 const loadingArt=new LoadingArt($('loading-art'),$('loading-bar-art'),loading);
 loading.addEventListener('cancel',event=>event.preventDefault());

@@ -9,6 +9,8 @@ export const FALLBACK_RECTS=[[-21867,-17600,5333,12267],[13525,-5333,24725,17067
 // Altitude ramps in yd above sea level, chosen from the horizon dip acos(R/(R+h)): 100 yd is 3.9 deg, 500 yd 8.6 deg, 2000 yd 17.7 deg.
 // bend: terrain curves onto the globe; globe: the sphere fades in behind it; space: sky thins to black and stars/sun/moons appear
 // (the atmosphere is about 12% of R, ~5 kyd, so space is complete by 9 kyd).
+// Globe depth sits this far below sea level so terrain, the whirlpool hole (180 yd) and low valleys are never hidden by the globe.
+export const GLOBE_DEPTH_DROP=400;
 export const PLANET_RAMPS={bend:[150,1500],globe:[100,800],space:[2000,9000],cloud:[3000,9000]};
 export const MOONS=[{radius:9000,orbit:300000,phase:2.4,turns:1,plane:[0,0],tint:[.9,.93,1]},
   {radius:5500,orbit:480000,phase:.9,turns:-2,plane:[.5,.35],tint:[.4,.65,1]}];
@@ -107,7 +109,7 @@ struct S {look:vec4f,right:vec4f,up:vec4f,p:vec4f,sun:vec4f,e:vec4f,u:vec4f,s:ve
 @group(0) @binding(0) var<uniform> s:S;
 @group(0) @binding(1) var surfaceTex:texture_2d<f32>;
 @group(0) @binding(2) var surfaceSamp:sampler;
-const R=${PLANET_RADIUS}.0;
+const R=${PLANET_RADIUS}.0;const DEPTH_R=R-${GLOBE_DEPTH_DROP}.0;
 struct V {@builtin(position) clip:vec4f,@location(0) ndc:vec2f};
 @vertex fn vs(@builtin(vertex_index) i:u32)->V {
   var p=array<vec2f,3>(vec2f(-1,-1),vec2f(3,-1),vec2f(-1,3));
@@ -186,7 +188,7 @@ struct FO {@location(0) color:vec4f,@builtin(frag_depth) depth:f32};
       let n=normalize(d*t-centre);
       acc=over(acc,surface(toPlanet(n),n,d,sun),globe);
       let dz=dot(d,s.look.xyz);
-      let dt=sphereT(o,d,centre,R-40.0);
+      let dt=sphereT(o,d,centre,DEPTH_R);
       let zz=max(dt,t)*dz;
       depth=select(1.0,clamp((zz-s.right.w)*s.up.w/((s.up.w-s.right.w)*zz),0.0,1.0),globe>.02);
     } else {
@@ -227,7 +229,7 @@ struct PV {@builtin(position) clip:vec4f,@location(0) pv:vec3f,@location(1) n:ve
 }
 @fragment fn pfs(v:PV)->FO {
   let n=normalize(v.n);let d=normalize(v.w);
-  let dz=dot(d,s.look.xyz);let dt=sphereT(vec3f(0.0),d,vec3f(0.0,-(R+s.p.x),0.0),R-40.0);
+  let dz=dot(d,s.look.xyz);let dt=sphereT(vec3f(0.0),d,vec3f(0.0,-(R+s.p.x),0.0),DEPTH_R);
   let zz=max(dt*dz,1.0/v.clip.w);
   var o:FO;o.color=vec4f(surface(normalize(v.pv),n,d,normalize(s.sun.xyz))*s.p.z,s.p.z);
   o.depth=clamp((zz-s.right.w)*s.up.w/((s.up.w-s.right.w)*zz),0.0,1.0);return o;
