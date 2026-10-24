@@ -11,7 +11,7 @@ export const FALLBACK_RECTS=[[-21867,-17600,5333,12267],[13525,-5333,24725,17067
 // (the atmosphere is about 12% of R, ~5 kyd, so space is complete by 9 kyd).
 // Globe depth sits this far below sea level so terrain, the whirlpool hole (180 yd) and low valleys are never hidden by the globe.
 export const GLOBE_DEPTH_DROP=400;
-export const PLANET_RAMPS={bend:[150,1500],globe:[100,800],space:[2000,9000],cloud:[3000,9000]};
+export const PLANET_RAMPS={bend:[150,1500],globe:[0,60],space:[2000,9000],cloud:[3000,9000]};
 export const MOONS=[{radius:9000,orbit:300000,phase:2.4,turns:1,plane:[0,0],tint:[.9,.93,1]},
   {radius:5500,orbit:480000,phase:.9,turns:-2,plane:[.5,.35],tint:[.4,.65,1]}];
 const smooth=(a,b,x)=>{const t=Math.min(1,Math.max(0,(x-a)/(b-a)));return t*t*(3-2*t);};
