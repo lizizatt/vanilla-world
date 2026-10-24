@@ -30,7 +30,7 @@ export function createRegistry(chunks,radius=PLANET_RADIUS) {
     sample(lat,lon) {
       let out={...OCEAN,land:0};
       for(const {chunk,weight} of this.cover(lat,lon)) {
-        const s=chunk.provider.sample(lat,lon);
+        const s=chunk.provider.sample(lat,lon);if(s.skip)continue;
         out={land:Math.max(out.land,weight),h:out.h+(s.h-out.h)*weight,rgb:out.rgb.map((v,i)=>v+(s.rgb[i]-v)*weight),water:weight>=.5?s.water:out.water};
       }
       return out;
@@ -55,12 +55,44 @@ export function defaultManifest(makeProvider=()=>proceduralProvider(),rects=FALL
   return rects.map((r,i)=>({id:i?'eastern-kingdoms':'kalimdor',kind:'procedural',blend:2500,jitter:6000,bounds:rectBounds(r),provider:makeProvider(i)}));
 }
 
+const TILE=1600/3;
+/** Per-texel running colour average on the same equirect layout as bakeSurface (row 0 is lat +90). */
+export function createColourGrid(w=1024,h=512) {return {w,h,sum:new Float32Array(w*h*3),n:new Uint16Array(w*h)};}
+
+/**
+ * Splat one tile minimap (size x size RGBA, 533.33 yd square whose origin sits at `placement` in the flat world) into the colour grid.
+ * Flat pose = globe sub-point, so lon=(x-cx)/R and lat=-(z-cz)/R. Returns the touched texel indices (appended to `dirty` when given).
+ */
+export function splatMinimap(grid,rgba,size,placement,[cx,cz]=WORLD_CENTRE,radius=PLANET_RADIUS,dirty=new Set()) {
+  for(let py=0;py<size;py++)for(let px=0;px<size;px++){
+    const i=(py*size+px)*4;if(rgba[i+3]<128)continue;
+    const lon=(placement[0]+(px+.5)/size*TILE-cx)/radius,lat=-(placement[1]+(py+.5)/size*TILE-cz)/radius;
+    if(Math.abs(lon)>=Math.PI||Math.abs(lat)>=Math.PI/2)continue;
+    const k=Math.floor((.5-lat/Math.PI)*grid.h)*grid.w+Math.floor((lon/(2*Math.PI)+.5)*grid.w);
+    grid.sum[k*3]+=rgba[i]/255;grid.sum[k*3+1]+=rgba[i+1]/255;grid.sum[k*3+2]+=rgba[i+2]/255;grid.n[k]++;dirty.add(k);
+  }
+  return dirty;
+}
+
+/** 'adt' provider: real WDL/minimap colour where a tile has been seen; `{skip:true}` (no coverage) elsewhere. */
+export function adtProvider(grid) {
+  return {sample(lat,lon) {
+    const k=Math.floor((.5-lat/Math.PI)*grid.h)*grid.w+Math.floor((lon/(2*Math.PI)+.5)*grid.w),n=grid.n[k];
+    return n?{h:0,rgb:[grid.sum[k*3]/n,grid.sum[k*3+1]/n,grid.sum[k*3+2]/n],water:false}:{skip:true};
+  }};
+}
+
+/** Whole-sphere chunk backed by the colour grid, drawn over the procedural continents so authored tiles win. */
+export const adtChunk=grid=>({id:'adt',kind:'adt',priority:10,blend:0,bounds:[-Math.PI/2,Math.PI/2,-Math.PI,Math.PI],provider:adtProvider(grid)});
+/** One baked texel [r,g,b,land] (bytes) for texel (x,y) of a w x h equirect map. */
+export function surfaceTexel(registry,x,y,w,h) {
+  const s=registry.sample(Math.PI/2-(y+.5)/h*Math.PI,((x+.5)/w-.5)*2*Math.PI);
+  return [...s.rgb.map(v=>Math.round(v*255)),Math.round(s.land*255)];
+}
+
 /** Bake the registry into an equirect RGBA8 map (rgb colour, alpha = land weight) the globe shaders sample; row 0 is lat +90. */
 export function bakeSurface(registry,w=1024,h=512) {
   const out=new Uint8Array(w*h*4);
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-    const s=registry.sample(Math.PI/2-(y+.5)/h*Math.PI,((x+.5)/w-.5)*2*Math.PI),i=(y*w+x)*4;
-    out.set([...s.rgb.map(v=>Math.round(v*255)),Math.round(s.land*255)],i);
-  }
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++)out.set(surfaceTexel(registry,x,y,w,h),(y*w+x)*4);
   return out;
 }
