@@ -29,3 +29,6 @@
 - M3 heights (c803899): pale cyan block near the limb at 8k yd (pose-h3d-b) FIXED: displaced-face normal shading + zero relief where registry says sea; verified at 8000 yd pitch -0.8, block is now land-coloured. Reversed-Z audit still open.
 
 - Reversed-Z audit: all passes use depth24plus, clear 1, compare less/less-equal/always (8 pipelines + analytic patch depth). No precision artifact seen in ascent (POPS 0), so reversed-Z is deferred until one is measured; switching means changing every pipeline, the projection and the patch-shader depth together.
+
+## Startup-smoke flake: connected gamepad
+The intermittent default-spawn/saved-pose height failures were not a physics or streaming race. A physically connected controller (stick drift, jump on button 0) fed hop flag 8 into ticks, lifting the car ~0.5 yd. startup-smoke now stubs navigator.getGamepads. Real users with a controller get normal jump input; no engine change.
