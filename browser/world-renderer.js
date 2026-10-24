@@ -128,7 +128,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   if(v.material==2.0 || v.material==4.0){
     color=waterColor(v.p,select(1.0,v.n.x,v.n.z>.5),rampWidth,dx,dy);
   }
-  let fog=clamp(length(v.p-u.eye.xyz)/150000.0,0.0,.93)*(1.0-u.pad[0].y);
+  let fog=max(clamp(length(v.p-u.eye.xyz)/150000.0,0.0,.93),valleyHaze(v.p))*(1.0-u.pad[0].y);
   return vec4f(mix(color,fogTint(),fog),1);
 }`;
 const splatShader=`
@@ -172,7 +172,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) uv:vec
   color=mix(color,mapColor.rgb,(1.0-smoothstep(0.0,100.0/3.0,edgeDistance))*mapColor.a);
   let base=mix(vec3f(.63,.59,.40)*v.light,mapColor.rgb,mapColor.a);
   color=grade(mix(base,color,u.settings.z));
-  let fog=clamp(length(v.p-u.eye.xyz)/150000.0,0.0,.93)*(1.0-u.pad[0].y);
+  let fog=max(clamp(length(v.p-u.eye.xyz)/150000.0,0.0,.93),valleyHaze(v.p))*(1.0-u.pad[0].y);
   return vec4f(mix(color,fogTint(),fog),1);
 }`;
 const sceneShader=`
@@ -200,7 +200,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   let coverage=u.material.w*select(1.0,1.0-smoothstep(3500.0,6000.0,distance),u.material.z>0.0);
   if(fract(dot(floor(v.clip.xy),vec2f(.754877666,.569840296)))>=coverage){discard;}
   let light=mix(.4+.6*max(dot(normalize(v.n),normalize(vec3f(-.3,1.0,.4))),0.0),1.0,u.material.y);
-  let fog=max(clamp(distance/150000.0,0.0,.93)*(1.0-u.bend.y),u.material.z*.8*smoothstep(3500.0,6000.0,distance));
+  let fog=max(max(clamp(distance/150000.0,0.0,.93),valleyHaze(v.p))*(1.0-u.bend.y),u.material.z*.8*smoothstep(3500.0,6000.0,distance));
   var color=grade(texel.rgb*light);
   if(u.settings.z>.5){color=waterColor(v.p,v.uv.x,rampWidth,dx,dy);}
   return vec4f(mix(color,fogTint(),fog),texel.a);
