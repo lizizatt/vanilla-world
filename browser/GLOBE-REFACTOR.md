@@ -70,3 +70,16 @@ Source: `space-architecture-refs.md` (KSP wiki; PQS/ScaledSpace details are comm
 | Outer Wilds small scale | **Already done** (R = 42.8 kyd), keep. |
 
 **Pivot recommendation.** Stop patching "flat world + bend + crossfaded analytic globe". Rip out: the vertex `bendShader` path, the fullscreen analytic globe pass (as the terrain authority), `PLANET_RAMPS` crossfade ramps, the separate horizon-vs-globe palettes, and the fog-vs-globe colour mismatch. Keep: ADT/WDL parsers and the streaming worker, tile-local flat frames, flat Rust physics (as the local bubble), minimap atlas, water shading, clouds (already shells), saves/M-map in flat coordinates, procedural stars/moons. New spine: planet-centred f64 frame, one patch tree for Azeroth, reversed-Z, one shading/fog model. Steps 1-2 above are still the cheap, reversible start; they do not block the pivot.
+
+## Data model: sparse lat/lon chunk registry (`tile-registry.js`)
+
+Adopted from user direction. The planet is not a tile grid; it is a **registry of chunks** and everything else is ocean.
+
+- **Chunk** `{id, kind: 'adt'|'procedural'|'poi', bounds:[lat0,lat1,lon0,lon1], priority, blend, provider}`. Bounds are arbitrary lat/lon rectangles (radians), not tied to the 533.33 yd ADT grid, so the Maelstrom can be any size and sit anywhere. A bin covered by no chunk is open ocean (`OCEAN` height/colour/water).
+- **Provider** `{sample(lat,lon)->{h,rgb,water}, objects?(bounds)}`. The `adt` provider wraps the WDL/ADT streaming worker and minimap colour; `procedural` is deterministic noise (the hosted build uses only these); `poi` is a procedural or authored provider with its own local frame (it receives planet lat/lon and converts internally).
+- **Seams**: each chunk feathers its weight to 0 over `blend` yd inside its bounds (smoothstep); `sample` composites chunks over the ocean underlay in priority order, so edges meet ocean with no height or colour step. Overlaps: higher priority wins where its weight is 1. `blend:0` gives a hard edge for a deliberate cut.
+- **Consumers**: the patch tree (`globe-patches.js`) calls `registry.sample` per vertex for height/colour and refines where `cover()` is non-empty (finer `maxLevel` inside chunks); the streaming worker loads tiles only for `adt` chunks near the eye; gates/NPCs/props come from `provider.objects`.
+- **Add a POI chunk**: `registry.add({id, kind:'poi', bounds, priority, blend, provider})` (or a manifest entry); no renderer change.
+- **Hosted fallback**: `defaultManifest()` builds both continents with `proceduralProvider`; with WoW data the same entries receive the `adt` provider.
+
+Status: registry + tests landed (pure data model); wiring `registry.sample` into the patch-tree vertex height/colour is the next M4 step.
