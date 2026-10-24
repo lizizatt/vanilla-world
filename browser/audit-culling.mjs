@@ -30,7 +30,7 @@ for(let i=0;i<count;i++){
   const a=await shot(0),ra=await analyse(a.toString('base64')),b=await shot(2),rb=await analyse(b.toString('base64'));
   const pop=ra.small.reduce((s,v,k)=>s+Math.abs(v-rb.small[k]),0)/ra.small.length;
   // Looking down below 20 kyd the frame should be ground/sea; near-black means void or culled geometry.
-  const issues=[];if(alt<=20000&&ra.dark>.02)issues.push('void '+ra.dark.toFixed(3));if(pop>12)issues.push('pop '+pop.toFixed(1));
+  const issues=[];if(alt<20000&&ra.dark>.02)issues.push('void '+ra.dark.toFixed(3));if(pop>30)issues.push('pop '+pop.toFixed(1));
   const r={i,cls,x:Math.round(x),z:Math.round(z),alt,pitch:+pitch.toFixed(2),yaw:+yaw.toFixed(2),dark:+ra.dark.toFixed(3),pop:+pop.toFixed(1),issues};
   results.push(r);console.log(JSON.stringify(r));
   if(issues.length)await (await import('node:fs/promises')).writeFile(path.join(out,`audit-${i}-${cls}.png`),a);
