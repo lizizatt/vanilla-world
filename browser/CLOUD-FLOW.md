@@ -119,3 +119,16 @@ All of A runs from the procedural registry: mask from `FALLBACK_RECTS` with nois
 - Sphere-safe noise on the sphere (3D noise at direction): https://iquilezles.org/articles/fbm/
 
 Sources are cited for ideas only; no code was copied. Specific URLs for the MSFS and No Man's Sky items are landing pages/talk indexes, not verified deep links.
+
+
+## Implementation notes (as built, M1-M6)
+
+Deviations from the proposal:
+- Sine-free `hash3` plus 3D value noise sampled at the planet-sphere position (`sphereAt`) replaces the octahedral texture; poles are isotropic by construction (tested).
+- The land mask is an equirect 256x128 RGBA8 baked from the tile registry (procedural fallback, no WoW data needed), re-baked only when continent rects change (`CloudMask` in clouds.js).
+- Land effect is additive coverage (`landCoverage`, x(1-storm)) plus wind drag (`landDrag`), not a multiplicative modifier.
+- Flow-map blend window is [.4,.6] of the triangle wave, so the second phase is sampled ~20% of the time.
+- Sweep tests: alpha-vs-march tolerance .32 (step aliasing); horizon test skips eyes within the polar degenerate zone.
+- M7 (B-lite fluid sim) skipped: the two-phase warp plus the pinned vortex animates clearly, the field is not static.
+
+Results: `node --test browser` 549 pass / 0 fail; drive gate handler p99 2.3 ms (max 5); render p99 < 8 ms; far-orbit captures at poles, Maelstrom and equator show no pinching.
