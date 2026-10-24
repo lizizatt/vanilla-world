@@ -1,14 +1,15 @@
+import {RpcTable,errorFields,replyError} from './worker-rpc.js';
+
 export class AssetSource {
   constructor(worker) {
-    this.worker=worker;this.pending=new Map();this.serial=0;this.stats={};
+    this.worker=worker;this.table=new RpcTable();this.stats={};
     worker.onmessage=({data})=>{
       if(['progress','loading-art','loading-art-warning'].includes(data.event)){this.onProgress?.(data);return;}
-      const request=this.pending.get(data.id);
+      const request=this.table.take(data.id);
       if(!request)return;
-      this.pending.delete(data.id);
       if(data.stats)this.stats=data.stats;
       try {
-        if(data.error)request.reject(Object.assign(Error(data.error),{code:data.code}));
+        if(data.error)request.reject(replyError(data));
         else if(request.shouldDefer?.())request.reject(Object.assign(Error('Obsolete background resource'),{code:'DEFERRED'}));
         else request.resolve(data.result);
       } catch(error){request.reject(error);}
@@ -26,8 +27,7 @@ export class AssetSource {
     if(this.error)return Promise.reject(this.error);
     if(shouldDefer?.())return Promise.reject(Object.assign(Error('Background resource deferred'),{code:'DEFERRED'}));
     return new Promise((resolve,reject)=>{
-      const id=++this.serial;
-      this.pending.set(id,{resolve,reject,shouldDefer,cancelled:false});
+      const id=this.table.open({resolve,reject,shouldDefer,cancelled:false});
       this.post({action,id,...fields},transfers);
     });
   }
@@ -42,14 +42,13 @@ export class AssetSource {
       [...detail.tiles,...detail.seams].map(t=>t.vertices.buffer));
   }
   refresh() {
-    for(const [id,request] of this.pending)if(!request.cancelled&&request.shouldDefer?.()){
+    for(const [id,request] of this.table.entries())if(!request.cancelled&&request.shouldDefer?.()){
       request.cancelled=true;this.post({action:'cancel',id});
     }
   }
   fail(error) {
     this.error=error;this.worker.terminate();
-    for(const request of this.pending.values())request.reject(error);
-    this.pending.clear();
+    this.table.rejectAll(error);
   }
   close(){this.fail(Object.assign(Error('Data source closed'),{code:'CLOSED'}));}
   stopLoadingArt(){this.post({action:'stop-art'});}

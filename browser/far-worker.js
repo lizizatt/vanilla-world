@@ -1,11 +1,12 @@
 import init,* as wasmTypes from './pkg/flats_racer_web.js';
 import {FarStream} from './far-stream.js';
+import {errorText,replyError} from './worker-rpc.js';
 
 let stream,read,serial=0,timer;
 const ready=init();
 const deferred=()=>Object.assign(Error('Distant source read deferred'),{code:'DEFERRED'});
 const send=(message,transfers=[])=>postMessage(message,transfers);
-const fault=error=>send({event:'far-error',epoch:stream?.epoch,error:String(error.message||error)});
+const fault=error=>send({event:'far-error',epoch:stream?.epoch,error:errorText(error)});
 function schedule() {
   if(timer!==undefined||!stream?.enabled)return;
   timer=setTimeout(()=>{
@@ -17,7 +18,7 @@ onmessage=({data})=>{
   if(data.action==='read-result') {
     if(!read||data.id!==read.id)return;
     const pending=read;read=undefined;
-    if(data.error)pending.reject(Object.assign(Error(data.error),{code:data.code}));
+    if(data.error)pending.reject(replyError(data));
     else if(pending.epoch!==stream.epoch||pending.shouldDefer?.())pending.reject(deferred());
     else pending.resolve(data.bytes);
     return;
