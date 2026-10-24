@@ -18,7 +18,7 @@ try {
       await context.addInitScript(()=>{delete Navigator.prototype.serviceWorker;});
       if(label==='before')await context.route('**/flats_racer_web_bg.wasm',async route=>
         route.fulfill({contentType:'application/wasm',body:await readFile(new URL('before.wasm',output))}));
-      await context.route('**/world-worker.js',async route=>{
+      await context.route('**/world-engine.js',async route=>{
         const response=await route.fetch(),source=await response.text();
         const hook='return {telemetry:Array.from(world.telemetry()),';
         assert(source.includes(hook));

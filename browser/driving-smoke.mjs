@@ -138,7 +138,7 @@ try{
     assert(source.includes('sceneInstanceUpdates:true'),'Scene baseline must disable the negotiated instance updates');
     await route.fulfill({response,body:source.replace('sceneInstanceUpdates:true','sceneInstanceUpdates:false')});
   });
-  if(presentation==='raw')await context.route('**/world-app.js',async route=>{
+  if(presentation==='raw')await context.route('**/app-frame.js',async route=>{
     const response=await route.fetch(),source=await response.text();
     assert(source.includes('client.presentation()'),'Raw comparison must override the presentation call');
     await route.fulfill({response,body:source.replace('client.presentation()','client.state.telemetry')});
@@ -154,21 +154,28 @@ try{
     caches:{browserContext:'new',worker:'new',osFileCache:'uncontrolled; prior test reads may be cached',warmSeconds}};
   const startup=Date.now();
   // Instrument the original simulation time path, without changing scheduling or adding per-tick queries.
-  await context.route('**/world-worker.js',async route=>{
+  // The worker is split across modules: hooks apply to whichever file holds the target (the baseline is one file).
+  const hooks={wanted:new Set(),applied:new Set()};
+  for(const file of ['world-worker.js','world-engine.js','world-worker-protocol.js'])await context.route('**/'+file,async route=>{
     const response=await route.fetch();
-    let body=process.env.BASELINE_REF?execFileSync('git',['show',`${process.env.BASELINE_REF}:browser/world-worker.js`],
+    let body=process.env.BASELINE_REF&&file==='world-worker.js'?execFileSync('git',['show',`${process.env.BASELINE_REF}:browser/world-worker.js`],
       {encoding:'utf8'}):await response.text();
     const replace=(search,replacement)=>{
+      hooks.wanted.add(String(search));
       const previous=body;body=body.replace(search,replacement);
-      assert.notEqual(body,previous,`Missing worker profiling hook: ${search}`);
+      if(body!==previous)hooks.applied.add(String(search));
     };
+    if(!body.includes('let world,source,manifest,')){
+      replace('const result=await handle(data),start=performance.now();','const begin=performance.timeOrigin+performance.now();const result=await handle(data),start=performance.now();if(result.telemetry)result.transport={begin,end:performance.timeOrigin+start};');
+      return route.fulfill({response,body});
+    }
     if(process.env.SCENE_REQUESTS==='1')replace('waitingCollisionDetails:objectWait.slice(0,5),',
       'waitingCollisionDetails:objectWait.slice(0,5).map(i=>({...i,request:scene.requests.get(i.key),active:globalThis.sceneLoad,foreground:scene.foregroundKey,at:performance.now()})),');
     if(!materialScheduling){
       replace('if(!postFrameVisuals || materialFrameReady) {','if(true) {');
       replace('if(!postFrameVisuals || materialTimer!==undefined','if(true || !postFrameVisuals || materialTimer!==undefined');
     }
-    replace('let world,source,manifest,','const drivingClock={input:0,steps:0,dropped:0,objects:0,batch:0};globalThis.drivingWork=[];\nlet world,source,manifest,');
+    replace(/(?:export )?let world,source,manifest,/,m=>'const drivingClock={input:0,steps:0,dropped:0,objects:0,batch:0};globalThis.drivingWork=[];\n'+m);
     replace('world=new Voyage(json);','world=new Voyage(json);world.set_admission_profiling(true);');
     replace(/const started=performance.now\(\);\r?\n    const p=world.telemetry\(\)/, 'drivingClock.input+=message.dt;drivingClock.batch=0;\n    const started=performance.now();\n    const p=world.telemetry()');
     replace("if(objectWait.length){accumulator=0;",'if(objectWait.length){drivingClock.objects+=message.dt+accumulator;accumulator=0;');
@@ -226,6 +233,7 @@ try{
     await route.fulfill({response,body});
   });
   await page.goto(process.env.WORLD_URL || 'http://127.0.0.1:4185/?test');
+  assert.deepEqual([...hooks.wanted].filter(h=>!hooks.applied.has(h)),[],'Missing worker profiling hooks');
   await page.waitForFunction(()=>!document.getElementById('select').disabled);
   await page.locator('#files').setInputFiles(process.env.WOW_DATA);
   await page.waitForFunction(()=>worldEvidence.ready || worldEvidence.errors.length,{},{timeout:180000});

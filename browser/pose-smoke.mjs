@@ -3,7 +3,9 @@ import {readFile} from 'node:fs/promises';
 import {initSync,Voyage} from './pkg/flats_racer_web.js';
 import {WorldClient} from './world-client.js';
 import {createContext,runInContext} from 'node:vm';
-import {boundsWithin,transformedBounds,globalCollisionVertices,placementMatrix,SCENE_LIMITS} from './scene-stream.js';
+import {boundsWithin,boundsDistance,transformedBounds,globalCollisionVertices,placementMatrix,sceneReady,SCENE_LIMITS} from './scene-stream.js';
+import {FAR_LIMITS} from './far-stream.js';
+import {validateView,viewChanged} from './world-view.js';
 
 const wasm=initSync({module:await readFile(new URL('./pkg/flats_racer_web_bg.wasm',import.meta.url))});
 for(const speed of [250,500])for(const shift of [0,1e9]){
@@ -91,9 +93,12 @@ async function fallingRoof(world){
   const scene={revision:1,selectionRevision:1,update(){this.selectionRevision=this.revision;},
     snapshot:()=>state,async pump(){}};
   const context=createContext({performance,init:async()=>wasm,postMessage:message=>events.push(message),
-    setTimeout,clearTimeout,boundsWithin,transformedBounds,globalCollisionVertices,SCENE_LIMITS});
-  const worker=(await readFile(new URL('./world-worker.js',import.meta.url),'utf8')).replace(/^import .*;\r?$/gm,'');
+    setTimeout,clearTimeout,boundsWithin,boundsDistance,transformedBounds,globalCollisionVertices,SCENE_LIMITS,FAR_LIMITS,validateView,viewChanged,sceneReady});
+  // Same layering as world-worker-fixtures.mjs: concatenate the worker modules into one script scope.
+  const worker=(await Promise.all(['./world-worker-logic.js','./world-engine.js','./world-worker-protocol.js','./world-worker.js'].map(file=>readFile(new URL(file,import.meta.url),'utf8'))))
+    .map(source=>source.replace(/^import [^;]*;\r?\n/gm,'').replace(/^export /gm,'')).join('\n');
   runInContext(worker,context);await runInContext('ready',context);
+  runInContext('far={active:true,close(){},retry(){},near(){},snapshot:()=>({resident:0,failures:[]})};',context);
   context.dependencies={world,scene,manifest:{ocean:[10000,0,20000,0],
     regions:[{placement:[0,0],tile_origin:[32,32]}]}};
   runInContext(`({world,scene,manifest}=dependencies);horizon={wasmPeakBytes:0};source={stats:{}};
