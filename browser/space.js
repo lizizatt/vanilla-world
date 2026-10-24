@@ -229,7 +229,9 @@ struct PV {@builtin(position) clip:vec4f,@location(0) pv:vec3f,@location(1) n:ve
   let n=vec3f(dot(s.e.xyz,pv),dot(s.u.xyz,pv),dot(s.s.xyz,pv));
   let edge=ij.x==0u||ij.y==0u||ij.x==16u||ij.y==16u;
   let sink=select(0.0,R*(p.y-p.x)/16.0*.02,edge);
-  let hm=textureSampleLevel(heightTex,surfaceSamp,vec2f(lon/6.2831853+.5,.5-lat/3.1415927),0.0).r*${HEIGHT_RANGE}.0+${HEIGHT_MIN}.0;
+  var hm=textureSampleLevel(heightTex,surfaceSamp,vec2f(lon/6.2831853+.5,.5-lat/3.1415927),0.0).r*${HEIGHT_RANGE}.0+${HEIGHT_MIN}.0;
+  // Only lift where the registry says land, so relief never stands on sea-coloured ground (the cyan limb block).
+  if(s.tint[1].w>.5&&textureSampleLevel(surfaceTex,surfaceSamp,vec2f(lon/6.2831853+.5,.5-lat/3.1415927),0.0).a<.5){hm=0.0;}
   let w=vec3f(0.0,-(R+s.p.x),0.0)+n*(R-sink+max(hm,0.0));
   let z=dot(w,s.look.xyz);
   var o:PV;
@@ -238,8 +240,10 @@ struct PV {@builtin(position) clip:vec4f,@location(0) pv:vec3f,@location(1) n:ve
 }
 @fragment fn pfs(v:PV)->FO {
   let n=normalize(v.n);let d=normalize(v.w);
+  // Shade with the displaced face normal: the radial normal made cliffs seen at the limb glow rim-cyan.
+  var ng=cross(dpdx(v.w),dpdy(v.w));ng=select(n,normalize(ng),dot(ng,ng)>1e-6);ng=select(-ng,ng,dot(ng,n)>=0.0);
   let dz=dot(d,s.look.xyz);let dt=sphereT(vec3f(0.0),d,vec3f(0.0,-(R+s.p.x),0.0),DEPTH_R);
   let zz=max(dt*dz,1.0/v.clip.w);
-  var o:FO;o.color=vec4f(fogGlobe(surface(normalize(v.pv),n,d,normalize(s.sun.xyz)),zz/max(dz,.05),n,d)*s.p.z,s.p.z);
+  var o:FO;o.color=vec4f(fogGlobe(surface(normalize(v.pv),ng,d,normalize(s.sun.xyz)),zz/max(dz,.05),n,d)*s.p.z,s.p.z);
   o.depth=clamp((zz-s.right.w)*s.up.w/((s.up.w-s.right.w)*zz),0.0,1.0);return o;
 }`;
