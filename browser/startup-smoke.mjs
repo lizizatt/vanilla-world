@@ -98,7 +98,9 @@ try {
     for(const [before,after] of hooks){assert(body.includes(before),`Missing cold trace hook in ${file}: ${before}`);body=body.replace(before,after);coldHooks.add(before);}
     await route.fulfill({response,body});
   });
-  const page=await context.newPage();
+  // A physically connected controller (stick drift, jump button) would inject input and fake a startup hop.
+await context.addInitScript(()=>{navigator.getGamepads=()=>[];});
+const page=await context.newPage();
   page.on('pageerror',error=>evidence.errors.push(error.message));
   await page.goto(base);await instrument(page,'fresh');await open(page);
   await page.waitForTimeout(2000);
