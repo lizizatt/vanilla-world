@@ -167,8 +167,8 @@ test('reset and restore invalidate unsent input and block draining until the new
     const sent=[],client=new WorldClient(()=>{},error=>{throw error;});
     client.worker={postMessage:message=>sent.push(message)};
     const respond=(index,result)=>{
-      const pending=client.requests.get(sent[index].id);
-      client.requests.delete(sent[index].id);pending.resolve(result);
+      const pending=client.requests.take(sent[index].id);
+      pending.resolve(result);
     };
     client.frame(.01,1,0,0);client.frame(.04,1,0,0);
     const transition=client.request(action,{pose:[10,20,30,0]});

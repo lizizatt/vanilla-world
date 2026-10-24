@@ -1,4 +1,5 @@
 import {SCENE_LIMITS} from './scene-stream.js';
+import {errorFields} from './worker-rpc.js';
 let nextProducer=0;
 
 // Source ownership remains here: one serialized, preemptible optional read, no second MPQ index.
@@ -71,8 +72,7 @@ export class FarChannel {
       this.post({action:'read-result',id:data.id,bytes},[bytes.buffer]);
     } catch(error) {
       if(error.code==='DEFERRED')this.readStats.deferred++;
-      if(this.active)this.post({action:'read-result',id:data.id,
-        error:String(error.message||error),code:error.code||'READ'});
+      if(this.active)this.post({action:'read-result',id:data.id,...errorFields(error),code:error.code||'READ'});
     } finally {this.reading=false;}
   }
   ack(token,producer) {

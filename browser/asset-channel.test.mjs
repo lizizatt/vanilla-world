@@ -6,12 +6,13 @@ import {AssetSource,openAssetSource} from './asset-channel.js';
 import {terrainMips,resizeRgba,MINIMAP_SIZE} from './terrain-stream.js';
 import {prepareDetail} from './camera-collision.js';
 import {loadLoadingArt} from './loading-art.js';
+import {errorFields,isRequestId} from './worker-rpc.js';
 
 const code=(await readFile(new URL('./asset-worker.js',import.meta.url),'utf8')).replace(/^import .*;\r?$/gm,'');
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 function worker(source) {
   const messages=[],out=[],fake={messages,out,terminated:false,terminate(){this.terminated=true;}};
-  const context=createContext({Uint8Array,performance,terrainMips,resizeRgba,MINIMAP_SIZE,prepareDetail,loadLoadingArt,
+  const context=createContext({Uint8Array,performance,terrainMips,resizeRgba,MINIMAP_SIZE,prepareDetail,loadLoadingArt,errorFields,isRequestId,
     init:async()=>({memory:{buffer:new ArrayBuffer(65536)}}),openDataSource:async()=>source,
     SceneTexture:class {
       constructor(bytes){this.bytes=bytes;}
@@ -115,7 +116,7 @@ test('source cancellation and late completion reject stale results; corrupt data
   await settle();stale=true;source.refresh();complete();await checked;
   await assert.rejects(source.read('bad'),{code:'CORRUPT',message:'damaged archive'});
   const pending=source.read('close');const closed=assert.rejects(pending,{code:'CLOSED'});
-  source.close();await closed;assert.equal(source.pending.size,0);
+  source.close();await closed;assert.equal(source.table.size,0);
 });
 
 test('worker construction, send and runtime failures reject instead of leaving requests unresolved',async()=>{

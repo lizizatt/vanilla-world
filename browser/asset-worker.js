@@ -4,6 +4,7 @@ import {terrainMips,resizeRgba,MINIMAP_SIZE} from './terrain-stream.js';
 import {prepareDetail} from './camera-collision.js';
 import {loadLoadingArt} from './loading-art.js';
 import {demoSource} from './demo-source.js';
+import {errorFields,isRequestId} from './worker-rpc.js';
 
 let source,wasm,busy=false,receipt,active;
 let artStopped=false;
@@ -17,7 +18,7 @@ function reply(job,result,error) {
     :result?.mips?result.mips.map(m=>m.buffer):result?.rgba?[result.rgba.buffer]:[];
   work.transferPeakBytes=Math.max(work.transferPeakBytes,transfers.reduce((n,b)=>n+b.byteLength,0));
   receipt=job.id;
-  postMessage({id:job.id,result,error:error?String(error.message||error):undefined,code:error?.code,
+  postMessage({id:job.id,result,...(error&&errorFields(error)),
     stats:{...source?.stats,...work,wasmBytes:wasm?.memory.buffer.byteLength||0}},transfers);
 }
 async function pump() {
@@ -77,7 +78,7 @@ onmessage=({data})=>{
     if(data.id===active||jobs.some(j=>j.id===data.id))cancelled.add(data.id);
   }
   else {
-    if(!Number.isSafeInteger(data.id)||data.id<=0)throw Error('Invalid asset request');
+    if(!isRequestId(data.id))throw Error('Invalid asset request');
     if(jobs.length>=64)throw Error('Asset request queue exceeds 64 pending operations');
     jobs.push(data);
   }

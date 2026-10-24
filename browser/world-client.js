@@ -1,14 +1,15 @@
+import {RpcTable} from './worker-rpc.js';
 export class WorldClient {
   constructor(onEvent,onError,canFrame=()=>true) {
-    this.onEvent=onEvent;this.onError=onError;this.next=0;this.requests=new Map();
+    this.onEvent=onEvent;this.onError=onError;this.requests=new RpcTable();
     this.elapsed=0;this.inFlight=false;this.canFrame=canFrame;
     this.poseSamples=[];this.poseFlying=false;
     this.hopSequence=0;this.pendingHop=0;this.hopHeld=false;
   }
   stop() {
     this.worker?.terminate();this.worker=undefined;
-    for(const request of this.requests.values()) request.reject(new DOMException('World closed','AbortError'));
-    this.requests.clear();this.inFlight=false;this.discardFrame();
+    this.requests.rejectAll(new DOMException('World closed','AbortError'));
+    this.inFlight=false;this.discardFrame();
   }
   stopLoadingArt(){this.worker?.postMessage({action:'stop-loading-art'});}
   sky(){this.worker?.postMessage({action:'sky'});}
@@ -19,10 +20,9 @@ export class WorldClient {
     if(!this.worker) return Promise.reject(new Error('Select the local Data folder first.'));
     if(action==='reset' || action==='restore')this.discardFrame();
     return new Promise((resolve,reject)=>{
-      const id=++this.next;
-      this.requests.set(id,{resolve,reject,action});
+      const id=this.requests.open({resolve,reject,action});
       try{this.worker.postMessage({id,action,...fields});}
-      catch(error){this.requests.delete(id);reject(error);}
+      catch(error){this.requests.take(id);reject(error);}
     });
   }
   async open(folder,loadingMap) {
@@ -31,8 +31,8 @@ export class WorldClient {
     this.worker=worker;
     worker.onerror=event=>{
       if(this.worker!==worker)return;
-      for(const request of this.requests.values()) request.reject(new Error(event.message));
-      this.requests.clear();this.onError(new Error(`World worker failed: ${event.message}`));
+      this.requests.rejectAll(new Error(event.message));
+      this.onError(new Error(`World worker failed: ${event.message}`));
     };
     worker.onmessage=({data})=>{
       if(this.worker!==worker)return;
@@ -50,9 +50,8 @@ export class WorldClient {
         if(data.event==='far-scene')worker.postMessage({action:accepted===true?'far-ack':'far-reject',...receipt});
         return;
       }
-      const request=this.requests.get(data.id);
+      const request=this.requests.take(data.id);
       if(!request)return;
-      this.requests.delete(data.id);
       if(data.error)request.reject(new Error(data.error));else request.resolve(data.result);
     };
     const result=await this.request('open',{folder,loadingMap,sceneInstanceDeltas:true,sceneInstanceUpdates:true,postFrameVisuals:true});
