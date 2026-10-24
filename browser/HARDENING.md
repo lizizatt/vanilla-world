@@ -25,3 +25,5 @@
 - `audit-culling.mjs`: Monte Carlo pose sweep; the `dark` void test false-positives in space (alt >= 20k looking at sky/limb) and needs a per-altitude expectation before it can gate.
 
 - M3 heights (c803899): pale cyan block near the limb at 8k yd (pose-h3d-b) not yet diagnosed; colour lookup is not displaced (parallax). Reversed-Z audit still open.
+
+- Reversed-Z audit: all passes use depth24plus, clear 1, compare less/less-equal/always (8 pipelines + analytic patch depth). No precision artifact seen in ascent (POPS 0), so reversed-Z is deferred until one is measured; switching means changing every pipeline, the projection and the patch-shader depth together.
