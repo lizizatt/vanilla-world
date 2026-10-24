@@ -1,7 +1,8 @@
 // Procedural cumulus slab: one camera-following quad whose fragments march a short ray through a layer of
 // analytic noise density, with a maelstrom (eye, eye wall, spiral arms) around a vortex centre. No textures or extra passes.
 import {PLANET_RADIUS,WORLD_CENTRE,planetFrame} from './space.js';
-import {flowWGSL,FLOW} from './cloud-flow.js';
+import {flowWGSL,FLOW,MASK,bakeLandMask} from './cloud-flow.js';
+import {createRegistry,defaultManifest} from './tile-registry.js';
 export const CLOUD_ALTITUDE_FACTOR=.8;
 // Mt Hyjal summit height in yards, measured from the user's Kalimdor terrain (tile bounds near Hyjal, see README "Clouds").
 export const HYJAL_SUMMIT=1971;
@@ -118,7 +119,15 @@ fn cloudNoise(Q:vec3f,up:vec3f,pos:vec3f,t:f32,hf:f32)->f32 {
 }`;const HIGH_TAP=`
       let sd=sheetDensity(worldAt(rel+c.sun.xyz*ss*2.5),t).x;
       let shade=mix(mix(.65,1.0,exp(-sd*2.0)),1.0,smoothstep(.7,1.0,hf))*(1.0+.8*pow(max(dot(dir,c.sun.xyz),0.0),6.0));`;
-const build=high=>COMMON+flowWGSL()+(high?HIGH_BINDINGS:'')+`
+const MASK_BINDINGS=`
+@group(0) @binding(4) var landMask:texture_2d<f32>;
+@group(0) @binding(5) var maskSamp:sampler;
+// Baked land/ocean mask (cloud-flow.js bakeLandMask): x = land, y = windward lift, z = coastal convergence (both -1..1).
+fn maskAt(lat:f32,lon:f32)->vec3f {
+  let m=textureSampleLevel(landMask,maskSamp,vec2f(lon/6.2831853+.5,.5-lat/3.14159265),0.0);
+  return vec3f(m.r,m.g*2.0-1.0,m.b*2.0-1.0);
+}`;
+const build=high=>COMMON+flowWGSL()+(high?HIGH_BINDINGS:'')+MASK_BINDINGS+`
 struct V {@builtin(position) clip:vec4f,@location(0) ndc:vec2f};
 @vertex fn vs(@builtin(vertex_index) i:u32)->V {
   var q=array<vec2f,3>(vec2f(-1,-1),vec2f(3,-1),vec2f(-1,3));
@@ -128,8 +137,8 @@ const THICK=${CLOUD_THICKNESS.toFixed(1)};
 const UP=${high?CLOUD_TOWER.up:0}.0;
 const DOWN=${high?CLOUD_TOWER.down:0}.0;
 ${high?HIGH_NOISE:STD_NOISE}
-fn cloudBody(sp:Sph,d:vec2f,pos:vec3f,t:f32,tau:f32,coverage:f32,wall:f32)->vec2f {
-  let s=flowShift(sp.lat,d,tau);
+fn cloudBody(sp:Sph,d:vec2f,pos:vec3f,t:f32,tau:f32,drag:f32,coverage:f32,wall:f32)->vec2f {
+  let s=flowShift(sp.lat,d,tau,drag);
   let Q=sp.up*${PLANET_RADIUS}.0+sp.e*s.x+sp.n*s.y;
   // Dense columns grow upward (towering tops) and a little downward, billowing slowly; low coverage keeps the flat sheet.
   let grow=smoothstep(.45,.95,coverage)*mix(.4,1.0,vnoise3(Q/3800.0+vec3f(t*.012,-t*.009,0.0)));
@@ -149,14 +158,16 @@ fn sheetDensity(pos:vec3f,t:f32)->vec3f {
   let wall=exp(-pow((r-${M.wallRadius.toFixed(1)})/(${M.wallRadius.toFixed(1)}*.35),2.0));
   let eye=smoothstep(${M.eyeRadius.toFixed(1)},${(M.eyeRadius*1.5).toFixed(1)},r);
   // Away from the storm the global cells set the cover, with faint spiral arms reaching far out.
-  let base=.4+(bandCoverage(sp.lat)+exp(-r/${FLOW.vortex.armReach.toFixed(1)})*(arm-.5)*${FLOW.vortex.armCover})*(1.0-storm);
+  let lm=maskAt(sp.lat,sp.lon);let drag=1.0-${MASK.drag}*lm.x;
+  let landCov=${MASK.lift}*max(lm.y,0.0)*lm.x+${MASK.coast}*max(lm.z,0.0)-${MASK.dry*.5}*lm.x;
+  let base=.4+(bandCoverage(sp.lat)+landCov+exp(-r/${FLOW.vortex.armReach.toFixed(1)})*(arm-.5)*${FLOW.vortex.armCover})*(1.0-storm);
   let coverage=clamp(mix(base,mix(.1,.95,arm),storm)+.6*wall,0.0,.95)*eye;
   // Two-phase flow map: each phase samples the noise displaced by the wind for its age, crossfaded near the resets; a single phase most of the time.
   let fp=flowPhase(t);
   var bh:vec2f;
-  if(fp.z>=1.0){bh=cloudBody(sp,d,pos,t,fp.x,coverage,wall);}
-  else if(fp.z<=0.0){bh=cloudBody(sp,d,pos,t,fp.y,coverage,wall);}
-  else{bh=mix(cloudBody(sp,d,pos,t,fp.y,coverage,wall),cloudBody(sp,d,pos,t,fp.x,coverage,wall),fp.z);}
+  if(fp.z>=1.0){bh=cloudBody(sp,d,pos,t,fp.x,drag,coverage,wall);}
+  else if(fp.z<=0.0){bh=cloudBody(sp,d,pos,t,fp.y,drag,coverage,wall);}
+  else{bh=mix(cloudBody(sp,d,pos,t,fp.y,drag,coverage,wall),cloudBody(sp,d,pos,t,fp.x,drag,coverage,wall),fp.z);}
   let body=bh.x;let hf=bh.y;
   return vec3f(body,storm*(.55+.45*smoothstep(${(M.eyeRadius).toFixed(1)},${(M.wallRadius*2).toFixed(1)},r)),hf);
 }
@@ -304,6 +315,22 @@ export function bakeCloudNoise(size=CLOUD_NOISE_SIZE) {
 
 /** Cloud quality: 'auto' (unset) is High when it built, unless the guard saw sustained slow frames; an explicit choice always wins. */
 export const resolveCloudQuality=(setting,{highFailed=false,slow=false}={})=>setting==='high'?!highFailed:setting==='standard'?false:!highFailed&&!slow;
+/** GPU land/ocean mask for the cloud flow; re-baked only when the planet's continent rects change. */
+export class CloudMask {
+  constructor(device) {
+    this.device=device;this.key='';
+    this.texture=device.createTexture({size:[MASK.w,MASK.h],format:'rgba8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});
+    this.view=this.texture.createView();
+    this.sampler=device.createSampler({magFilter:'linear',minFilter:'linear',addressModeU:'repeat',addressModeV:'clamp-to-edge'});
+  }
+  update(rects) {
+    const key=JSON.stringify(rects);
+    if(key===this.key)return;
+    this.key=key;
+    const m=bakeLandMask(createRegistry(defaultManifest(undefined,rects)));
+    this.device.queue.writeTexture({texture:this.texture},m.data,{bytesPerRow:m.w*4},[m.w,m.h]);
+  }
+}
 export class SlowFrameGuard {
   constructor(limitMs=30,windowMs=3000) {Object.assign(this,{limitMs,windowMs,sum:0,n:0,span:0});}
   /** Feed frame deltas (ms); returns true once a full window averaged over the limit. Deltas over 250 ms (tab pauses) are ignored. */

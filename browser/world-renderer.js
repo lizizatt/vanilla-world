@@ -6,7 +6,7 @@ import {splitParts,crumple,craftFrame,partMatrix,appendWreckChunk,wreckFrame,WRE
 import {COAST_GPU_LIMIT} from './water-stream.js';
 import {WATER_NORMAL_SIZE,waterNormalMips,waterShading,dayShading} from './water-shader.js';
 import {shadowShader,shadowUniform,shadowHalf} from './shadow.js';
-import {cloudShader,cloudShaderHigh,cloudUniform,maelstromCentre,sunDirection,bakeCloudNoise,CLOUD_NOISE_SIZE,resolveCloudQuality,SlowFrameGuard} from './clouds.js';
+import {cloudShader,cloudShaderHigh,cloudUniform,maelstromCentre,sunDirection,bakeCloudNoise,CloudMask,CLOUD_NOISE_SIZE,resolveCloudQuality,SlowFrameGuard} from './clouds.js';
 import {oceanMesh} from './ocean-mesh.js';
 const OCEAN_FILL=130000;
 import {ParticlePool,exhaustPoints,emitPlumes,emitBurst,emitDebris,emitHeatSmoke,emitGroundDust,QUALITY,INSTANCE_FLOATS,CAPACITY,particleShader,particleUniform} from './particles.js';
@@ -319,6 +319,7 @@ export class WorldRenderer {
       depthStencil:{format:'depth24plus',depthWriteEnabled:true,depthCompare:'less'},
     });
     this.cloudBuffer=this.device.createBuffer({size:240,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
+    this.cloudMask=new CloudMask(this.device);
     const cloudModule=await shader(cloudShader);
     this.cloudPipeline=await this.device.createRenderPipelineAsync({layout:'auto',vertex:{module:cloudModule,entryPoint:'vs'},
       fragment:{module:cloudModule,entryPoint:'fs',targets:[{format:this.format,blend:{color:{srcFactor:'src-alpha',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},
@@ -852,9 +853,11 @@ export class WorldRenderer {
   }
   highCloudGroup() {
     return this.depth&&this.device.createBindGroup({layout:this.cloudHigh.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:this.cloudBuffer}},
-      {binding:1,resource:this.depth.createView()},{binding:2,resource:this.cloudNoise},{binding:3,resource:this.cloudNoiseSampler}]});
+      {binding:1,resource:this.depth.createView()},{binding:2,resource:this.cloudNoise},{binding:3,resource:this.cloudNoiseSampler},...this.maskEntries()]});
   }
+  maskEntries() {return [{binding:4,resource:this.cloudMask.view},{binding:5,resource:this.cloudMask.sampler}];}
   drawClouds(pass,time,daylight,near,high) {
+    this.cloudMask.update(this.planetRects());
     const cu=cloudUniform(this.view,time,daylight,this.manifest,near,this.gameSky,undefined,this.timeOfDay,this.planet);
     this.device.queue.writeBuffer(this.cloudBuffer,0,cu);
     const useHigh=high&&this.cloudHighGroup;
@@ -892,7 +895,7 @@ export class WorldRenderer {
       this.shadowGroup=this.device.createBindGroup({layout:this.shadowPipeline.getBindGroupLayout(0),
         entries:[{binding:0,resource:{buffer:this.shadowBuffer}},{binding:1,resource:this.depth.createView()}]});
       this.cloudGroup=this.device.createBindGroup({layout:this.cloudPipeline.getBindGroupLayout(0),
-        entries:[{binding:0,resource:{buffer:this.cloudBuffer}},{binding:1,resource:this.depth.createView()}]});
+        entries:[{binding:0,resource:{buffer:this.cloudBuffer}},{binding:1,resource:this.depth.createView()},...this.maskEntries()]});
       this.cloudHighGroup=this.cloudHigh&&this.highCloudGroup();
     }
     const origin=flight?[Math.round(flight[0]),Math.round(flight[2])]:[state[11],state[12]];
