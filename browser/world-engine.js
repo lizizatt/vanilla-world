@@ -486,7 +486,7 @@ async function restorePose(pose) {
       if(previousRequired.some(i=>!resident.has(i)))throw new Error('Previous location terrain is unavailable');
       await preparePoseScene(previous);
     } catch(recovery) {
-      throw new Error(`${error.message}; previous pose retained but scene recovery failed: ${recovery.message}`,{cause:error});
+      throw new Error(`${error?.message??error}; previous pose retained but scene recovery failed: ${recovery?.message??recovery}`,{cause:error});
     }
     throw error;
   } finally {sceneFocus=undefined;collisionFocus=undefined;}

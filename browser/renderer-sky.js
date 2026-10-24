@@ -2,7 +2,7 @@ import {MINIMAP_SIZE} from './terrain-stream.js';
 import {sunDirection} from './clouds.js';
 import {schematicRects} from './worldmap.js';
 import {patchesAt,packPatches,PATCH_GRID} from './globe-patches.js';
-import {createRegistry,bakeSurface,surfaceTexel,splatMinimap,adtChunk} from './tile-registry.js';
+import {createRegistry,defaultManifest,bakeSurface,surfaceTexel,splatMinimap,adtChunk} from './tile-registry.js';
 import {HEIGHT_W,HEIGHT_H,encodeHeights} from './height-bake.js';
 import {PLANET_RADIUS,WORLD_CENTRE,spaceUniform,FALLBACK_RECTS} from './space.js';
 import {SkyCatalog,mapPosition,nightAlpha,nightAngle} from './sky.js';
