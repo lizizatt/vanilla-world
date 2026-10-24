@@ -17,7 +17,7 @@
 3. FIXED (065b94d): grey/navy horizon ring at 200 yd over open sea - the 130k ocean quad was bent as a chord; now 2500 yd cells.
 4. FIXED: patch tree is 2:1 edge-balanced and finer patches snap odd edge vertices onto coarser neighbours (instance flags S,N,W,E); the 2% edge sink is gone. Level-0 sag ~52 yd remains.
 5. Authored-tile rectangles: FIXED. `adt` chunk (tile-registry.js colour grid) is splatted from streamed minimap colour and composited over procedural land; globe surface is patched per dirty texel (<=1/s). Only tiles streamed so far have real colour.
-6. Valley-haze pose (screenshot) still dim; root cause unconfirmed.
+6. Valley haze: FIXED analytically (water-shader.js `valleyHaze`): haze layer below the eye, fog = path length inside layer, so far valley floors haze behind ridges while near valley contents stay clear. No depth/draw-order change needed.
 7. 500 yd Maelstrom pose sits inside the cloud layer.
 8. HUD speed spike for one frame at the pole flip.
 9. Bend vs globe mapping differs ~8% at world edges.

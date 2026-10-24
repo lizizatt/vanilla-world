@@ -38,6 +38,11 @@ fn gameSky()->bool {return u.sky[0].w>.5;}
 fn grade(c:vec3f)->vec3f {
   return c*mix(vec3f(1.0),vec3f(.2,.27,.5),nightK())*select(vec3f(1.0),mix(vec3f(1.0),u.sky[1].rgb,.6),gameSky());
 }
+// Valley haze: a layer filling everything below the eye; fog follows the eye->fragment path length inside it, so far valley floors haze while nearby valley contents stay clear.
+fn valleyHaze(p:vec3f)->f32 {
+  let top=u.eye.y-20.0;let frac=clamp((top-p.y)/max(u.eye.y-p.y,1.0),0.0,1.0);
+  return .6*(1.0-exp(-length(p-u.eye.xyz)*frac/5000.0));
+}
 fn fogTint()->vec3f {return select(mix(vec3f(.08,.15,.20),vec3f(.008,.016,.045),nightK()),u.sky[0].rgb,gameSky());}
 `;
 export const waterShading=`
