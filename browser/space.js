@@ -86,6 +86,7 @@ export function spaceUniform(view,sun,factors,rects,timeOfDay,near,far,out=new F
     out.set([centre[0]+local[0],centre[1]+local[1],centre[2]+local[2],moon.radius],48+i*4);
     out.set([...moon.tint,0],56+i*4);
   });
+  out[59]=factors.mesh?1:0;
   return out;
 }
 
@@ -132,6 +133,28 @@ fn sphereT(o:vec3f,d:vec3f,c:vec3f,r:f32)->f32 {
   let oc=o-c;let b=dot(oc,d);let q=dot(oc,oc)-r*r;let disc=b*b-q;
   return select(-1.0,-b-sqrt(disc),disc>0.0&&-b-sqrt(disc)>0.0);
 }
+// Globe surface colour and lighting for a unit planet-frame point pv, local normal n and view ray d. Shared by the analytic sphere and the patch mesh.
+fn surface(pv:vec3f,n:vec3f,d:vec3f,sun:vec3f)->vec3f {
+  let lat=asin(clamp(pv.y,-1.0,1.0));let lon=atan2(pv.z,pv.x);
+  let m=vec2f(${WORLD_CENTRE[0]}.0+R*lon,${WORLD_CENTRE[1]}.0-R*lat);
+  var sdist=-1e5;
+  for(var r=0;r<i32(s.s.w);r++){
+    let q=s.rect[r];sdist=max(sdist,min(min(m.x-q.x,q.z-m.x),min(m.y-q.y,q.w-m.y)));
+  }
+  // Noise is sampled on the unit sphere (x,z circle plus y offset), so it has no seam at the antimeridian.
+  let sp=pv.xz*15.0+vec2f(pv.y*5.7,pv.y*3.1);
+  let edge=sdist-2200.0+(fbm(sp)-.5)*9000.0;
+  let land=smoothstep(-600.0,600.0,edge);
+  let tex=fbm(pv.xz*85.0+vec2f(pv.y*31.0,pv.y*17.0));
+  let ground=mix(vec3f(.2,.38,.14),vec3f(.5,.42,.26),smoothstep(.35,.7,tex));
+  // Deep/shallow body colours are the terrain water shader's, so the sea has no colour step at the loaded-tile edge.
+  let sea=mix(vec3f(.025,.18,.29),vec3f(.09,.43,.39),smoothstep(-3000.0,1500.0,edge));
+  var col=mix(sea,ground,land);
+  let lit=clamp(dot(n,sun)*1.6+.15,0.0,1.0);
+  let spec=pow(max(dot(reflect(-sun,n),-d),0.0),40.0)*(1.0-land);
+  let rim=pow(1.0-max(dot(n,-d),0.0),3.0);
+  return col*(.03+lit)+vec3f(.5,.6,.7)*spec*lit+vec3f(.25,.5,1.0)*rim*(.15+lit)*.8;
+}
 struct FO {@location(0) color:vec4f,@builtin(frag_depth) depth:f32};
 @fragment fn fs(v:V)->FO {
   let d=normalize(s.look.xyz+s.right.xyz*v.ndc.x*.55*s.look.w+s.up.xyz*v.ndc.y*.55);
@@ -150,28 +173,9 @@ struct FO {@location(0) color:vec4f,@builtin(frag_depth) depth:f32};
     let t=order[i];if(t<0.0){continue;}
     let id=ids[i];
     if(id==0){
-      let hit=d*t;let n=normalize(hit-centre);
-      let pv=toPlanet(n);let lat=asin(clamp(pv.y,-1.0,1.0));let lon=atan2(pv.z,pv.x);
-      let m=vec2f(${WORLD_CENTRE[0]}.0+R*lon,${WORLD_CENTRE[1]}.0-R*lat);
-      var sdist=-1e5;
-      for(var r=0;r<i32(s.s.w);r++){
-        let q=s.rect[r];sdist=max(sdist,min(min(m.x-q.x,q.z-m.x),min(m.y-q.y,q.w-m.y)));
-      }
-      // Noise is sampled on the unit sphere (x,z circle plus y offset), so it has no seam at the antimeridian.
-      let sp=pv.xz*15.0+vec2f(pv.y*5.7,pv.y*3.1);
-      let edge=sdist-2200.0+(fbm(sp)-.5)*9000.0;
-      let land=smoothstep(-600.0,600.0,edge);
-      let tex=fbm(pv.xz*85.0+vec2f(pv.y*31.0,pv.y*17.0));
-      let ground=mix(vec3f(.2,.38,.14),vec3f(.5,.42,.26),smoothstep(.35,.7,tex));
-      // Deep/shallow body colours are the terrain water shader's, so the sea has no colour step at the loaded-tile edge.
-      let sea=mix(vec3f(.025,.18,.29),vec3f(.09,.43,.39),smoothstep(-3000.0,1500.0,edge));
-      var col=mix(sea,ground,land);
-      let cloud=0.0;
-      let lit=clamp(dot(n,sun)*1.6+.15,0.0,1.0);
-      let spec=pow(max(dot(reflect(-sun,n),-d),0.0),40.0)*(1.0-land)*(1.0-cloud);
-      let rim=pow(1.0-max(dot(n,-d),0.0),3.0);
-      col=col*(.03+lit)+vec3f(.5,.6,.7)*spec*lit+vec3f(.25,.5,1.0)*rim*(.15+lit)*.8;
-      acc=over(acc,col,globe);
+      if(s.tint[0].w>.5){continue;}
+      let n=normalize(d*t-centre);
+      acc=over(acc,surface(toPlanet(n),n,d,sun),globe);
       let dz=dot(d,s.look.xyz);
       let dt=sphereT(o,d,centre,R-40.0);
       let zz=max(dt,t)*dz;
@@ -192,4 +196,30 @@ struct FO {@location(0) color:vec4f,@builtin(frag_depth) depth:f32};
     acc=over(acc,vec3f(.3,.55,1.0)*(.2+.8*clamp(dot(np,sun)+.3,0.0,1.0)),near*.8*globe);
   }
   var out:FO;out.color=acc;out.depth=depth;return out;
+}`;
+
+// Patch mesh (globe-patches.js): each instance is one lat/lon patch drawn as a 16x16 grid. Edge vertices sink a little so LOD cracks stay hidden.
+export const patchShader=spaceShader.slice(0,spaceShader.indexOf('@fragment fn fs'))+`
+struct PV {@builtin(position) clip:vec4f,@location(0) pv:vec3f,@location(1) n:vec3f,@location(2) w:vec3f};
+@vertex fn pvs(@builtin(vertex_index) vi:u32,@location(0) p:vec4f)->PV {
+  let corner=array<vec2u,6>(vec2u(0,0),vec2u(1,0),vec2u(0,1),vec2u(0,1),vec2u(1,0),vec2u(1,1));
+  let cell=vi/6u;let c=corner[vi%6u];
+  let ij=vec2u(cell%16u,cell/16u)+c;let uv=vec2f(ij)/16.0;
+  let lat=mix(p.x,p.y,uv.y);let lon=mix(p.z,p.w,uv.x);
+  let pv=vec3f(cos(lat)*cos(lon),sin(lat),cos(lat)*sin(lon));
+  let n=vec3f(dot(s.e.xyz,pv),dot(s.u.xyz,pv),dot(s.s.xyz,pv));
+  let edge=ij.x==0u||ij.y==0u||ij.x==16u||ij.y==16u;
+  let sink=select(0.0,R*(p.y-p.x)/16.0*.02,edge);
+  let w=vec3f(0.0,-(R+s.p.x),0.0)+n*(R-sink);
+  let z=dot(w,s.look.xyz);
+  var o:PV;
+  o.clip=vec4f(dot(w,s.right.xyz)/(.55*s.look.w),dot(w,s.up.xyz)/.55,min((z-s.right.w)*s.up.w/(s.up.w-s.right.w),.9999*z),z);
+  o.pv=pv;o.n=n;o.w=w;return o;
+}
+@fragment fn pfs(v:PV)->FO {
+  let n=normalize(v.n);let d=normalize(v.w);
+  let dz=dot(d,s.look.xyz);let dt=sphereT(vec3f(0.0),d,vec3f(0.0,-(R+s.p.x),0.0),R-40.0);
+  let zz=max(dt*dz,1.0/v.clip.w);
+  var o:FO;o.color=vec4f(surface(normalize(v.pv),n,d,normalize(s.sun.xyz))*s.p.z,s.p.z);
+  o.depth=clamp((zz-s.right.w)*s.up.w/((s.up.w-s.right.w)*zz),0.0,1.0);return o;
 }`;
