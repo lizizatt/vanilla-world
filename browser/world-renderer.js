@@ -910,7 +910,7 @@ export class WorldRenderer {
     const daylight=this.daylight=Math.abs(target-previous)<.002?target:previous+(target-previous)*Math.min(1,dt*1.5);
     const sky0=DAY_SKY.map((v,i)=>NIGHT_SKY[i]+(v-NIGHT_SKY[i])*daylight);
     this.timeOfDay=this.timeLock??advanceTime(this.timeOfDay??(settings.night?0:DAY),settings.night,dt);
-    const game=this.sampleSky(),sky=game?game.fog:sky0;pf.fog=sky.slice(0,3);
+    const game=this.sampleSky(),sky=game?game.fog:sky0;pf.fog=(game?game.horizon:sky).slice(0,3);
     this.gameSky=game;
     const skyFloats=game?[...game.fog,1,...game.sun,0,...game.horizon,0,...game.mid,0]:new Array(16).fill(0);
     if(this.manifest?.world_bounds){const [mx,mz]=maelstromCentre(this.manifest);skyFloats[7]=mx-origin[0];skyFloats[11]=mz-origin[1];skyFloats[15]=1;}
