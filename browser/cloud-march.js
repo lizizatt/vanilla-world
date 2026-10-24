@@ -3,11 +3,13 @@
 // the extent/fade expressions appear verbatim in the shader. The High tier's 3D noise texture is replaced here by the Standard analytic
 // noise (the texture is baked from the same kind of value noise), so High geometry (towers, 28 steps, light tap) is covered, its noise is not.
 import {sphereAt,vnoise3,bandCoverage,flowShift,flowPhase,FLOW,maskAt,landCoverage,landDrag} from './cloud-flow.js';
-import {CLOUD_ALTITUDE,CLOUD_THICKNESS,CLOUD_HALF_SIZE,CLOUD_TOWER,MAELSTROM as M,sunDirection} from './clouds.js';
+import {CLOUD_ALTITUDE,CLOUD_THICKNESS,CLOUD_HALF_SIZE,MAELSTROM as M,tier} from './cloud-config.js';
+import {sunDirection} from './clouds.js';
 import {PLANET_RADIUS} from './space.js';
 
-export const FADE_START=30000,FOG_RANGE=150000,MIN_SPAN=9000,MIN_SPAN_HIGH=40000,SPAN_PER_DISTANCE=.3,MIN_DIR_Y=.0005;
-export const steps=high=>high?28:8;
+export const FADE_START=30000,FOG_RANGE=150000,SPAN_PER_DISTANCE=.3,MIN_DIR_Y=.0005;
+export const MIN_SPAN=tier(false).minSpan;
+export const steps=high=>tier(high).steps;
 const clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
 const mix=(a,b,t)=>a+(b-a)*t;
 const fract=x=>x-Math.floor(x);
@@ -20,7 +22,7 @@ function vnoise(x,y) {
 
 /** Slab bounds in yards for a tier (High adds tower growth above and below). */
 export function slab(high) {
-  const up=high?CLOUD_TOWER.up:0,down=high?CLOUD_TOWER.down:0;
+  const {up,down}=tier(high).tower;
   return {ya:CLOUD_ALTITUDE-CLOUD_THICKNESS/2-down,yb:CLOUD_ALTITUDE+CLOUD_THICKNESS/2+up,up,down};
 }
 
@@ -30,7 +32,7 @@ export function extent(eyeY,dirY,sceneDist,high,far=CLOUD_HALF_SIZE,legacy=false
   if(legacy)return extentLegacy(eyeY,dirY,sceneDist,high,ya,yb);
   const dy=Math.abs(dirY)<MIN_DIR_Y?(dirY>=0?MIN_DIR_Y:-MIN_DIR_Y):dirY;
   const ta=(ya-eyeY)/dy,tb=(yb-eyeY)/dy;
-  const s0=Math.max(0,Math.min(ta,tb)),full=Math.max(ta,tb),cap=s0+Math.max(high?MIN_SPAN_HIGH:MIN_SPAN,SPAN_PER_DISTANCE*s0);
+  const s0=Math.max(0,Math.min(ta,tb)),full=Math.max(ta,tb),cap=s0+Math.max(tier(high).minSpan,SPAN_PER_DISTANCE*s0);
   let s1=Math.min(full,cap),sEdge=1;
   if(sceneDist<1e8){sEdge=smoothstep(0,350,sceneDist-s0);s1=Math.min(s1,sceneDist);}
   const ns=s1>s0&&sEdge>0&&s0<far?steps(high):0;
@@ -127,6 +129,6 @@ export function shellExtent(eyeY,dirY,k,high,far=1e8) {
   live=live&&sFull>s0;
   const G=shellRoots(eyeY,dirY,0,k);
   if(eyeY>0&&G[0]>0&&G[0]<=G[1]){sFull=Math.min(sFull,G[0]);live=live&&s0<G[0];}
-  const cap=s0+Math.max(high?MIN_SPAN_HIGH:MIN_SPAN,SPAN_PER_DISTANCE*s0),s1=Math.min(sFull,cap);
+  const cap=s0+Math.max(tier(high).minSpan,SPAN_PER_DISTANCE*s0),s1=Math.min(sFull,cap);
   return {s0,s1,sFull,live:live&&s1>s0&&s0<far};
 }
