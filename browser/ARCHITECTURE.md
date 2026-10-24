@@ -12,8 +12,8 @@ flowchart TB
   end
 
   subgraph Shell["Delivery"]
-    SRV["server.mjs :4173<br/>static + sw.js FILES list"]
-    SW["sw.js service worker<br/>(shell cache vNNN)"]
+    SRV["server.mjs :4173<br/>static + generated shell manifest"]
+    SW["sw.js service worker<br/>(shell cache = manifest hash)"]
     WASM["pkg/ (flats-racer-web wasm)<br/>physics + whirlpool + mesh"]
   end
 
@@ -89,6 +89,6 @@ flowchart TB
 ## Notes
 - **Frames:** world units are yards; flat tiles are bent onto the sphere by a shader (M5b, removing it, is deferred). The globe uses a coarse baked height texture (~130 yd/texel); authored ADT is only used near-field.
 - **Handoff:** the flat ocean mesh hides above 25k yd and the globe sea takes over. Zone lighting fades to global sun lighting in space.
-- **Files:** `sw.js` FILES is the single source for the shell list; `server.mjs` and `build-dist` read it.
+- **Files:** `shell-manifest.mjs` generates the shell list from the import graph (plus a small `RUNTIME_ASSETS` registry); `server.mjs` and `build-dist` serve/publish it and stamp it into `sw.js`, whose cache name is the manifest hash. No hand-edited list or version bump.
 - **Removed material:** the VMaNGOS C++ server, native Bevy client crates, runtime/, tools/ and bootstrap scripts are no longer in the tree; see the root README for the commit that last contained them.
 - **Next (rocket phase):** unified space physics per `SPACE-PHYSICS.md`; see `GLOBE-REFACTOR.md`, `CLOUD-FLOW.md`, `HARDENING.md`, `DEBT.md`.

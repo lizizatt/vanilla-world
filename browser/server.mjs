@@ -1,31 +1,30 @@
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
+import { shellManifest, stampServiceWorker } from './shell-manifest.mjs';
 
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.json':'application/json', '.svg':'image/svg+xml', '.glb':'model/gltf-binary' };
-// Served files = the service worker's precache list (single source of truth, re-read per request so new files need no restart) plus optional local-only assets.
+// Served files = the generated shell manifest (import graph, re-read per second so new files need no restart) plus optional local-only assets.
 const optional = /^\/(?:vehicles\/[a-z0-9-]+\.glb|local\/npc-spawns\.json|npc-pack\.json)$/;
-let cached = { at: 0, set: new Set() };
-async function shellFiles() {
+let cached = { at: 0, manifest: null, set: new Set() };
+async function shell() {
   if (Date.now() - cached.at > 1000) {
-    const sw = await readFile(new URL('./sw.js', import.meta.url), 'utf8');
-    const list = /const FILES = (\[[\s\S]*?\]);/.exec(sw);
-    const files = list ? JSON.parse(list[1].replace(/'/g, '"')) : [];
-    cached = { at: Date.now(), set: new Set([...files.map(f => f.slice(1)), '/sw.js', '/index.html']) };
+    const manifest = await shellManifest({ allowMissing: true });
+    cached = { at: Date.now(), manifest, set: new Set([...manifest.files.map(f => '/' + f)]) };
   }
-  return cached.set;
-}
-const server = http.createServer(async (request, response) => {
+  return cached;
+}const server = http.createServer(async (request, response) => {
   let path;
   try { path = new URL(request.url, 'http://localhost').pathname; }
   catch { response.writeHead(400).end('Invalid URL'); return; }
   const file = path === '/' ? '/index.html' : path;
   if(file==='/favicon.ico' && request.method==='GET'){response.writeHead(204).end();return;}
-  if (request.method !== 'GET' || !((await shellFiles()).has(file) || optional.test(file))) {
+  if (request.method !== 'GET' || !((await shell()).set.has(file) || optional.test(file))) {
     response.writeHead(404).end('Not found');
     return;
   }
   try {
-    const bytes = await readFile(new URL(file==='/local/npc-spawns.json'?'../runtime/browser/npc-spawns.json':file==='/npc-pack.json'?'../runtime/browser/npc-pack.json':`.${file}`, import.meta.url));
+    let bytes = await readFile(new URL(file==='/local/npc-spawns.json'?'../runtime/browser/npc-spawns.json':file==='/npc-pack.json'?'../runtime/browser/npc-pack.json':`.${file}`, import.meta.url));
+    if (file === '/sw.js') bytes = stampServiceWorker(bytes.toString('utf8'), (await shell()).manifest);
     response.writeHead(200, {
       'Content-Type': types[file.slice(file.lastIndexOf('.'))],
       'Cache-Control': 'no-cache',
