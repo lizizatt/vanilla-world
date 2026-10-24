@@ -29,7 +29,7 @@ const context=await browser.newContext({viewport:{width:1280,height:800},service
   ...(video?{recordVideo:{dir:fileURLToPath(output),size:{width:960,height:600}}}:{})});
 const page=await context.newPage(),errors=[];
 // Service-worker-owned fetches bypass route instrumentation; offline behavior has a separate smoke test.
-await context.addInitScript(()=>{delete Navigator.prototype.serviceWorker;});
+await context.addInitScript(()=>{delete Navigator.prototype.serviceWorker;navigator.getGamepads=()=>[];});
 page.on('pageerror',e=>errors.push(e.message));
 const distribution=values=>{
   if(!values.length)return null;
