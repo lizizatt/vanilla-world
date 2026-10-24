@@ -90,10 +90,10 @@ test('flat -> globe -> flat round trip is exact, incl. world edges, and matches 
 });
 
 test('wrapFlat wraps longitude and clamps latitude without moving points inside the world', () => {
-  assert.deepEqual(wrapFlat(1000, 2000), [1000, 2000]);
+  assert.deepEqual(wrapFlat(1000, 2000), [1000, 2000, false]);
   const turn = 2 * Math.PI * PLANET_RADIUS, [x] = wrapFlat(WORLD_CENTRE[0] + turn + 5, 0);
   assert.ok(Math.abs(x - (WORLD_CENTRE[0] + 5)) < 1e-6);
-  assert.ok(wrapFlat(0, 1e9)[1] <= WORLD_CENTRE[1] + 1.4 * PLANET_RADIUS + 1e-6);
+  assert.ok(wrapFlat(0, 1e9)[1] <= WORLD_CENTRE[1] + Math.PI / 2 * PLANET_RADIUS + 1e-6);
 });
 
 test('place name and HUD text', () => {

@@ -9,6 +9,8 @@ export const FALLBACK_RECTS=[[-21867,-17600,5333,12267],[13525,-5333,24725,17067
 // Altitude ramps in yd above sea level, chosen from the horizon dip acos(R/(R+h)): 100 yd is 3.9 deg, 500 yd 8.6 deg, 2000 yd 17.7 deg.
 // bend: terrain curves onto the globe; globe: the sphere fades in behind it; space: sky thins to black and stars/sun/moons appear
 // (the atmosphere is about 12% of R, ~5 kyd, so space is complete by 9 kyd).
+// Globe depth sits this far below sea level so terrain, the whirlpool hole (180 yd) and low valleys are never hidden by the globe.
+export const GLOBE_DEPTH_DROP=400;
 export const PLANET_RAMPS={bend:[150,1500],globe:[100,800],space:[2000,9000],cloud:[3000,9000]};
 export const MOONS=[{radius:9000,orbit:300000,phase:2.4,turns:1,plane:[0,0],tint:[.9,.93,1]},
   {radius:5500,orbit:480000,phase:.9,turns:-2,plane:[.5,.35],tint:[.4,.65,1]}];
@@ -28,7 +30,7 @@ export function horizonDip(altitude,bend=1,radius=PLANET_RADIUS) {
   const k=radius/(radius+Math.max(0,altitude));return Math.sqrt(1-k*k)*bend;
 }
 export function planetFrame(x,z,centre=WORLD_CENTRE,radius=PLANET_RADIUS) {
-  const lon=(x-centre[0])/radius,lat=Math.max(-1.4,Math.min(1.4,-(z-centre[1])/radius));
+  const lon=(x-centre[0])/radius,lat=Math.max(-LAT_MAX,Math.min(LAT_MAX,-(z-centre[1])/radius));
   const [sl,cl,sp,cp]=[Math.sin(lon),Math.cos(lon),Math.sin(lat),Math.cos(lat)];
   return {east:[-sl,0,cl],up:[cp*cl,sp,cp*sl],south:[sp*cl,-cp,sp*sl]};
 }
@@ -40,13 +42,17 @@ export function subPoint(x,z,centre=WORLD_CENTRE,radius=PLANET_RADIUS) {
 export function globeToFlat(lat,lon,centre=WORLD_CENTRE,radius=PLANET_RADIUS) {
   return [centre[0]+radius*lon,centre[1]-radius*lat];
 }
-/** Flight stays on the globe: longitude wraps around the planet and latitude stops short of the poles (the frame clamps there). */
+/** Flight stays on the globe: longitude wraps and flying over a pole continues down the far meridian (lat' = pi - lat, lon + pi), returning flipped=true so the caller turns the heading half a turn. */
 export function wrapFlat(x,z,centre=WORLD_CENTRE,radius=PLANET_RADIUS) {
-  const turn=2*Math.PI*radius,half=turn/2;
-  const dx=((x-centre[0]+half)%turn+turn)%turn-half,lim=1.4*radius;
-  return [centre[0]+dx,Math.max(centre[1]-lim,Math.min(centre[1]+lim,z))];
+  const turn=2*Math.PI*radius,half=turn/2,TAU=2*Math.PI;
+  let lat=-(z-centre[1])/radius,dx=x-centre[0],flipped=false;
+  lat=((lat+Math.PI)%TAU+TAU)%TAU-Math.PI;
+  if(Math.abs(lat)>Math.PI/2){lat=Math.sign(lat)*Math.PI-lat;dx+=half;flipped=true;}
+  dx=((dx+half)%turn+turn)%turn-half;
+  const k=Math.PI/2-1e-4;
+  return [centre[0]+dx,Math.abs(z-centre[1])>k*radius?centre[1]-radius*Math.max(-k,Math.min(k,lat)):z,flipped];
 }
-/** Continent under a flat position from the populated continent rectangles (first = Kalimdor, second = Eastern Kingdoms). */
+export const LAT_MAX=Math.PI/2-1e-4;/** Continent under a flat position from the populated continent rectangles (first = Kalimdor, second = Eastern Kingdoms). */
 export function placeName(x,z,rects=FALLBACK_RECTS) {
   const inside=r=>x>=r[0]&&x<=r[2]&&z>=r[1]&&z<=r[3];
   return inside(rects[0])?'KALIMDOR':rects[1]&&inside(rects[1])?'EASTERN KINGDOMS':'THE GREAT SEA';
@@ -107,7 +113,7 @@ struct S {look:vec4f,right:vec4f,up:vec4f,p:vec4f,sun:vec4f,e:vec4f,u:vec4f,s:ve
 @group(0) @binding(0) var<uniform> s:S;
 @group(0) @binding(1) var surfaceTex:texture_2d<f32>;
 @group(0) @binding(2) var surfaceSamp:sampler;
-const R=${PLANET_RADIUS}.0;
+const R=${PLANET_RADIUS}.0;const DEPTH_R=R-${GLOBE_DEPTH_DROP}.0;
 struct V {@builtin(position) clip:vec4f,@location(0) ndc:vec2f};
 @vertex fn vs(@builtin(vertex_index) i:u32)->V {
   var p=array<vec2f,3>(vec2f(-1,-1),vec2f(3,-1),vec2f(-1,3));
@@ -186,7 +192,7 @@ struct FO {@location(0) color:vec4f,@builtin(frag_depth) depth:f32};
       let n=normalize(d*t-centre);
       acc=over(acc,surface(toPlanet(n),n,d,sun),globe);
       let dz=dot(d,s.look.xyz);
-      let dt=sphereT(o,d,centre,R-40.0);
+      let dt=sphereT(o,d,centre,DEPTH_R);
       let zz=max(dt,t)*dz;
       depth=select(1.0,clamp((zz-s.right.w)*s.up.w/((s.up.w-s.right.w)*zz),0.0,1.0),globe>.02);
     } else {
@@ -227,7 +233,7 @@ struct PV {@builtin(position) clip:vec4f,@location(0) pv:vec3f,@location(1) n:ve
 }
 @fragment fn pfs(v:PV)->FO {
   let n=normalize(v.n);let d=normalize(v.w);
-  let dz=dot(d,s.look.xyz);let dt=sphereT(vec3f(0.0),d,vec3f(0.0,-(R+s.p.x),0.0),R-40.0);
+  let dz=dot(d,s.look.xyz);let dt=sphereT(vec3f(0.0),d,vec3f(0.0,-(R+s.p.x),0.0),DEPTH_R);
   let zz=max(dt*dz,1.0/v.clip.w);
   var o:FO;o.color=vec4f(surface(normalize(v.pv),n,d,normalize(s.sun.xyz))*s.p.z,s.p.z);
   o.depth=clamp((zz-s.right.w)*s.up.w/((s.up.w-s.right.w)*zz),0.0,1.0);return o;

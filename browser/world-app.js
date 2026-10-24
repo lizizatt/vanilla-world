@@ -5,7 +5,7 @@ import {worldSave,worldTuning,validateWorldSave,LAYOUT_VERSION,raceScores,trackO
 import {overview,moveFlight,FLIGHT_PITCH} from './flight.js';
 import {mapIcons} from './worldmap.js';
 import {maelstromCentre} from './clouds.js';
-import {basis,fromEuler,toEuler,stepOrient} from './orient.js';
+import {basis,fromEuler,toEuler,stepOrient,turnAround} from './orient.js';
 import {spaceHud} from './space.js';
 import {WorldInput,DRIVE_KEYS} from './world-input.js';
 import {WorldAudio} from './world-audio.js';
@@ -47,11 +47,11 @@ let choice=bootChoice(),tracks=[],race,raceBest,promptTrack,goUntil=0,boardTimer
 const raceAgain=()=>againTrack&&performance.now()<againUntil?againTrack:undefined;
 let landmarkCache,flightSpeed=0,renderer,folder,flight,running=false,busy=false,last=0,frames=0,hudTime=0,hudFrames=0,permissionNeeded=false;
 let orbit=[0,0],dragging=false,mouseButtons=0,soundAttempt=0,soundError='',soundTime=0,reportTimer,testPads,frozenPresentation=false,tuningValues=TUNING_FIELDS.map(f=>f[1]);
-const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:true,cockpit:false,night:false,clouds:true,planet:true,globeMesh:false,cloudQuality:'auto',music:true,particles:'medium',animateNpcs:true};
+const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:true,cockpit:false,night:false,clouds:true,planet:true,globeMesh:true,globeRegistry:true,cloudQuality:'auto',music:true,particles:'medium',animateNpcs:true};
 const settings={...defaults};
 const gib={on:true,speed:100,overheat:true},gibMem={};
 try{gib.on=localStorage.getItem('racer.gib')!=='0';gib.overheat=localStorage.getItem('racer.overheat')!=='0';gib.durable=localStorage.getItem('racer.durability')!=='0';gib.speed=Math.max(20,Math.min(400,Number(localStorage.getItem('racer.gibSpeed'))||100));}catch{}
-try{settings.night=localStorage.getItem('racer.night')==='1';settings.music=localStorage.getItem('racer.music')!=='0';settings.animateNpcs=localStorage.getItem('racer.animateNpcs')!=='0';settings.planet=localStorage.getItem('racer.planet')!=='0';settings.globeMesh=localStorage.getItem('racer.globeMesh')==='1';{const cq=localStorage.getItem('racer.cloudQuality');if(cq==='high'||cq==='standard')settings.cloudQuality=cq;}const mv=localStorage.getItem('racer.masterVolume');if(mv!==null&&mv!==''&&Number.isFinite(Number(mv)))audio.setVolume(Number(mv)/100);}catch{}
+try{settings.night=localStorage.getItem('racer.night')==='1';settings.music=localStorage.getItem('racer.music')!=='0';settings.animateNpcs=localStorage.getItem('racer.animateNpcs')!=='0';settings.planet=localStorage.getItem('racer.planet')!=='0';settings.globeMesh=localStorage.getItem('racer.globeMesh')!=='0';settings.globeRegistry=localStorage.getItem('racer.globeRegistry')!=='0';{const cq=localStorage.getItem('racer.cloudQuality');if(cq==='high'||cq==='standard')settings.cloudQuality=cq;}const mv=localStorage.getItem('racer.masterVolume');if(mv!==null&&mv!==''&&Number.isFinite(Number(mv)))audio.setVolume(Number(mv)/100);}catch{}
 const loading=$('loading-screen');
 const loadingArt=new LoadingArt($('loading-art'),$('loading-bar-art'),loading);
 loading.addEventListener('cancel',event=>event.preventDefault());
@@ -663,8 +663,8 @@ function frame(now) {
       let q=flight.length>=9&&Math.abs(Math.sin(yaw-flight[3]))<1e-6&&Math.abs(pitch-flight[4])<1e-6?flight.slice(5,9):fromEuler(flight[3],flight[4]);
       const dk=k=>Number(keys.has(k));
       q=keys.has('KeyX')?fromEuler(toEuler(q,flight[3])[0],-FLIGHT_PITCH):stepOrient(q,{yaw:(dk('ArrowLeft')-dk('ArrowRight'))*dt-cameraOrbit[0]*.004,pitch:(dk('ArrowUp')-dk('ArrowDown'))*dt-cameraOrbit[1]*.004},flight[1],dt);
-      const aim=basis(q),[ny,np]=toEuler(q,flight[3]);
-      flight=moveFlight(flight,keys,dt,aim);flightSpeed=dt>0?Math.hypot(flight[0]-before[0],flight[1]-before[1],flight[2]-before[2])/dt:0;
+      const aim=basis(q);
+      flight=moveFlight(flight,keys,dt,aim);if(flight.poleFlip)q=turnAround(q);const [ny,np]=toEuler(q,flight[3]);flightSpeed=dt>0?Math.hypot(flight[0]-before[0],flight[1]-before[1],flight[2]-before[2])/dt:0;
       flight[3]=ny;flight[4]=np;flight.length=5;flight.push(...q);
     }
     if(race){flight=undefined;if(!raceMenu.open)raceFrame(controls,now/1000);}
