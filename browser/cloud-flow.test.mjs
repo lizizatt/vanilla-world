@@ -103,3 +103,35 @@ test('flowShift: zero age is the identity; the sample trails the wind; the vorte
   const [a,b]=flowShift(0,4000,0,30);
   assert.ok(Math.abs(Math.hypot(4000+a,b)-4000)<5,'rotation preserves distance from the centre (equator: no belt wind)');
 });
+
+import {createRegistry,defaultManifest} from './tile-registry.js';
+import {bakeLandMask,maskAt,landCoverage,landDrag,MASK} from './cloud-flow.js';
+
+const ridge=createRegistry([{id:'r',kind:'p',blend:0,bounds:[40*deg,50*deg,-12*deg,12*deg],provider:{sample:(lat,lon)=>({h:3000*Math.exp(-((lon/(5*deg))**2)),rgb:[.3,.4,.2],water:false})}}]);
+
+test('land mask: land blur is 0 over open ocean, high inland, and the procedural fallback bakes',()=>{
+  const m=bakeLandMask(ridge);
+  assert.equal(m.data.length,MASK.w*MASK.h*4);
+  assert.ok(maskAt(m,-60*deg,150*deg).land<.001);
+  assert.ok(maskAt(m,45*deg,0).land>.9);
+  const fb=bakeLandMask(createRegistry(defaultManifest()));
+  assert.equal(fb.data.length,MASK.w*MASK.h*4);
+  let any=0;for(let i=0;i<fb.data.length;i+=4)any=Math.max(any,fb.data[i]);
+  assert.ok(any>0,'the fallback continents show up');
+});
+
+test('land mask: westerly wind lifts cloud on the windward slope and not the lee; land slows the wind',()=>{
+  const m=bakeLandMask(ridge);
+  assert.ok(beltWind(45*deg)[0]>0,'mid-latitude westerlies');
+  const wind_=maskAt(m,45*deg,-6*deg),lee=maskAt(m,45*deg,6*deg);
+  assert.ok(wind_.lift>.05&&lee.lift<-.05,`windward ${wind_.lift.toFixed(2)} lee ${lee.lift.toFixed(2)}`);
+  assert.ok(landCoverage(wind_)>landCoverage(lee));
+  assert.ok(landDrag(maskAt(m,45*deg,0))<landDrag(maskAt(m,-60*deg,150*deg)));
+  assert.ok(landDrag(maskAt(m,45*deg,0))>=1-MASK.drag-1e-9);
+});
+
+test('land mask: inland air is drier than the open ocean on average',()=>{
+  const m=bakeLandMask(ridge);let inland=0,sea=0;
+  for(let k=0;k<20;k++){inland+=landCoverage(maskAt(m,(41+k*.4)*deg,(k%3-1)*3*deg));sea+=landCoverage(maskAt(m,-(41+k*.4)*deg,150*deg));}
+  assert.ok(sea>inland,`sea ${sea.toFixed(2)} inland ${inland.toFixed(2)}`);
+});
