@@ -121,7 +121,7 @@ export function shellRoots(e,dy,y,k) {
 }
 /** Mirror of the shell branch of the extent: first contiguous piece inside the outer shell and outside the inner one. */
 export function shellExtent(eyeY,dirY,k,high,far=1e8) {
-  const {ya,yb}=slab(high),O=shellRoots(eyeY,dirY,yb,k),I=shellRoots(eyeY,dirY,ya,k);
+  const {ya,yb,down}=slab(high),O=shellRoots(eyeY,dirY,yb,k),I=shellRoots(eyeY,dirY,ya+down*(1-smoothstep(0,.12,dirY)),k);
   let s0=Math.max(O[0],0),sFull=O[1],live=O[0]<=O[1];
   if(I[0]<=I[1]){if(I[0]>s0)sFull=Math.min(sFull,I[0]);else if(I[1]>s0)s0=I[1];}
   live=live&&sFull>s0;

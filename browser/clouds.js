@@ -19,7 +19,7 @@ export const MAELSTROM_MAP={across:.43,kalimdorDown:.35,easternDown:.4};
 
 // Whirlpool dip, the single source of truth for JS and Rust (set_whirlpool in voyage.rs): the ocean surface at distance r
 // from the centre sits depth*(1-(r/radius)^2)^2 yd below sea level (zero value and slope at the rim). The funnel ends at the bottom.
-export const WHIRLPOOL_DIP={radius:2400,depth:180};
+export const WHIRLPOOL_DIP={radius:2400,depth:330};
 
 export function maelstromCentre(manifest) {
   const o=manifest.ocean,[kalimdor,east]=manifest.world_bounds.map((b,i)=>{
@@ -45,7 +45,12 @@ export function cloudUniform(view,time,daylight,manifest,near,game,out=new Float
   out.set([shellCurvature(planet.bend),planet.space,0,0],44);
   out.set([...f.east,WORLD_CENTRE[0],...f.up,WORLD_CENTRE[1],...f.south,PLANET_RADIUS],48);
   out.set([...sun,sun[1]],32);out.set([1,.96,.88,0],36);out.set([.55,.6,.7,0],40);
-  if(game){out.set([...game.cloud,1,...game.fog,0],24);if(game.sun)out.set([...game.sun,0],36);if(game.cloud2)out.set([...game.cloud2,1],40);}
+  // Zone lighting fades to the global sun/sky look with altitude (planet.space 0..1), so orbit is lit by the sun alone.
+  if(game){
+    const k=Math.min(Math.max(planet.space||0,0),1),mixTo=(c,d)=>c.map((v,i)=>v+(d[i]-v)*k);
+    out.set([...mixTo(game.cloud,[1,1,1]),1,...mixTo(game.fog,[.08,.15,.2]),0],24);
+    if(game.sun)out.set([...mixTo(game.sun,[1,.96,.88]),0],36);if(game.cloud2)out.set([...mixTo(game.cloud2,[.55,.6,.7]),1],40);
+  }
   return out;
 }
 
@@ -237,7 +242,8 @@ const NF=14;
   // Near-horizontal rays are clamped to a minimum slope so the horizon has no gap; a march cut by the span cap fades out instead of ending hard.
   if(shell){
     // Curved layer: inside the outer shell and outside the inner one, first contiguous piece along the ray.
-    let O=shellRoots(c.eye.y,dir.y,yb);let I=shellRoots(c.eye.y,dir.y,ya);
+    // Looking level or down, the inner limb uses the nominal base: the downward billows (DOWN) would put a low eye inside the slab and cut the sheet at a hard line below it.
+    let O=shellRoots(c.eye.y,dir.y,yb);let I=shellRoots(c.eye.y,dir.y,ya+DOWN*(1.0-smoothstep(0.0,.12,dir.y)));
     s0=max(O.x,0.0);sFull=O.y;live=O.x<=O.y;
     if(I.x<=I.y){if(I.x>s0){sFull=min(sFull,I.x);}else if(I.y>s0){s0=I.y;}}
     live=live&&sFull>s0;

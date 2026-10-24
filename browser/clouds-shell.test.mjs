@@ -34,10 +34,18 @@ test('small curvature reproduces the flat slab extent',()=>{
   const r=rng(5);
   for(let i=0;i<2000;i++) {
     const e=r()*30000,high=r()<.5,d=dirOf(r()*6.283,(r()*2-1)*1.5);
-    if(Math.abs(d[1])<.02)continue;
+    if(Math.abs(d[1])<.02||high&&d[1]<.12)continue; // below that the shell deliberately uses the nominal base (no downward billows)
     const f=extent(e,d[1],1e9,high),s=shellExtent(e,d[1],1e-9,high);
     if(f.s1<=f.s0||f.s0>50000)continue;
     assert.ok(Math.abs(f.s0-s.s0)<5e-3*Math.max(1,f.s0),`s0 ${f.s0} vs ${s.s0} e=${e} dy=${d[1]}`);
+  }
+});
+
+test('High tier: a low eye inside the downward billow zone still sees the sheet down to the sea horizon',()=>{
+  const k=.85/42785;
+  for(let deg=-1;deg>=-12;deg-=.5) {
+    const x=shellExtent(1168,Math.sin(deg*Math.PI/180),k,true);
+    assert.ok(x.live&&x.s1-x.s0>1000,`cut at ${deg} deg: ${JSON.stringify(x)}`);
   }
 });
 
