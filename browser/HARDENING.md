@@ -24,7 +24,7 @@
 
 ## Harness
 - `ascent-continuity.mjs`: vertical ascent step gate (open sea gated at 30, Maelstrom reported).
-- `audit-culling.mjs`: Monte Carlo pose sweep; the `dark` void test false-positives in space (alt >= 20k looking at sky/limb) and needs a per-altitude expectation before it can gate.
+- `audit-culling.mjs`: Monte Carlo pose sweep; `void` only gates below 20k yd (above, dark is legitimately space: at 100k yd the planet subtends ~0.3 rad half-angle so most poses see sky). Run `node audit-culling.mjs 40 7` (ground/maelstrom/openSea/pole, 50..100k yd, muted Edge): 0/40 void or pop (>30) failures. Max pop seen 26 at a ground 500 yd pose (low-altitude move of 2 yd; threshold is untuned, no visible issue). Valley-haze pose still not located by the sweep.
 
 - M3 heights (c803899): pale cyan block near the limb at 8k yd (pose-h3d-b) not yet diagnosed; colour lookup is not displaced (parallax). Reversed-Z audit still open.
 
