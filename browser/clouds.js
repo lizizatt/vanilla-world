@@ -270,7 +270,8 @@ const NF=14;
   if(f1<=f0||fEdge<=0.0){nf=0;}
   if(ns==0&&nf==0){discard;}
   let Ls=s1-s0;let ss=Ls/f32(NS);let fstep=(f1-f0)/f32(NF);
-  let sJit=fract(52.9829189*fract(dot(v.clip.xy,vec2f(.06711056,.00583715))));
+  // Interleaved-gradient jitter alone leaves a visible diagonal hatch on grazing rays; a white-noise term turns it into grain.
+  let sJit=fract(52.9829189*fract(dot(v.clip.xy,vec2f(.06711056,.00583715)))+hash(v.clip.xy+vec2f(3.7,9.1)));
   let fJit=.3*hash(v.clip.xy);
   let fDist=length(c.eye.xyz-vec3f(c.cloud.x,(BASE+TOP)*.5,c.cloud.y));
   let fWeight=(1.0-smoothstep(${F.fadeStart.toFixed(1)},${F.fadeEnd.toFixed(1)},fDist))*.95*fEdge*(1.0-smoothstep(.3,.9,c.bend.x*${PLANET_RADIUS}.0));
