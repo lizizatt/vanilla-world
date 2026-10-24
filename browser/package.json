@@ -4,6 +4,9 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
+    "build:wasm": "powershell -NoProfile -File Build.ps1",
+    "build:manifest": "node -e \"import('./shell-manifest.mjs').then(async m=>console.log(JSON.stringify(await m.shellManifest(),null,1)))\"",
+    "build:dist": "node build-dist.mjs",
     "test": "node --test --test-concurrency=1 .",
     "test:world": "node overworld-smoke.mjs",
     "test:performance": "node performance-smoke.mjs",

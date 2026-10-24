@@ -1,9 +1,7 @@
-const CACHE = 'racer-shell-v175';
-const FILES = ['./', './index.html', './world-app.js', './world-client.js', './world-worker.js', './world-worker-logic.js', './world-engine.js', './world-worker-protocol.js', './renderer-actors.js', './renderer-clouds.js', './renderer-craft.js', './renderer-events.js', './renderer-helpers.js', './renderer-init.js', './renderer-scene.js', './renderer-shaders.js', './renderer-sky.js', './renderer-terrain.js', './app-frame.js', './app-garage.js', './app-hud.js', './app-input.js', './app-loading.js', './app-pose.js', './app-race.js', './app-settings.js', './app-hooks.js', './world-renderer.js',
-  './world-store.js', './world-camera.js', './wreck.js', './beam.js', './world-view.js', './camera-collision.js', './world-input.js', './world-audio.js', './world-tuning.js',
-  './asset-source.js', './asset-folder.js', './swe1r/folder.js', './swe1r/attach.js', './swe1r/cache.js', './swe1r/ui.js', './swe1r/block.js', './swe1r/comp.js', './swe1r/image.js', './swe1r/names.js', './swe1r/model.js', './swe1r/pod.js', './swe1r/skin.js', './swe1r/sfx.js', './swe1r/hud.js', './swe1r/voice-map.js', './swe1r/voice-map.json', './scene-stream.js', './npc-pack.js', './terrain-stream.js', './water-stream.js', './craft-stream.js', './flight.js',
-  './far-worker.js', './far-stream.js', './far-channel.js', './asset-worker.js', './asset-channel.js', './loading-art.js',
-  './water-shader.js', './music.js', './sky.js', './space.js', './globe-patches.js', './planet-frame.js', './tile-registry.js', './height-bake.js', './adt-synth.js', './demo-source.js', './orient.js', './clouds.js','./cloud-flow.js','./particles.js','./actors.js','./hud-model.js','./wander.js','./shadow.js', './race.js', './race-flags.js', './race-gate-preview.js', './race-gates.js', './track-edit.js', './track-editor.js', './vehicles.js', './glb.js', './vehicle-model.js', './tracks/steamwheedle.json', './tracks/track-to-sea.json', './tracks/if-airport-track.json', './world-music.js', './ocean-mesh.js', './worldmap.js', './map-panel.js', './style.css', './icon.svg', './pkg/flats_racer_web.js', './pkg/flats_racer_web_bg.wasm'];
+// Stamped by server.mjs and build-dist.mjs from shell-manifest.mjs (import graph); unstamped copies skip precaching and stay network-first.
+const SHELL = /*SHELL_MANIFEST*/null;
+const CACHE = 'racer-shell-' + (SHELL?.hash ?? 'unstamped');
+const FILES = SHELL?.files.filter(f => f !== './sw.js') ?? [];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(FILES)).then(() => self.skipWaiting()));
 });
