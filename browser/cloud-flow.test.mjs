@@ -57,3 +57,26 @@ test('WGSL twin carries the same constants',()=>{
   const w=flowWGSL();
   for(const v of [FLOW.zonal,FLOW.meridional,FLOW.westerlyBoost,FLOW.bands.clearAt])assert.ok(w.includes(String(Number.isInteger(v)?v.toFixed(1):v)));
 });
+
+import {density} from './cloud-march.js';
+import {PLANET_RADIUS as R,WORLD_CENTRE} from './space.js';
+import {cloudShader,cloudShaderHigh} from './clouds.js';
+
+test('pole isotropy: noise gradients along east and north stay balanced at every latitude',()=>{
+  const r=rng(7),step=120,centre=[WORLD_CENTRE[0]+1234.5,WORLD_CENTRE[1]+777.7];
+  for(const latDeg of [0,45,80,85]) {
+    let ge=0,gn=0;
+    for(let i=0;i<2*N;i++){
+      const lat=(latDeg-3+r()*6)*deg,cl=Math.cos(lat),lon=(r()*2-1)*Math.PI,x=WORLD_CENTRE[0]+R*lon,z=WORLD_CENTRE[1]-R*lat,y=1577+(r()-.5)*400,t=0;
+      const d0=density([x,y,z],t,false,centre,.7)[0];
+      ge+=Math.abs(density([x+step/cl,y,z],t,false,centre,.7)[0]-d0);
+      gn+=Math.abs(density([x,y,z-step],t,false,centre,.7)[0]-d0);
+    }
+    const ratio=ge/gn;
+    assert.ok(ratio>.8&&ratio<1.25,`lat ${latDeg}: east/north gradient ${ratio.toFixed(2)}`);
+  }
+});
+
+test('shaders sample noise on the sphere',()=>{
+  for(const s of [cloudShader,cloudShaderHigh])assert.ok(s.includes('sphereAt(pos.xz)')&&s.includes('fn vnoise3')&&s.includes('fn beltWind'));
+});

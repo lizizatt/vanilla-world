@@ -1,6 +1,7 @@
 // Procedural cumulus slab: one camera-following quad whose fragments march a short ray through a layer of
 // analytic noise density, with a maelstrom (eye, eye wall, spiral arms) around a vortex centre. No textures or extra passes.
 import {PLANET_RADIUS,WORLD_CENTRE,planetFrame} from './space.js';
+import {flowWGSL} from './cloud-flow.js';
 export const CLOUD_ALTITUDE_FACTOR=.8;
 // Mt Hyjal summit height in yards, measured from the user's Kalimdor terrain (tile bounds near Hyjal, see README "Clouds").
 export const HYJAL_SUMMIT=1971;
@@ -103,17 +104,21 @@ const HIGH_BINDINGS=`
 @group(0) @binding(2) var noise:texture_3d<f32>;
 @group(0) @binding(3) var nsamp:sampler;`;
 const HIGH_NOISE=`
-  let u=vec3f(w.x,pos.y*3.0-t*4.0,w.y)/6500.0;
+fn cloudNoise(Q:vec3f,up:vec3f,pos:vec3f,t:f32,hf:f32)->f32 {
+  let u=(Q+up*(pos.y*3.0-t*4.0))/6500.0;
   let lo=textureSampleLevel(noise,nsamp,u,0.0);
   let hi=textureSampleLevel(noise,nsamp,u*2.6+.37,0.0);
-  var n=.35*vnoise(q)+.5*lo.r+.15*hi.g;`;
+  return .35*vnoise3(Q/2600.0)+.5*lo.r+.15*hi.g;
+}`;
 const STD_NOISE=`
-  var n=.55*vnoise(q)+.3*vnoise(q*2.3+7.0)+.15*vnoise(q*5.1+3.0);
-  n=n*.78+.22*vnoise(w/650.0+vec2f(hf*3.1,hf*1.7));`;
-const HIGH_TAP=`
+fn cloudNoise(Q:vec3f,up:vec3f,pos:vec3f,t:f32,hf:f32)->f32 {
+  let q=Q/2600.0;
+  let n=.55*vnoise3(q)+.3*vnoise3(q*2.3+7.0)+.15*vnoise3(q*5.1+3.0);
+  return n*.78+.22*vnoise3(Q/650.0+vec3f(hf*3.1,hf*1.7,hf*2.3));
+}`;const HIGH_TAP=`
       let sd=sheetDensity(worldAt(rel+c.sun.xyz*ss*2.5),t).x;
       let shade=mix(mix(.65,1.0,exp(-sd*2.0)),1.0,smoothstep(.7,1.0,hf))*(1.0+.8*pow(max(dot(dir,c.sun.xyz),0.0),6.0));`;
-const build=high=>COMMON+(high?HIGH_BINDINGS:'')+`
+const build=high=>COMMON+flowWGSL()+(high?HIGH_BINDINGS:'')+`
 struct V {@builtin(position) clip:vec4f,@location(0) ndc:vec2f};
 @vertex fn vs(@builtin(vertex_index) i:u32)->V {
   var q=array<vec2f,3>(vec2f(-1,-1),vec2f(3,-1),vec2f(-1,3));
@@ -122,12 +127,15 @@ struct V {@builtin(position) clip:vec4f,@location(0) ndc:vec2f};
 const THICK=${CLOUD_THICKNESS.toFixed(1)};
 const UP=${high?CLOUD_TOWER.up:0}.0;
 const DOWN=${high?CLOUD_TOWER.down:0}.0;
+${high?HIGH_NOISE:STD_NOISE}
 fn sheetDensity(pos:vec3f,t:f32)->vec3f {
   let d=pos.xz-c.cloud.xy;let r=length(d);
   let turn=t*${M.drift}*exp(-r/${M.radius.toFixed(1)});
   let cs=cos(turn);let sn=sin(turn);
   let w=vec2f(d.x*cs-d.y*sn,d.x*sn+d.y*cs);
-  let q=w/2600.0;
+  // Noise is sampled at the 3D point on the planet (cloud-flow.js sphereAt), so it stays isotropic toward the poles; the near-field swirl turns that point.
+  let sp=sphereAt(pos.xz);
+  let Q=sp.up*.0+sp.e*(w.x-d.x)-sp.n*(w.y-d.y);
   // North is -z, so atan2(-z,x) grows counter-clockwise on the map.
   let a=atan2(-d.y,d.x);
   let arm=smoothstep(.2,.8,.5+.5*cos(${M.arms.toFixed(1)}*(a+${M.pitch}*log(max(r,1.0)/1000.0)-t*${M.spin})));
@@ -136,9 +144,9 @@ fn sheetDensity(pos:vec3f,t:f32)->vec3f {
   let eye=smoothstep(${M.eyeRadius.toFixed(1)},${(M.eyeRadius*1.5).toFixed(1)},r);
   let coverage=clamp(mix(.4,mix(.1,.95,arm),storm)+.6*wall,0.0,.95)*eye;
   // Dense columns grow upward (towering tops) and a little downward, billowing slowly; low coverage keeps the flat sheet.
-  let grow=smoothstep(.45,.95,coverage)*mix(.4,1.0,vnoise(w/3800.0+vec2f(t*.012,-t*.009)));
+  let grow=smoothstep(.45,.95,coverage)*mix(.4,1.0,vnoise3(Q/3800.0+vec3f(t*.012,-t*.009,0.0)));
   let hf=clamp((pos.y-(c.cloud.z-THICK*.5-DOWN*grow))/(THICK+(UP+DOWN)*grow),0.0,1.0);
-${high?HIGH_NOISE:STD_NOISE}
+  let n=cloudNoise(Q,sp.up,pos,t,hf);
   let top=(n-(1.0-coverage))*(2.2+1.6*wall);
   let body=smoothstep(0.0,.3,top-hf*.9)*smoothstep(0.0,.1,hf+.05);
   return vec3f(body,storm*(.55+.45*smoothstep(${(M.eyeRadius).toFixed(1)},${(M.wallRadius*2).toFixed(1)},r)),hf);

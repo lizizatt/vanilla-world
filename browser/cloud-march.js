@@ -2,7 +2,9 @@
 // Monte Carlo sweep in clouds-sweep.test.mjs with no GPU. Keep it consistent with the WGSL: the sweep test checks the shared constants and
 // the extent/fade expressions appear verbatim in the shader. The High tier's 3D noise texture is replaced here by the Standard analytic
 // noise (the texture is baked from the same kind of value noise), so High geometry (towers, 28 steps, light tap) is covered, its noise is not.
+import {sphereAt,vnoise3} from './cloud-flow.js';
 import {CLOUD_ALTITUDE,CLOUD_THICKNESS,CLOUD_HALF_SIZE,CLOUD_TOWER,MAELSTROM as M,sunDirection} from './clouds.js';
+import {PLANET_RADIUS} from './space.js';
 
 export const FADE_START=30000,FOG_RANGE=150000,MIN_SPAN=9000,MIN_SPAN_HIGH=40000,SPAN_PER_DISTANCE=.3,MIN_DIR_Y=.0005;
 export const steps=high=>high?28:8;
@@ -53,18 +55,19 @@ export function density(pos,t,high,centre=[0,0],coverageOverride) {
   const dx=pos[0]-centre[0],dz=pos[2]-centre[1],r=Math.hypot(dx,dz);
   const turn=t*M.drift*Math.exp(-r/M.radius),cs=Math.cos(turn),sn=Math.sin(turn);
   const wx=dx*cs-dz*sn,wz=dx*sn+dz*cs;
+  const sp=sphereAt(pos[0],pos[2]),Q=[0,1,2].map(i=>sp.up[i]*PLANET_RADIUS+sp.east[i]*(wx-dx)-sp.north[i]*(wz-dz));
   const a=Math.atan2(-dz,dx);
   const arm=smoothstep(.2,.8,.5+.5*Math.cos(M.arms*(a+M.pitch*Math.log(Math.max(r,1)/1000)-t*M.spin)));
   const storm=Math.exp(-r/M.radius);
   const wall=Math.exp(-(((r-M.wallRadius)/(M.wallRadius*.35))**2));
   const eye=smoothstep(M.eyeRadius,M.eyeRadius*1.5,r);
   const coverage=coverageOverride??clamp(mix(.4,mix(.1,.95,arm),storm)+.6*wall,0,.95)*eye;
-  const grow=smoothstep(.45,.95,coverage)*mix(.4,1,vnoise(wx/3800+t*.012,wz/3800-t*.009));
+  const grow=smoothstep(.45,.95,coverage)*mix(.4,1,vnoise3(Q[0]/3800+t*.012,Q[1]/3800-t*.009,Q[2]/3800));
   const base=CLOUD_ALTITUDE-CLOUD_THICKNESS/2-down*grow;
   const hf=clamp((pos[1]-base)/(CLOUD_THICKNESS+(up+down)*grow),0,1);
-  const qx=wx/2600,qz=wz/2600;
-  let n=.55*vnoise(qx,qz)+.3*vnoise(qx*2.3+7,qz*2.3+7)+.15*vnoise(qx*5.1+3,qz*5.1+3);
-  n=n*.78+.22*vnoise(wx/650+hf*3.1,wz/650+hf*1.7);
+  const [q0,q1,q2]=[Q[0]/2600,Q[1]/2600,Q[2]/2600];
+  let n=.55*vnoise3(q0,q1,q2)+.3*vnoise3(q0*2.3+7,q1*2.3+7,q2*2.3+7)+.15*vnoise3(q0*5.1+3,q1*5.1+3,q2*5.1+3);
+  n=n*.78+.22*vnoise3(Q[0]/650+hf*3.1,Q[1]/650+hf*1.7,Q[2]/650+hf*2.3);
   const top=(n-(1-coverage))*(2.2+1.6*wall);
   const body=smoothstep(0,.3,top-hf*.9)*smoothstep(0,.1,hf+.05);
   return [body,storm*(.55+.45*smoothstep(M.eyeRadius,M.wallRadius*2,r)),hf,ya];

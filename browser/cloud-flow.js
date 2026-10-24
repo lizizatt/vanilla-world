@@ -3,6 +3,7 @@
 // formulas are emitted as WGSL (flowWGSL) so the shader and the cloud-march.js mirror agree. Latitudes/longitudes are radians; speeds
 // are yards per second; the east/north wind pair is in the local tangent frame (north up on the world map), never lon/lat noise space.
 
+import {PLANET_RADIUS,WORLD_CENTRE,LAT_MAX} from './space.js';
 const clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
 const smoothstep=(a,b,x)=>{const t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t);};
 
@@ -41,11 +42,44 @@ export function flowPhase(t) {
 /** Wind (east, north) at a point: belt winds. */
 export const wind=(lat,lon)=>beltWind(lat);
 
+/** Sphere-safe noise: the flat render (x, z) is the equirect position (lon = (x-cx)/R, lat = (cz-z)/R); noise is sampled at the 3D point on
+ * the planet, so it is isotropic at every latitude (lon/lat noise pinched into streaks toward the poles and tore at the antimeridian).
+ * Returns the unit radial `up`, and the tangent `east` / `north` unit vectors (the planet frame of space.js, north = -south). */
+export const latAt=z=>clamp((WORLD_CENTRE[1]-z)/PLANET_RADIUS,-LAT_MAX,LAT_MAX);
+export function sphereAt(x,z) {
+  const lat=latAt(z),lon=(x-WORLD_CENTRE[0])/PLANET_RADIUS,sl=Math.sin(lat),cl=Math.cos(lat),so=Math.sin(lon),co=Math.cos(lon);
+  return {lat,lon,up:[cl*co,sl,cl*so],east:[-so,0,co],north:[-sl*co,cl,-sl*so]};
+}
+const fract=x=>x-Math.floor(x);
+// Sine-free 3D hash (Hoskins) and value noise: cheap on the GPU and exact in the mirror up to float rounding.
+export function hash3(x,y,z) {
+  let a=fract(x*.1031),b=fract(y*.1031),c=fract(z*.1031);
+  const d=a*(c+31.32)+b*(b+31.32)+c*(a+31.32);a+=d;b+=d;c+=d;
+  return fract((a+b)*c);
+}
+export function vnoise3(x,y,z) {
+  const ix=Math.floor(x),iy=Math.floor(y),iz=Math.floor(z),fx=x-ix,fy=y-iy,fz=z-iz,sx=fx*fx*(3-2*fx),sy=fy*fy*(3-2*fy),sz=fz*fz*(3-2*fz);
+  const m=(a,b,t)=>a+(b-a)*t,h=(i,j,k)=>hash3(ix+i,iy+j,iz+k);
+  return m(m(m(h(0,0,0),h(1,0,0),sx),m(h(0,1,0),h(1,1,0),sx),sy),m(m(h(0,0,1),h(1,0,1),sx),m(h(0,1,1),h(1,1,1),sx),sy),sz);
+}
 /** The WGSL twin of the functions above; uses only constants, so it can be dropped into any module. */
 export function flowWGSL() {
   const f=x=>Number.isInteger(x)?x.toFixed(1):String(x),B=FLOW.bands;
   return `
-fn beltWind(lat:f32)->vec2f {
+struct Sph {up:vec3f,e:vec3f,n:vec3f,lat:f32};
+fn latAt(z:f32)->f32 {return clamp((c.fu.w-z)/${PLANET_RADIUS}.0,-${f(LAT_MAX)},${f(LAT_MAX)});}
+fn sphereAt(xz:vec2f)->Sph {
+  let lat=latAt(xz.y);let lon=(xz.x-c.fe.w)/${PLANET_RADIUS}.0;
+  let sl=sin(lat);let cl=cos(lat);let so=sin(lon);let co=cos(lon);
+  return Sph(vec3f(cl*co,sl,cl*so),vec3f(-so,0.0,co),vec3f(-sl*co,cl,-sl*so),lat);
+}
+fn hash3(p:vec3f)->f32 {var q=fract(p*.1031);q+=dot(q,q.zyx+31.32);return fract((q.x+q.y)*q.z);}
+fn vnoise3(p:vec3f)->f32 {
+  let i=floor(p);let f=fract(p);let s=f*f*(3.0-2.0*f);
+  let a=mix(mix(hash3(i),hash3(i+vec3f(1,0,0)),s.x),mix(hash3(i+vec3f(0,1,0)),hash3(i+vec3f(1,1,0)),s.x),s.y);
+  let b=mix(mix(hash3(i+vec3f(0,0,1)),hash3(i+vec3f(1,0,1)),s.x),mix(hash3(i+vec3f(0,1,1)),hash3(i+vec3f(1,1,1)),s.x),s.y);
+  return mix(a,b,s.z);
+}fn beltWind(lat:f32)->vec2f {
   let s=sqrt(lat*lat+${f(FLOW.soft*FLOW.soft)})-${f(FLOW.soft)};let x=sin(6.0*s);
   let fade=1.0-smoothstep(${f(FLOW.poleFade[0])},${f(FLOW.poleFade[1])},abs(lat));
   return vec2f(-${f(FLOW.zonal)}*x*select(1.0,${f(FLOW.westerlyBoost)},x<0.0)*fade,-${f(FLOW.meridional)}*sin(6.0*lat));

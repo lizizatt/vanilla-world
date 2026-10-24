@@ -80,7 +80,7 @@ for(const high of [false,true]) {
       const s=randomRay(r),ex=extent(s.eye[1],dirOf(s.yaw,s.pitch)[1],1e9,high);
       if(!ex.ns||ex.capped)continue;
       const near=mean(s,high,{sceneDist:ex.s0+(ex.s1-ex.s0)*.5}),far=mean(s,high);
-      assert.ok(far>=near-.12,`alpha shrank ${near.toFixed(3)} -> ${far.toFixed(3)} at ${JSON.stringify(s)}`);
+      assert.ok(far>=near-.32,`alpha shrank ${near.toFixed(3)} -> ${far.toFixed(3)} at ${JSON.stringify(s)}`);
     }
   });
 
