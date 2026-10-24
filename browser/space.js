@@ -163,7 +163,8 @@ struct FO {@location(0) color:vec4f,@builtin(frag_depth) depth:f32};
       let land=smoothstep(-600.0,600.0,edge);
       let tex=fbm(pv.xz*85.0+vec2f(pv.y*31.0,pv.y*17.0));
       let ground=mix(vec3f(.2,.38,.14),vec3f(.5,.42,.26),smoothstep(.35,.7,tex));
-      let sea=mix(vec3f(.02,.1,.22),vec3f(.06,.3,.42),smoothstep(-6000.0,2000.0,edge));
+      // Deep/shallow body colours are the terrain water shader's, so the sea has no colour step at the loaded-tile edge.
+      let sea=mix(vec3f(.025,.18,.29),vec3f(.09,.43,.39),smoothstep(-3000.0,1500.0,edge));
       var col=mix(sea,ground,land);
       let cloud=0.0;
       let lit=clamp(dot(n,sun)*1.6+.15,0.0,1.0);
