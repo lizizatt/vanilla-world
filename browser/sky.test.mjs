@@ -40,6 +40,19 @@ test('local lights blend over the global one by falloff and carry their own skyb
   assert.equal(c.sample(0,100,100,DAY).skybox,undefined);
   assert.equal(c.sample(7,0,0,DAY),undefined);
 });
+test('sky colour is continuous across overlapping local lights',()=>{
+  const rows=[];
+  for(let params=1;params<=3;params++)for(let k=0;k<18;k++)rows.push(band(params,k,[0,1440],k===7||k===2?(params===1?[0xffffff,0xffffff]:params===2?[0xff0000,0xff0000]:[0x0000ff,0x0000ff]):[0,0]));
+  const c=new SkyCatalog({
+    light:dbc(12,[[1,0,0,0,0,{f:0},{f:0},1],[2,0,{f:0},0,{f:0},{f:36*10},{f:36*100},2],[3,0,{f:36*60},0,{f:0},{f:36*10},{f:36*100},3]]),
+    params:dbc(9,[[1,0,1],[2,0,1],[3,0,1]]),skybox:dbc(2,[[1,'a.mdx']]),bands:dbc(34,rows)});
+  let prev=c.sample(0,-100,0,DAY).fog,worst=0;
+  for(let x=-99;x<=200;x+=.5){
+    const f=c.sample(0,x,0,DAY).fog;
+    worst=Math.max(worst,...f.map((v,i)=>Math.abs(v-prev[i])));prev=f;
+  }
+  assert.ok(worst<.03,`fog step ${worst}`);
+});
 test('sky files with another layout are rejected instead of guessed',()=>{
   assert.throws(()=>new SkyCatalog({light:dbc(11,[[1]]),params:dbc(9,[[1]]),skybox:dbc(2,[[1]]),bands:dbc(34,[[1]])}),/Light/);
 });

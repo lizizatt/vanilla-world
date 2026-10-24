@@ -55,12 +55,13 @@ export class SkyCatalog {
     const lights=this.byMap.get(map);
     if(!lights)return undefined;
     const base=lights.find(l=>l.end===0)||lights[0],picks=[];
-    let remaining=1;
-    for(const l of lights.map(l=>({l,d:Math.hypot(l.x-x,l.z-z)})).filter(e=>e.l.end>0&&e.d<e.l.end).sort((a,b)=>a.d-b.d)) {
-      const w=Math.min(1,(l.l.end-l.d)/Math.max(1e-6,l.l.end-l.l.start))*remaining;
-      picks.push({params:l.l.params,w});remaining-=w;
-    }
-    picks.push({params:base.params,w:remaining});
+    // Order-independent weights: sequential "remaining" blending jumped whenever two lights swapped nearest order.
+    const near=lights.map(l=>({l,d:Math.hypot(l.x-x,l.z-z)})).filter(e=>e.l.end>0&&e.d<e.l.end)
+      .map(e=>({params:e.l.params,w:Math.min(1,(e.l.end-e.d)/Math.max(1e-6,e.l.end-e.l.start))}));
+    const sum=near.reduce((a,p)=>a+p.w,0);
+    for(const p of near)picks.push({params:p.params,w:p.w/Math.max(1,sum)});
+    picks.push({params:base.params,w:Math.max(0,1-sum)});
+    picks.sort((a,b)=>b.w-a.w);
     const out={};
     let lead=picks[0];
     for(const p of picks) {
