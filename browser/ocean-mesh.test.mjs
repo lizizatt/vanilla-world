@@ -41,12 +41,9 @@ test('the whirlpool patch and surrounding quads share edge vertices (no T-juncti
   assert.equal(bad,0);
 });
 
-import {landMask} from './land-rect.js';
-test('a land rect with a bay is cut only where the ground is above sea level',()=>{
-  const verts=[];for(let r=0;r<=16;r++)for(let c=0;c<=16;c++)verts.push(c*33,c<8?200:-30,r*33,0,1,0,0);
-  const mask=landMask(new Float32Array(verts),[0,0]);
-  const area=(m)=>{let s=0;for(let i=0;i<m.length;i+=21){const v=(k)=>[m[i+k*7],m[i+k*7+2]];const [a,b,c]=[v(0),v(1),v(2)];s+=Math.abs((b[0]-a[0])*(c[1]-a[1])-(c[0]-a[0])*(b[1]-a[1]))/2;}return s;};
-  const man={ocean:[-1000,-1000,2000,2000],sea_level:0};
-  const full=area(oceanMesh(man,16,[[0,0,528,528]])),masked=area(oceanMesh(man,16,[[0,0,528,528,mask]]));
-  assert.ok(masked>full+528*528/2*.8,`${masked} ${full}`);
+test('no water over a below-sea land tile (racetrack basin); bays outside land rects stay flooded',()=>{
+  const track=[-100,-100,100,100],verts=oceanMesh(manifest,96,[track]);
+  const inside=[],outside=[];
+  for(let i=0;i<verts.length;i+=21){const x=(verts[i]+verts[i+7]+verts[i+14])/3,z=(verts[i+2]+verts[i+9]+verts[i+16])/3;(x>=-100&&x<100&&z>=-100&&z<100?inside:outside).push(1);}
+  assert.equal(inside.length,0);assert.ok(outside.length>0);
 });
