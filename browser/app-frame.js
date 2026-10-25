@@ -53,7 +53,7 @@ function frame(now) {
       {...settings,cameraLook:controls.look,cameraOrbit,cameraSteer:right,cameraRecentre:keyDrive&&!app.dragging},keys.has('KeyV')&&!keys.has('AltLeft')&&!keys.has('AltRight'));
     app.editor.frame();
     updateTimeHud(app);
-    if(app.memoryBytes&&now-(app.gpuSent||0)>=1000){app.gpuSent=now;evidence.gpuBytes=gpuBytesOf(stats);client.budget(app.memoryBytes,evidence.gpuBytes);}
+    if(app.memoryBytes&&now-(app.gpuSent||0)>=1000){app.gpuSent=now;evidence.gpuBytes=gpuBytesOf(stats);evidence.npcs=stats.npcInstances;client.budget(app.memoryBytes,evidence.gpuBytes);}
     const cameraWarning=stats.cameraBlocked==='pending'?'Cockpit view waiting for nearby camera geometry.'
       :stats.cameraBlocked?'Cockpit view blocked by nearby geometry.':'';
     $('camera-blocked').hidden=!cameraWarning;

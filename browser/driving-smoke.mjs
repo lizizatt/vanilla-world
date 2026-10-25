@@ -405,7 +405,7 @@ try{
       p:worldEvidence.state.telemetry,wait:worldEvidence.state.scene.waitingCollision,clock:worldEvidence.state.drivingClock}));
     console.log(JSON.stringify(progress));
     if(process.env.MEM_SAMPLE)console.log('MEM '+JSON.stringify(await page.evaluate(()=>{const s=worldEvidence.state,d=s.distant||{};return {t:Math.round((performance.now()-driveProfile.start)/1000),
-      budget:s.memory?.budget,sceneLimit:s.memory?.sceneLimit,resident:s.resident?.length,farTiles:d.resident,sceneBytes:s.scene?.bytes,terrainBytes:s.terrain?.bytes,farBytes:d.scene?.bytes,farTileBytes:d.tileBytes,
+      npcs:worldEvidence.render?.npcInstances,pop:s.scene?.population?.slice(0,50),inst:s.scene?.instances,assets:s.scene?.assets,pend:s.scene?.pending,budget:s.memory?.budget,sceneLimit:s.memory?.sceneLimit,resident:s.resident?.length,farTiles:d.resident,sceneBytes:s.scene?.bytes,terrainBytes:s.terrain?.bytes,farBytes:d.scene?.bytes,farTileBytes:d.tileBytes,
       evictions:(s.memory?.sceneEvictions||0)+(s.terrain?.evictions||0)+(d.evictions||0),gpu:worldEvidence.gpuBytes,jsHeap:performance.memory?.usedJSHeapSize,wasm:s.horizon?.wasmPeakBytes};})));
     stopped=progress.p[5]<.01&&progress.p[8]===3?stopped+1:0;
     if(process.env.WAYPOINTS && stopped>=2)break;
