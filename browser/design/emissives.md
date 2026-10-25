@@ -40,3 +40,7 @@ Hosted/no-data worlds have no emissive WMOs, so the demo fallback is unchanged.
 
 Exposing SIDN colour/WINDOW flags (a per-batch intensity and tint instead of a boolean), and parsing M2
 attachments to add small bloom sprites at lamp/torch points.
+
+## Update: SIDN colour
+
+The wasm now exports atch.sidn (MOMT SIDN RGB). The renderer packs it (4 bits/channel) into material.y (>=2) and the scene shader adds 	ex*sidn*1.3*night on top of the night-graded lit sum, so lit window panes glow in their authored colour. WINDOW (0x20) needs no change (interior lit path). M2 attachment lamps remain not done.

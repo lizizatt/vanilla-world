@@ -112,11 +112,14 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   let distance=length(v.p-u.eye.xyz);
   let coverage=u.material.w*select(1.0,1.0-smoothstep(3500.0,6000.0,distance),u.material.z>0.0);
   if(fract(dot(floor(v.clip.xy),vec2f(.754877666,.569840296)))>=coverage){discard;}
-  let light=mix(.4+.6*max(dot(normalize(v.n),normalize(vec3f(-.3,1.0,.4))),0.0),1.0,u.material.y);
+  let sidn=u.material.y>=2.0;let sp=u32(max(u.material.y-2.0,0.0));let sidnRgb=vec3f(f32((sp>>8u)&15u),f32((sp>>4u)&15u),f32(sp&15u))/15.0;
+  let light=mix(.4+.6*max(dot(normalize(v.n),normalize(vec3f(-.3,1.0,.4))),0.0),1.0,select(u.material.y,0.0,sidn));
   let fog=max(max(clamp(distance/150000.0,0.0,.93),valleyHaze(v.p))*(1.0-u.bend.y),u.material.z*.8*smoothstep(3500.0,6000.0,distance));
   // Unlit/emissive batches (lamp glass, windows, braziers) keep their colour through the sim-clock night instead of taking the night grade.
-  let glow=u.material.y*nightK();
+  let glow=select(u.material.y,0.0,sidn)*nightK();
   var color=mix(grade(texel.rgb*light),texel.rgb*(1.0+.35*glow),glow);
+  // SIDN materials (lit window panes) add their authored night colour on top of the night-graded lit sum.
+  if(sidn){color+=texel.rgb*sidnRgb*1.3*nightK();}
   if(u.settings.z>.5){color=waterColor(v.p,v.uv.x,rampWidth,dx,dy);}
   return vec4f(mix(color,fogTint(),fog*(1.0-.6*glow)),texel.a);
 }`;

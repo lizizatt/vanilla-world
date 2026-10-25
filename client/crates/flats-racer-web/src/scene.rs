@@ -245,6 +245,8 @@ struct Batch {
     wrap_x: bool,
     wrap_y: bool,
     emissive: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sidn: Option<[u8; 3]>,
     no_depth_write: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     water: bool,
@@ -321,6 +323,7 @@ impl SceneModel {
                 wrap_x: sub.wrap_x,
                 wrap_y: sub.wrap_y,
                 emissive: sub.emissive,
+                sidn: sub.sidn,
                 no_depth_write: sub.no_depth_write,
                 water,
             });
