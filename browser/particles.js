@@ -13,6 +13,9 @@ export const KINDS = {
   smoke: { life: [1.2, 2.4], size: [.4, 1.8], drag: 1.5, lift: 2.5, stops: [[0, .35, .35, .37, .0, 0], [.12, .3, .3, .32, .5, 0], [1, .2, .2, .22, 0, 0]] },
   dust: { life: [.9, 1.8], size: [.5, 2], drag: 2.2, lift: 1.2, stops: [[0, .6, .48, .32, .7, 0], [1, .6, .48, .32, 0, 0]] },
   lamp: { life: [.22, .3], size: [.55, .5], drag: 0, lift: 0, stops: [[0, 1, .62, .25, .5, 1], [.5, 1, .55, .18, .6, 1], [1, 1, .4, .1, 0, 1]] },
+  spray: { life: [.5, 1.1], size: [.3, .9], drag: 1.2, lift: -9, stops: [[0, .92, .97, 1, .55, 0], [1, .85, .93, 1, 0, 0]] },
+  wake: { life: [1.4, 2.6], size: [.6, 3.2], drag: 2.5, lift: 0, stops: [[0, .9, .96, 1, .38, 0], [1, .8, .9, .98, 0, 0]] },
+  ripple: { life: [1.6, 2.2], size: [.4, 4.5], drag: 4, lift: 0, stops: [[0, .85, .95, 1, 0, 0], [.2, .85, .95, 1, .28, 0], [1, .8, .9, 1, 0, 0]] },
   burst: { life: [.25, .5], size: [1, 3.5], drag: 4, lift: 0, stops: [[0, 1, .95, .7, 1, 1], [.4, 1, .55, .12, .7, 1], [1, .5, .1, .02, 0, 1]] },
 };
 const KIND_IDS = Object.keys(KINDS);
@@ -174,6 +177,28 @@ export function emitHeatSmoke(pool, { points, matrix: m, origin, length, heat, w
   });
 }
 /** Dust kicked up behind a grounded craft: a thin stream at speed, a heavy cloud while drifting (sideways slip throws it out). */
+export function overWater(y, length, waterY = 0) { return y - waterY < length * .6 && y - waterY > -length * 2; }
+/** Over water: spray thrown up behind the craft, a V wake trailing it, and slow pulsing ripple rings under it when still. */
+export function emitWaterFx(pool, { matrix: m, origin, scale, length, speed, time, dt }) {
+  const k = Math.min(1, speed / 120), px = m[12] + origin[0], pz = m[14] + origin[1], py = m[13] - length * .1;
+  const bx = -m[0] / scale, bz = -m[2] / scale, sx = m[4] / scale, sz = m[6] / scale;
+  const n = speed < 4 ? 0 : pool.budget('spray', 25 + 140 * k, dt), size = length / 4 * (.5 + .5 * k);
+  for (let j = 0; j < n; j++) {
+    const side = (pool.rand() - .5) * 2, back = .05 + pool.rand() * .15;
+    pool.emit('spray', px + bx * length * .45 + sx * side * length * .35, py, pz + bz * length * .45 + sz * side * length * .35,
+      bx * speed * back + sx * side * 4, 2 + pool.rand() * 4 * (.4 + k), bz * speed * back + sz * side * 4, size, size * .2);
+  }
+  const w = speed < 4 ? 0 : pool.budget('wake', 12 + 40 * k, dt);
+  for (let j = 0; j < w; j++) {
+    const side = pool.rand() < .5 ? -1 : 1;
+    pool.emit('wake', px + bx * length * .6, py, pz + bz * length * .6, bx * speed * .1 + sx * side * (3 + 6 * k), 0, bz * speed * .1 + sz * side * (3 + 6 * k), length / 3 * (.6 + k), length * .05);
+  }
+  if (speed < 4 && pool.quality > 0) {
+    const pulse = Math.sin(time * 2.4) > .96 ? 1 : 0, prev = pool.carry.get('ripplePulse') || 0;
+    pool.carry.set('ripplePulse', pulse);
+    if (pulse && !prev) pool.emit('ripple', px, py, pz, 0, 0, 0, length * .5, 0);
+  }
+}
 export function emitGroundDust(pool, { matrix: m, origin, scale, length, speed, drift, grounded, dt }) {
   const k = Math.min(1, speed / 120), rate = !grounded || speed < 5 ? 0 : drift && speed > 25 ? 170 : 20 + 110 * k;
   const n = rate ? pool.budget('dust', rate, dt) : 0, size = length / 3.5 * (.5 + .5 * k);

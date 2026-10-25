@@ -8,7 +8,7 @@ import {MINIMAP_SIZE} from './terrain-stream.js';
 import {cameraView,craftMatrix} from './world-camera.js';
 import {partMatrix,wreckFrame,WRECK_SECONDS} from './wreck.js';
 import {maelstromCentre,resolveCloudQuality,SlowFrameGuard,sunDirection} from './clouds.js';
-import {exhaustPoints,emitPlumes,emitDebris,emitHeatSmoke,emitGroundDust,QUALITY,INSTANCE_FLOATS,particleUniform,emitLamps} from './particles.js';
+import {exhaustPoints,emitPlumes,emitDebris,emitHeatSmoke,emitGroundDust,emitWaterFx,overWater,QUALITY,INSTANCE_FLOATS,particleUniform,emitLamps} from './particles.js';
 import {beamState} from './beam.js';
 import {horizonDip} from './space.js';
 import {planetFactors} from './terrain-transition.js';
@@ -272,7 +272,8 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
       craft.fx??={points:exhaustPoints(craft.source.vertices,craft.source.indices,craft.metadata),length:craft.size[0]};
       emitPlumes(fx,{points:craft.fx.points,matrix:craftMatrix(state,origin,scale),origin,scale,length:craft.fx.length,speed,
         thrust:input.throttle??Math.min(1,speed/150),boosting:!!input.boosting,dt:Math.min(dt,.1)});
-      emitGroundDust(fx,{matrix:craftMatrix(state,origin,scale),origin,scale,length:craft.fx.length,speed,drift:!!input.drifting,grounded:state[7]>0,dt:Math.min(dt,.1)});
+      const wet=overWater(state[1],craft.fx.length),fxArgs={matrix:craftMatrix(state,origin,scale),origin,scale,length:craft.fx.length,speed,drift:!!input.drifting,grounded:state[7]>0,dt:Math.min(dt,.1),time:performance.now()/1000};
+      if(wet)emitWaterFx(fx,fxArgs);else emitGroundDust(fx,fxArgs);
       if(input.heat)emitHeatSmoke(fx,{points:craft.fx.points,matrix:craftMatrix(state,origin,scale),origin,length:craft.fx.length,heat:input.heat,dt:Math.min(dt,.1)});
     }
     if(fx&&quality>0&&!this.cameraBlocked){

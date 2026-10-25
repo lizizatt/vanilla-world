@@ -111,7 +111,6 @@ test('ground dust needs a grounded craft, thickens when drifting and goes behind
   assert.ok(run({ drift: true }).count > run({}).count && run({}).count > 0);
   assert.ok(run({}).data[0] < 0, 'spawned behind the craft (-x)');
 });
-
 test('lamp glow emits only at night and scales with it', () => {
   const m = new Float32Array(16).map((v, i) => i % 5 ? 0 : 1);
   const lit = new ParticlePool(64, () => .5), day = new ParticlePool(64, () => .5);
@@ -119,4 +118,13 @@ test('lamp glow emits only at night and scales with it', () => {
   emitLamps(lit, [{ points: [[0, 0, 1]], matrix: m }], [0, 0], .5, 1);
   assert.equal(day.count, 0);
   assert.ok(lit.count > 0);
+});
+
+import {emitWaterFx as ewf, overWater as ow} from './particles.js';
+test('water: spray+wake when moving, ripple pulse when still, none above water', () => {
+  const m = new Float32Array(16); m[0] = m[5] = m[10] = m[15] = 1;
+  const kinds = o => { const p = new ParticlePool(512, () => .5); p.quality = 1; for (let i = 0; i < 40; i++) ewf(p, { matrix: m, origin: [0, 0], scale: 1, length: 4, speed: 100, time: i * .1, dt: .1, ...o }); const s = new Set(); for (let i = 0; i < p.capacity; i++) if (p.data[i * 8 + 6] < p.data[i * 8 + 7]) s.add(p.data[i * 8 + 12]); return p; };
+  assert.ok(ow(0, 4) && ow(-1, 4) && !ow(20, 4));
+  assert.ok(kinds({}).carry.has('spray') && kinds({}).carry.has('wake'));
+  assert.ok(kinds({ speed: 0, time: 0 }).carry.has('ripplePulse'));
 });
