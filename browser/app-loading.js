@@ -11,6 +11,7 @@ import {classifyPickError} from './swe1r/attach.js';
 import {loadPodModel} from './swe1r/skin.js';
 import {ELUNE_GRAVITY_SCALE} from './bodies.js';
 const LUNAR_GRAVITY=48*ELUNE_GRAVITY_SCALE;
+import {WorldClient} from './world-client.js';
 export function installLoading(app) {
 const {canvas,cameraCollision,evidence,defaults,settings,loading,loadingArt,mapPanel,music,client}=app;
 const $=id=>document.getElementById(id);
@@ -80,6 +81,7 @@ app.gateKit=undefined;void loadGateKit((a,p)=>client.request(a,p),()=>getSwe1r()
     cameraCollision.configure(result.info.manifest);
     app.tuningValues=Array.isArray(result.info.tuning)?result.info.tuning.slice():TUNING_FIELDS.map(f=>f[1]);
     opened=true;
+    void openMoonEngine(app,selection);
     if(remember)await rememberDataFolder(selection);
     evidence.info=result.info;evidence.source='local Data archives';
     $('welcome').hidden=true;enabled(true);app.running=true;
@@ -190,4 +192,13 @@ $('fly').addEventListener('click',()=>{
 });
 $('overview').addEventListener('click',()=>{if(client.info&&!app.race){app.flight=overview(client.info.manifest);canvas.focus();}});
 $('drive').addEventListener('click',()=>{app.flight=undefined;app.renderer.camera=undefined;canvas.focus();});
+}
+
+// Second resident engine (design/elune.md): Elune's world in its own worker, far-only and without physics, opened beside Azeroth with ?bodies&moonEngine. Its events are counted for now; the renderer sink is the next step.
+async function openMoonEngine(app,selection) {
+  const q=new URLSearchParams(location.search);
+  if(selection==='elune'||!q.has('bodies')||!q.has('moonEngine')||app.moonClient)return;
+  const counts={events:0,farScenes:0},moon=new WorldClient(data=>{counts.events++;if(data.event==='far-scene')counts.farScenes++;return false;},error=>console.warn('Elune engine',error));
+  moon.farOnly=true;app.moonClient=moon;app.moonCounts=counts;
+  try{await moon.open('elune');}catch(error){console.warn('Elune engine unavailable',error);moon.stop();app.moonClient=undefined;}
 }
