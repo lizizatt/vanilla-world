@@ -38,9 +38,28 @@ test('fly and chase cameras are lifted above water and ground, and are untouched
 test('the chase floor lift is capped near the pivot so a high surface cannot leave the camera looking straight down',()=>{
   const rig={cameraFloor:()=>500};
   const view=cameraView(rig,[0,10,0,0,0,0,0,1,0],undefined,.016,[0,0],{});
-  assert.ok(rig.camera[1]<=10+3+5,`eye at ${rig.camera[1]}`);
+  assert.ok(rig.camera[1]<=10+3+rig.chaseDistance*.5+1e-6,`eye at ${rig.camera[1]}`);
   const horizontal=Math.hypot(rig.camera[0],rig.camera[2]);
   assert.ok(horizontal>5,'the eye stays behind the pod');
   assert.ok(Math.abs(view.look[1])<.8,`look pitch ${view.look[1]}`);
   assert.equal(lifted({cameraFloor:()=>500},[0,1,0],[0,0])[1],500,'fly mode is still fully floored');
+});
+
+test('soft chase floor: pitch response is identical with and without a floor below the camera',()=>{
+  const run=floor=>{const r={cameraFloor:floor,clipCamera:(_p,to)=>to};let look;
+    for(let i=0;i<30;i++)look=cameraView(r,[0,50,0,0,0,0,0,1,0],undefined,.016,[0,0],{cameraOrbit:[0,i%2?-20:20]}).look;
+    return [r.chase,r.camera,look];};
+  assert.deepEqual(run(()=>-100),run(undefined));
+});
+
+test('soft chase floor: eases down without popping and the eye never ends below the floor',()=>{
+  let floor=60;const r={cameraFloor:()=>floor,clipCamera:(_p,to)=>to},state=[0,50,0,0,0,0,0,1,0];
+  cameraView(r,state,undefined,.016,[0,0],{});
+  assert.ok(r.camera[1]>=floor);
+  floor=0;let prev=r.camera[1];
+  for(let i=0;i<120;i++){cameraView(r,state,undefined,.016,[0,0],{});assert.ok(prev-r.camera[1]<2,'no pop');prev=r.camera[1];}
+  assert.ok(r.camera[1]<=r.chaseDistance+state[1]+3+.1);
+  floor=70;cameraView(r,state,undefined,.016,[0,0],{});
+  assert.ok(r.camera[1]>=Math.min(70,state[1]+3+r.chaseDistance*.5)-1e-6);
+  assert.equal(lifted({cameraFloor:()=>9},[0,1,0],[0,0])[1],9,'free fly stays hard-floored');
 });
