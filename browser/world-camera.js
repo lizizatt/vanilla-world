@@ -25,9 +25,10 @@ export function cockpitAnchor(metadata) {
 }
 
 /** Keeps a free or chase camera above terrain and the sea (rig.cameraFloor is supplied by camera collision; absent until it loads). */
-export function lifted(rig,eye,origin) {
+const CHASE_LIFT_LIMIT=4;
+export function lifted(rig,eye,origin,ceiling=Infinity) {
   const floor=rig.cameraFloor?.(eye[0]+origin[0],eye[1],eye[2]+origin[1]);
-  return floor!==undefined&&eye[1]<floor?[eye[0],floor,eye[2]]:eye;
+  return floor!==undefined&&eye[1]<floor?[eye[0],Math.max(eye[1],Math.min(floor,ceiling)),eye[2]]:eye;
 }
 
 export function cameraView(rig,state,flight,dt,origin,settings={},lookBack=false) {
@@ -95,7 +96,8 @@ export function cameraView(rig,state,flight,dt,origin,settings={},lookBack=false
   rig.chaseBounce=!reset&&grounded&&rig.chaseGrounded&&seconds!==0
     ?Math.max(-.35,Math.min(.35,((rig.chaseBounce||0)-(state[1]-rig.chaseY))*(1-blend))):0;
   rig.chaseY=state[1];rig.chaseGrounded=grounded;
-  rig.camera=lifted(rig,clip(pivot.map((n,i)=>n+direction[i]*rig.chaseDistance+(i===1?rig.chaseBounce:0))),origin);
+  // The floor may lift the chase eye only slightly above the pivot, so a bad or far-above surface can never leave the camera looking straight down.
+  rig.camera=lifted(rig,clip(pivot.map((n,i)=>n+direction[i]*rig.chaseDistance+(i===1?rig.chaseBounce:0))),origin,pivot[1]+CHASE_LIFT_LIMIT);
   const offset=pivot.map((n,i)=>n+(i===1?rig.chaseBounce:0)-rig.camera[i]);
   return {look:Math.hypot(...offset)>1e-6?unit(offset):direction.map(n=>-n),near:.1,collisionReady:!!rig.clipCamera};
 }
