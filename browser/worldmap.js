@@ -160,7 +160,9 @@ export function worldImageRect(rects,centre,image=WORLD_IMAGE) {
     const a=(n*sxy-sx*sy)/(n*sxx-sx*sx);return [a,(sy-a*sx)/n];
   };
   const [k,e]=rects,[kp,ep]=[image.kalimdor,image.eastern];
-  const [ax,bx]=fit([[k[0],kp[0]],[k[2],kp[2]],[e[0],ep[0]],[e[2],ep[2]],[centre[0],image.maelstrom[0]]]);
-  const [az,bz]=fit([[k[1],kp[1]],[k[3],kp[3]],[e[1],ep[1]],[e[3],ep[3]],[centre[1],image.maelstrom[1]]]);
+  const px=[[k[0],kp[0]],[k[2],kp[2]],[e[0],ep[0]],[e[2],ep[2]],[centre[0],image.maelstrom[0]]],pz=[[k[1],kp[1]],[k[3],kp[3]],[e[1],ep[1]],[e[3],ep[3]],[centre[1],image.maelstrom[1]]];
+  // One scale for both axes keeps the image's aspect ratio; only the offsets are fitted per axis.
+  const a=Math.sqrt(fit(px)[0]*fit(pz)[0]),offset=pairs=>pairs.reduce((s,p)=>s+p[1]-a*p[0],0)/pairs.length;
+  const ax=a,az=a,bx=offset(px),bz=offset(pz);
   return [-bx/ax,-bz/az,(image.width-bx)/ax,(image.height-bz)/az];
 }

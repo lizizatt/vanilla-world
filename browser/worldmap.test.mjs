@@ -50,3 +50,7 @@ test('world image rect covers both continents and keeps the Maelstrom at the ima
   const u=(c[0]-r[0])/(r[2]-r[0]),v=(c[1]-r[1])/(r[3]-r[1]);
   assert.ok(Math.abs(u-.5)<.06&&Math.abs(v-.51)<.1,`${u} ${v}`);
 });
+test('world image rect keeps the image aspect ratio (800x533)',()=>{
+  const r=wir(FALLBACK_RECTS,[WORLD_CENTRE[0],MAELSTROM_Z]);
+  assert.ok(Math.abs((r[2]-r[0])/(r[3]-r[1])-800/533)<1e-6);
+});
