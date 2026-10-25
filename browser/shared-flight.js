@@ -11,8 +11,8 @@ export function inertialDir(body,pose,dir,t,eps=1) {
 }
 
 /** One fly-camera step. `flight` is the chart pose [x,y,z,yaw,pitch,...q]; `aim` the chart basis {look,right,up}; `input` {forward,strafe,lift,fast}. Returns {pose,space,parent,swapped}. */
-export function stepShared(space,flight,aim,input,dt,t,rate=2) {
-  const body=bodyOf(space?.parent??'azeroth');
+export function stepShared(space,flight,aim,input,dt,t,rate=2,home='azeroth') {
+  const body=bodyOf(space?.parent??home);
   const state=space??createFlight(toInertial(body,flight,t),t,body.id,rate);
   const pose=flight.slice(0,3),dir=d=>inertialDir(body,pose,d,t);
   const next=stepFlight(state,{...input,look:dir(aim.look),right:dir(aim.right),up:dir(aim.up),simRate:rate},dt,t);

@@ -38,18 +38,21 @@ function frame(now) {
     if(right){controls.steer=Math.max(-1,Math.min(1,(app.renderer.chase?.[0]||0)*4));if(app.mouseButtons&1)controls.throttle=1;}
     const locked=app.wreckLocked();if(locked){Object.assign(controls,{throttle:0,steer:0,flags:0});client.pendingHop=0;}else if(app.wasLocked&&!app.flight)void app.respawn();app.wasLocked=locked;
     if(app.flight) {
-      const before=app.flight,[yaw,pitch]=app.flight.length>=9?toEuler(app.flight.slice(5,9),app.flight[3]):[0,0];
+      let swap;const before=app.flight,[yaw,pitch]=app.flight.length>=9?toEuler(app.flight.slice(5,9),app.flight[3]):[0,0];
       // A pose without a matching quaternion (fresh, loaded, or moved by a test hook) is rebuilt from its yaw/pitch.
       let q=app.flight.length>=9&&Math.abs(Math.sin(yaw-app.flight[3]))<1e-6&&Math.abs(pitch-app.flight[4])<1e-6?app.flight.slice(5,9):fromEuler(app.flight[3],app.flight[4]);
       const dk=k=>Number(keys.has(k));
       q=keys.has('KeyX')?fromEuler(toEuler(q,app.flight[3])[0],-FLIGHT_PITCH):stepOrient(q,{yaw:(dk('ArrowLeft')-dk('ArrowRight'))*dt-cameraOrbit[0]*.004,pitch:(dk('ArrowUp')-dk('ArrowDown'))*dt-cameraOrbit[1]*.004},app.flight[1],dt);
       const aim=basis(q);
       if(app.renderer.sharedSpace){
-        const down=k=>Number(keys.has(k)),r=stepShared(app.space,app.flight,aim,{forward:down('KeyW')-down('KeyS'),strafe:down('KeyD')-down('KeyA'),lift:down('KeyE')-down('KeyQ'),fast:keys.has('ShiftLeft')||keys.has('ShiftRight')},dt,app.renderer.timeOfDay??0);
-        app.space=r.space;app.flight=r.pose;
-        if(r.swapped&&r.parent!==activeBody().id)app.soiHandoff(r.parent,r.pose);
+        const down=k=>Number(keys.has(k));
+        if(app.flight!==app.spacePose)app.space=undefined;// pose set from outside (teleport, overview, test focus): restart inertial state there
+        const r=stepShared(app.space,app.flight,aim,{forward:down('KeyW')-down('KeyS'),strafe:down('KeyD')-down('KeyA'),lift:down('KeyE')-down('KeyQ'),fast:keys.has('ShiftLeft')||keys.has('ShiftRight')        },dt,app.renderer.timeOfDay??0,2,activeBody().id);
+        app.space=r.space;app.flight=r.pose;app.spacePose=r.pose;
+                if(r.swapped&&r.parent!==activeBody().id)swap=r.parent;
       } else app.flight=moveFlight(app.flight,keys,dt,aim);if(app.flight.poleFlip)q=turnAround(q);const [ny,np]=toEuler(q,app.flight[3]);app.flightSpeed=dt>0?Math.hypot(app.flight[0]-before[0],app.flight[1]-before[1],app.flight[2]-before[2])/dt:0;
       app.flight[3]=ny;app.flight[4]=np;app.flight.length=5;app.flight.push(...q);
+      if(swap)app.soiHandoff(swap,app.flight);
     }
     if(!app.flight)app.space=undefined;
     if(app.race){app.flight=undefined;if(!app.raceMenu.open)app.raceFrame(controls,now/1000);}

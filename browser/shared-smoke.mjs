@@ -42,6 +42,19 @@ try{
     await page.evaluate(p=>window.worldTest.focus(p),pose);await page.waitForTimeout(3000);
     await writeFile(new URL(name+'.png',out),await page.screenshot());
   }
+  // Fly into Elune's well: the shared stepper should hand off to the ?body=elune entry with the pose restored.
+  const c=centreAt(ELUNE,T),a=centreAt(AZEROTH,T),dir=a.map((v,i)=>v-c[i]),dn=Math.hypot(...dir);
+  const into=c.map((v,i)=>v+dir[i]/dn*(ELUNE.radius+15000)),chart=fromInertial(AZEROTH,into,T,0);
+  await page.evaluate(p=>window.worldTest.focus(p),[chart[0],chart[1],chart[2],0,0]);
+  await page.waitForURL(/body=elune/,{timeout:20000}).then(()=>console.log('handoff: navigated'),()=>console.log('handoff: NO navigation'));
+  await page.waitForFunction(()=>window.worldTest,null,{timeout:60000}).catch(()=>{});
+  await page.waitForTimeout(8000);
+  await writeFile(new URL('landed.png',out),await page.screenshot());
+  for(const [name,pose] of [['landed-down',[-32000,15000,0,0,-1.4]],['landed-low',[-32000,500,0,0,-.35]]]){
+    await page.evaluate(p=>{window.worldTest.settings({planet:true,globeMesh:true});window.worldTest.focus(p);},pose);await page.waitForTimeout(4000);
+    await writeFile(new URL(name+'.png',out),await page.screenshot());
+  }
+  console.log('url',page.url(),'landing flight',await page.evaluate(()=>window.worldTest?.sky?.()?1:0));
   console.log('error panel:',await page.evaluate(()=>document.getElementById('error').textContent));
 }finally{await browser.close();server.close();}
 console.log('errors:',errors);
