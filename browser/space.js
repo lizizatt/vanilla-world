@@ -90,16 +90,26 @@ export function spaceUniform(view,sun,factors,rects,timeOfDay,near,far,out=new F
   return out;
 }
 
-// Terrain/water/prop vertex shaders call bend(): azimuthal-equidistant wrap onto the globe (ground distance d becomes arc d/R),
-// blended in by k so low flight and all driving stay flat.
+// Terrain/water/prop vertex shaders call bend(): the flat render (x, z) is wrapped onto the globe with the SAME equirect mapping as the
+// globe, patches and clouds (lon = (x-cx)/R, lat = (cz-z)/R), expressed in the eye's planet frame, blended in by k so low flight and
+// all driving stay flat. Differences from the eye are used so f32 keeps precision near the camera.
+/** JS mirror of the WGSL bend(): eye-relative flat offset -> eye-relative render position on the equirect globe (k = 1), flat at k = 0. */
+export function bendRel(rel,eye,k=1,radius=PLANET_RADIUS,centre=WORLD_CENTRE) {
+  if(k<=0||Math.hypot(rel[0],rel[2])<1)return rel.slice();
+  const lat0=Math.max(-LAT_MAX,Math.min(LAT_MAX,(centre[1]-eye[2])/radius)),lat=Math.max(-LAT_MAX,Math.min(LAT_MAX,lat0-rel[2]/radius)),dl=rel[0]/radius;
+  const cl=Math.cos(lat),sp0=Math.sin(lat0),cp0=Math.cos(lat0),cd=cl*Math.cos(dl);
+  const n=[cl*Math.sin(dl),cp0*cd+sp0*Math.sin(lat),sp0*cd-cp0*Math.sin(lat)],r=radius+rel[1]+eye[1];
+  return [rel[0]+(n[0]*r-rel[0])*k,rel[1]+(n[1]*r-(radius+eye[1])-rel[1])*k,rel[2]+(n[2]*r-rel[2])*k];
+}
 export const bendShader=`
-fn bend(rel:vec3f,eyeY:f32,k:f32)->vec3f {
-  let d=length(rel.xz);
-  if(k<=0.0||d<1.0){return rel;}
-  let R=${PLANET_RADIUS}.0;let th=min(d/R,3.0);let rr=R+rel.y+eyeY;
-  let h=rr*sin(th);let y=rr*cos(th)-R-eyeY;
-  let s=mix(d,h,k)/d;
-  return vec3f(rel.x*s,mix(rel.y,y,k),rel.z*s);
+fn bend(rel:vec3f,eye:vec3f,k:f32)->vec3f {
+  if(k<=0.0||length(rel.xz)<1.0){return rel;}
+  let R=${PLANET_RADIUS}.0;let lim=${LAT_MAX};
+  let lat0=clamp((${WORLD_CENTRE[1]}.0-eye.z)/R,-lim,lim);let lat=clamp(lat0-rel.z/R,-lim,lim);let dl=rel.x/R;
+  let cl=cos(lat);let sp0=sin(lat0);let cp0=cos(lat0);let cd=cl*cos(dl);
+  let n=vec3f(cl*sin(dl),cp0*cd+sp0*sin(lat),sp0*cd-cp0*sin(lat));
+  let w=vec3f(0.0,-(R+eye.y),0.0)+n*(R+rel.y+eye.y);
+  return mix(rel,w,k);
 }`;
 
 export const spaceShader=`
