@@ -1,3 +1,5 @@
+import {maelstromCentre} from './clouds.js';
+import {dipDepth} from './ocean-mesh.js';
 const TILE=1600/3,CELLS=32,CELL=TILE/CELLS;
 const cell=n=>Math.max(0,Math.min(CELLS-1,Math.floor(n/CELL)));
 function boxHit(from,direction,bounds,limit=1) {
@@ -101,15 +103,22 @@ export class CameraCollision {
   }
   /** Lowest allowed camera height at world (x,z): the terrain surface or the sea, whichever is higher, plus clearance. Only terrain tiles count, so tunnels and WMOs stay flyable. */
   floorY(x,y,z,clearance=.5) {
-    const sea=(this.manifest?.sea_level??0)+clearance,top=y+200;
-    let hit=Infinity;
+    const top=y+200;
+    let hit=Infinity,covered=false;
     for(const tile of this.tiles.values()) {
       const [px,pz]=tile.placement,lx=x-px,lz=z-pz;
       if(lx<0||lx>=TILE||lz<0||lz>=TILE)continue;
+      covered=true;
       const bucket=cell(lz)*CELLS+cell(lx),local=[lx,top,lz],direction=[0,-200,0];
       for(let i=tile.offsets[bucket];i<tile.offsets[bucket+1];i++)hit=Math.min(hit,triangleHit(tile.vertices,tile.triangles[i],local,direction));
     }
+    // Water exists only outside loaded land tiles (they carve the ocean, so dry basins like the track have none); there it follows the whirlpool bowl.
+    const sea=covered?-Infinity:this.waterSurface(x,z)+clearance;
     return Math.max(sea,hit<Infinity?top-200*hit+clearance:-Infinity);
+  }
+  waterSurface(x,z) {
+    const m=this.manifest,level=m?.sea_level??0,c=m?.whirlpool||(m?.world_bounds?maelstromCentre(m):undefined);
+    return c?level-dipDepth(Math.hypot(x-c[0],z-c[1])):level;
   }
   clip(pivot,point,origin) {
     const from=[pivot[0]+origin[0],pivot[1],pivot[2]+origin[1]],direction=point.map((n,i)=>n-pivot[i]);
