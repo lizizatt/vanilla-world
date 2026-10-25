@@ -27,3 +27,6 @@ Shader-generation drift; timestamp-query availability; accidental visual change 
 
 ## Success
 Same sweep/shell invariants, no per-tier NaNs/seams, no duplicated cloud literals, budgets enforced.
+
+**Shell radius follows the terrain bend.** The cloud shell curvature is blended with the same smoothstep as terrain bend (BEND_RANGE 150-1500 yd): 12x the true radius at the ground, exactly R from 1500 yd up, so clouds never hover over terrain that has already dropped away. Apparent cloud horizon dip grows with altitude (tested).
+
