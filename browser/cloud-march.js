@@ -4,7 +4,7 @@
 // noise (the texture is baked from the same kind of value noise), so High geometry (towers, 28 steps, light tap) is covered, its noise is not.
 import {sphereAt,vnoise3,bandCoverage,flowShift,flowPhase,FLOW,maskAt,landCoverage,landDrag} from './cloud-flow.js';
 import {CLOUD_ALTITUDE,CLOUD_THICKNESS,CLOUD_HALF_SIZE,MAELSTROM as M,tier} from './cloud-config.js';
-import {sunDirection,SHELL_CURVATURE} from './clouds.js';
+import {sunDirection,shellCurvatureAt} from './clouds.js';
 import {PLANET_RADIUS} from './space.js';
 
 export const FADE_START=30000,FOG_RANGE=150000,SPAN_PER_DISTANCE=.3;
@@ -89,15 +89,15 @@ export function march(o) {
 const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
 
 /** Mirror of the WGSL upAt/worldAt for the always-curved layer: eye-relative point -> local up, and -> world (x, height, z) on the planet mapping. */
-const upAt=(eyeY,rel)=>{const n=[SHELL_CURVATURE*rel[0],1+SHELL_CURVATURE*(rel[1]+eyeY),SHELL_CURVATURE*rel[2]],l=Math.hypot(...n);return n.map(v=>v/l);};
+const upAt=(eyeY,rel)=>{const k=shellCurvatureAt(eyeY),n=[k*rel[0],1+k*(rel[1]+eyeY),k*rel[2]],l=Math.hypot(...n);return n.map(v=>v/l);};
 function worldAt(eye,rel) {
-  const k=SHELL_CURVATURE,u=rel[1]+eye[1],hd2=rel[0]*rel[0]+rel[2]*rel[2],ry=1+k*u,qs=Math.sqrt(k*k*hd2+ry*ry);
+  const k=shellCurvatureAt(eye[1]),u=rel[1]+eye[1],hd2=rel[0]*rel[0]+rel[2]*rel[2],ry=1+k*u,qs=Math.sqrt(k*k*hd2+ry*ry);
   const h=(k*hd2+u*(2+k*u))/(qs+1),hd=Math.sqrt(hd2),arc=Math.atan2(k*hd,ry)/k;
   return hd>1e-3?[eye[0]+rel[0]/hd*arc,h,eye[2]+rel[2]/hd*arc]:[eye[0],h,eye[2]];
 }
 /** Ray extent through the curved layer: start, end, whether the end was cut by the span cap (not by leaving the layer), and the scene-depth soft edge. */
 export function extent(eyeY,dirY,sceneDist,high,far=1e8) {
-  const x=shellExtent(eyeY,dirY,SHELL_CURVATURE,high,far),cap=x.s0+Math.max(tier(high).minSpan,SPAN_PER_DISTANCE*x.s0);
+  const x=shellExtent(eyeY,dirY,shellCurvatureAt(eyeY),high,far),cap=x.s0+Math.max(tier(high).minSpan,SPAN_PER_DISTANCE*x.s0);
   let s1=x.s1,sEdge=1;
   if(sceneDist<1e8){sEdge=smoothstep(0,350,sceneDist-x.s0);s1=Math.min(s1,sceneDist);}
   const ns=x.live&&s1>x.s0&&sEdge>0?steps(high):0;
