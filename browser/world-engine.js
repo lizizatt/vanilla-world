@@ -637,7 +637,7 @@ export function snapshot() {
   horizon.wasmPeakBytes=Math.max(horizon.wasmPeakBytes,wasm.memory.buffer.byteLength);
   const terrainState=terrain.snapshot();
   const clock=performance.now();
-  if(clock-areaTime>500){areaTime=clock;areaId=flightFocus?world.area_at(flightFocus[0],flightFocus[1]):world.area();}
+  if(clock-areaTime>500){areaTime=clock;areaId=flightFocus&&world.area_at?world.area_at(flightFocus[0],flightFocus[1]):world.area();}
   return {telemetry:Array.from(world.telemetry()),area:areaId,poseTime,hopConsumed,resident:Array.from(resident),nearTerrain:{total:lastNearby.length,resident:lastNearby.filter(i=>resident.has(i)).length},required:Array.from(world.required_tiles()),
     failures:Array.from(failures.values()),loads,evictions,peak,limit:LIMIT,horizon,source:source.stats,
     scene:sceneState?{instances:sceneState.instances.length,assets:sceneState.cachedAssets,bytes:sceneState.cachedBytes,

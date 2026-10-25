@@ -36,3 +36,6 @@ test('Anakin and Sebulba get their own engine loops; other pods and non-swe1r sk
   assert.equal(podEngineFor({source:'swe1r',name:'Ben Quadinaros'}),SFX.engine);
   assert.equal(podEngineFor({source:'model',name:'Sebulba'}),SFX.engine);assert.equal(podEngineFor(undefined),SFX.engine);
 });
+
+import {windLevel as _w} from './world-audio.js';
+test('windLevel tolerates NaN/undefined speed and altitude',()=>{for(const [s,a] of [[undefined,undefined],[NaN,NaN],[Infinity,1e9]]){const l=_w(s,a);assert.ok(Number.isFinite(l.gain)&&Number.isFinite(l.cutoff),String([s,a]));}});

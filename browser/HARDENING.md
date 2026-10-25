@@ -32,3 +32,9 @@
 
 ## Startup-smoke flake: connected gamepad
 The intermittent default-spawn/saved-pose height failures were not a physics or streaming race. A physically connected controller (stick drift, jump on button 0) fed hop flag 8 into ticks, lifting the car ~0.5 yd. startup-smoke now stubs navigator.getGamepads. Real users with a controller get normal jump input; no engine change.
+
+## 2026 hardening pass (post camera-floor/clouds/memory-budget)
+- Fixed: world-engine called wasm area_at unguarded (stale pkg would throw every frame in fly mode); windLevel now tolerates NaN/undefined speed.
+- Known flaky: startup-smoke occasionally times out clicking #save after fly/drive (passes on rerun); not a product failure.
+- Gate caveat: drive p99 was 28-36 ms in this pass while the host sat at 100% CPU from unrelated processes (render p99 ~10 ms unchanged); needs re-measure on an idle machine.
+- Not fixed: loading-smoke/music-smoke hard-code port 4183; music-smoke times out waiting for first track in this env; no dedicated space music track.
