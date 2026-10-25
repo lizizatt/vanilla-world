@@ -23,3 +23,11 @@ test('bend is the identity at k=0 and leaves the point below the camera on the v
   const g=bendRel([0,-1000,0.5],[5000,1000,3000],1);
   assert.ok(Math.abs(g[0])<1e-6&&Math.abs(g[2])<2);
 });
+
+test('land latitude is invariant under east-west camera motion (bent terrain recovers the registry lat/lon)',()=>{
+  for(const z of [-20000,0,WORLD_CENTRE[1],20000])for(let x=-120000;x<=120000;x+=15000)for(const [lx,lz] of landmarks){
+    const eye=[x,57928,z],r=bendRel([lx-x,-57928,lz-z],eye,1),f=planetFrame(x,z),m=Math.hypot(r[0],r[1]+PLANET_RADIUS+eye[1],r[2]),n=[r[0],r[1]+PLANET_RADIUS+eye[1],r[2]].map(v=>v/m);
+    const pv=[0,1,2].map(i=>f.east[i]*n[0]+f.up[i]*n[1]+f.south[i]*n[2]),{lat}=subPoint(lx,lz);
+    assert.ok(Math.abs(Math.asin(pv[1])-lat)<1e-6,`eye ${x},${z} landmark ${lx},${lz}`);
+  }
+});
