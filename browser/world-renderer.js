@@ -121,7 +121,7 @@ export class WorldRenderer {
     const clock=this.clock??=new SimClock(DAY,1);
     clock.scale=flight?sanitiseScale(settings.timeScale):1;clock.step(dt);
     const cr=cloudRate(clock.scale);pf.flowScale=flowScale(cr);
-    this.cloudTime=((this.cloudTime??time)+dt*cr)%CLOUD_TIME_WRAP;
+    this.cloudTime=((this.cloudTime??time)+dt*cr)%CLOUD_TIME_WRAP;const waterTime=this.cloudTime%7200;
     this.timeOfDay=this.timeLock??clock.now();
     const daylight=this.daylight=daylightAt(this.timeOfDay);
     const sky0=DAY_SKY.map((v,i)=>NIGHT_SKY[i]+(v-NIGHT_SKY[i])*daylight);
@@ -155,7 +155,7 @@ export class WorldRenderer {
       const base=writeUniform(item),body=item===this.body;
       u.set(p,base+16);u[base+19]=body?state[3]:(item.edgeMask||0);
       if(item.material&&item.materialSince===undefined)item.materialSince=fadeTime;
-      u[base+20]=aspect;u[base+21]=time;
+      u[base+20]=aspect;u[base+21]=waterTime;
       u[base+22]=body?state[4]:Math.min(1,Math.max(0,(fadeTime-(item.materialSince??fadeTime))/.35));u[base+23]=near;
       u[base+24]=body?0:item.placement[0]-origin[0];u[base+25]=0;
       u[base+26]=body?0:item.placement[1]-origin[1];u[base+27]=item.cell??-1;
