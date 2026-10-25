@@ -730,9 +730,9 @@ export async function runFrame(message) {
     if(!Array.isArray(focus)||focus.length!==3||!focus.every(v=>Number.isFinite(v)&&Math.abs(v)<1e12))throw new Error('Invalid world focus');
     prepareDistant(focus,message.distant!==false,!!message.focus,message.view);
     const frameLoads=loads;
-    const terrainStart=performance.now();await stream([focus[0],focus[2]],!message.focus);
+    const terrainStart=performance.now();if(!message.farOnly)await stream([focus[0],focus[2]],!message.focus);
     timings.terrainMs+=performance.now()-terrainStart;
-    const sceneStart=performance.now();updateScene(focus,!postFrameVisuals);timings.sceneMs+=performance.now()-sceneStart;
+    const sceneStart=performance.now();if(!message.farOnly)updateScene(focus,!postFrameVisuals);timings.sceneMs+=performance.now()-sceneStart;
     source.refresh?.();
     const physicsStart=performance.now();let advanced=false;
     if(!message.focus) {

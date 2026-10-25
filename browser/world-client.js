@@ -66,6 +66,7 @@ export class WorldClient {
     this.hopHeld=hop;
     this.elapsed=Math.min(.1,this.elapsed+dt);
     this.pendingFrame={throttle,steer,flags,focus,distant,sampleTime:performance.now()};
+    if(this.farOnly&&focus)this.pendingFrame.farOnly=true;
     if(view!==undefined)this.pendingFrame.view=view;
     this.flushFrame();
   }
