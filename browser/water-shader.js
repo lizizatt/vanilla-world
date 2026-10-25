@@ -1,4 +1,5 @@
 import {resizeRgba} from './terrain-stream.js';
+import {WHIRLPOOL_DIP} from './cloud-config.js';
 
 export const WATER_NORMAL_SIZE=128;
 export function waterNormalMips() {
@@ -30,7 +31,7 @@ export function waterNormalMips() {
 }
 
 // Maelstrom whirlpool (visual only): tunables in yards. The centre arrives local to the camera origin in u.sky[1..2].w, enabled by u.sky[3].w.
-const WHIRLPOOL={radius:2600,core:260,tilt:.8,spin:.35,twist:2.4,arms:4,pitch:1.1};
+const WHIRLPOOL={wallBoost:3.0,radius:2600,core:260,tilt:.8,spin:.35,twist:2.4,arms:4,pitch:1.1};
 const W=WHIRLPOOL;
 export const dayShading=`
 fn nightK()->f32 {return 1.0-u.forward.w;}
@@ -48,6 +49,7 @@ fn fogTint()->vec3f {return select(mix(vec3f(.08,.15,.20),vec3f(.008,.016,.045),
 export const waterShading=`
 @group(0) @binding(3) var waterNormals:texture_2d<f32>;
 @group(0) @binding(4) var waveSampler:sampler;
+const DIP_R=${WHIRLPOOL_DIP.radius.toFixed(1)};const DIP_D=${WHIRLPOOL_DIP.depth.toFixed(1)};
 fn waterColor(p:vec3f,ramp:f32,rampWidth:f32,dx:vec2f,dy:vec2f)->vec3f {
   var world=p.xz+vec2f(u.right.w,u.up.w);
   let wd=p.xz-vec2f(u.sky[1].w,u.sky[2].w);let wr=length(wd);let wt=u.settings.y;
@@ -61,7 +63,9 @@ fn waterColor(p:vec3f,ramp:f32,rampWidth:f32,dx:vec2f,dy:vec2f)->vec3f {
   let view=normalize(u.eye.xyz-p);
   let distance=length(u.eye.xyz-p);
   let detail=1.0-smoothstep(160.0,1500.0,distance);
-  var slope=(a.rg+b.gr-vec2f(1.0))*.9*detail-wd/max(wr,1.0)*${W.tilt.toFixed(2)}*wk;
+  // Bowl: the real mesh dip (ocean-mesh.js profile) gives the slope, boosted so the walls read as lit/shaded from afar.
+  let dq=max(1.0-(wr/DIP_R)*(wr/DIP_R),0.0);let bowl=dq*dq;let pit=u.sky[3].w*step(wr,DIP_R);
+  var slope=(a.rg+b.gr-vec2f(1.0))*.9*detail-wd/max(wr,1.0)*${W.tilt.toFixed(2)}*wk-wd*4.0*DIP_D*dq/(DIP_R*DIP_R)*${W.wallBoost.toFixed(1)}*pit;
   let normal=normalize(vec3f(slope.x,1.0,slope.y));
   let reflection=reflect(-view,normal);
   let sky=select(mix(vec3f(.16,.29,.38),vec3f(.40,.61,.72),smoothstep(0.0,1.0,reflection.y))*mix(vec3f(1.0),vec3f(.06,.09,.2),nightK()),
@@ -71,6 +75,7 @@ fn waterColor(p:vec3f,ramp:f32,rampWidth:f32,dx:vec2f,dy:vec2f)->vec3f {
   let body=mix(vec3f(.09,.43,.39),vec3f(.025,.18,.29),1.0-exp(-depth*4.5));
   var color=mix(body,sky,fresnel);
   color*=mix(1.0,.35,nightK());
+  color*=1.0-.55*bowl*pit;
   color=mix(color,vec3f(.01,.05,.07)*mix(1.0,.3,nightK()),(1.0-smoothstep(${(W.core*.4).toFixed(1)},${(W.core*1.6).toFixed(1)},wr))*step(.0001,wk));
   let halfDirection=view+normalize(vec3f(-.3,1.0,.4));
   let halfVector=halfDirection/max(length(halfDirection),.0001);

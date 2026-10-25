@@ -60,6 +60,13 @@ export function drawSkyDome(r,pass) {
   pass.setPipeline(r.domePipeline);pass.setVertexBuffer(0,r.skyDome.vertices);pass.setIndexBuffer(r.skyDome.indices,'uint32');
   for(const b of r.skyDome.batches){pass.setBindGroup(0,b.group);pass.drawIndexed(b.count,1,b.first);}
 }
+/** Fades a zone sky sample to the global look as weight (planet.zone) goes 1 -> 0; weight 0 is identical everywhere. */
+export function zoneBlend(game,weight=1) {
+  if(!game||weight>=1)return game;
+  const g={fog:[.08,.15,.2],sun:[1,.96,.88],horizon:[.55,.7,.8],mid:[.3,.5,.75],cloud:[1,1,1],cloud2:[.55,.6,.7]},out={...game};
+  for(const k in g)if(game[k])out[k]=game[k].map((v,i)=>i<3?g[k][i]+(v-g[k][i])*weight:v);
+  return out;
+}
 export function sampleSky(r) {
   const region=r.manifest?.regions[r.sceneRegion],map={Azeroth:0,Kalimdor:1}[region?.map];
   if(!r.skyCatalog||map===undefined)return undefined;

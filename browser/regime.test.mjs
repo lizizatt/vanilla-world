@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {regimeOf,REGIME_BANDS} from './regime.js';
 import {BEND_RANGE,GLOBE_RANGE,SPACE_RANGE,CLOUD_RANGE,planetFactors,wgslRamp} from './terrain-transition.js';
+import {CLOUD_ALTITUDE,CLOUD_THICKNESS} from './cloud-config.js';
+import {zoneBlend} from './renderer-sky.js';
 import {spaceShader} from './space.js';
 import {FLIGHT,flightBoost,moveFlight} from './flight.js';
 import {ORIENT,spaceBlend,stepOrient,fromEuler,basis} from './orient.js';
@@ -68,4 +70,12 @@ test('keyboard and controller map to the same Intent shape', () => {
 
 test('globe fog shader takes its ramp from the transition owner', () => {
   assert.ok(spaceShader.includes(wgslRamp(BEND_RANGE)+'s.p.x)'));
+});
+
+test('zone lighting weight is 0 at and above the lowest cloud layer base and 1 on the ground',()=>{
+  const base=CLOUD_ALTITUDE-CLOUD_THICKNESS/2;
+  assert.equal(planetFactors(base).zone,0);assert.equal(planetFactors(base*3).zone,0);assert.equal(planetFactors(20000).zone,0);
+  assert.equal(planetFactors(1).zone,1);assert.ok(planetFactors(base/2+100).zone>0);
+  const sky={fog:[1,0,0],sun:[0,1,0],horizon:[0,0,1],mid:[1,1,0],cloud:[1,0,1],cloud2:[0,1,1]};
+  assert.deepEqual(zoneBlend(zoneBlend(sky,0),0),zoneBlend({...sky,fog:[0,0,0],horizon:[9,9,9]},0));
 });

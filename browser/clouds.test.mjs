@@ -82,8 +82,8 @@ test('funnel base is sparse and un-bent onto the curved water',()=>{
   assert.match(cloudShader,/bendInv\(dir\*tf\)/);
 });
 
-test('zone lighting blends out with altitude (space factor)',()=>{
+test('zone lighting blends out with altitude (zone factor)',()=>{
   const view={eye:[1,2,3],right:[1,0,0],up:[0,1,0],look:[0,0,1],aspect:2},g={cloud:[.2,.4,.9],fog:[.5,.1,.1],sun:[1,0,0],cloud2:[.1,.1,.1]};
-  const lo=cloudUniform(view,0,1,manifest,1,g,undefined,1440,{bend:0,space:0}),hi=cloudUniform(view,0,1,manifest,1,g,undefined,1440,{bend:1,space:1});
+  const lo=cloudUniform(view,0,1,manifest,1,g,undefined,1440,{bend:0,space:0,zone:1}),hi=cloudUniform(view,0,1,manifest,1,g,undefined,1440,{bend:1,space:1,zone:0});
   assert.deepEqual([...lo.slice(24,27)].map(v=>+v.toFixed(2)),[.2,.4,.9]);assert.deepEqual([...hi.slice(24,27)],[1,1,1]);assert.deepEqual([...hi.slice(36,39)].map(v=>+v.toFixed(2)),[1,.96,.88]);
 });

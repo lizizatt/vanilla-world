@@ -16,7 +16,7 @@ export const MAELSTROM_MAP={across:.43,kalimdorDown:.35,easternDown:.4};
 
 // Whirlpool dip, the single source of truth for JS and Rust (set_whirlpool in voyage.rs): the ocean surface at distance r
 // from the centre sits depth*(1-(r/radius)^2)^2 yd below sea level (zero value and slope at the rim). The funnel ends at the bottom.
-export const WHIRLPOOL_DIP={radius:2400,depth:330};
+export const WHIRLPOOL_DIP={radius:1800,depth:380};
 
 // Funnel: a tapered, rotating column rising far above the sheet at the maelstrom centre (yards). Tunable.
 // The column continues below the sheet down to sea level, flaring into a mist skirt (skirtRadius) at the whirlpool.
