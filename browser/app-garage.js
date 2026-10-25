@@ -29,6 +29,7 @@ let skinToken=0;app.skinNote='';
 // Shipped GLB skins replace the Data rocket; any load failure keeps the Data rocket and says so in Diagnostics.
 async function applySkin() {
   const token=++skinToken,skin=skinOf(app.choice);
+  app.audio?.setPod(skin);
   if(!app.renderer)return;
   if(skin.source!=='glb'&&skin.source!=='swe1r'){app.skinNote='';app.renderer.setCraftOverride(undefined);return;}
   try{const model=skin.source==='swe1r'?await loadPodModel(getSwe1r(),skin):await loadVehicleModel(skin);if(token===skinToken){app.renderer.setCraftOverride(model);app.skinNote='';}}

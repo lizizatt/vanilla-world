@@ -11,7 +11,7 @@ import {MapPanel} from './map-panel.js';
 import {bootChoice,writeChoice,tracksFor,normalizeChoice,setRuntimeSkins} from './vehicles.js';
 import {initSwe1rRow,onSwe1r} from './swe1r/ui.js';
 import {podSkinList} from './swe1r/skin.js';
-import {SFX,HEAT,WIPEOUT_NAMES,loadSfx} from './swe1r/sfx.js';
+import {SFX,HEAT,WIPEOUT_NAMES,POD_ENGINES,loadSfx} from './swe1r/sfx.js';
 import {loadHudSprites,loadCountdownSprites,createDial,createHeatGauge} from './swe1r/hud.js';
 import {installHud} from './app-hud.js';
 import {installSettings} from './app-settings.js';
@@ -97,7 +97,7 @@ async function start() {
       if(!r){setRuntimeSkins('swe1r',[]);if(app.choice.skin.startsWith('swe1r-')){app.choice=normalizeChoice({...app.choice,skin:'rocket'});writeChoice(app.choice);app.applySkin();}app.garagePick=normalizeChoice(app.garagePick);app.dial=undefined;app.heatGauge=undefined;app.realHud=undefined;$('swe1r-heat').hidden=true;app.countdownSprites=undefined;app.voiceReader=undefined;$('swe1r-hud').hidden=true;app.syncHud();$('swe1r-hud-row').hidden=true;$('overheat-row').hidden=true;$('swe1r-sfx-row').hidden=true;audio.sampleOn=false;if(app.garage.open)app.renderGarage();return;}
       setRuntimeSkins('swe1r',podSkinList());if(app.garage.open)app.renderGarage();
       app.voiceReader=r;fetch('./swe1r/voice-map.json').then(x=>x.ok?x.json():{}).then(m=>{app.voiceMap=m;}).catch(()=>{});
-      const raw=await loadSfx(r,[...Object.values(SFX),...WIPEOUT_NAMES,...HEAT.klaxon,HEAT.coolOn,HEAT.cool]).catch(()=>new Map());
+      const raw=await loadSfx(r,[...Object.values(SFX),...Object.values(POD_ENGINES),...WIPEOUT_NAMES,...HEAT.klaxon,HEAT.coolOn,HEAT.cool]).catch(()=>new Map());
       loadCountdownSprites(r).then(s=>{app.countdownSprites=s||undefined;}).catch(e=>console.error('SWE1R countdown',e));
   loadHudSprites(r).then(s=>{if(!s)return;if(s.real){app.realHud=s.real;app.layoutHud();}else{app.realHud=undefined;app.dial=createDial(s,$('swe1r-hud'));app.heatGauge=s.heat&&createHeatGauge(s.heat,$('swe1r-heat'));}$('swe1r-hud-row').hidden=false;$('overheat-row').hidden=false;app.syncHud();}).catch(e=>console.error('SWE1R HUD',e));
       if(raw.size){audio.sampleOn=$('swe1r-sfx').checked;$('swe1r-sfx-row').hidden=false;await audio.useSamples(raw);}});
