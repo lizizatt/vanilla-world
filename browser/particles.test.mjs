@@ -128,3 +128,14 @@ test('water: spray+wake when moving, ripple pulse when still, none above water',
   assert.ok(kinds({}).carry.has('spray') && kinds({}).carry.has('wake'));
   assert.ok(kinds({ speed: 0, time: 0 }).carry.has('ripplePulse'));
 });
+
+test('idle grounded craft puffs a few small dust particles; none when airborne or particles off', () => {
+  const m = new Float32Array(16); m[0] = m[5] = m[10] = m[15] = 1;
+  const run = o => { const pool = new ParticlePool(512, () => .5); pool.quality = 1; emitGroundDust(pool, { matrix: m, origin: [0, 0], scale: 1, length: 4, speed: 0, drift: false, grounded: true, dt: 1, ...o }); return pool; };
+  const idle = run({});
+  assert.ok(idle.count > 0 && idle.count < 10, `idle count ${idle.count}`);
+  assert.equal(run({ speed: 0, grounded: false, dt: 1 }).count, 0);
+  const off = new ParticlePool(512, () => .5); off.quality = 0;
+  emitGroundDust(off, { matrix: m, origin: [0, 0], scale: 1, length: 4, speed: 0, drift: false, grounded: true, dt: 1 });
+  assert.equal(off.count, 0);
+});
