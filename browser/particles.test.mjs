@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {ParticlePool, QUALITY, KINDS, gradient, exhaustPoints, emitPlumes, emitBurst, emitDebris, emitHeatSmoke, emitGroundDust, particleUniform, particleShader} from './particles.js';
+import {ParticlePool, QUALITY, KINDS, gradient, exhaustPoints, emitPlumes, emitBurst, emitDebris, emitHeatSmoke, emitGroundDust, particleUniform, particleShader, emitLamps} from './particles.js';
 
 test('ring buffer overwrites the oldest particle when full', () => {
   const pool = new ParticlePool(4);
@@ -110,4 +110,13 @@ test('ground dust needs a grounded craft, thickens when drifting and goes behind
   assert.equal(run({ grounded: false }).count, 0); assert.equal(run({ speed: 3 }).count, 0); assert.ok(run({ speed: 30 }).count > 0 && run({ speed: 30 }).count < run({ speed: 120 }).count, 'ordinary driving kicks up dust, more with speed');
   assert.ok(run({ drift: true }).count > run({}).count && run({}).count > 0);
   assert.ok(run({}).data[0] < 0, 'spawned behind the craft (-x)');
+});
+
+test('lamp glow emits only at night and scales with it', () => {
+  const m = new Float32Array(16).map((v, i) => i % 5 ? 0 : 1);
+  const lit = new ParticlePool(64, () => .5), day = new ParticlePool(64, () => .5);
+  emitLamps(day, [{ points: [[0, 0, 1]], matrix: m }], [0, 0], .5, 0);
+  emitLamps(lit, [{ points: [[0, 0, 1]], matrix: m }], [0, 0], .5, 1);
+  assert.equal(day.count, 0);
+  assert.ok(lit.count > 0);
 });

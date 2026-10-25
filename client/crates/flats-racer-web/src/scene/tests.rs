@@ -666,3 +666,11 @@ fn geoset_lists_are_bounded_json() {
     assert!(parse_geosets("[-1]").is_err());
     assert!(parse_geosets(&format!("[{}]", vec!["1"; 300].join(","))).is_err());
 }
+
+#[test]
+fn lamp_points_only_for_light_models_with_a_bounds_fallback() {
+    let meta = r#"{"bounds":[[-1.0,-1.0,0.0],[1.0,1.0,4.0]]}"#;
+    assert!(lamp_points(&[], "World\\Generic\\Human\\Passive Doodads\\Crate\\Crate01.m2", meta).is_empty());
+    let p = lamp_points(&[], "World\\Generic\\Human\\Passive Doodads\\Lanterns\\HangingLantern.m2", meta);
+    assert_eq!(p, vec![[0.0, 0.0, 3.6]]);
+}
