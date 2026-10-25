@@ -117,13 +117,11 @@ export class WorldRenderer {
     const aspect=width/height;
     this.view={eye:[this.camera[0]+origin[0],this.camera[1],this.camera[2]+origin[1]],right,up,look,aspect};
     const planetOn=!!flight&&settings.planet!==false,pf=this.planet=planetFactors(planetOn?this.view.eye[1]:0,planetOn);pf.mesh=planetOn&&!!settings.globeMesh;pf.registry=planetOn&&!!settings.globeRegistry;
-    const clock=this.clock??=new SimClock(settings.night?0:DAY,settings.timeScale);
-    if(this.lastNight!==undefined&&this.lastNight!==!!settings.night)clock.easeTo(settings.night?0:DAY);
-    this.lastNight=!!settings.night;clock.scale=sanitiseScale(settings.timeScale);clock.step(dt);
+    const clock=this.clock??=new SimClock(DAY,1);
+    clock.scale=flight?sanitiseScale(settings.timeScale):1;clock.step(dt);
     this.cloudTime=((this.cloudTime??time)+dt*cloudRate(clock.scale))%CLOUD_TIME_WRAP;
     this.timeOfDay=this.timeLock??clock.now();
-    const target=daylightAt(this.timeOfDay),previous=this.daylight??target;
-    const daylight=this.daylight=Math.abs(target-previous)<.002?target:previous+(target-previous)*Math.min(1,dt*1.5);
+    const daylight=this.daylight=daylightAt(this.timeOfDay);
     const sky0=DAY_SKY.map((v,i)=>NIGHT_SKY[i]+(v-NIGHT_SKY[i])*daylight);
     const game=zoneBlend(this.sampleSky(),pf.zone),sky=game?game.fog:sky0;pf.fog=(game?game.horizon:sky).slice(0,3);
     this.gameSky=game;

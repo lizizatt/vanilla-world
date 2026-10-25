@@ -1,6 +1,7 @@
 import {moveFlight,FLIGHT_PITCH} from './flight.js';
 import {basis,fromEuler,toEuler,stepOrient,turnAround} from './orient.js';
 import {spaceHud} from './space.js';
+import {istText,daylightAt} from './sim-clock.js';
 import {gpuBytesOf} from './memory-budget.js';
 import {regimeOf} from './regime.js';
 import {nearestFlag} from './race-flags.js';
@@ -51,6 +52,7 @@ function frame(now) {
     const stats=app.renderer.draw(app.frozenPresentation || app.flight?client.state.telemetry:client.presentation(),app.flight,dt,app.frozenPresentation?0:now/1000,
       {...settings,cameraLook:controls.look,cameraOrbit,cameraSteer:right,cameraRecentre:keyDrive&&!app.dragging},keys.has('KeyV')&&!keys.has('AltLeft')&&!keys.has('AltRight'));
     app.editor.frame();
+    updateTimeHud(app);
     if(app.memoryBytes&&now-(app.gpuSent||0)>=1000){app.gpuSent=now;evidence.gpuBytes=gpuBytesOf(stats);client.budget(app.memoryBytes,evidence.gpuBytes);}
     const cameraWarning=stats.cameraBlocked==='pending'?'Cockpit view waiting for nearby camera geometry.'
       :stats.cameraBlocked?'Cockpit view blocked by nearby geometry.':'';
@@ -115,4 +117,12 @@ function frame(now) {
     }
   } catch(error){app.running=false;app.fail(error);}
 }
+}
+
+/** Top-of-screen Ironforge Standard Time readout; the speed slider shows only in fly mode (outside it the clock runs 1x). */
+function updateTimeHud(app) {
+  const r=app.renderer,d=document,t=r?.timeOfDay;if(t===undefined)return;
+  const c=d.getElementById('ist-clock'),text=istText(t);if(c.textContent!==text)c.textContent=text;
+  d.getElementById('time-speed').hidden=!app.flight;
+  app.music.setNight(daylightAt(t)<.5);
 }

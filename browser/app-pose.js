@@ -5,7 +5,7 @@ const {settings,client}=app;
 Object.assign(app,{applyUrlPose});
 /** Exact-view export/import: Ctrl+Alt+P copies a repro link (world pose, time, settings); opening it restores the same view. */
 function toast(text) {
-  let t=document.getElementById('pose-toast');if(!t){t=document.createElement('div');t.id='pose-toast';t.style.cssText='position:fixed;left:50%;top:18px;transform:translateX(-50%);z-index:99999;background:#103040e6;color:#fff;border:1px solid #4cd;padding:10px 16px;font:14px sans-serif;border-radius:6px;pointer-events:none';document.body.append(t);}
+  let t=document.getElementById('pose-toast');if(!t){t=document.createElement('div');t.id='pose-toast';t.style.cssText='position:fixed;left:50%;top:48px;transform:translateX(-50%);z-index:99999;background:#103040e6;color:#fff;border:1px solid #4cd;padding:10px 16px;font:14px sans-serif;border-radius:6px;pointer-events:none';document.body.append(t);}
   t.textContent=text;t.hidden=false;clearTimeout(t.timer);t.timer=setTimeout(()=>{t.hidden=true;},2500);
 }
 function showLink(link) {
@@ -26,8 +26,8 @@ function exportPose() {
 async function applyUrlPose() {
   const raw=new URLSearchParams(location.search).get('pose');if(!raw)return;
   let view;try{view=JSON.parse(raw);}catch{return;}
-  Object.assign(settings,view.settings||{});app.syncSettings();
-  if(view.time!==undefined){app.renderer.clock=new SimClock(view.time,settings.timeScale);app.renderer.timeLock=undefined;app.renderer.lastNight=!!settings.night;}
+  Object.assign(settings,view.settings||{});delete settings.night;app.syncSettings();
+  if(view.time!==undefined){app.renderer.clock=new SimClock(view.time,settings.timeScale);app.renderer.timeLock=undefined;}
   if(view.flight)app.flight=view.flight.slice();
   else if(view.drive){client.state=await client.request('restore',{pose:view.drive});app.flight=undefined;app.renderer.camera=undefined;}
   app.running=true;
