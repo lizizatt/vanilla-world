@@ -30,9 +30,9 @@ export function cloudUniform(view,time,daylight,manifest,near,game,out=new Float
   out.set([shellCurvature(planet.bend),planet.space,0,0],44);
   out.set([...f.east,WORLD_CENTRE[0],...f.up,WORLD_CENTRE[1],...f.south,PLANET_RADIUS],48);
   out.set([...sun,sun[1]],32);out.set([1,.96,.88,0],36);out.set([.55,.6,.7,0],40);
-  // Zone lighting fades to the global sun/sky look with altitude (planet.space 0..1), so orbit is lit by the sun alone.
+  // Zone lighting fades to the global sun/sky look by the lowest cloud base (planet.zone 1..0), so orbit is lit by the sun alone.
   if(game){
-    const k=Math.min(Math.max(planet.space||0,0),1),mixTo=(c,d)=>c.map((v,i)=>v+(d[i]-v)*k);
+    const k=1-Math.min(Math.max(planet.zone??1,0),1),mixTo=(c,d)=>c.map((v,i)=>v+(d[i]-v)*k);
     out.set([...mixTo(game.cloud,[1,1,1]),1,...mixTo(game.fog,[.08,.15,.2]),0],24);
     if(game.sun)out.set([...mixTo(game.sun,[1,.96,.88]),0],36);if(game.cloud2)out.set([...mixTo(game.cloud2,[.55,.6,.7]),1],40);
   }

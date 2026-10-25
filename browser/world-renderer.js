@@ -20,7 +20,7 @@ import {buffer,texture,drawable,setFlags,setGates,releaseMaterial,release,upload
 import {destroyCraft,releaseCraft,buildCraft,startWreck,wreckChunk,endWreck,setProps,setCraftOverride} from './renderer-craft.js';
 import {reset,configure,event,clearFar} from './renderer-events.js';
 import {scenePipeline,prepareBatches,sceneMatrix,drawScene} from './renderer-scene.js';
-import {setSky,setSkyDome,horizonColour,planetRects,drawPlanet,drawPatches,drawSkyDome,sampleSky} from './renderer-sky.js';
+import {zoneBlend,setSky,setSkyDome,horizonColour,planetRects,drawPlanet,drawPatches,drawSkyDome,sampleSky} from './renderer-sky.js';
 import {drawShadow,enableHighClouds,highCloudGroup,maskEntries,drawClouds} from './renderer-clouds.js';
 import {initialize} from './renderer-init.js';
 const OCEAN_MESH_CEILING=25000;
@@ -120,7 +120,7 @@ export class WorldRenderer {
     const daylight=this.daylight=Math.abs(target-previous)<.002?target:previous+(target-previous)*Math.min(1,dt*1.5);
     const sky0=DAY_SKY.map((v,i)=>NIGHT_SKY[i]+(v-NIGHT_SKY[i])*daylight);
     this.timeOfDay=this.timeLock??advanceTime(this.timeOfDay??(settings.night?0:DAY),settings.night,dt);
-    const game=this.sampleSky(),sky=game?game.fog:sky0;pf.fog=(game?game.horizon:sky).slice(0,3);
+    const game=zoneBlend(this.sampleSky(),pf.zone),sky=game?game.fog:sky0;pf.fog=(game?game.horizon:sky).slice(0,3);
     this.gameSky=game;
     const skyFloats=game?[...game.fog,1,...game.sun,0,...game.horizon,0,...game.mid,0]:new Array(16).fill(0);
     if(this.manifest?.world_bounds){const [mx,mz]=maelstromCentre(this.manifest);skyFloats[7]=mx-origin[0];skyFloats[11]=mz-origin[1];skyFloats[15]=1;}
