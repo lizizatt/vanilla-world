@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {SETTLEMENTS,DEMO_SETTLEMENTS,PALETTES,FIRE,NIGHT_W,NIGHT_H,FLAG_ARCANE,FLAG_EERIE,settlementPositions,settlementLights,bakeNightLights,nightLightsWgsl} from './night-lights.js';
+import {SETTLEMENTS,DEMO_SETTLEMENTS,PALETTES,FIRE,NIGHT_W,NIGHT_H,FLAG_ARCANE,FLAG_EERIE,settlementPositions,settlementLights,bakeNightLights,createNightBake,litSpot,nightLightsWgsl} from './night-lights.js';
 import {spaceShader,patchShader,subPoint} from './space.js';
 
 const manifest={world_bounds:[[0,0,0,0],[0,0,0,0]],regions:[
@@ -47,4 +47,20 @@ test('shader inputs: both globe shaders bind and call the lights texture', () =>
     assert.ok(src.includes('@binding(4) var lightsTex'));
     assert.ok(src.includes(nightLightsWgsl)&&src.includes('lightsAt('));
   }
+});
+
+test('incremental bake equals the batch bake and reports touched rows', () => {
+  const list=settlementPositions(manifest);
+  const inc=createNightBake();for(const s of list)inc.add(s);
+  assert.deepEqual(inc.out,bakeNightLights(list));
+  inc.rows=null;
+  const spot=litSpot(list[0].pos[0]+300,list[0].pos[1],20);
+  inc.add(spot);
+  assert.ok(inc.rows&&inc.rows[0]<=inc.rows[1]);
+  assert.ok(texel(inc.out,spot)[0]>0,'lit spot adds light at its position');
+});
+
+test('lit spots grow with the number of emissive models and stay firelight', () => {
+  assert.ok(litSpot(0,0,1).size<litSpot(0,0,4).size&&litSpot(0,0,16).size<litSpot(0,0,64).size);
+  assert.equal(litSpot(0,0,1).palette,undefined);
 });

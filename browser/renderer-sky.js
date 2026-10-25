@@ -5,7 +5,7 @@ import {patchesAt,packPatches,PATCH_GRID} from './globe-patches.js';
 import {createRegistry,defaultManifest,bakeSurface,surfaceTexel,splatMinimap,adtChunk} from './tile-registry.js';
 import {HEIGHT_W,HEIGHT_H,encodeHeights} from './height-bake.js';
 import {PLANET_RADIUS,WORLD_CENTRE,spaceUniform,FALLBACK_RECTS} from './space.js';
-import {settlementPositions,bakeNightLights,NIGHT_W,NIGHT_H} from './night-lights.js';
+import {settlementPositions,createNightBake,litSpot,NIGHT_W,NIGHT_H} from './night-lights.js';
 import {SkyCatalog,mapPosition,nightAlpha,nightAngle} from './sky.js';
 
 /** Game light data arrives as raw DBC bytes, stays in memory, and falls back to the procedural sky on any problem. */
@@ -40,8 +40,12 @@ export function drawPlanet(r,pass,pf,near) {
     r.colourDirty.clear();r.colourAt=performance.now();r.surfaceDirty=true;
   }
   if(r.lightsKey!==key){
-    r.device.queue.writeTexture({texture:r.lightsTex},bakeNightLights(settlementPositions(r.manifest,rects)),{bytesPerRow:NIGHT_W*4},[NIGHT_W,NIGHT_H]);r.lightsKey=key;
+    r.nightBake=createNightBake();for(const s of settlementPositions(r.manifest,rects))r.nightBake.add(s);r.litCells=new Map();r.litQueue=[];r.nightBake.rows=[0,NIGHT_H-1];r.lightsKey=key;
   }
+  // Lit WMO/lamp spots seen by the ground renderer join the bake a few per frame; only touched rows are re-uploaded.
+  for(let n=0;n<16&&r.litQueue?.length;n++)r.nightBake.add(r.litQueue.pop());
+  if(r.nightBake.rows){const [y0,y1]=r.nightBake.rows;r.nightBake.rows=null;
+    r.device.queue.writeTexture({texture:r.lightsTex,origin:[0,y0,0]},r.nightBake.out,{offset:y0*NIGHT_W*4,bytesPerRow:NIGHT_W*4},[NIGHT_W,y1-y0+1]);}
   if(r.surfaceDirty){r.device.queue.writeTexture({texture:r.surfaceTex},r.surfaceBytes,{bytesPerRow:4096},[1024,512]);r.surfaceDirty=false;}
   const uniform=spaceUniform(r.view,sunDirection(r.timeOfDay),pf,rects,r.timeOfDay,near,200000);
   uniform[47]=performance.now()/1000%3600;// wall-clock seconds for light twinkle
@@ -83,4 +87,11 @@ export function sampleSky(r) {
   if(!r.skyCatalog||map===undefined)return undefined;
   const [x,z]=mapPosition(region,r.view.eye[0],r.view.eye[2]);
   return r.skyCatalog.sample(map,x,z,r.timeOfDay);
+}
+/** Records a lit (emissive) model instance at render-space [x,z]; one spot per 160-yd cell, size grows with how many lit models share it. */
+export function noteLitInstance(r,x,z) {
+  if(!r.litCells)return;
+  const k=Math.floor(x/160)+','+Math.floor(z/160),c=r.litCells.get(k);
+  if(!c){const spot={n:1,s:litSpot(x,z,1)};r.litCells.set(k,spot);r.litQueue.push(spot.s);return;}
+  c.n++;if(c.n===4||c.n===16||c.n===64){c.s=litSpot(x,z,c.n);r.litQueue.push(c.s);}
 }

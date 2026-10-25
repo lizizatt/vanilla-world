@@ -114,7 +114,9 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   if(fract(dot(floor(v.clip.xy),vec2f(.754877666,.569840296)))>=coverage){discard;}
   let light=mix(.4+.6*max(dot(normalize(v.n),normalize(vec3f(-.3,1.0,.4))),0.0),1.0,u.material.y);
   let fog=max(max(clamp(distance/150000.0,0.0,.93),valleyHaze(v.p))*(1.0-u.bend.y),u.material.z*.8*smoothstep(3500.0,6000.0,distance));
-  var color=grade(texel.rgb*light);
+  // Unlit/emissive batches (lamp glass, windows, braziers) keep their colour through the sim-clock night instead of taking the night grade.
+  let glow=u.material.y*nightK();
+  var color=mix(grade(texel.rgb*light),texel.rgb*(1.0+.35*glow),glow);
   if(u.settings.z>.5){color=waterColor(v.p,v.uv.x,rampWidth,dx,dy);}
-  return vec4f(mix(color,fogTint(),fog),texel.a);
+  return vec4f(mix(color,fogTint(),fog*(1.0-.6*glow)),texel.a);
 }`;
