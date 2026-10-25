@@ -5,6 +5,7 @@ import {patchesAt,packPatches,PATCH_GRID} from './globe-patches.js';
 import {createRegistry,defaultManifest,bakeSurface,surfaceTexel,splatMinimap,adtChunk} from './tile-registry.js';
 import {HEIGHT_W,HEIGHT_H,encodeHeights} from './height-bake.js';
 import {PLANET_RADIUS,WORLD_CENTRE,spaceUniform,FALLBACK_RECTS} from './space.js';
+import {settlementPositions,bakeNightLights,NIGHT_W,NIGHT_H} from './night-lights.js';
 import {SkyCatalog,mapPosition,nightAlpha,nightAngle} from './sky.js';
 
 /** Game light data arrives as raw DBC bytes, stays in memory, and falls back to the procedural sky on any problem. */
@@ -37,8 +38,13 @@ export function drawPlanet(r,pass,pf,near) {
     for(const k of r.colourDirty)r.surfaceBytes.set(surfaceTexel(r.surfaceRegistry,k%1024,Math.floor(k/1024),1024,512),k*4);
     r.colourDirty.clear();r.colourAt=performance.now();r.surfaceDirty=true;
   }
+  if(r.lightsKey!==key){
+    r.device.queue.writeTexture({texture:r.lightsTex},bakeNightLights(settlementPositions(r.manifest,rects)),{bytesPerRow:NIGHT_W*4},[NIGHT_W,NIGHT_H]);r.lightsKey=key;
+  }
   if(r.surfaceDirty){r.device.queue.writeTexture({texture:r.surfaceTex},r.surfaceBytes,{bytesPerRow:4096},[1024,512]);r.surfaceDirty=false;}
-  r.device.queue.writeBuffer(r.spaceBuffer,0,spaceUniform(r.view,sunDirection(r.timeOfDay),pf,rects,r.timeOfDay,near,200000));
+  const uniform=spaceUniform(r.view,sunDirection(r.timeOfDay),pf,rects,r.timeOfDay,near,200000);
+  uniform[47]=performance.now()/1000%3600;// wall-clock seconds for light twinkle
+  r.device.queue.writeBuffer(r.spaceBuffer,0,uniform);
   pass.setPipeline(r.spacePipeline);pass.setBindGroup(0,r.spaceGroup);pass.draw(3);
 }
 export function drawPatches(r,pass) {

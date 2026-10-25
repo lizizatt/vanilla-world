@@ -4,6 +4,7 @@ import {shadowShader} from './shadow.js';
 import {cloudShader,CloudMask} from './clouds.js';
 import {ParticlePool,INSTANCE_FLOATS,CAPACITY,particleShader} from './particles.js';
 import {MAX_PATCHES} from './globe-patches.js';
+import {NIGHT_W,NIGHT_H} from './night-lights-wgsl.js';
 import {createColourGrid} from './tile-registry.js';
 import {HEIGHT_W,HEIGHT_H} from './height-bake.js';
 import {spaceShader,patchShader} from './space.js';
@@ -86,6 +87,7 @@ export async function initialize(r) {
   r.skyGroup=r.device.createBindGroup({layout:r.skyPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.skyBuffer}}]});
   r.spaceBuffer=r.device.createBuffer({size:256,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
   r.surfaceTex=r.device.createTexture({size:[1024,512],format:'rgba8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});
+  r.lightsTex=r.device.createTexture({size:[NIGHT_W,NIGHT_H],format:'rgba8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});
   r.heightTex=r.device.createTexture({size:[HEIGHT_W,HEIGHT_H],format:'r8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});
   r.heightGrid=new Float32Array(HEIGHT_W*HEIGHT_H).fill(-Infinity);r.heightDirty=false;
   r.colourGrid=createColourGrid();r.colourDirty=new Set();r.horizonMini=new Map();
@@ -94,13 +96,13 @@ export async function initialize(r) {
   r.spacePipeline=await r.device.createRenderPipelineAsync({layout:'auto',vertex:{module:spaceModule,entryPoint:'vs'},
     fragment:{module:spaceModule,entryPoint:'fs',targets:[{format:r.format,blend:{color:{srcFactor:'one',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},primitive:{topology:'triangle-list'},
     depthStencil:DEPTH_STATE.space});
-  r.spaceGroup=r.device.createBindGroup({layout:r.spacePipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.spaceBuffer}},{binding:1,resource:r.surfaceTex.createView()},{binding:2,resource:r.surfaceSamp}]});
+  r.spaceGroup=r.device.createBindGroup({layout:r.spacePipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.spaceBuffer}},{binding:1,resource:r.surfaceTex.createView()},{binding:2,resource:r.surfaceSamp},{binding:4,resource:r.lightsTex.createView()}]});
   const patchModule=await shader(patchShader);
   r.patchBuffer=r.device.createBuffer({size:MAX_PATCHES*32,usage:GPUBufferUsage.VERTEX|GPUBufferUsage.COPY_DST});
   r.patchPipeline=await r.device.createRenderPipelineAsync({layout:'auto',vertex:{module:patchModule,entryPoint:'pvs',buffers:[{arrayStride:32,stepMode:'instance',attributes:[{shaderLocation:0,offset:0,format:'float32x4'},{shaderLocation:1,offset:16,format:'float32x4'}]}]},
     fragment:{module:patchModule,entryPoint:'pfs',targets:[{format:r.format,blend:{color:{srcFactor:'one',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},primitive:{topology:'triangle-list'},
     depthStencil:DEPTH_STATE.patch});
-  r.patchGroup=r.device.createBindGroup({layout:r.patchPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.spaceBuffer}},{binding:1,resource:r.surfaceTex.createView()},{binding:2,resource:r.surfaceSamp},{binding:3,resource:r.heightTex.createView()}]});
+  r.patchGroup=r.device.createBindGroup({layout:r.patchPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.spaceBuffer}},{binding:1,resource:r.surfaceTex.createView()},{binding:2,resource:r.surfaceSamp},{binding:3,resource:r.heightTex.createView()},{binding:4,resource:r.lightsTex.createView()}]});
   const domeModule=await shader(skyDomeShader);
   r.domeBuffer=r.device.createBuffer({size:64,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
   r.domePipeline=await r.device.createRenderPipelineAsync({layout:'auto',vertex:{module:domeModule,entryPoint:'vs',buffers:[{arrayStride:48,attributes:[
