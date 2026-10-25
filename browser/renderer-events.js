@@ -4,7 +4,7 @@ import {COAST_GPU_LIMIT} from './water-stream.js';
 import {maelstromCentre} from './clouds.js';
 import {oceanMesh} from './ocean-mesh.js';
 import {splatHeights} from './height-bake.js';
-import {isLandTile,trimRimSpikes} from './land-rect.js';
+import {isLandTile,trimRimSpikes,landMask} from './land-rect.js';
 import {PLANET_RADIUS,WORLD_CENTRE} from './space.js';
 import {AdmissionFade,terrainEdgeMask,readySceneInstances} from './renderer-helpers.js';
 const OCEAN_FILL=130000;
@@ -64,7 +64,7 @@ export function event(r,data) {
     r.horizonColour(data.region*4096+data.source[0]+64*data.source[1],{placement:data.placement});r.horizon.push({...r.drawable(data.vertices,data.placement,r.minimapAtlases[data.region]),
     region:data.region,near:data.near,cell:data.source[0]+64*data.source[1]});
     const hb=r.horizon[r.horizon.length-1].bounds;
-    if(hb&&r.oceanSpec&&isLandTile(data.vertices)){r.landRects.push([hb[0][0],hb[0][2],hb[1][0],hb[1][2]]);r.oceanDirty=true;}}
+    if(hb&&r.oceanSpec&&isLandTile(data.vertices)){r.landRects.push([hb[0][0],hb[0][2],hb[1][0],hb[1][2],landMask(data.vertices,data.placement)]);r.oceanDirty=true;}}
   else if(data.event==='horizon-material'){
     if(data.rgba.length!==MINIMAP_SIZE*MINIMAP_SIZE*4||!r.minimapAtlases[data.region]||
       !Number.isInteger(data.x)||!Number.isInteger(data.y)||data.x<0||data.x>=64||data.y<0||data.y>=64)

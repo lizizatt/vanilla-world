@@ -40,3 +40,13 @@ test('the whirlpool patch and surrounding quads share edge vertices (no T-juncti
       if(s>1e-6&&s<1-1e-6&&Math.abs((px-a[0])*dz-(pz-a[1])*dx)/Math.sqrt(l2)<1e-6){bad++;break;}}}
   assert.equal(bad,0);
 });
+
+import {landMask} from './land-rect.js';
+test('a land rect with a bay is cut only where the ground is above sea level',()=>{
+  const verts=[];for(let r=0;r<=16;r++)for(let c=0;c<=16;c++)verts.push(c*33,c<8?200:-30,r*33,0,1,0,0);
+  const mask=landMask(new Float32Array(verts),[0,0]);
+  const area=(m)=>{let s=0;for(let i=0;i<m.length;i+=21){const v=(k)=>[m[i+k*7],m[i+k*7+2]];const [a,b,c]=[v(0),v(1),v(2)];s+=Math.abs((b[0]-a[0])*(c[1]-a[1])-(c[0]-a[0])*(b[1]-a[1]))/2;}return s;};
+  const man={ocean:[-1000,-1000,2000,2000],sea_level:0};
+  const full=area(oceanMesh(man,16,[[0,0,528,528]])),masked=area(oceanMesh(man,16,[[0,0,528,528,mask]]));
+  assert.ok(masked>full+528*528/2*.8,`${masked} ${full}`);
+});
