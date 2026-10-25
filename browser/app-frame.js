@@ -1,6 +1,9 @@
 import {moveFlight,FLIGHT_PITCH} from './flight.js';
 import {basis,fromEuler,toEuler,stepOrient,turnAround} from './orient.js';
 import {spaceHud} from './space.js';
+import {stepShared} from './shared-flight.js';
+import {spaceReadout} from './space-hud.js';
+import {activeBody} from './body-shaders.js';
 import {istText,daylightAt} from './sim-clock.js';
 import {gpuBytesOf} from './memory-budget.js';
 import {regimeOf} from './regime.js';
@@ -41,9 +44,14 @@ function frame(now) {
       const dk=k=>Number(keys.has(k));
       q=keys.has('KeyX')?fromEuler(toEuler(q,app.flight[3])[0],-FLIGHT_PITCH):stepOrient(q,{yaw:(dk('ArrowLeft')-dk('ArrowRight'))*dt-cameraOrbit[0]*.004,pitch:(dk('ArrowUp')-dk('ArrowDown'))*dt-cameraOrbit[1]*.004},app.flight[1],dt);
       const aim=basis(q);
-      app.flight=moveFlight(app.flight,keys,dt,aim);if(app.flight.poleFlip)q=turnAround(q);const [ny,np]=toEuler(q,app.flight[3]);app.flightSpeed=dt>0?Math.hypot(app.flight[0]-before[0],app.flight[1]-before[1],app.flight[2]-before[2])/dt:0;
+      if(app.renderer.sharedSpace){
+        const down=k=>Number(keys.has(k)),r=stepShared(app.space,app.flight,aim,{forward:down('KeyW')-down('KeyS'),strafe:down('KeyD')-down('KeyA'),lift:down('KeyE')-down('KeyQ'),fast:keys.has('ShiftLeft')||keys.has('ShiftRight')},dt,app.renderer.timeOfDay??0);
+        app.space=r.space;app.flight=r.pose;
+        if(r.swapped&&r.parent!==activeBody().id)app.soiHandoff(r.parent,r.pose);
+      } else app.flight=moveFlight(app.flight,keys,dt,aim);if(app.flight.poleFlip)q=turnAround(q);const [ny,np]=toEuler(q,app.flight[3]);app.flightSpeed=dt>0?Math.hypot(app.flight[0]-before[0],app.flight[1]-before[1],app.flight[2]-before[2])/dt:0;
       app.flight[3]=ny;app.flight[4]=np;app.flight.length=5;app.flight.push(...q);
     }
+    if(!app.flight)app.space=undefined;
     if(app.race){app.flight=undefined;if(!app.raceMenu.open)app.raceFrame(controls,now/1000);}
     if(app.editor.isOpen)app.flight=app.editor.pose();
     app.syncGates();
@@ -89,7 +97,7 @@ function frame(now) {
       $('camera-status').textContent=app.flight?'Flight camera is collision-free':settings.cockpit
         ?cameraWarning||(app.renderer.cameraMode==='cockpit'?'Cockpit / exact posed seat':'Cockpit waiting for craft'):!cameraCollision.ready?'Chase clearance waiting for geometry'
         :cameraCollision.coverageLimited?'Chase distance limited to its collision window':'Vehicle-relative chase collision ready';
-      const airborne=!!app.flight&&regimeOf(app.flight[1])!=='ground';$('space-hud').hidden=!airborne;if(airborne)$('space-hud').textContent=spaceHud(app.flight,app.flightSpeed,app.renderer.planetRects?.(),app.landmarks());
+      const airborne=!!app.flight&&regimeOf(app.flight[1])!=='ground';$('space-hud').hidden=!airborne;if(airborne)$('space-hud').textContent=app.space?spaceReadout(app.space,app.renderer.timeOfDay??0,keys.has('ShiftLeft')).label:spaceHud(app.flight,app.flightSpeed,app.renderer.planetRects?.(),app.landmarks());
       $('place').textContent=app.flight?'FREE FLIGHT':p[10]===-1?'THE GREAT SEA':p[10]===1?'EASTERN KINGDOMS':'KALIMDOR';
       $('coordinates').textContent=`${(app.flight?.[0]??p[0]).toFixed(0)} E / ${(app.flight?.[2]??p[2]).toFixed(0)} S`;
       $('resident').textContent=`${s.resident.length}/${s.limit} terrain tiles · ${stats.horizonTiles} distant patches · ${stats.sceneInstances||0} scene instances`;

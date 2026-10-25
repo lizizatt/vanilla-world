@@ -103,7 +103,10 @@ async function start() {
       if(raw.size){audio.sampleOn=$('swe1r-sfx').checked;$('swe1r-sfx-row').hidden=false;await audio.useSamples(raw);}});
     const moonEntry=new URLSearchParams(location.search).get('body')==='elune';
     app.folder=moonEntry?undefined:await restoreDataFolder().catch(()=>undefined);
+    app.soiHandoff=(parent,pose)=>{if(parent!=='elune'||moonEntry)return;sessionStorage.setItem('elune-landing',JSON.stringify(pose.slice(0,5)));const q=new URLSearchParams(location.search);q.set('body','elune');q.set('bodies','');location.search=q.toString();};
     if(moonEntry)await app.open('elune');
+    const landing=moonEntry&&sessionStorage.getItem('elune-landing');
+    if(landing){sessionStorage.removeItem('elune-landing');app.flight=JSON.parse(landing);}
     else if(app.folder) {
       if(await authorizeDataFolder(app.folder))await app.open(app.folder);
       else {app.permissionNeeded=true;app.showReconnect(true);
