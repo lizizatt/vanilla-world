@@ -7,7 +7,7 @@ import {loadCraft} from './craft-stream.js';
 import {loadPopulation} from './npc-pack.js';
 import {WaterStream} from './water-stream.js';
 import {FarChannel} from './far-channel.js';
-import {splitBudget} from './memory-budget.js';
+import {splitBudget,effectiveBudget,residentTileCap,nearRadius} from './memory-budget.js';
 import {FAR_LIMITS} from './far-stream.js';
 import {viewChanged} from './world-view.js';
 import {ActorService,ACTOR} from './actors.js';
@@ -15,7 +15,7 @@ import {maelstromCentre,WHIRLPOOL_DIP} from './clouds.js';
 import {TILE,createTerrainIndex,terrainDistance,tileKeyOf,assetPathOf,focusRegionOf,sourcePositionOf,
   nextUnresolvedWindow,isCameraUnknown,isObjectWaiting} from './world-worker-logic.js';
 
-const LIMIT=SCENE_LIMITS.nearTiles;
+let LIMIT=SCENE_LIMITS.nearTiles;
 let wasm;
 export const ready=init().then(exports=>(wasm=exports));
 export let world,source,manifest,placements,scene,terrain,water,accumulator=0,queue=Promise.resolve();
@@ -25,13 +25,19 @@ let poseTime,areaTime=-1e9,areaId=0,actors,actorFocus,actorRegion=0,actorsOn=tru
 export const setActorsOn=on=>{actorsOn=on;if(actors)actors.enabled=on;};
 // Total residency budget in bytes; each stream gets its share (memory-budget.js). Zero keeps the built-in defaults.
 let memoryBudget=0;
-export function setMemoryBudget(bytes) {
+let rendererBytes=0;
+export function setMemoryBudget(bytes,gpu=0) {
   if(!Number.isFinite(bytes)||bytes<=0)return;
-  memoryBudget=Math.floor(bytes);applyMemoryBudget();
+  const next=Math.floor(bytes),measured=Number.isFinite(gpu)?Math.max(0,gpu):0;
+  // Renderer feedback arrives about once a second; only re-split when it moved enough to matter.
+  if(next===memoryBudget&&Math.abs(measured-rendererBytes)<next*.08)return;
+  memoryBudget=next;rendererBytes=measured;applyMemoryBudget();
 }
 function applyMemoryBudget() {
   if(!memoryBudget)return;
-  const shares=splitBudget(memoryBudget);
+  const shares=splitBudget(effectiveBudget(memoryBudget,rendererBytes));
+  LIMIT=residentTileCap(memoryBudget);nearRadiusNow=nearRadius(LIMIT);
+  if(scene)scene.limits.nearTiles=LIMIT;
   scene?.setBudget(shares.scene);terrain?.setBudget(shares.terrain);far?.budget(shares.far);
 }
 export const stopLoadingArt=()=>source?.stopLoadingArt();
@@ -199,7 +205,8 @@ function measureHold(kind,elapsed) {
 const report=(text,progress={})=>postMessage({event:'progress',text,...progress});
 const assetPath=t=>assetPathOf(manifest,t);
 const terrainIndex=createTerrainIndex();
-const nearbyTerrain=p=>terrainIndex.nearby(placements,p);
+let nearRadiusNow=850;
+const nearbyTerrain=p=>terrainIndex.nearby(placements,p,nearRadiusNow);
 const tileKey=index=>tileKeyOf(manifest,index);
 function prepareDistant(focus,enabled,flying=false,view) {
   farFlight=flying;

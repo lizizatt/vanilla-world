@@ -7,12 +7,13 @@ import {terrainMips,resizeRgba,MINIMAP_SIZE} from './terrain-stream.js';
 import {prepareDetail} from './camera-collision.js';
 import {loadLoadingArt} from './loading-art.js';
 import {errorFields,isRequestId} from './worker-rpc.js';
+import {TILE_CAP_MAX} from './memory-budget.js';
 
 const code=(await readFile(new URL('./asset-worker.js',import.meta.url),'utf8')).replace(/^import .*;\r?$/gm,'');
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 function worker(source) {
   const messages=[],out=[],fake={messages,out,terminated:false,terminate(){this.terminated=true;}};
-  const context=createContext({Uint8Array,performance,terrainMips,resizeRgba,MINIMAP_SIZE,prepareDetail,loadLoadingArt,errorFields,isRequestId,
+  const context=createContext({Uint8Array,performance,TILE_CAP_MAX,terrainMips,resizeRgba,MINIMAP_SIZE,prepareDetail,loadLoadingArt,errorFields,isRequestId,
     init:async()=>({memory:{buffer:new ArrayBuffer(65536)}}),openDataSource:async()=>source,
     SceneTexture:class {
       constructor(bytes){this.bytes=bytes;}

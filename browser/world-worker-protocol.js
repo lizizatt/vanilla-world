@@ -15,7 +15,7 @@ let music,sky,worldMap;
 export function routeImmediate(data) {
   if(data.action==='stop-loading-art'){stopLoadingArt();return true;}
   if(data.action==='animate'){setActorsOn(data.on!==false);return true;}
-  if(data.action==='budget'){setMemoryBudget(data.bytes);return true;}
+  if(data.action==='budget'){setMemoryBudget(data.bytes,data.gpu);return true;}
   if(data.action==='music'){
     if(!source)return true;
     const owner=source;

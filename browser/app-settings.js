@@ -11,7 +11,8 @@ try{settings.night=localStorage.getItem('racer.night')==='1';settings.music=loca
 function applyMemoryBudget() {
   let setting='auto';try{const v=localStorage.getItem('racer.memoryBudget');if(BUDGET_SETTINGS.includes(v))setting=v;}catch{/* storage unavailable (private mode): setting is not persisted */}
   $('memory-budget').value=setting;
-  client.budget(deriveBudget({setting,deviceMemory:navigator.deviceMemory,heapLimit:performance.memory?.jsHeapSizeLimit}));
+  app.memoryBytes=deriveBudget({setting,deviceMemory:navigator.deviceMemory,heapLimit:performance.memory?.jsHeapSizeLimit});
+  client.budget(app.memoryBytes);
 }
 $('memory-budget').addEventListener('change',()=>{try{localStorage.setItem('racer.memoryBudget',$('memory-budget').value);}catch{/* storage unavailable (private mode): setting is not persisted */}applyMemoryBudget();});
 function syncSettings() {

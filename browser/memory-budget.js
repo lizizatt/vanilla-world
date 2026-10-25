@@ -130,3 +130,16 @@ export function memoryUsage(s) {
     evictions: (s.evictions || 0) + (s.memory?.sceneEvictions || 0) + (t.evictions || 0) + (d.evictions || 0),
   };
 }
+export const TILE_CAP_MIN = 8;
+export const TILE_CAP_MAX = 32;
+const TILE_STEP = 96 * MIB;
+/** Collision/detail terrain tiles kept resident: 8 at the fallback budget, one more per 96 MiB, capped at the wasm limit. */
+export const residentTileCap = (budget) =>
+  Math.max(TILE_CAP_MIN, Math.min(TILE_CAP_MAX, TILE_CAP_MIN + Math.floor((budget - BUDGET_FALLBACK) / TILE_STEP)));
+/** Observer radius whose disc covers `tiles` ADT tiles; 8 tiles gives the original 850 yd. */
+export const nearRadius = (tiles, tile = 1600 / 3) => (tiles <= TILE_CAP_MIN ? 850 : Math.round(tile * Math.sqrt(tiles / Math.PI)));
+/** Renderer-side bytes (terrain textures, scene meshes/textures, coast water, minimap) from a draw() stats object. */
+export const gpuBytesOf = (stats) =>
+  (stats?.terrainGpuBytes || 0) + (stats?.sceneGpuMeshBytes || 0) + (stats?.coastalWaterGpuBytes || 0) + (stats?.minimapGpuBytes || 0);
+/** CPU-side budget left once measured GPU bytes are charged against the total; never below a quarter. */
+export const effectiveBudget = (budget, gpu = 0) => Math.max(Math.floor(budget * 0.25), budget - Math.max(0, gpu));

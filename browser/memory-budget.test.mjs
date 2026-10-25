@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {BudgetedCache,ByteBudget,RateMeter,deriveBudget,splitBudget,MIB,BUDGET_CAP,BUDGET_FLOOR,BUDGET_FALLBACK} from './memory-budget.js';
+import {BudgetedCache,ByteBudget,RateMeter,deriveBudget,splitBudget,MIB,BUDGET_CAP,BUDGET_FLOOR,BUDGET_FALLBACK,residentTileCap,nearRadius,gpuBytesOf,effectiveBudget} from './memory-budget.js';
 
 test('ByteBudget has hysteresis: nothing is owed until the limit is crossed, then it drains to the target',()=>{
   const b=new ByteBudget(100);b.add(85);
@@ -93,4 +93,25 @@ test('RateMeter reports evictions per second over its window',()=>{
   assert.equal(r.sample(0,0),0);
   assert.equal(r.sample(5,100),5);
   assert.equal(r.sample(5,1200),0);
+});
+
+test('resident tile cap grows with the budget up to the wasm hard cap', () => {
+  assert.equal(residentTileCap(BUDGET_FALLBACK), 8);
+  assert.equal(residentTileCap(BUDGET_FLOOR), 8);
+  assert.equal(residentTileCap(1024 * MIB), 14);
+  assert.equal(residentTileCap(BUDGET_CAP), 32);
+  assert.equal(residentTileCap(100 * 1024 * MIB), 32);
+});
+
+test('near radius keeps the original 850 yd at 8 tiles and covers the cap area beyond', () => {
+  assert.equal(nearRadius(8), 850);
+  assert.ok(nearRadius(32) > 1600 && nearRadius(32) < 1800);
+  assert.ok(nearRadius(16) > nearRadius(8));
+});
+
+test('GPU bytes are charged against the CPU budget, keeping a quarter', () => {
+  assert.equal(gpuBytesOf({terrainGpuBytes: 1, sceneGpuMeshBytes: 2, coastalWaterGpuBytes: 3, minimapGpuBytes: 4}), 10);
+  assert.equal(gpuBytesOf(undefined), 0);
+  assert.equal(effectiveBudget(400 * MIB, 100 * MIB), 300 * MIB);
+  assert.equal(effectiveBudget(400 * MIB, 900 * MIB), 100 * MIB);
 });

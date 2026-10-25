@@ -15,7 +15,7 @@ export class WorldClient {
   sky(){this.worker?.postMessage({action:'sky'});}
   worldmap(names){this.worker?.postMessage({action:'worldmap',names});}
   animate(on){this.worker?.postMessage({action:'animate',on});}
-  budget(bytes){this.worker?.postMessage({action:'budget',bytes});}
+  budget(bytes,gpu=0){this.worker?.postMessage({action:'budget',bytes,gpu});}
   music(fields){this.worker?.postMessage({action:'music',...fields});}
   request(action,fields={}) {
     if(!this.worker) return Promise.reject(new Error('Select the local Data folder first.'));

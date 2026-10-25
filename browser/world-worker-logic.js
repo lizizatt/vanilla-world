@@ -14,9 +14,9 @@ export function terrainDistance(placements,index,p) {
 // The grid is rebuilt whenever a different placements array is supplied.
 export function createTerrainIndex() {
   let gridSource,grid;
-  return {nearby(placements,p) {
+  return {nearby(placements,p,radius=850) {
     if(p.length!==2||!p.every(Number.isFinite))throw Error('Invalid terrain observer');
-    const low=p.map(v=>Math.floor((v-850)/TILE)),high=p.map(v=>Math.floor((v+850)/TILE));
+    const low=p.map(v=>Math.floor((v-radius)/TILE)),high=p.map(v=>Math.floor((v+radius)/TILE));
     if(![...low,...high].every(Number.isSafeInteger))throw Error('Invalid terrain observer');
     if(gridSource!==placements){
       grid=new Map();gridSource=placements;
@@ -34,7 +34,7 @@ export function createTerrainIndex() {
     for(let x=low[0];x<=high[0];x++)
       for(let y=low[1];y<=high[1];y++)
         for(const index of grid.get(`${x}:${y}`)||[])found.add(index);
-    return [...found].map(i=>[i,terrainDistance(placements,i,p)]).filter(([,d])=>d<850)
+    return [...found].map(i=>[i,terrainDistance(placements,i,p)]).filter(([,d])=>d<radius)
       .sort((a,b)=>a[1]-b[1]||a[0]-b[0]).map(([i])=>i);
   }};
 }

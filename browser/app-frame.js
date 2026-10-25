@@ -1,6 +1,7 @@
 import {moveFlight,FLIGHT_PITCH} from './flight.js';
 import {basis,fromEuler,toEuler,stepOrient,turnAround} from './orient.js';
 import {spaceHud} from './space.js';
+import {gpuBytesOf} from './memory-budget.js';
 import {regimeOf} from './regime.js';
 import {nearestFlag} from './race-flags.js';
 import {tracksFor,skinOf} from './vehicles.js';
@@ -50,6 +51,7 @@ function frame(now) {
     const stats=app.renderer.draw(app.frozenPresentation || app.flight?client.state.telemetry:client.presentation(),app.flight,dt,app.frozenPresentation?0:now/1000,
       {...settings,cameraLook:controls.look,cameraOrbit,cameraSteer:right,cameraRecentre:keyDrive&&!app.dragging},keys.has('KeyV')&&!keys.has('AltLeft')&&!keys.has('AltRight'));
     app.editor.frame();
+    if(app.memoryBytes&&now-(app.gpuSent||0)>=1000){app.gpuSent=now;evidence.gpuBytes=gpuBytesOf(stats);client.budget(app.memoryBytes,evidence.gpuBytes);}
     const cameraWarning=stats.cameraBlocked==='pending'?'Cockpit view waiting for nearby camera geometry.'
       :stats.cameraBlocked?'Cockpit view blocked by nearby geometry.':'';
     $('camera-blocked').hidden=!cameraWarning;
