@@ -7,7 +7,7 @@ import {sceneReady} from './scene-stream.js';
 import {MINIMAP_SIZE} from './terrain-stream.js';
 import {cameraView,craftMatrix} from './world-camera.js';
 import {partMatrix,wreckFrame,WRECK_SECONDS} from './wreck.js';
-import {maelstromCentre,resolveCloudQuality,SlowFrameGuard} from './clouds.js';
+import {maelstromCentre,resolveCloudQuality,SlowFrameGuard,sunDirection} from './clouds.js';
 import {exhaustPoints,emitPlumes,emitDebris,emitHeatSmoke,emitGroundDust,QUALITY,INSTANCE_FLOATS,particleUniform} from './particles.js';
 import {beamState} from './beam.js';
 import {horizonDip} from './space.js';
@@ -145,11 +145,11 @@ export class WorldRenderer {
     this.fadeTime=Math.max(this.fadeTime||0,time);
     const fadeTime=this.fadeTime;
     let uniformCount=0;
-    const u=this.uniformData;
+    const u=this.uniformData,sunDir=sunDirection(this.timeOfDay);
     const writeUniform=item=>{
       if(uniformCount>=16384)throw Error('World draw uniform budget exceeded');
       const base=uniformCount++*64;
-      item.offset=base*4;u.set(view,base);u.set(skyFloats,base+40);u[base+28]=u[base+60]=pf.bend;u[base+29]=u[base+61]=pf.space;return base;
+      item.offset=base*4;u.set(view,base);u.set(skyFloats,base+40);u[base+28]=u[base+60]=pf.bend;u[base+29]=u[base+61]=pf.space;u.set(sunDir,base+32);return base;
     };
     for(const item of terrain){
       const base=writeUniform(item),body=item===this.body;

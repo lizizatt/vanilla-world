@@ -1,4 +1,4 @@
-import {waterShading,dayShading} from './water-shader.js';
+import {waterShading,dayShading,localNightShading} from './water-shader.js';
 import {bendShader} from './space.js';
 
 export const terrainShader=`
@@ -6,7 +6,7 @@ struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,body:vec4f,settings:vec4f
 @group(0) @binding(0) var<uniform> u:U;
 @group(0) @binding(1) var minimap:texture_2d<f32>;
 @group(0) @binding(2) var mapSampler:sampler;
-${dayShading}${waterShading}${bendShader}
+${dayShading}${waterShading}${bendShader}${localNightShading}
 struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3f,@location(2) @interpolate(flat) material:f32,@location(3) uv:vec2f};
 @vertex fn vs(@location(0) p:vec3f,@location(1) n:vec3f,@location(2) material:f32)->V {
   var position=p+u.tile.xyz;var normal=n;
@@ -23,6 +23,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   v.p=position;v.n=normal;v.material=material;v.uv=p.xz/(1600.0/3.0);return v;
 }
 @fragment fn fs(v:V)->@location(0) vec4f {
+  nightOver=localNight(v.p);
   let dx=dpdx(v.p.xz);let dy=dpdy(v.p.xz);let rampWidth=fwidth(v.n.x);
   let light=.35+.65*max(dot(normalize(v.n),normalize(vec3f(-.3,1.0,.4))),0.0);
   var color=vec3f(.63,.59,.40)*light;
@@ -49,7 +50,7 @@ struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,body:vec4f,settings:vec4f
 @group(0) @binding(2) var masks:texture_2d_array<f32>;
 @group(0) @binding(3) var layerSampler:sampler;
 @group(0) @binding(4) var minimap:texture_2d<f32>;
-${dayShading}${bendShader}
+${dayShading}${bendShader}${localNightShading}
 struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) uv:vec2f,
   @location(2) @interpolate(flat) layers:vec4u,@location(3) @interpolate(flat) chunk:u32,@location(4) light:f32,
   @location(5) tileUv:vec2f};
@@ -64,6 +65,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) uv:vec
   return v;
 }
 @fragment fn fs(v:V)->@location(0) vec4f {
+  nightOver=localNight(v.p);
   let uv=v.uv*8.0;
   let a=textureSample(masks,layerSampler,clamp(v.uv,vec2f(.5/64.0),vec2f(1.0-.5/64.0)),i32(v.chunk));
   var color=textureSample(layers,layerSampler,uv,i32(v.layers.x)).rgb;
