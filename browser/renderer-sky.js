@@ -31,7 +31,8 @@ export function planetRects(r) {return r.manifest?.world_bounds?schematicRects(r
 export function drawPlanet(r,pass,pf,near) {
   const rects=r.planetRects(),key=JSON.stringify(rects);
   if(pf.registry&&r.surfaceKey!==key){
-    r.surfaceRegistry=createRegistry([...defaultManifest(undefined,rects),adtChunk(r.colourGrid)]);
+    r.surfaceRegistry=// With real data the minimap colours own the land: procedural fill would paint green over the unseen coast water.
+    createRegistry([...defaultManifest(undefined,rects).map(c=>r.manifest?.world_bounds?{...c,provider:{sample:()=>({skip:true})}}:c),adtChunk(r.colourGrid)]);
     r.surfaceBytes=bakeSurface(r.surfaceRegistry);r.colourDirty.clear();r.surfaceDirty=true;r.surfaceKey=key;
   }
   if(pf.registry&&r.colourDirty.size&&performance.now()-(r.colourAt||0)>1000){

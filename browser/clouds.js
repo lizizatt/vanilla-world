@@ -27,7 +27,7 @@ export function cloudUniform(view,time,daylight,manifest,near,game,out=new Float
   const [x,z]=maelstromCentre(manifest),sun=sunDirection(timeOfDay);
   out.set([...view.eye,200000,...view.right,view.aspect,...view.up,time,...view.look,daylight,x,z,CLOUD_ALTITUDE,CLOUD_HALF_SIZE,near]);
   const f=planetFrame(view.eye[0],view.eye[2]);
-  out.set([shellCurvature(planet.bend),planet.space,0,0],44);
+  out.set([shellCurvature(planet.bend),planet.space,planet.flowScale??1,0],44);
   out.set([...f.east,WORLD_CENTRE[0],...f.up,WORLD_CENTRE[1],...f.south,PLANET_RADIUS],48);
   out.set([...sun,sun[1]],32);out.set([1,.96,.88,0],36);out.set([.55,.6,.7,0],40);
   // Zone lighting fades to the global sun/sky look by the lowest cloud base (planet.zone 1..0), so orbit is lit by the sun alone.
@@ -262,7 +262,7 @@ const NF=${FUNNEL_STEPS};
   let sJit=fract(52.9829189*fract(dot(v.clip.xy,vec2f(.06711056,.00583715)))+hash(v.clip.xy+vec2f(3.7,9.1)));
   let fJit=.3*hash(v.clip.xy);
   let fDist=length(c.eye.xyz-vec3f(c.cloud.x,(BASE+TOP)*.5,c.cloud.y));
-  let fWeight=(1.0-smoothstep(${F.fadeStart.toFixed(1)},${F.fadeEnd.toFixed(1)},fDist))*.95*fEdge*(1.0-smoothstep(.3,.9,c.bend.x*${PLANET_RADIUS}.0));
+  let fWeight=(1.0-smoothstep(${F.fadeStart.toFixed(1)},${F.fadeEnd.toFixed(1)},fDist))*.95*fEdge;
   var trans=1.0;var light=vec3f(0);
   var i=0;var j=0;
   for(var n=0;n<NS+NF;n++){

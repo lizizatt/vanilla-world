@@ -21,5 +21,7 @@ export class SimClock {
 
 /** Cloud/whirlpool animation rate (cloud seconds per real second): linear to 10x, then compressed (the flow map cannot cross-fade 1000x) so 100x/1000x still read as fast but not strobing; 0 when paused. */
 export const cloudRate=scale=>scale<=10?Math.max(0,scale):10*Math.pow(scale/10,.45);
+/** Flow-map cycle stretch: keeps the cloud flow reset slow in real time at high speed (cycle >= ~5 s) so it never strobes. */
+export const flowScale=rate=>Math.min(5,Math.max(1,rate/10));
 /** Wrap for the f32 shader clock (about 1 hour at the 1000x rate). */
 export const CLOUD_TIME_WRAP=4e6;
