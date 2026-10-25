@@ -1,4 +1,4 @@
-import {imageRects,schematicRects,mapFrame,toMap,mapIcons,drawMap,stitch,WORLD_MAPS} from './worldmap.js';
+import {imageRects,schematicRects,mapFrame,toMap,mapIcons,drawMap,stitch,WORLD_MAPS,worldImageRect} from './worldmap.js';
 import {maelstromCentre} from './clouds.js';
 
 /** Fullscreen world map dialog. Art arrives from the worker (runtime Data read); without it a schematic is drawn. */
@@ -21,7 +21,8 @@ export class MapPanel {
   }
   // One WoW world map covers both continents and the Maelstrom: it is stretched over their combined bounds.
   world(image,rects) {
-    const xs=rects.flatMap(r=>[r[0],r[2]]),zs=rects.flatMap(r=>[r[1],r[3]]),f=this.frame,w=this.canvas.width,h=this.canvas.height,context=this.canvas.getContext('2d');
+    const box=rects.length===4&&typeof rects[0]==='number'?[rects]:rects;
+    const xs=box.flatMap(r=>[r[0],r[2]]),zs=box.flatMap(r=>[r[1],r[3]]),f=this.frame,w=this.canvas.width,h=this.canvas.height,context=this.canvas.getContext('2d');
     const [u0,v0]=toMap(f,Math.min(...xs),Math.min(...zs)),[u1,v1]=toMap(f,Math.max(...xs),Math.max(...zs));
     context.clearRect(0,0,w,h);context.drawImage(image,u0*w,v0*h,(u1-u0)*w,(v1-v0)*h);
   }
@@ -29,6 +30,7 @@ export class MapPanel {
   toggle() {if(this.dialog.open)this.dialog.close();else this.show();}
   show() {
     if(!this.manifest)return;
+    if(this.local===undefined){this.local=null;fetch('/local/world-map.jpg').then(r=>r.ok?r.blob():null).then(b=>b&&createImageBitmap(b)).then(i=>{if(i){this.local=i;if(this.dialog.open)this.render();}}).catch(()=>{});}
     if(!this.requested){this.requested=true;this.requestArt(this.manifest.regions.map(r=>r.map));}
     const was=document.activeElement;this.dialog.show();was?.focus?.();this.render();
     this.timer=setInterval(()=>this.marker(),100);
@@ -39,13 +41,14 @@ export class MapPanel {
     const rects=rows?imageRects(manifest,rows):[],art=rows&&rects.some(Boolean);
     const centre=maelstromCentre(manifest),schematic=schematicRects(manifest);
     const use=art?rects.map((r,i)=>r||schematic[i]):schematic;
-    this.frame=mapFrame(use,[centre,[manifest.spawn[0],manifest.spawn[2]]]);
+    const img=this.local&&use.length>1?worldImageRect(use,centre):null;this.imgRect=img;
+    this.frame=mapFrame(use,[centre,[manifest.spawn[0],manifest.spawn[2]],...(img?[[img[0],img[1]],[img[2],img[3]]]:[])]);
     const aspect=this.frame.width/this.frame.height;
     this.stage.style.setProperty('--map-aspect',aspect);
     this.canvas.height=Math.round(this.canvas.width/aspect);
-    const world=[...WORLD_MAPS,'Azeroth',...manifest.regions.map(r=>r.map)].map(n=>this.images.get(n.toLowerCase())).find(Boolean);
+    const world=img?this.local:[...WORLD_MAPS,'Azeroth',...manifest.regions.map(r=>r.map)].map(n=>this.images.get(n.toLowerCase())).find(Boolean);
     const images=world?[]:manifest.regions.map(r=>this.images.get(r.map.toLowerCase()));
-    if(world)this.world(world,use);else drawMap(this.canvas,this.frame,use,art?images:undefined,!art||images.some(i=>!i));
+    if(world)this.world(world,img||use);else drawMap(this.canvas,this.frame,use,art?images:undefined,!art||images.some(i=>!i));
     this.status.textContent=rows===undefined?'Loading map art...':world?'':art?(images.every(Boolean)?'':'Loading map art...'):'Map art unavailable'+(this.error?` (${this.error})`:'')+'; showing schematic.';
     for(const old of this.stage.querySelectorAll('.map-icon,.map-track'))old.remove();
     for(const icon of mapIcons(manifest,centre)) {

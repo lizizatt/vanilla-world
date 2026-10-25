@@ -41,3 +41,12 @@ test('frame mapping round-trips and icons hold spawn and maelstrom',()=>{
 });
 import {WORLD_MAPS as WM} from './worldmap.js';
 test('single world map names are preferred candidates',()=>{assert.ok(WM.includes('World'));});
+
+import {worldImageRect as wir} from './worldmap.js';
+import {FALLBACK_RECTS,WORLD_CENTRE,MAELSTROM_Z} from './space.js';
+test('world image rect covers both continents and keeps the Maelstrom at the image anchor',()=>{
+  const rects=FALLBACK_RECTS,c=[WORLD_CENTRE[0],MAELSTROM_Z],r=wir(rects,c);
+  assert.ok(r[0]<rects[0][0]+2000&&r[2]>rects[1][2]-2000&&r[1]<rects[1][1]&&r[3]>rects[0][3]);
+  const u=(c[0]-r[0])/(r[2]-r[0]),v=(c[1]-r[1])/(r[3]-r[1]);
+  assert.ok(Math.abs(u-.5)<.06&&Math.abs(v-.51)<.1,`${u} ${v}`);
+});

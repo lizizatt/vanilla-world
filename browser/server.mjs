@@ -2,9 +2,9 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { shellManifest, stampServiceWorker } from './shell-manifest.mjs';
 
-const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.json':'application/json', '.svg':'image/svg+xml', '.glb':'model/gltf-binary' };
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.json':'application/json', '.svg':'image/svg+xml', '.glb':'model/gltf-binary', '.jpg':'image/jpeg' };
 // Served files = the generated shell manifest (import graph, re-read per second so new files need no restart) plus optional local-only assets.
-const optional = /^\/(?:vehicles\/[a-z0-9-]+\.glb|local\/npc-spawns\.json|npc-pack\.json)$/;
+const optional = /^\/(?:vehicles\/[a-z0-9-]+\.glb|local\/npc-spawns\.json|local\/world-map\.jpg|npc-pack\.json)$/;
 let cached = { at: 0, manifest: null, set: new Set() };
 async function shell() {
   if (Date.now() - cached.at > 1000) {
@@ -23,7 +23,7 @@ async function shell() {
     return;
   }
   try {
-    let bytes = await readFile(new URL(file==='/local/npc-spawns.json'?'../runtime/browser/npc-spawns.json':file==='/npc-pack.json'?'../runtime/browser/npc-pack.json':`.${file}`, import.meta.url));
+    let bytes = await readFile(new URL(file==='/local/npc-spawns.json'?'../runtime/browser/npc-spawns.json':file==='/local/world-map.jpg'?'../runtime/browser/world-map.jpg':file==='/npc-pack.json'?'../runtime/browser/npc-pack.json':`.${file}`, import.meta.url));
     if (file === '/sw.js') bytes = stampServiceWorker(bytes.toString('utf8'), (await shell()).manifest);
     response.writeHead(200, {
       'Content-Type': types[file.slice(file.lastIndexOf('.'))],
@@ -32,7 +32,7 @@ async function shell() {
       'Content-Security-Policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; media-src blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
     }).end(bytes);
   } catch (error) {
-    if((file==='/local/npc-spawns.json'||file==='/npc-pack.json') && error.code==='ENOENT'){response.writeHead(404).end('No private local population pack');return;}
+    if((file==='/local/npc-spawns.json'||file==='/local/world-map.jpg'||file==='/npc-pack.json') && error.code==='ENOENT'){response.writeHead(404).end('No private local population pack');return;}
     if(error.code==='ENOENT'&&!file.startsWith('/pkg/')){response.writeHead(404).end('Not found');return;}
     console.error(`Cannot serve ${file}: ${error.message}`);
     response.writeHead(500).end('Build the Wasm package first; see server log.');

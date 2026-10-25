@@ -151,3 +151,16 @@ export class WorldMapService {
     this.emit({event:'worldmap-tiles',name,tiles},transfers);
   }
 }
+
+// The combined world map (local art, 800x533): pixel anchors of Kalimdor and Eastern Kingdoms extents and the Maelstrom eye, fitted to our layout per axis (least squares), since the art is stylised.
+export const WORLD_IMAGE={width:800,height:533,kalimdor:[100,100,300,460],eastern:[535,45,720,445],maelstrom:[400,270]};
+export function worldImageRect(rects,centre,image=WORLD_IMAGE) {
+  const fit=pairs=>{
+    const n=pairs.length,sx=pairs.reduce((s,p)=>s+p[0],0),sy=pairs.reduce((s,p)=>s+p[1],0),sxx=pairs.reduce((s,p)=>s+p[0]*p[0],0),sxy=pairs.reduce((s,p)=>s+p[0]*p[1],0);
+    const a=(n*sxy-sx*sy)/(n*sxx-sx*sx);return [a,(sy-a*sx)/n];
+  };
+  const [k,e]=rects,[kp,ep]=[image.kalimdor,image.eastern];
+  const [ax,bx]=fit([[k[0],kp[0]],[k[2],kp[2]],[e[0],ep[0]],[e[2],ep[2]],[centre[0],image.maelstrom[0]]]);
+  const [az,bz]=fit([[k[1],kp[1]],[k[3],kp[3]],[e[1],ep[1]],[e[3],ep[3]],[centre[1],image.maelstrom[1]]]);
+  return [-bx/ax,-bz/az,(image.width-bx)/ax,(image.height-bz)/az];
+}
