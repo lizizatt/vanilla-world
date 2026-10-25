@@ -7,10 +7,10 @@ import {nightLightsWgsl} from './night-lights-wgsl.js';
 export const CONTINENT_YD=29867,CONTINENT_DEG=40;
 export const PLANET_RADIUS=Math.round(CONTINENT_YD/(CONTINENT_DEG*Math.PI/180));
 // World centre (render yd) at lat/lon 0, and the fallback continent rectangles [x0,z0,x1,z1] when no manifest is loaded (hosted build).
-// The z is set so the Maelstrom (render z 40, from maelstromCentre on the WoW map layout) sits MAELSTROM_LAT degrees north of the equator; the whole layout shifts rigidly, so distances are unchanged.
-export const MAELSTROM_Z=40,MAELSTROM_LAT=20;
+// The z is set so the Maelstrom (render z 3507, from maelstromCentre on the WoW map layout) sits MAELSTROM_LAT degrees north of the equator; the whole layout shifts rigidly, so distances are unchanged.
+export const MAELSTROM_Z=3507,MAELSTROM_LAT=20;
 export const WORLD_CENTRE=[1429,Math.round(MAELSTROM_Z+PLANET_RADIUS*MAELSTROM_LAT*Math.PI/180)];
-export const FALLBACK_RECTS=[[-21867,-14400,5333,15467],[13525,-5333,24725,17067]];
+export const FALLBACK_RECTS=[[-21867,-7467,5333,22400],[13525,-5333,24725,17067]];
 // Altitude ramps in yd above sea level, chosen from the horizon dip acos(R/(R+h)): 100 yd is 3.9 deg, 500 yd 8.6 deg, 2000 yd 17.7 deg.
 // bend: terrain curves onto the globe; globe: the sphere fades in behind it; space: sky thins to black and stars/sun/moons appear
 // (the atmosphere is about 12% of R, ~5 kyd, so space is complete by 9 kyd).
