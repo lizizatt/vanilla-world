@@ -29,3 +29,14 @@ test('without world bounds the ocean is a flat grid of bendable cells',()=>{
   const m=oceanMesh({...manifest,world_bounds:undefined});
   assert.equal(m.length,42*Math.ceil(60000/OCEAN_CELL)**2);assert.ok(m.every((v,i)=>i%7!==1||v===0));
 });
+
+test('the whirlpool patch and surrounding quads share edge vertices (no T-junction cracks once bent)',()=>{
+  const [cx,cz]=maelstromCentre(manifest),m=oceanMesh({...manifest,ocean:[cx-9000,cz-7300,cx+8000,cz+9100],whirlpool:[cx,cz]},16);
+  const pts=new Set(),edges=[];
+  for(let t=0;t<m.length;t+=21){const v=[0,1,2].map(k=>[m[t+k*7],m[t+k*7+2]]);v.forEach(p=>pts.add(p.join()));for(let k=0;k<3;k++)edges.push([v[k],v[(k+1)%3]]);}
+  let bad=0;
+  for(const key of pts){const [px,pz]=key.split(',').map(Number);
+    for(const [a,b] of edges){const dx=b[0]-a[0],dz=b[1]-a[1],l2=dx*dx+dz*dz,s=((px-a[0])*dx+(pz-a[1])*dz)/l2;
+      if(s>1e-6&&s<1-1e-6&&Math.abs((px-a[0])*dz-(pz-a[1])*dx)/Math.sqrt(l2)<1e-6){bad++;break;}}}
+  assert.equal(bad,0);
+});
