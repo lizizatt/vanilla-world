@@ -36,8 +36,13 @@ export function cloudUniform(view,time,daylight,manifest,near,game,out=new Float
     out.set([...mixTo(game.cloud,[1,1,1]),1,...mixTo(game.fog,[.08,.15,.2]),0],24);
     if(game.sun)out.set([...mixTo(game.sun,[1,.96,.88]),0],36);if(game.cloud2)out.set([...mixTo(game.cloud2,[.55,.6,.7]),1],40);
   }
+  out[31]=planet.tierMix??0;
   return out;
 }
+/** Seconds for the Standard/High cloud tier crossfade. */
+export const TIER_FADE_SECONDS=.8;
+/** Moves the High-tier weight toward `target` (0 Standard, 1 High) at a constant rate; big frame hitches are clamped. */
+export const stepTierMix=(mix,target,dt)=>{const s=Math.min(Math.max(dt,0),.1)/TIER_FADE_SECONDS;return mix<target?Math.min(target,mix+s):Math.max(target,mix-s);};
 
 const COMMON=`
 struct C {eye:vec4f,right:vec4f,up:vec4f,look:vec4f,cloud:vec4f,near:vec4f,tint:vec4f,fog:vec4f,sun:vec4f,sunCol:vec4f,cloud2:vec4f,bend:vec4f,fe:vec4f,fu:vec4f,fs:vec4f};
@@ -199,6 +204,9 @@ fn silver(dir:vec3f,thin:f32,sunY:f32)->vec3f {
 const NS=${tier(high).steps};
 const NF=${FUNNEL_STEPS};
 @fragment fn fs(v:V)->@location(0) vec4f {
+  // Tier crossfade (c.fog.w = High weight 0..1): complementary screen-door dither so the two tiers swap without a pop.
+  let tierPick=fract(52.9829189*fract(dot(v.clip.xy,vec2f(.06711056,.00583715))));
+  ${high?'if(tierPick>=c.fog.w){discard;}':'if(tierPick<c.fog.w){discard;}'}
   let t=c.up.w;let night=1.0-c.look.w;
   let dir=normalize(c.look.xyz+c.right.xyz*v.ndc.x*.55*c.right.w+c.up.xyz*v.ndc.y*.55);
   let game=c.tint.w>.5;
