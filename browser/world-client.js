@@ -29,7 +29,18 @@ export class WorldClient {
   async open(folder,loadingMap) {
     this.stop();
     const worker=new Worker('./world-worker.js',{type:'module'});
-    this.worker=worker;
+    this.worker=worker;this.bind(worker);
+    const result=await this.request('open',{folder,loadingMap,sceneInstanceDeltas:true,sceneInstanceUpdates:true,postFrameVisuals:true});
+    this.info=result.info;this.state=result.state;
+    return result;
+  }
+  /** Exchange resident worlds with another client (design/elune.md: warm second engine becomes the near one, no reload). Each object keeps its own handlers and role, so
+   * every module holding `app.client` keeps working; only the worker, its RPC table, info/state and body id move (farOnly is a role and stays). */
+  swap(other) {
+    for(const key of ['worker','requests','info','state','bodyId']){const t=this[key];this[key]=other[key];other[key]=t;}
+    for(const c of [this,other]){c.inFlight=false;c.discardFrame();c.poseFlying=false;if(c.worker)c.bind(c.worker);}
+  }
+  bind(worker) {
     worker.onerror=event=>{
       if(this.worker!==worker)return;
       this.requests.rejectAll(new Error(event.message));
@@ -55,9 +66,6 @@ export class WorldClient {
       if(!request)return;
       if(data.error)request.reject(new Error(data.error));else request.resolve(data.result);
     };
-    const result=await this.request('open',{folder,loadingMap,sceneInstanceDeltas:true,sceneInstanceUpdates:true,postFrameVisuals:true});
-    this.info=result.info;this.state=result.state;
-    return result;
   }
   frame(dt,throttle,steer,flags,focus,distant=true,view) {
     if(!!focus!==this.poseFlying){this.discardFrame();this.poseFlying=!!focus;}

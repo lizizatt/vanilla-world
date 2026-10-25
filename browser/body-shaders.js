@@ -3,8 +3,10 @@
 import {bendShaderFor,spaceShaderFor,patchShaderFor} from './space.js';
 import {AZEROTH,ELUNE} from './bodies.js';
 
-/** The body this page's chart renders: ?body=elune boots the moon, anything else Azeroth (shaders bake the body's radius at load). */
-export const activeBody=()=>typeof location!=='undefined'&&new URLSearchParams(location.search).get('body')==='elune'?ELUNE:AZEROTH;
+/** The body this page's chart renders: ?body=elune boots the moon, anything else Azeroth; setActiveBody switches it in-page (the renderer rebuilds its radius-baked pipelines via useBody). */
+let current;
+export const activeBody=()=>current??(typeof location!=='undefined'&&new URLSearchParams(location.search).get('body')==='elune'?ELUNE:AZEROTH);
+export const setActiveBody=body=>{current=body;};
 export const wgslNumber=x=>Number.isInteger(x)?x+'.0':String(x);
 
 const cache=new Map();

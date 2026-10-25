@@ -13,7 +13,7 @@ import {spaceShaderFor} from './space.js';
 import {bakeMoonSurface,MOON_TEX_W,MOON_TEX_H} from './moon-surface.js';
 import {skyShader,skyDomeShader} from './sky.js';
 import {sub,cross,unit} from './renderer-helpers.js';
-import {terrainShader,splatShader,sceneShader} from './renderer-shaders.js';
+import {terrainShader,splatShader,sceneShader,surfaceShadersFor} from './renderer-shaders.js';
 export async function initialize(r) {
   const shader=async code=>{
     const module=r.device.createShaderModule({code});
@@ -35,14 +35,6 @@ export async function initialize(r) {
     {binding:2,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float',viewDimension:'2d-array'}},
     {binding:3,visibility:GPUShaderStage.FRAGMENT,sampler:{type:'filtering'}},
     {binding:4,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float'}}]});
-  r.pipeline=await r.device.createRenderPipelineAsync({
-    layout:r.device.createPipelineLayout({bindGroupLayouts:[r.terrainLayout]}),
-    vertex:{module:terrain,entryPoint:'vs',buffers:[{arrayStride:28,attributes:[
-      {shaderLocation:0,offset:0,format:'float32x3'},{shaderLocation:1,offset:12,format:'float32x3'},{shaderLocation:2,offset:24,format:'float32'}]}]},
-    fragment:{module:terrain,entryPoint:'fs',targets:[{format:r.format}]},
-    primitive:{topology:'triangle-list',cullMode:'none'},
-    depthStencil:DEPTH_STATE.terrain,
-  });
   r.sceneLayout=r.device.createBindGroupLayout({entries:[
     uniformEntry(256),
     {binding:1,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float'}},
@@ -50,16 +42,8 @@ export async function initialize(r) {
     ...waveEntries,
   ]});
   r.scenePipelineLayout=r.device.createPipelineLayout({bindGroupLayouts:[r.sceneLayout]});
-  r.splatPipeline=await r.device.createRenderPipelineAsync({
-    layout:r.device.createPipelineLayout({bindGroupLayouts:[r.splatLayout]}),
-    vertex:{module:splat,entryPoint:'vs',buffers:[{arrayStride:52,attributes:[
-      {shaderLocation:0,offset:0,format:'float32x3'},{shaderLocation:1,offset:12,format:'float32x3'},
-      {shaderLocation:2,offset:24,format:'float32x2'},{shaderLocation:3,offset:32,format:'float32x4'},
-      {shaderLocation:4,offset:48,format:'float32'}]}]},
-    fragment:{module:splat,entryPoint:'fs',targets:[{format:r.format}]},
-    primitive:{topology:'triangle-list',cullMode:'none'},
-    depthStencil:DEPTH_STATE.splat,
-  });
+  Object.assign(r,await buildTerrainPipelines(r,terrain,splat));
+  r.surfaceBody=activeBody().id;
   r.cloudBuffer=r.device.createBuffer({size:240,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
   r.cloudMask=new CloudMask(r.device);
   const cloudModule=await shader(cloudShader);
@@ -146,16 +130,73 @@ export async function initialize(r) {
   r.planetBody=activeBody().id;
 }
 
+/** Terrain + splat pipelines (and the scene module) from one shader trio; rebuilt per body because each bakes its radius. */
+async function buildTerrainPipelines(r,terrain,splat) {
+  const pipeline=await r.device.createRenderPipelineAsync({
+    layout:r.device.createPipelineLayout({bindGroupLayouts:[r.terrainLayout]}),
+    vertex:{module:terrain,entryPoint:'vs',buffers:[{arrayStride:28,attributes:[
+      {shaderLocation:0,offset:0,format:'float32x3'},{shaderLocation:1,offset:12,format:'float32x3'},{shaderLocation:2,offset:24,format:'float32'}]}]},
+    fragment:{module:terrain,entryPoint:'fs',targets:[{format:r.format}]},
+    primitive:{topology:'triangle-list',cullMode:'none'},
+    depthStencil:DEPTH_STATE.terrain,
+  });
+  const splatPipeline=await r.device.createRenderPipelineAsync({
+    layout:r.device.createPipelineLayout({bindGroupLayouts:[r.splatLayout]}),
+    vertex:{module:splat,entryPoint:'vs',buffers:[{arrayStride:52,attributes:[
+      {shaderLocation:0,offset:0,format:'float32x3'},{shaderLocation:1,offset:12,format:'float32x3'},
+      {shaderLocation:2,offset:24,format:'float32x2'},{shaderLocation:3,offset:32,format:'float32x4'},
+      {shaderLocation:4,offset:48,format:'float32'}]}]},
+    fragment:{module:splat,entryPoint:'fs',targets:[{format:r.format}]},
+    primitive:{topology:'triangle-list',cullMode:'none'},
+    depthStencil:DEPTH_STATE.splat,
+  });
+  return {pipeline,splatPipeline};
+}
+
+const gpuShader=r=>async code=>{
+  const module=r.device.createShaderModule({code});
+  const info=await module.getCompilationInfo(),errors=info.messages.filter(m=>m.type==='error');
+  if(errors.length)throw new Error(errors.map(m=>m.message).join('\n'));
+  return module;
+};
+const makeSurfaceSet=async(r,body)=>{
+  const shader=gpuShader(r),set=surfaceShadersFor(body);
+  return {...await buildTerrainPipelines(r,await shader(set.terrainShader),await shader(set.splatShader)),sceneModule:await shader(set.sceneShader),pipelines:new Map()};
+};
+const SURFACE_KEYS=['pipeline','splatPipeline','sceneModule','pipelines'];
+
+/** Build (but do not activate) a body's pipelines so a later useBody is an instant pointer switch. */
+export async function prepareBody(r,body) {
+  r.surfaceSets??={};r.surfaceSets[r.surfaceBody]??=Object.fromEntries(SURFACE_KEYS.map(k=>[k,r[k]]));
+  if(!r.surfaceSets[body.id])r.surfaceSets[body.id]=await makeSurfaceSet(r,body);
+  r.planetSets??={};r.planetSets[r.planetBody]??=Object.fromEntries(PLANET_KEYS.map(k=>[k,r[k]]));
+  if(!r.planetSets[body.id])r.planetSets[body.id]=await makePlanetSet(r,body);
+}
+
+/** In-page body switch (no reload): activate the body's radius-baked surface and planet pipelines (built once, cached). Callers reset()/configure() the renderer around it. */
+export async function useBody(r,body) {
+  if(r.surfaceBody===body.id)return;
+  await prepareBody(r,body);
+  Object.assign(r,r.surfaceSets[body.id],r.planetSets[body.id]);
+  r.surfaceBody=r.planetBody=body.id;
+}
+
+const PLANET_KEYS=['spacePipeline','lightsPipeline','patchPipeline','spaceGroup','lightsGroup','patchGroup'];
 /** Space/lights/patch pipelines for the body the chart is on (design/elune.md D3): same shaders, that body's radius baked in. */
 export async function buildPlanetPipelines(r,body) {
   if(r.planetBody===body.id)return;
-  const shader=async code=>{
-    const module=r.device.createShaderModule({code});
-    const info=await module.getCompilationInfo(),errors=info.messages.filter(m=>m.type==='error');
-    if(errors.length)throw new Error(errors.map(m=>m.message).join('\n'));
-    return module;
-  };
-  const set=shaderSetFor(body),space=await shader(set.space),patch=await shader(set.patch);
+  r.planetSets??={};r.planetSets[r.planetBody]??=Object.fromEntries(PLANET_KEYS.map(k=>[k,r[k]]));
+  if(!r.planetSets[body.id])r.planetSets[body.id]=await makePlanetSet(r,body);
+  if(r.planetBody===body.id)return;
+  Object.assign(r,r.planetSets[body.id]);r.planetBody=body.id;
+}
+async function makePlanetSet(r,body) {
+  const shader=gpuShader(r);
+  const moon=!!r.sharedSpace&&body.id==='azeroth',set=shaderSetFor(body),space=await shader(moon?spaceShaderFor(body.radius,{moonTex:true}):set.space),patch=await shader(set.patch);
+  if(moon&&!r.moonTex){
+    r.moonTex=r.device.createTexture({size:[MOON_TEX_W,MOON_TEX_H],format:'rgba8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});
+    r.device.queue.writeTexture({texture:r.moonTex},bakeMoonSurface(),{bytesPerRow:MOON_TEX_W*4},[MOON_TEX_W,MOON_TEX_H]);
+  }
   const add={color:{srcFactor:'one',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}};
   const spacePipeline=await r.device.createRenderPipelineAsync({layout:'auto',vertex:{module:space,entryPoint:'vs'},
     fragment:{module:space,entryPoint:'fs',targets:[{format:r.format,blend:add}]},primitive:{topology:'triangle-list'},depthStencil:DEPTH_STATE.space});
@@ -163,9 +204,7 @@ export async function buildPlanetPipelines(r,body) {
     fragment:{module:space,entryPoint:'lfs',targets:[{format:r.format,blend:{color:{srcFactor:'one',dstFactor:'one'},alpha:{srcFactor:'zero',dstFactor:'one'}}}]},primitive:{topology:'triangle-list'},depthStencil:DEPTH_STATE.sky});
   const patchPipeline=await r.device.createRenderPipelineAsync({layout:'auto',vertex:{module:patch,entryPoint:'pvs',buffers:[{arrayStride:32,stepMode:'instance',attributes:[{shaderLocation:0,offset:0,format:'float32x4'},{shaderLocation:1,offset:16,format:'float32x4'}]}]},
     fragment:{module:patch,entryPoint:'pfs',targets:[{format:r.format,blend:add}]},primitive:{topology:'triangle-list'},depthStencil:DEPTH_STATE.patch});
-  r.spacePipeline=spacePipeline;r.lightsPipeline=lightsPipeline;r.patchPipeline=patchPipeline;
-  r.spaceGroup=r.device.createBindGroup({layout:spacePipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.spaceBuffer}},{binding:1,resource:r.surfaceTex.createView()},{binding:2,resource:r.surfaceSamp}]});
-  r.lightsGroup=r.device.createBindGroup({layout:lightsPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.spaceBuffer}},{binding:2,resource:r.surfaceSamp},{binding:4,resource:r.lightsTex.createView()}]});
-  r.patchGroup=r.device.createBindGroup({layout:patchPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.spaceBuffer}},{binding:1,resource:r.surfaceTex.createView()},{binding:2,resource:r.surfaceSamp},{binding:3,resource:r.heightTex.createView()}]});
-  r.planetBody=body.id;
+  return {spacePipeline,lightsPipeline,patchPipeline,spaceGroup:r.device.createBindGroup({layout:spacePipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.spaceBuffer}},{binding:1,resource:r.surfaceTex.createView()},{binding:2,resource:r.surfaceSamp},...(moon?[{binding:5,resource:r.moonTex.createView()}]:[])]}),
+    lightsGroup:r.device.createBindGroup({layout:lightsPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.spaceBuffer}},{binding:2,resource:r.surfaceSamp},{binding:4,resource:r.lightsTex.createView()}]}),
+    patchGroup:r.device.createBindGroup({layout:patchPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.spaceBuffer}},{binding:1,resource:r.surfaceTex.createView()},{binding:2,resource:r.surfaceSamp},{binding:3,resource:r.heightTex.createView()}]})};
 }

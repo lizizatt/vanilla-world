@@ -10,12 +10,13 @@ import {getSwe1r} from './swe1r/ui.js';
 import {classifyPickError} from './swe1r/attach.js';
 import {loadPodModel} from './swe1r/skin.js';
 import {ELUNE_GRAVITY_SCALE,BODIES,bodiesEnabled} from './bodies.js';
+import {activeBody,setActiveBody} from './body-shaders.js';
 const LUNAR_GRAVITY=48*ELUNE_GRAVITY_SCALE;
 import {WorldClient} from './world-client.js';
 export function installLoading(app) {
 const {canvas,cameraCollision,evidence,defaults,settings,loading,loadingArt,mapPanel,music,client}=app;
 const $=id=>document.getElementById(id);
-Object.assign(app,{loadingProgress,fail,open,showReconnect,operation});
+Object.assign(app,{loadingProgress,fail,open,showReconnect,operation,soiSwap:id=>soiSwap(app,id)});
 loading.addEventListener('cancel',event=>event.preventDefault());
 loading.addEventListener('close',()=>{if(!loading.open){loadingArt.clear();client.stopLoadingArt();}});
 function loadingProgress({text,completed,total}) {
@@ -74,7 +75,7 @@ async function open(selection,remember=false) {
     const loadingMap=app.renderer.manifest?.regions[app.renderer.sceneRegion]?.map;
     app.renderer.reset();app.renderer.clipCamera=undefined;app.renderer.cameraFloor=undefined;cameraCollision.reset();app.flight=undefined;app.pauseAudio();music.stop();Object.assign(settings,defaults);app.syncSettings();
     app.applyMemoryBudget();
-    const result=await client.open(selection,loadingMap);
+    const result=await client.open(selection,loadingMap);client.bodyId=activeBody().id;
     app.renderer.configure(result.info.manifest);client.sky();client.animate(settings.animateNpcs);mapPanel.configure(result.info.manifest);
     void loadTracks().then(async found=>{app.shipped=found;app.tracks=await app.withOverrides(found);app.gateKey=undefined;});
 app.gateKit=undefined;void loadGateKit((a,p)=>client.request(a,p),()=>getSwe1r()&&loadPodModel(getSwe1r(),{index:309,scale:1/600})).then(kit=>{app.gateKit=kit;app.gateKey=undefined;});
@@ -200,8 +201,36 @@ async function openMoonEngine(app,selection) {
   app.engines??={};app.engineCounts??={};
   for(const body of Object.values(BODIES)) {
     if(!body.rail||body.id===selection||app.engines[body.id])continue;
-    const counts=app.engineCounts[body.id]={events:0,farScenes:0},engine=new WorldClient(data=>{counts.events++;if(data.event==='far-scene')counts.farScenes++;return false;},error=>console.warn(body.id+' engine',error));
-    engine.farOnly=true;app.engines[body.id]=engine;
+    app.engineCounts[body.id]={events:0,farScenes:0};
+    const engine=new WorldClient(data=>{const counts=app.engineCounts[engine.bodyId]??={events:0,farScenes:0};counts.events++;if(data.event==='far-scene')counts.farScenes++;return false;},error=>console.warn(engine.bodyId+' engine',error));
+    engine.farOnly=true;engine.bodyId=body.id;app.engines[body.id]=engine;
     try{await engine.open(body.id);}catch(error){console.warn(body.id+' engine unavailable',error);engine.stop();delete app.engines[body.id];}
   }
+}
+
+/** In-page gravity-well swap (design/elune.md): the warm resident engine of the new parent becomes the near one and the old near world goes far-only, so there is no reload.
+ * Returns false (caller falls back to the reload handoff) if that engine is not ready. */
+async function soiSwap(app,parentId) {
+  const {cameraCollision,evidence,settings,mapPanel,client}=app;
+  const engine=app.engines?.[parentId],body=BODIES[parentId],prev=activeBody();
+  if(!engine?.worker||!engine.info||!body||app.busy||prev.id===parentId)return false;
+  app.busy=true;
+  try {
+    await app.renderer.prepareBody(body);
+    app.bodyTuning??={};app.bodyTuning[prev.id]=app.tuningValues.slice();app.bodyClouds??={};app.bodyClouds[prev.id]=settings.clouds;
+    client.swap(engine);
+    delete app.engines[parentId];app.engines[prev.id]=engine;engine.farOnly=true;client.farOnly=false;
+    setActiveBody(body);
+    await app.renderer.useBody(body);
+    app.renderer.reset();app.renderer.clipCamera=undefined;app.renderer.cameraFloor=undefined;cameraCollision.reset();
+    const manifest=client.info.manifest;
+    app.renderer.configure(manifest);client.sky();client.animate(settings.animateNpcs);mapPanel.configure(manifest);cameraCollision.configure(manifest);
+    app.gateKey=undefined;
+    const values=app.bodyTuning[parentId]?.slice()??(Array.isArray(client.info.tuning)?client.info.tuning.slice():app.tuningValues.slice());
+    if(parentId==='elune'&&!app.bodyTuning[parentId])values[14]=LUNAR_GRAVITY;
+    await client.request('tuning',{values});app.tuningValues=values;
+    settings.clouds=app.bodyClouds[parentId]??(body.atmosphereEdge>0);app.syncSettings();
+    evidence.info=client.info;evidence.bodySwaps=(evidence.bodySwaps||0)+1;
+    return true;
+  } finally {app.busy=false;}
 }
