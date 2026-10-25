@@ -61,6 +61,9 @@ export function settlementPositions(manifest,rects=FALLBACK_RECTS) {
   })];
 }
 
+/** Settlement for a cluster of n lit models found on the ground at render-space [x,z]; a lone lamp is a faint size-1 glimmer, a lit town grows. */
+export const litSpot=(x,z,n)=>({id:'lit'+Math.round(x/160)+'_'+Math.round(z/160),pos:[x,z],size:n>=64?3:n>=16?2:n>=4?1.5:.5});
+
 const hash=n=>{const x=Math.sin(n*127.1+311.7)*43758.5453;return x-Math.floor(x);};
 
 /** Light points {u,v,rgb,sigma,peak,flag} in texel space for one settlement: a core, plus a ring of satellite lights scaled by size. */
@@ -81,22 +84,34 @@ export function settlementLights(s,w=NIGHT_W,h=NIGHT_H) {
   return out.map(l=>({...l,texYd}));
 }
 
+/**
+ * Incremental night-lights bake: add() splats one settlement into float accumulators and re-quantises only the touched rows into out,
+ * so streaming in lit WMO spots from real data costs microseconds per spot instead of a full-texture rebake. rows = [y0,y1] dirty span.
+ */
+export function createNightBake(w=NIGHT_W,h=NIGHT_H,out=new Uint8Array(w*h*4)) {
+  const acc=new Float32Array(w*h*3),flags=new Float32Array(w*h);
+  const state={out,rows:null,
+    add(s) {
+      for(const l of settlementLights(s,w,h)) {
+        const r=Math.ceil(l.sigma*3),k=-1/(2*l.sigma*l.sigma),y0=Math.max(0,Math.floor(l.v)-r),y1=Math.min(h-1,Math.floor(l.v)+r);
+        for(let y=y0;y<=y1;y++) for(let dx=-r;dx<=r;dx++) {
+          const x=((Math.floor(l.u)+dx)%w+w)%w,d2=(x+.5-l.u)**2+(y+.5-l.v)**2,g=Math.exp(k*d2)*l.peak;
+          if(g<.004)continue;
+          const i=y*w+x;
+          for(let c=0;c<3;c++){acc[i*3+c]+=l.rgb[c]*g;out[i*4+c]=Math.min(255,Math.round(acc[i*3+c]*255));}
+          if(l.flag)flags[i]=Math.max(flags[i],l.flag*Math.min(1,g*3));
+          out[i*4+3]=Math.round(Math.min(1,flags[i])*255);
+        }
+        state.rows=state.rows?[Math.min(state.rows[0],y0),Math.max(state.rows[1],y1)]:[y0,y1];
+      }
+      return state;
+    }};
+  return state;
+}
+
 /** Bakes all settlements into an rgba8 equirect texture (w*h*4 bytes); additive in rgb, max in alpha flag. */
 export function bakeNightLights(settlements,w=NIGHT_W,h=NIGHT_H,out=new Uint8Array(w*h*4)) {
-  const acc=new Float32Array(w*h*3),flags=new Float32Array(w*h);
-  for(const s of settlements) for(const l of settlementLights(s,w,h)) {
-    const r=Math.ceil(l.sigma*3),k=-1/(2*l.sigma*l.sigma);
-    for(let y=Math.max(0,Math.floor(l.v)-r);y<=Math.min(h-1,Math.floor(l.v)+r);y++) for(let dx=-r;dx<=r;dx++) {
-      const x=((Math.floor(l.u)+dx)%w+w)%w,d2=(x+.5-l.u)**2+(y+.5-l.v)**2,g=Math.exp(k*d2)*l.peak;
-      if(g<.004)continue;
-      const i=y*w+x;
-      for(let c=0;c<3;c++)acc[i*3+c]+=l.rgb[c]*g;
-      if(l.flag)flags[i]=Math.max(flags[i],l.flag*Math.min(1,g*3));
-    }
-  }
-  for(let i=0;i<w*h;i++) {
-    for(let c=0;c<3;c++)out[i*4+c]=Math.min(255,Math.round(acc[i*3+c]*255));
-    out[i*4+3]=Math.round(Math.min(1,flags[i])*255);
-  }
+  const b=createNightBake(w,h,out);
+  for(const s of settlements)b.add(s);
   return out;
 }

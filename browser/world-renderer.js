@@ -21,7 +21,7 @@ import {buffer,texture,drawable,setFlags,setGates,releaseMaterial,release,upload
 import {destroyCraft,releaseCraft,buildCraft,startWreck,wreckChunk,endWreck,setProps,setCraftOverride} from './renderer-craft.js';
 import {reset,configure,event,clearFar} from './renderer-events.js';
 import {scenePipeline,prepareBatches,sceneMatrix,drawScene} from './renderer-scene.js';
-import {zoneBlend,setSky,setSkyDome,horizonColour,planetRects,drawPlanet,drawPatches,drawLights,drawSkyDome,sampleSky} from './renderer-sky.js';
+import {zoneBlend,setSky,setSkyDome,horizonColour,planetRects,drawPlanet,drawPatches,drawLights,drawSkyDome,sampleSky,noteLitInstance} from './renderer-sky.js';
 import {drawShadow,enableHighClouds,highCloudGroup,maskEntries,drawClouds} from './renderer-clouds.js';
 import {initialize} from './renderer-init.js';
 const OCEAN_MESH_CEILING=90000;
@@ -173,6 +173,7 @@ const draws=[],selection=this.cameraBlocked?{selected:[],omitted:0}:
         const cached=instance.drawItems || (instance.drawItems=[]);
         for(let b=0;b<asset.batches.length;b++) {
           const batch=asset.batches[b];
+          if(batch.emissive&&!instance.litNoted&&!instance.craft&&!instance.id.includes(':npc:')){instance.litNoted=1;noteLitInstance(this,m[12]+origin[0],m[14]+origin[1]);}
           const texture=(batch.texture&&textures.get(batch.texture))||this.white;
           let item=cached[b];
           if(!item || item.texture!==texture || item.asset!==asset) {
