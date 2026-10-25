@@ -7,7 +7,8 @@ import {MAX_PATCHES} from './globe-patches.js';
 import {NIGHT_W,NIGHT_H} from './night-lights-wgsl.js';
 import {createColourGrid} from './tile-registry.js';
 import {HEIGHT_W,HEIGHT_H} from './height-bake.js';
-import {spaceShader,patchShader} from './space.js';
+import {shaderSetFor} from './body-shaders.js';
+import {AZEROTH} from './bodies.js';
 import {skyShader,skyDomeShader} from './sky.js';
 import {sub,cross,unit} from './renderer-helpers.js';
 import {terrainShader,splatShader,sceneShader} from './renderer-shaders.js';
@@ -92,7 +93,7 @@ export async function initialize(r) {
   r.heightGrid=new Float32Array(HEIGHT_W*HEIGHT_H).fill(-Infinity);r.heightDirty=false;
   r.colourGrid=createColourGrid();r.colourDirty=new Set();r.horizonMini=new Map();
   r.surfaceSamp=r.device.createSampler({magFilter:'linear',minFilter:'linear',addressModeU:'repeat',addressModeV:'clamp-to-edge'});
-  const spaceModule=await shader(spaceShader);
+  const spaceModule=await shader(shaderSetFor(AZEROTH).space);
   r.spacePipeline=await r.device.createRenderPipelineAsync({layout:'auto',vertex:{module:spaceModule,entryPoint:'vs'},
     fragment:{module:spaceModule,entryPoint:'fs',targets:[{format:r.format,blend:{color:{srcFactor:'one',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},primitive:{topology:'triangle-list'},
     depthStencil:DEPTH_STATE.space});
@@ -100,7 +101,7 @@ export async function initialize(r) {
   r.lightsPipeline=await r.device.createRenderPipelineAsync({layout:'auto',vertex:{module:spaceModule,entryPoint:'vs'},
     fragment:{module:spaceModule,entryPoint:'lfs',targets:[{format:r.format,blend:{color:{srcFactor:'one',dstFactor:'one'},alpha:{srcFactor:'zero',dstFactor:'one'}}}]},primitive:{topology:'triangle-list'},depthStencil:DEPTH_STATE.sky});
   r.lightsGroup=r.device.createBindGroup({layout:r.lightsPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.spaceBuffer}},{binding:2,resource:r.surfaceSamp},{binding:4,resource:r.lightsTex.createView()}]});
-  const patchModule=await shader(patchShader);
+  const patchModule=await shader(shaderSetFor(AZEROTH).patch);
   r.patchBuffer=r.device.createBuffer({size:MAX_PATCHES*32,usage:GPUBufferUsage.VERTEX|GPUBufferUsage.COPY_DST});
   r.patchPipeline=await r.device.createRenderPipelineAsync({layout:'auto',vertex:{module:patchModule,entryPoint:'pvs',buffers:[{arrayStride:32,stepMode:'instance',attributes:[{shaderLocation:0,offset:0,format:'float32x4'},{shaderLocation:1,offset:16,format:'float32x4'}]}]},
     fragment:{module:patchModule,entryPoint:'pfs',targets:[{format:r.format,blend:{color:{srcFactor:'one',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},primitive:{topology:'triangle-list'},
@@ -134,4 +135,29 @@ export async function initialize(r) {
     for(const p of [a,b,c])vertices.push(...p,...n,1);
   }
   r.body=r.drawable(new Float32Array(vertices),[0,0]);
+  r.planetBody='azeroth';
+}
+
+/** Space/lights/patch pipelines for the body the chart is on (design/elune.md D3): same shaders, that body's radius baked in. */
+export async function buildPlanetPipelines(r,body) {
+  if(r.planetBody===body.id)return;
+  const shader=async code=>{
+    const module=r.device.createShaderModule({code});
+    const info=await module.getCompilationInfo(),errors=info.messages.filter(m=>m.type==='error');
+    if(errors.length)throw new Error(errors.map(m=>m.message).join('\n'));
+    return module;
+  };
+  const set=shaderSetFor(body),space=await shader(set.space),patch=await shader(set.patch);
+  const add={color:{srcFactor:'one',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}};
+  const spacePipeline=await r.device.createRenderPipelineAsync({layout:'auto',vertex:{module:space,entryPoint:'vs'},
+    fragment:{module:space,entryPoint:'fs',targets:[{format:r.format,blend:add}]},primitive:{topology:'triangle-list'},depthStencil:DEPTH_STATE.space});
+  const lightsPipeline=await r.device.createRenderPipelineAsync({layout:'auto',vertex:{module:space,entryPoint:'vs'},
+    fragment:{module:space,entryPoint:'lfs',targets:[{format:r.format,blend:{color:{srcFactor:'one',dstFactor:'one'},alpha:{srcFactor:'zero',dstFactor:'one'}}}]},primitive:{topology:'triangle-list'},depthStencil:DEPTH_STATE.sky});
+  const patchPipeline=await r.device.createRenderPipelineAsync({layout:'auto',vertex:{module:patch,entryPoint:'pvs',buffers:[{arrayStride:32,stepMode:'instance',attributes:[{shaderLocation:0,offset:0,format:'float32x4'},{shaderLocation:1,offset:16,format:'float32x4'}]}]},
+    fragment:{module:patch,entryPoint:'pfs',targets:[{format:r.format,blend:add}]},primitive:{topology:'triangle-list'},depthStencil:DEPTH_STATE.patch});
+  r.spacePipeline=spacePipeline;r.lightsPipeline=lightsPipeline;r.patchPipeline=patchPipeline;
+  r.spaceGroup=r.device.createBindGroup({layout:spacePipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.spaceBuffer}},{binding:1,resource:r.surfaceTex.createView()},{binding:2,resource:r.surfaceSamp}]});
+  r.lightsGroup=r.device.createBindGroup({layout:lightsPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.spaceBuffer}},{binding:2,resource:r.surfaceSamp},{binding:4,resource:r.lightsTex.createView()}]});
+  r.patchGroup=r.device.createBindGroup({layout:patchPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.spaceBuffer}},{binding:1,resource:r.surfaceTex.createView()},{binding:2,resource:r.surfaceSamp},{binding:3,resource:r.heightTex.createView()}]});
+  r.planetBody=body.id;
 }

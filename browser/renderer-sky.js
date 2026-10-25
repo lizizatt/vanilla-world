@@ -1,6 +1,8 @@
 import {MINIMAP_SIZE} from './terrain-stream.js';
 import {sunDirection} from './clouds.js';
 import {schematicRects} from './worldmap.js';
+import {viewFrom} from './body-sky.js';
+import {AZEROTH,ELUNE} from './bodies.js';
 import {patchesAt,packPatches,PATCH_GRID} from './globe-patches.js';
 import {createRegistry,defaultManifest,bakeSurface,surfaceTexel,splatMinimap,adtChunk} from './tile-registry.js';
 import {HEIGHT_W,HEIGHT_H,encodeHeights} from './height-bake.js';
@@ -28,7 +30,13 @@ export function horizonColour(r,key,part) {
   if(e.placement&&e.rgba){splatMinimap(r.colourGrid,e.rgba,MINIMAP_SIZE,e.placement,WORLD_CENTRE,PLANET_RADIUS,r.colourDirty,r.heightGrid);r.horizonMini.delete(key);}
 }
 export function planetRects(r) {return r.manifest?.world_bounds?schematicRects(r.manifest):FALLBACK_RECTS;}
+/** Shared-space view (design/elune.md D3): Elune is always the moon-slot sphere seen from Azeroth when enabled; v4 charts are Elune looking back at Azeroth. */
+export function sharedFrame(r) {
+  if(r.manifest?.version===4)return viewFrom(ELUNE,r.timeOfDay);
+  return r.sharedSpace?viewFrom(AZEROTH,r.timeOfDay):undefined;
+}
 export function drawPlanet(r,pass,pf,near) {
+  if(r.planetBody!==(r.manifest?.version===4?'elune':'azeroth'))return;
   const rects=r.planetRects(),key=JSON.stringify(rects);
   if(pf.registry&&r.surfaceKey!==key){
     r.surfaceRegistry=// With real data the minimap colours own the land: procedural fill would paint green over the unseen coast water.
@@ -47,21 +55,23 @@ export function drawPlanet(r,pass,pf,near) {
   if(r.nightBake.rows){const [y0,y1]=r.nightBake.rows;r.nightBake.rows=null;
     r.device.queue.writeTexture({texture:r.lightsTex,origin:[0,y0,0]},r.nightBake.out,{offset:y0*NIGHT_W*4,bytesPerRow:NIGHT_W*4},[NIGHT_W,y1-y0+1]);}
   if(r.surfaceDirty){r.device.queue.writeTexture({texture:r.surfaceTex},r.surfaceBytes,{bytesPerRow:4096},[1024,512]);r.surfaceDirty=false;}
-  const uniform=spaceUniform(r.view,sunDirection(r.timeOfDay),pf,rects,r.timeOfDay,near,200000);
+  const uniform=spaceUniform(r.view,sunDirection(r.timeOfDay),pf,rects,r.timeOfDay,near,200000,undefined,r.sharedFrame());
   uniform[47]=performance.now()/1000%3600;// wall-clock seconds for light twinkle
   r.device.queue.writeBuffer(r.spaceBuffer,0,uniform);
   pass.setPipeline(r.spacePipeline);pass.setBindGroup(0,r.spaceGroup);pass.draw(3);
 }
 export function drawLights(r,pass,pf) {
+  if(r.planetBody!==(r.manifest?.version===4?'elune':'azeroth'))return;
   if(r.view.eye[1]<2500||!r.lightsGroup)return;
   pass.setPipeline(r.lightsPipeline);pass.setBindGroup(0,r.lightsGroup);pass.draw(3);
 }
 export function drawPatches(r,pass) {
+  if(r.planetBody!==(r.manifest?.version===4?'elune':'azeroth'))return;
   if(r.heightDirty&&performance.now()-(r.heightAt||0)>1000){
     r.device.queue.writeTexture({texture:r.heightTex},encodeHeights(r.heightGrid),{bytesPerRow:HEIGHT_W},[HEIGHT_W,HEIGHT_H]);
     r.heightDirty=false;r.heightAt=performance.now();
   }
-  const eye=r.view.eye,patches=patchesAt(eye[0],eye[2],Math.max(0,eye[1]));
+  const eye=r.view.eye,patches=patchesAt(eye[0],eye[2],Math.max(0,eye[1]),r.manifest?.version===4?{radius:ELUNE.radius,centre:ELUNE.centre,maxLevel:ELUNE.maxLevel}:undefined);
   r.device.queue.writeBuffer(r.patchBuffer,0,packPatches(patches));
   r.patchCount=patches.length;
   pass.setPipeline(r.patchPipeline);pass.setBindGroup(0,r.patchGroup);pass.setVertexBuffer(0,r.patchBuffer);pass.draw(PATCH_GRID*PATCH_GRID*6,patches.length);

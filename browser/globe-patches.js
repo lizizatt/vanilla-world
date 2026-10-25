@@ -71,7 +71,7 @@ function stitch(leaves,limit) {
 
 /** Patches for a flat eye position (x,z) and altitude. */
 export function patchesAt(x,z,altitude,options) {
-  const {lat,lon}=subPoint(x,z);
+  const {lat,lon}=subPoint(x,z,options?.centre,options?.radius);
   // Longitude is periodic: wrap the sub-point into [-pi,pi) so the tree sees the nearest copy.
   return selectPatches(lat,Math.atan2(Math.sin(lon),Math.cos(lon)),altitude,options);
 }

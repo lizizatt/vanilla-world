@@ -299,3 +299,9 @@ M0, M1 and M2 prove the architecture (second body, ADT synthesis, drivable moon)
 3. **Atmosphere.** Airless moon with a Moonglade **breathable bubble** (silver veil edge), or a thin fantasy sky everywhere? *Recommend bubble* (**accepted**; it also owns a small cloud microclimate, see 3): it keeps the moon lunar and makes the grove feel special; fallback is a hard fog edge.
 4. **Gravity wells and Elune's pull.** Patched conics (only the parent pulls, SOI swap at ~31 kyd) as v1, with n-body deferred to the rocket phase? *Recommend yes* (**accepted**): it keeps the integrator deterministic and cheap and matches `SPACE-PHYSICS.md` once amended. Gravity on the surface: lunar g = 0.25 Azeroth with curvature relief `k = 0.5`; tune in M11.
 5. **Moonglade scope.** Graft the full Moonglade (Nighthaven, shrine, NPCs, music) or just terrain, lake and trees for v1? *Recommend terrain + lake + trees + area/music first* (**accepted**; NPCs later as a custom, hand-authored pass, not the pack filter) (M8-M9), NPCs as a follow-up inside M9 only if the pack format allows a load-time filter.
+
+## Implementation status
+
+- A (Rust manifest v4, area ids): done, merged. B (depth prototype): 11a14cb3. C (?body=elune flat-chart drive): 176c02c8. D partial (space-hud.js readout): d0bfa3b5.
+- D remaining: wire space-flight.js into app-frame/input, per-radius shader factories (space.js) into renderer-shaders/renderer-init (PLANET_RADIUS is baked in ~13 modules), reversed-Z or two-layer depth in render-passes, second resident body. Must keep Azeroth golden + p99.
+- E: teleport/map/streaming, clouds + bubble microclimate, procedural grove.
