@@ -1,4 +1,4 @@
-import {imageRects,schematicRects,mapFrame,toMap,mapIcons,drawMap,stitch,WORLD_MAPS,worldImageRect} from './worldmap.js';
+import {imageRects,schematicRects,mapFrame,toMap,mapIcons,drawMap,stitch,WORLD_MAPS,worldImageRect,iconMapPosition} from './worldmap.js';
 import {maelstromCentre} from './clouds.js';
 
 /** Fullscreen world map dialog. Art arrives from the worker (runtime Data read); without it a schematic is drawn. */
@@ -52,7 +52,7 @@ export class MapPanel {
     this.status.textContent=rows===undefined?'Loading map art...':world?'':art?(images.every(Boolean)?'':'Loading map art...'):'Map art unavailable'+(this.error?` (${this.error})`:'')+'; showing schematic.';
     for(const old of this.stage.querySelectorAll('.map-icon,.map-track'))old.remove();
     for(const icon of mapIcons(manifest,centre)) {
-      const [u,v]=toMap(this.frame,...icon.position),button=this.stage.ownerDocument.createElement('button');
+      const [u,v]=toMap(this.frame,...iconMapPosition(icon,img)),button=this.stage.ownerDocument.createElement('button');
       button.type='button';button.className='map-icon';button.dataset.icon=icon.id;button.textContent={raceway:'Raceway',maelstrom:'Maelstrom',airport:'Airport',stormwind:'Stormwind',orgrimmar:'Orgrimmar',undercity:'Undercity',darnassus:'Darnassus'}[icon.id];
       button.title=button.ariaLabel=`Teleport to ${icon.label}`;
       button.style.left=`${u*100}%`;button.style.top=`${v*100}%`;
@@ -62,7 +62,7 @@ export class MapPanel {
     for(const t of this.tracks()) { // race start markers (a flagpole + beacon stands there in the world); informational, not teleports
       const [u,v]=toMap(this.frame,t.start.pos[0],t.start.pos[2]),pin=this.stage.ownerDocument.createElement('span');
       pin.className='map-track';pin.dataset.track=t.id;pin.title=pin.ariaLabel=`Race start: ${t.name??t.id}`;pin.textContent='\u2691';
-      pin.style.left=`%`;pin.style.top=`%`;this.stage.append(pin);
+      pin.style.left=`${u*100}%`;pin.style.top=`${v*100}%`;this.stage.append(pin);
     }
     this.stage.append(this.you);
     this.marker();

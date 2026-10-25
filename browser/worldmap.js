@@ -62,17 +62,23 @@ export const fromMap=(frame,u,v)=>[frame.x0+u*frame.width,frame.z0+v*frame.heigh
 
 /** City gate spawns in WoW world coordinates (x north, y west): map, [x,y,z], direction into the city as [dx,dy]. Render x=-y+offset, z=-x+offset, forward=(-sin yaw,-cos yaw). */
 const GATES=[
-  {id:'stormwind',label:'Stormwind gate',map:'Azeroth',wow:[-8985,497,102],into:[.8,.6]},
-  {id:'orgrimmar',label:'Orgrimmar gate',map:'Kalimdor',wow:[1330,-4420,35],into:[1,0]},
-  {id:'undercity',label:'Undercity gate',map:'Azeroth',wow:[1890,240,70],into:[-1,0]},
-  {id:'darnassus',label:'Darnassus gate',map:'Kalimdor',wow:[9950,2150,1330],into:[0,1]},
+  {id:'stormwind',label:'Stormwind gate',map:'Azeroth',wow:[-8985,497,102],into:[.8,.6],art:[560,335]},
+  {id:'orgrimmar',label:'Orgrimmar gate',map:'Kalimdor',wow:[1330,-4420,35],into:[1,0],art:[272,196]},
+  {id:'undercity',label:'Undercity gate',map:'Azeroth',wow:[1890,240,70],into:[-1,0],art:[558,150]},
+  {id:'darnassus',label:'Darnassus gate',map:'Kalimdor',wow:[9950,2150,1330],into:[0,1],art:[132,80]},
 ];
+/** Ironforge airport from WoW coords through the Eastern Kingdoms region offset, so it follows layout shifts. */
+function airportPos(manifest) {
+  const region=manifest.regions?.find(r=>r.map==='Azeroth');
+  if(!region)return [19486,5703];
+  const [kx,kz]=regionOffset(region);return [1694+kx,4636+kz];
+}
 function gateIcons(manifest) {
   return GATES.flatMap(g=>{
     const region=manifest.regions?.find(r=>r.map===g.map);
     if(!region)return [];
     const [kx,kz]=regionOffset(region),[x,y,z]=g.wow,pos=[-y+kx,-x+kz];
-    return [{id:g.id,label:g.label,position:pos,pose:[pos[0],z,pos[1],Math.atan2(g.into[1],g.into[0])]}];
+    return [{id:g.id,label:g.label,position:pos,art:g.art,pose:[pos[0],z,pos[1],Math.atan2(g.into[1],g.into[0])]}];
   });
 }
 
@@ -81,10 +87,11 @@ export const CLOUD_TOP_DROP=CLOUD_ALTITUDE+CLOUD_THICKNESS/2+CLOUD_TOWER.up+100;
 
 /** Icons: the usual raceway spawn and the maelstrom centre, as render-space poses to teleport to. */
 export function mapIcons(manifest,maelstrom) {
+  const airport=airportPos(manifest);
   return [
     {id:'raceway',label:'Steamwheedle raceway (spawn)',position:[manifest.spawn[0],manifest.spawn[2]],reset:true},
     {id:'maelstrom',label:'The Maelstrom (cloud top)',position:maelstrom,pose:[maelstrom[0],CLOUD_TOP_DROP,maelstrom[1],0]},
-    {id:'airport',label:'Ironforge airport',position:[19486,5703],pose:[19486,530,5703,-3.114]},
+    {id:'airport',label:'Ironforge airport',position:airport,pose:[airport[0],530,airport[1],-3.114]},
     ...gateIcons(manifest),
   ];
 }
@@ -165,4 +172,9 @@ export function worldImageRect(rects,centre,image=WORLD_IMAGE) {
   const a=Math.sqrt(fit(px)[0]*fit(pz)[0]),offset=pairs=>pairs.reduce((s,p)=>s+p[1]-a*p[0],0)/pairs.length;
   const ax=a,az=a,bx=offset(px),bz=offset(pz);
   return [-bx/ax,-bz/az,(image.width-bx)/ax,(image.height-bz)/az];
+}
+/** Where an icon is drawn on the world-art map: its city's pixel in the art if known, else its real position; art pixels map through the image rect. */
+export function iconMapPosition(icon,img,image=WORLD_IMAGE) {
+  if(!icon.art||!img)return icon.position;
+  return [img[0]+icon.art[0]/image.width*(img[2]-img[0]),img[1]+icon.art[1]/image.height*(img[3]-img[1])];
 }

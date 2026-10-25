@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {worldMapAreas,imageRects,schematicRects,mapFrame,toMap,fromMap,mapIcons,regionOffset,CLOUD_TOP_DROP} from './worldmap.js';
+import {worldMapAreas,imageRects,schematicRects,mapFrame,toMap,fromMap,mapIcons,regionOffset,CLOUD_TOP_DROP,iconMapPosition,worldImageRect as wirImg} from './worldmap.js';
 import {CLOUD_ALTITUDE,CLOUD_THICKNESS} from './cloud-config.js';
 
 function dbc(rows) {
@@ -53,4 +53,15 @@ test('world image rect covers both continents and keeps the Maelstrom at the ima
 test('world image rect keeps the image aspect ratio (800x533)',()=>{
   const r=wir(FALLBACK_RECTS,[WORLD_CENTRE[0],MAELSTROM_Z]);
   assert.ok(Math.abs((r[2]-r[0])/(r[3]-r[1])-800/533)<1e-6);
+});
+
+test('city icons land on their city in the world art (pixel tolerance) and airport follows the EK offset',()=>{
+  const m={spawn:[0,5,0],sea_level:0,world_bounds:[[0,0,51,56],[24,20,45,62]],horizons:[],regions:[{id:'k',map:'Kalimdor',tile_origin:[0,0],tile_count:[64,64],placement:[-21866.667,-7466.667]},{id:'e',map:'Azeroth',tile_origin:[0,0],tile_count:[64,64],placement:[725.333,-16000]}]};
+  const img=wirImg(FALLBACK_RECTS,[WORLD_CENTRE[0],MAELSTROM_Z]),icons=mapIcons(m,[WORLD_CENTRE[0],MAELSTROM_Z]);
+  const want={orgrimmar:[272,196],darnassus:[132,80],stormwind:[560,335],undercity:[558,150]};
+  for(const [id,[px,py]] of Object.entries(want)){
+    const p=iconMapPosition(icons.find(i=>i.id===id),img),x=(p[0]-img[0])/(img[2]-img[0])*800,y=(p[1]-img[1])/(img[3]-img[1])*533;
+    assert.ok(Math.abs(x-px)<12&&Math.abs(y-py)<12,`${id} at ${x|0},${y|0}`);
+  }
+  assert.deepEqual(icons.find(i=>i.id==='airport').position.map(Math.round),[19486,5703]);
 });
