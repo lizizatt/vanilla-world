@@ -75,7 +75,7 @@ function frame(now) {
       $('race-prompt').hidden=!app.promptTrack&&!again;if(again)$('race-prompt').textContent='Press F to race again';else if(app.promptTrack)$('race-prompt').textContent=`Press F to start race: ${app.promptTrack.name||app.promptTrack.id}`;
       $('speed').textContent=app.flight?'FLY':p[5]<10000?p[5].toFixed(0).padStart(3,'0'):p[5].toExponential(1);
       $('direction').textContent=app.flight?'FREE':p[14]<-.1?'REV':p[14]>.1?'FWD':p[5]<.1?'IDLE':'--';
-      $('drive-state').textContent=app.flight?'FLIGHT':scene?.waitingCollision||p[8]===1?'WAIT':p[8]===3?'CONTACT':p[8]===2?'NO GROUND':'';
+      $('drive-state').textContent=app.flight?'':scene?.waitingCollision||p[8]===1?'WAIT':p[8]===3?'CONTACT':p[8]===2?'NO GROUND':'';
       Object.assign(app.meters.dataset,{held:String(held),flight:String(!!app.flight),sprites:String(!!(app.dial&&app.hudOn))});
       
       
