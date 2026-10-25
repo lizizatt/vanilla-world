@@ -10,6 +10,7 @@ import {WaterStream} from './water-stream.js';
 import {FarChannel} from './far-channel.js';
 import {splitBudget,effectiveBudget,residentTileCap,nearRadius} from './memory-budget.js';
 import {FAR_LIMITS} from './far-stream.js';
+import {BODIES} from './bodies.js';
 import {viewChanged} from './world-view.js';
 import {ActorService,ACTOR} from './actors.js';
 import {maelstromCentre,WHIRLPOOL_DIP} from './clouds.js';
@@ -680,9 +681,9 @@ export async function openWorld(message) {
     source=await openAssetSource(message.folder,undefined,data=>postMessage(data,data.rgba?[data.rgba.buffer]:[]),
       {loadingArt:true,map:message.loadingMap});
     report('World and archive workers ready');
-    const moon=message.folder==='elune';
+    const moon=typeof message.folder==='string'&&!!BODIES[message.folder]?.rail;
     const wdts=[],wdls=[];
-    for(const map of moon?['Elune']:['Kalimdor','Azeroth']) {
+    for(const map of moon?[message.folder[0].toUpperCase()+message.folder.slice(1)]:['Kalimdor','Azeroth']) {
       report(`Reading ${map} topology and terrain`,{stage:'topology',completed:wdts.length+wdls.length,total:moon?2:4});
       wdts.push(await source.read(`World\\Maps\\${map}\\${map}.wdt`));
       report(`Reading ${map} topology and terrain`,{stage:'topology',completed:wdts.length+wdls.length,total:moon?2:4});

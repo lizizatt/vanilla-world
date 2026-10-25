@@ -20,3 +20,9 @@ test('only the near engine steps physics, and a swap exchanges roles', () => {
   assert.deepEqual(pair.swap('elune').sort(),['azeroth','elune']);
   assert.ok(pair.steps('elune'));assert.ok(!pair.steps('azeroth'));
 });
+
+test('N bodies: one near engine, the rest far-only, bytes conserved', () => {
+  const ids=['azeroth','elune','moon2'],pair=new EnginePair(1024*MIB,'azeroth',ids),sum=()=>ids.reduce((a,id)=>a+pair.plan[id].bytes,0);
+  assert.equal(sum(),1024*MIB);assert.equal(ids.filter(id=>pair.steps(id)).length,1);
+  pair.swap('moon2');assert.ok(pair.steps('moon2'));assert.equal(sum(),1024*MIB);assert.equal(pair.plan.azeroth.tiles,0);
+});
