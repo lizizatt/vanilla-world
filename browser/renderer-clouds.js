@@ -1,8 +1,9 @@
-import {shadowUniform,shadowHalf} from './shadow.js';
-import {cloudShaderHigh,cloudUniform,bakeCloudNoise,CLOUD_NOISE_SIZE} from './clouds.js';
+import {shadowUniform,shadowHalf,sunShadow} from './shadow.js';
+import {sunDirection,cloudShaderHigh,cloudUniform,bakeCloudNoise,CLOUD_NOISE_SIZE} from './clouds.js';
 
 export function drawShadow(r,pass,state,near) {
-  r.device.queue.writeBuffer(r.shadowBuffer,0,shadowUniform(r.view,state,shadowHalf(r.craft?.size),near));
+  const sh=sunShadow(sunDirection(r.timeOfDay));
+  r.device.queue.writeBuffer(r.shadowBuffer,0,shadowUniform(r.view,state,shadowHalf(r.craft?.size),near,sh.strength,undefined,sh.sun));
   pass.setPipeline(r.shadowPipeline);pass.setBindGroup(0,r.shadowGroup);pass.draw(3);
 }
 // High tier (opt-in): built on first use so the noise bake and shader compile cost nothing for Standard.

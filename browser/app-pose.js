@@ -1,4 +1,5 @@
 
+import {SimClock} from './sim-clock.js';
 export function installPose(app) {
 const {settings,client}=app;
 Object.assign(app,{applyUrlPose});
@@ -26,7 +27,7 @@ async function applyUrlPose() {
   const raw=new URLSearchParams(location.search).get('pose');if(!raw)return;
   let view;try{view=JSON.parse(raw);}catch{return;}
   Object.assign(settings,view.settings||{});app.syncSettings();
-  if(view.time!==undefined)app.renderer.timeLock=view.time;
+  if(view.time!==undefined){app.renderer.clock=new SimClock(view.time,settings.timeScale);app.renderer.timeLock=undefined;app.renderer.lastNight=!!settings.night;}
   if(view.flight)app.flight=view.flight.slice();
   else if(view.drive){client.state=await client.request('restore',{pose:view.drive});app.flight=undefined;app.renderer.camera=undefined;}
   app.running=true;

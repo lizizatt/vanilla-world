@@ -12,7 +12,8 @@ import {exhaustPoints,emitPlumes,emitDebris,emitHeatSmoke,emitGroundDust,QUALITY
 import {beamState} from './beam.js';
 import {horizonDip} from './space.js';
 import {planetFactors} from './terrain-transition.js';
-import {skyUniform,advanceTime,DAY} from './sky.js';
+import {skyUniform,DAY} from './sky.js';
+import {SimClock,sanitiseScale,daylightAt} from './sim-clock.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
 import {cameraAxes,AdmissionFade,sceneSelection} from './renderer-helpers.js';
 import {posedAsset,npcMoves,moveMatrix,pose} from './renderer-actors.js';
@@ -116,10 +117,13 @@ export class WorldRenderer {
     const aspect=width/height;
     this.view={eye:[this.camera[0]+origin[0],this.camera[1],this.camera[2]+origin[1]],right,up,look,aspect};
     const planetOn=!!flight&&settings.planet!==false,pf=this.planet=planetFactors(planetOn?this.view.eye[1]:0,planetOn);pf.mesh=planetOn&&!!settings.globeMesh;pf.registry=planetOn&&!!settings.globeRegistry;
-    const target=settings.night?0:1,previous=this.daylight??target;
+    const clock=this.clock??=new SimClock(settings.night?0:DAY,settings.timeScale);
+    if(this.lastNight!==undefined&&this.lastNight!==!!settings.night)clock.easeTo(settings.night?0:DAY);
+    this.lastNight=!!settings.night;clock.scale=sanitiseScale(settings.timeScale);clock.step(dt);
+    this.timeOfDay=this.timeLock??clock.now();
+    const target=daylightAt(this.timeOfDay),previous=this.daylight??target;
     const daylight=this.daylight=Math.abs(target-previous)<.002?target:previous+(target-previous)*Math.min(1,dt*1.5);
     const sky0=DAY_SKY.map((v,i)=>NIGHT_SKY[i]+(v-NIGHT_SKY[i])*daylight);
-    this.timeOfDay=this.timeLock??advanceTime(this.timeOfDay??(settings.night?0:DAY),settings.night,dt);
     const game=this.sampleSky(),sky=game?game.fog:sky0;pf.fog=(game?game.horizon:sky).slice(0,3);
     this.gameSky=game;
     const skyFloats=game?[...game.fog,1,...game.sun,0,...game.horizon,0,...game.mid,0]:new Array(16).fill(0);
