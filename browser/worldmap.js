@@ -5,6 +5,7 @@
 import {CLOUD_ALTITUDE,CLOUD_THICKNESS,CLOUD_TOWER} from './cloud-config.js';
 const TILE=256,COLUMNS=4,ROWS=3,SCALE=1600/3;
 const NAME=/^[A-Za-z]{3,24}$/;
+export const WORLD_MAPS=['World','Cosmic'];
 
 export function worldMapAreas(bytes) {
   if(!(bytes instanceof Uint8Array)||bytes.length<20||bytes.length>1024*1024||
@@ -122,15 +123,16 @@ export class WorldMapService {
       const read=path=>this.source.read(path,{background:true,shouldDefer:stopped});
       const rows=worldMapAreas(await read('DBFilesClient\\WorldMapArea.dbc'));
       this.emit({event:'worldmap',rows});
+      // The single full-world map (both continents and the Maelstrom) is preferred; per-continent art is the fallback when Data lacks it.
+      const hasRow=n=>rows.some(r=>r.area===0&&r.name.toLowerCase()===n.toLowerCase());
+      const world=WORLD_MAPS.find(n=>hasRow(n));
+      if(world){
+        try {await this.tiles(world,rows,read,stopped);return;} catch(error) {if(error.code==='DEFERRED')throw error;}
+      }
       for(const name of names) {
-        if(!NAME.test(name)||!rows.some(r=>r.area===0&&r.name.toLowerCase()===name.toLowerCase()))continue;
-        const row=rows.find(r=>r.area===0&&r.name.toLowerCase()===name.toLowerCase()),tiles=[],transfers=[];
-        for(let i=0;i<COLUMNS*ROWS;i++) {
-          const handle=new this.wasm.SceneTexture(await read(`Interface\\WorldMap\\${row.name}\\${row.name}${i+1}.blp`));
-          try {const meta=JSON.parse(handle.metadata()),rgba=handle.rgba();tiles.push({index:i,width:meta.width,height:meta.height,rgba});transfers.push(rgba.buffer);} finally {handle.free();}
-        }
+        if(!NAME.test(name)||!hasRow(name))continue;
+        await this.tiles(name,rows,read,stopped);
         if(stopped())return;
-        this.emit({event:'worldmap-tiles',name,tiles},transfers);
       }
     } catch(error) {
       this.sent=false;
@@ -138,5 +140,14 @@ export class WorldMapService {
       if(error.code==='DEFERRED')setTimeout(()=>this.request(names,stopped),2000);
       else this.emit({event:'worldmap',error:String(error.message||error)});
     }
+  }
+  async tiles(name,rows,read,stopped) {
+    const row=rows.find(r=>r.area===0&&r.name.toLowerCase()===name.toLowerCase()),tiles=[],transfers=[];
+    for(let i=0;i<COLUMNS*ROWS;i++) {
+      const handle=new this.wasm.SceneTexture(await read(`Interface\\WorldMap\\${row.name}\\${row.name}${i+1}.blp`));
+      try {const meta=JSON.parse(handle.metadata()),rgba=handle.rgba();tiles.push({index:i,width:meta.width,height:meta.height,rgba});transfers.push(rgba.buffer);} finally {handle.free();}
+    }
+    if(stopped())return;
+    this.emit({event:'worldmap-tiles',name,tiles},transfers);
   }
 }
