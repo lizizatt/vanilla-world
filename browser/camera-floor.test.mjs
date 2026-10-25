@@ -29,8 +29,18 @@ test('fly and chase cameras are lifted above water and ground, and are untouched
   assert.equal(r.camera[1],.5,'no terrain: the sea is the floor');
   cameraView(r,[0,0,0,0,0],[9000,300,9000,0,0],.016,[0,0],{});
   assert.equal(r.camera[1],300);
-  const chase={cameraFloor:()=>10,clipCamera:(_p,to)=>to};
+  const chase={cameraFloor:()=>5,clipCamera:(_p,to)=>to};
   cameraView(chase,[0,0,0,0,0],undefined,.016,[0,0],{cameraOrbit:[0,-3000]});
-  assert(chase.camera[1]>=10,'chase camera swung below the surface is lifted');
+  assert(chase.camera[1]>=5,'chase camera swung below the surface is lifted');
   assert.deepEqual(lifted({},[1,-5,2],[0,0]),[1,-5,2],'no floor until camera collision has loaded');
+});
+
+test('the chase floor lift is capped near the pivot so a high surface cannot leave the camera looking straight down',()=>{
+  const rig={cameraFloor:()=>500};
+  const view=cameraView(rig,[0,10,0,0,0,0,0,1,0],undefined,.016,[0,0],{});
+  assert.ok(rig.camera[1]<=10+3+5,`eye at ${rig.camera[1]}`);
+  const horizontal=Math.hypot(rig.camera[0],rig.camera[2]);
+  assert.ok(horizontal>5,'the eye stays behind the pod');
+  assert.ok(Math.abs(view.look[1])<.8,`look pitch ${view.look[1]}`);
+  assert.equal(lifted({cameraFloor:()=>500},[0,1,0],[0,0])[1],500,'fly mode is still fully floored');
 });
