@@ -27,7 +27,7 @@ export function cloudUniform(view,time,daylight,manifest,near,game,out=new Float
   const [x,z]=maelstromCentre(manifest),sun=sunDirection(timeOfDay);
   out.set([...view.eye,200000,...view.right,view.aspect,...view.up,time,...view.look,daylight,x,z,CLOUD_ALTITUDE,CLOUD_HALF_SIZE,near]);
   const f=planetFrame(view.eye[0],view.eye[2]);
-  out.set([shellCurvature(planet.bend),planet.space,planet.flowScale??1,0],44);
+  out.set([shellCurvature(planet.bend),planet.space,planet.flowScale??1,planet.flowCycles??(time/FLOW.period)%1],44);
   out.set([...f.east,WORLD_CENTRE[0],...f.up,WORLD_CENTRE[1],...f.south,PLANET_RADIUS],48);
   out.set([...sun,sun[1]],32);out.set([1,.96,.88,0],36);out.set([.55,.6,.7,0],40);
   // Zone lighting fades to the global sun/sky look by the lowest cloud base (planet.zone 1..0), so orbit is lit by the sun alone.
@@ -150,7 +150,7 @@ fn sheetDensity(pos:vec3f,t:f32)->vec3f {
   let base=.4+(bandCoverage(sp.lat)+landCov+exp(-r/${FLOW.vortex.armReach.toFixed(1)})*(arm-.5)*${FLOW.vortex.armCover})*(1.0-storm);
   let coverage=clamp(mix(base,mix(.1,.95,arm),storm)+.6*wall,0.0,.95)*eye;
   // Two-phase flow map: each phase samples the noise displaced by the wind for its age, crossfaded near the resets; a single phase most of the time.
-  let fp=flowPhase(t);
+  let fp=flowPhase(c.bend.w,c.bend.z);
   var bh:vec2f;
   if(fp.z>=1.0){bh=cloudBody(sp,d,pos,t,fp.x,drag,coverage,wall);}
   else if(fp.z<=0.0){bh=cloudBody(sp,d,pos,t,fp.y,drag,coverage,wall);}
@@ -165,27 +165,18 @@ fn radius(h:f32,y:f32)->f32 {
   let up=mix(${F.baseRadius.toFixed(1)},${F.topRadius.toFixed(1)},pow(h,${F.flare.toFixed(2)}));
   return mix(${F.skirtRadius.toFixed(1)},up,pow(smoothstep(SEA,BASE,y),.5));
 }
-// Terrain/water bend (space.js bendShader) forward, and its inverse for a render-frame point: the funnel is defined in the flat world, so
-// each march sample is un-bent to keep its base on the curved water surface.
-fn bendK()->f32 {return clamp(c.bend.x*${PLANET_RADIUS}.0,0.0,1.0);}
-fn bendFwd(rel:vec3f)->vec3f {
-  let k=bendK();let d=length(rel.xz);
-  if(k<=0.0||d<1.0){return rel;}
-  let R=${PLANET_RADIUS}.0;let th=min(d/R,3.0);let rr=R+rel.y+c.eye.y;
-  let s=mix(d,rr*sin(th),k)/d;
-  return vec3f(rel.x*s,mix(rel.y,rr*cos(th)-R-c.eye.y,k),rel.z*s);
-}
-fn bendInv(rel:vec3f)->vec3f {
-  let k=bendK();let dr=length(rel.xz);
-  if(k<=0.0||dr<1.0){return rel;}
-  let R=${PLANET_RADIUS}.0;let E=R+c.eye.y;
-  var d=dr;var y0=rel.y;
-  for(var i=0;i<3;i++){
-    let th=min(d/R,3.0);let ct=cos(th);
-    y0=(rel.y-k*E*(ct-1.0))/(1.0-k+k*ct);
-    d=d+dr-mix(d,(E+y0)*sin(th),k);
-  }
-  return vec3f(rel.xz.x*d/dr,y0,rel.xz.y*d/dr);
+// Inverse of worldAt: a flat world point (x, height, z) -> eye-relative render-frame position on the curved shells, so the funnel sits on the same
+// equirectangular globe mapping as the cloud sheets and the globe (flat and unchanged when kappa = 0).
+fn shellFwd(w:vec3f)->vec3f {
+  let k=c.bend.x;
+  if(k<=0.0){return w-c.eye.xyz;}
+  let lon=(w.x-c.fe.w)/c.fs.w;let lat=-(w.z-c.fu.w)/c.fs.w;
+  let pv=vec3f(cos(lat)*cos(lon),sin(lat),cos(lat)*sin(lon));
+  let n=vec3f(dot(pv,c.fe.xyz),dot(pv,c.fu.xyz),dot(pv,c.fs.xyz));
+  let thE=acos(clamp(n.y,-1.0,1.0))*k*${PLANET_RADIUS}.0;
+  let hl=length(n.xz);let hx=select(vec2f(1.0,0.0),n.xz/hl,hl>1e-6);
+  let Re=1.0/k;let r=Re+w.y;
+  return vec3f(hx.x*r*sin(thE),r*cos(thE)-Re-c.eye.y,hx.y*r*sin(thE));
 }
 fn funnelDensity(pos:vec3f,t:f32)->vec2f {
   let h=clamp((pos.y-BASE)/(TOP-BASE),0.0,1.0);
@@ -243,7 +234,7 @@ const NF=${FUNNEL_STEPS};
   if(live&&s1>s0&&sEdge>0.0&&s0<select(c.cloud.w,1e8,shell)){ns=NS;}
   // Funnel cylinder-and-height extent.
   var f0=0.0;var f1=1e9;var nf=NF;var fEdge=1.0;
-  let oc=bendFwd(vec3f(c.cloud.x-c.eye.x,0.0,c.cloud.y-c.eye.z));let o=-oc.xz;let dxz=dir.xz;
+  let oc=shellFwd(vec3f(c.cloud.x,0.0,c.cloud.y));let o=-oc.xz;let dxz=dir.xz;
   let R=${Math.max(F.topRadius,F.skirtRadius).toFixed(1)}*1.05;
   let qa=dot(dxz,dxz);let qb=dot(o,dxz);let qk=dot(o,o)-R*R;
   if(qa>1e-8){
@@ -251,12 +242,12 @@ const NF=${FUNNEL_STEPS};
     if(disc<0.0){nf=0;} else {let sq=sqrt(disc);f0=max(0.0,(-qb-sq)/qa);f1=(-qb+sq)/qa;}
   } else if(qk>0.0){nf=0;}
   if(abs(dir.y)>1e-4){
-    let ta=(SEA-120.0+oc.y-c.eye.y)/dir.y;let tb=(TOP+120.0+oc.y-c.eye.y)/dir.y;
+    let ta=(SEA-120.0+oc.y)/dir.y;let tb=(TOP+120.0+oc.y)/dir.y;
     f0=max(f0,min(ta,tb));f1=min(f1,max(ta,tb));
-  } else if(c.eye.y<SEA+oc.y-120.0||c.eye.y>TOP+oc.y+120.0){nf=0;}
+  } else if(SEA+oc.y-120.0>0.0||TOP+oc.y+120.0<0.0){nf=0;}
   // Far from the funnel on a curved planet its axis tilts by d/R, so the vertical cylinder above misses it: bound it with a sphere in the render frame instead.
-  if(bendK()>0.0&&length(oc.xz)>6000.0){
-    let mid=.5*(SEA+TOP)-c.eye.y;let sc=bendFwd(vec3f(c.cloud.x-c.eye.x,mid,c.cloud.y-c.eye.z));
+  if(c.bend.x>0.0&&length(oc.xz)>6000.0){
+    let mid=.5*(SEA+TOP);let sc=shellFwd(vec3f(c.cloud.x,mid,c.cloud.y));
     let sr=sqrt(pow(.5*(TOP-SEA)+120.0,2.0)+R*R);let so=-sc;
     let sb=dot(so,dir);let sd=sb*sb-(dot(so,so)-sr*sr);
     nf=NF;f0=0.0;f1=1e9;
@@ -296,7 +287,7 @@ const NF=${FUNNEL_STEPS};
       light+=trans*absorb*mix(tone*grade,fog,clamp(dd/150000.0,0.0,.93));trans*=1.0-absorb;
     } else {
       j++;
-      let pos=c.eye.xyz+bendInv(dir*tf);
+      let pos=worldAt(dir*tf);
       let s=funnelDensity(pos,t);
       if(s.x<=.001){continue;}
       let absorb=(1.0-exp(-s.x*fstep*.004))*fWeight;

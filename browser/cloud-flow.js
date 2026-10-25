@@ -34,10 +34,12 @@ export function bandCoverage(lat) {
 }
 
 /** Two-phase flow-map weights at time t: phase offsets (s) into the cycle and the weight of phase A (phase B = 1 - wA, half a cycle later). */
-export function flowPhase(t) {
-  const f=t/FLOW.period-Math.floor(t/FLOW.period),tri=1-Math.abs(2*f-1),g=FLOW.period;
+export function flowPhaseAt(cycles,scale=1) {
+  const f=cycles-Math.floor(cycles),tri=1-Math.abs(2*f-1),g=FLOW.period*scale;
   return {tauA:f*g,tauB:((f+.5)%1)*g,wA:smoothstep(FLOW.blend[0],FLOW.blend[1],tri)};
 }
+/** Same at a time t (s) with a fixed cycle stretch; the renderer drives flowPhaseAt from CloudClock.cycles so a speed change never jumps the phase. */
+export const flowPhase=(t,scale=1)=>flowPhaseAt(t/(FLOW.period*scale),scale);
 
 /** Wind (east, north) at a point: belt winds. */
 export const wind=(lat,lon)=>beltWind(lat);
@@ -158,9 +160,9 @@ fn bandCoverage(lat:f32)->f32 {
     let bw=beltWind(lat)*drag;
     return vec2f(d.x*cs-d.y*sn-d.x-bw.x*tau,-(d.x*sn+d.y*cs-d.y)-bw.y*tau);
   }
-  // (tauA, tauB, weight of phase A): two phases half a cycle apart, crossfaded where the triangle wave nears a phase reset.
-  fn flowPhase(t:f32)->vec3f {
-    let g=${f(FLOW.period)};let fr=fract(t/g);let tri=1.0-abs(2.0*fr-1.0);
+  // (tauA, tauB, weight of phase A): two phases half a cycle apart, crossfaded where the triangle wave nears a phase reset. cy = cycle phase, sc = cycle stretch (CloudClock).
+  fn flowPhase(cy:f32,sc:f32)->vec3f {
+    let g=${f(FLOW.period)}*sc;let fr=fract(cy);let tri=1.0-abs(2.0*fr-1.0);
     return vec3f(fr*g,fract(fr+.5)*g,smoothstep(${f(FLOW.blend[0])},${f(FLOW.blend[1])},tri));
   }`;
 }
