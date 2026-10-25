@@ -254,6 +254,14 @@ const NF=${FUNNEL_STEPS};
     let ta=(SEA-120.0+oc.y-c.eye.y)/dir.y;let tb=(TOP+120.0+oc.y-c.eye.y)/dir.y;
     f0=max(f0,min(ta,tb));f1=min(f1,max(ta,tb));
   } else if(c.eye.y<SEA+oc.y-120.0||c.eye.y>TOP+oc.y+120.0){nf=0;}
+  // Far from the funnel on a curved planet its axis tilts by d/R, so the vertical cylinder above misses it: bound it with a sphere in the render frame instead.
+  if(bendK()>0.0&&length(oc.xz)>6000.0){
+    let mid=.5*(SEA+TOP)-c.eye.y;let sc=bendFwd(vec3f(c.cloud.x-c.eye.x,mid,c.cloud.y-c.eye.z));
+    let sr=sqrt(pow(.5*(TOP-SEA)+120.0,2.0)+R*R);let so=-sc;
+    let sb=dot(so,dir);let sd=sb*sb-(dot(so,so)-sr*sr);
+    nf=NF;f0=0.0;f1=1e9;
+    if(sd<0.0){nf=0;}else{let sq2=sqrt(sd);f0=max(0.0,-sb-sq2);f1=-sb+sq2;}
+  }
   if(sceneDist<1e8){fEdge=smoothstep(0.0,300.0,sceneDist-f0);f1=min(f1,sceneDist);}
   if(f1<=f0||fEdge<=0.0){nf=0;}
   if(ns==0&&nf==0){discard;}

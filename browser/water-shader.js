@@ -1,5 +1,6 @@
 import {resizeRgba} from './terrain-stream.js';
 import {WHIRLPOOL_DIP} from './cloud-config.js';
+import {PLANET_RADIUS} from './space.js';
 
 export const WATER_NORMAL_SIZE=128;
 export function waterNormalMips() {
@@ -34,7 +35,9 @@ export function waterNormalMips() {
 const WHIRLPOOL={wallBoost:3.0,radius:2600,core:260,tilt:.8,spin:.35,twist:2.4,arms:4,pitch:1.1};
 const W=WHIRLPOOL;
 export const dayShading=`
-fn nightK()->f32 {return 1.0-u.forward.w;}
+// nightOver (set per fragment by terrain/splat via localNight) replaces the clock-wide night so far-away ground follows its own sun.
+var<private> nightOver:f32=-1.0;
+fn nightK()->f32 {return select(1.0-u.forward.w,nightOver,nightOver>=0.0);}
 fn gameSky()->bool {return u.sky[0].w>.5;}
 fn grade(c:vec3f)->vec3f {
   return c*mix(vec3f(1.0),vec3f(.2,.27,.5),nightK())*select(vec3f(1.0),mix(vec3f(1.0),u.sky[1].rgb,.6),gameSky());
@@ -46,6 +49,14 @@ fn valleyHaze(p:vec3f)->f32 {
 }
 fn fogTint()->vec3f {return select(mix(vec3f(.08,.15,.20),vec3f(.008,.016,.045),nightK()),u.sky[0].rgb,gameSky());}
 `;
+/** Per-point night (0 day .. 1 night) on the bent globe from the sun in u.pad[1]; matches the globe shader's terminator. Needs the terrain/splat U layout. */
+export const localNightShading=`
+fn localNight(p:vec3f)->f32 {
+  let g=1.0-u.forward.w;let k=clamp(u.pad[0].x*${PLANET_RADIUS}.0,0.0,1.0);
+  if(k<=0.0){return g;}
+  let rel=bend(p-u.eye.xyz,u.eye.y,u.pad[0].x);let n=normalize(rel-vec3f(0.0,-(${PLANET_RADIUS}.0+u.eye.y),0.0));
+  return mix(g,1.0-smoothstep(-.12,.25,dot(n,u.pad[1].xyz)),k);
+}`;
 export const waterShading=`
 @group(0) @binding(3) var waterNormals:texture_2d<f32>;
 @group(0) @binding(4) var waveSampler:sampler;

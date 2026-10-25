@@ -164,7 +164,9 @@ fn surface(pv:vec3f,n:vec3f,d:vec3f,sun:vec3f)->vec3f {
   let lit=clamp(dot(n,sun)*1.6+.15,0.0,1.0);
   let spec=pow(max(dot(reflect(-sun,n),-d),0.0),40.0)*(1.0-land);
   let rim=pow(1.0-max(dot(n,-d),0.0),3.0);
-  return col*(.03+lit)+vec3f(.5,.6,.7)*spec*lit+vec3f(.25,.5,1.0)*rim*(.15+lit)*.8*clamp(s.p.x/3000.0,0.0,1.0);
+  // Night floor equals the terrain/water night grade (0.35 x the blue night tint), so mesh and globe ocean agree across the terminator.
+  let floorC=mix(vec3f(.16,.22,.4),vec3f(.03),smoothstep(-.12,.25,dot(n,sun)));
+  return col*(floorC+lit)+vec3f(.5,.6,.7)*spec*lit+vec3f(.25,.5,1.0)*rim*(.15+lit)*.8*clamp(s.p.x/3000.0,0.0,1.0);
 }
 // Same haze law as the terrain/water shaders (distance/150000, gone once the bend takes over); fog colour rides in the unused fourth rect slot.
 fn fogGlobe(c:vec3f,t:f32,n:vec3f,d:vec3f)->vec3f {let low=1.0-${wgslRamp(BEND_RANGE)}s.p.x);let f=pow(1.0-abs(dot(normalize(n),normalize(d))),3.0);let k=max(clamp(t/150000.0,0.0,.93),.85*f)*low;return mix(c,s.rect[3].xyz,k);}
