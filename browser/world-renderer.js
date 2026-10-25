@@ -21,7 +21,7 @@ import {buffer,texture,drawable,setFlags,setGates,releaseMaterial,release,upload
 import {destroyCraft,releaseCraft,buildCraft,startWreck,wreckChunk,endWreck,setProps,setCraftOverride} from './renderer-craft.js';
 import {reset,configure,event,clearFar} from './renderer-events.js';
 import {scenePipeline,prepareBatches,sceneMatrix,drawScene} from './renderer-scene.js';
-import {zoneBlend,setSky,setSkyDome,horizonColour,planetRects,drawPlanet,drawPatches,drawSkyDome,sampleSky} from './renderer-sky.js';
+import {zoneBlend,setSky,setSkyDome,horizonColour,planetRects,drawPlanet,drawPatches,drawLights,drawSkyDome,sampleSky} from './renderer-sky.js';
 import {drawShadow,enableHighClouds,highCloudGroup,maskEntries,drawClouds} from './renderer-clouds.js';
 import {initialize} from './renderer-init.js';
 const OCEAN_MESH_CEILING=25000;
@@ -88,6 +88,7 @@ export class WorldRenderer {
   planetRects(){return planetRects(this);}
   drawPlanet(pass,pf,near){return drawPlanet(this,pass,pf,near);}
   drawPatches(pass){return drawPatches(this,pass);}
+  drawLights(pass,pf){return drawLights(this,pass,pf);}
   drawSkyDome(pass){return drawSkyDome(this,pass);}
   sampleSky(){return sampleSky(this);}
   drawShadow(pass,state,near){return drawShadow(this,pass,state,near);}
@@ -234,6 +235,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
       if(pf.globe>0)this.drawPlanet(pass,pf,near);
       if(pf.globe>0&&pf.mesh)this.drawPatches(pass);
       this.drawTerrain(pass,terrain);this.drawScene(pass,draws);
+      if(pf.globe>0)this.drawLights(pass,pf);
     }
     pass.end();
     if(!this.cameraBlocked&&!flight&&settings.shadows!==false) {
