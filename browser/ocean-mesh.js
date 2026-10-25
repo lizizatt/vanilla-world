@@ -1,3 +1,4 @@
+import {coversLand} from './land-rect.js';
 import {maelstromCentre,WHIRLPOOL_DIP} from './clouds.js';
 
 /** Surface drop (yd, >= 0) at squared distance q=(r/R)^2 from the whirlpool centre; mirrors `whirlpool_dip` in voyage.rs. */
@@ -34,7 +35,7 @@ export function oceanMesh(manifest,cells=96,land=[]) {
     if(!near)return flags&&flags.some(n=>n>1)?fan(x0,z0,x1,z1,flags):tri(x0,z0,x1,z1);
     for(let j=0;j<SUB;j++)for(let i=0;i<SUB;i++){
       const a=x0+(x1-x0)*i/SUB,b=z0+(z1-z0)*j/SUB,c=x0+(x1-x0)*(i+1)/SUB,d=z0+(z1-z0)*(j+1)/SUB,mx=x+(a+c)/2,mz=z+(b+d)/2;
-      if(!near.some(r=>mx>=r[0]&&mx<r[2]&&mz>=r[1]&&mz<r[3]))tri(a,b,c,d);
+      if(!coversLand(near,mx,mz))tri(a,b,c,d);
     }
   };
   // Axes are shared between neighbouring quads (and the dip patch is cut at multiples of its own vertex spacing), so every

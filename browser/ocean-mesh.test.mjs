@@ -40,3 +40,10 @@ test('the whirlpool patch and surrounding quads share edge vertices (no T-juncti
       if(s>1e-6&&s<1-1e-6&&Math.abs((px-a[0])*dz-(pz-a[1])*dx)/Math.sqrt(l2)<1e-6){bad++;break;}}}
   assert.equal(bad,0);
 });
+
+test('no water over a below-sea land tile (racetrack basin); bays outside land rects stay flooded',()=>{
+  const track=[-100,-100,100,100],verts=oceanMesh(manifest,96,[track]);
+  const inside=[],outside=[];
+  for(let i=0;i<verts.length;i+=21){const x=(verts[i]+verts[i+7]+verts[i+14])/3,z=(verts[i+2]+verts[i+9]+verts[i+16])/3;(x>=-100&&x<100&&z>=-100&&z<100?inside:outside).push(1);}
+  assert.equal(inside.length,0);assert.ok(outside.length>0);
+});

@@ -21,3 +21,6 @@ export function trimRimSpikes(vertices,floor=LAND_FLOOR) {
   for(let i=0;i<vertices.length;i+=7)if(vertices[i+6]!==LIQUID&&vertices[i+1]>floor)vertices[i+1]=low;
   return vertices;
 }
+
+/** Shared water predicate: no sea surface where a land rect [x0,z0,x1,z1] covers (x,z). Used by the ocean mesh carve and the camera floor. */
+export const coversLand=(rects,x,z)=>rects.some(r=>x>=r[0]&&x<r[2]&&z>=r[1]&&z<r[3]);
