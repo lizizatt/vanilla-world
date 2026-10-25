@@ -101,24 +101,27 @@ export function bendRel(rel,eye,k=1,radius=PLANET_RADIUS,centre=WORLD_CENTRE) {
   const n=[cl*Math.sin(dl),cp0*cd+sp0*Math.sin(lat),sp0*cd-cp0*Math.sin(lat)],r=radius+rel[1]+eye[1];
   return [rel[0]+(n[0]*r-rel[0])*k,rel[1]+(n[1]*r-(radius+eye[1])-rel[1])*k,rel[2]+(n[2]*r-rel[2])*k];
 }
-export const bendShader=`
+const wgslF=x=>Number.isInteger(x)?x+'.0':String(x);
+/** WGSL bend() for a body of the given radius and chart centre (design/elune.md M3). The default export is Azeroth, byte-identical to before. */
+export const bendShaderFor=(radius,centre)=>`
 fn bend(rel:vec3f,eye:vec3f,k:f32)->vec3f {
   if(k<=0.0||length(rel.xz)<1.0){return rel;}
-  let R=${PLANET_RADIUS}.0;let lim=${LAT_MAX};
-  let lat0=clamp((${WORLD_CENTRE[1]}.0-eye.z)/R,-lim,lim);let lat=clamp(lat0-rel.z/R,-lim,lim);let dl=rel.x/R;
+  let R=${wgslF(radius)};let lim=${LAT_MAX};
+  let lat0=clamp((${wgslF(centre[1])}-eye.z)/R,-lim,lim);let lat=clamp(lat0-rel.z/R,-lim,lim);let dl=rel.x/R;
   let cl=cos(lat);let sp0=sin(lat0);let cp0=cos(lat0);let cd=cl*cos(dl);
   let n=vec3f(cl*sin(dl),cp0*cd+sp0*sin(lat),sp0*cd-cp0*sin(lat));
   let w=vec3f(0.0,-(R+eye.y),0.0)+n*(R+rel.y+eye.y);
   return mix(rel,w,k);
 }`;
+export const bendShader=bendShaderFor(PLANET_RADIUS,WORLD_CENTRE);
 
-export const spaceShader=`
+export const spaceShaderFor=radius=>`
 struct S {look:vec4f,right:vec4f,up:vec4f,p:vec4f,sun:vec4f,e:vec4f,u:vec4f,s:vec4f,rect:array<vec4f,4>,moon:array<vec4f,2>,tint:array<vec4f,2>};
 @group(0) @binding(0) var<uniform> s:S;
 @group(0) @binding(1) var surfaceTex:texture_2d<f32>;
 @group(0) @binding(2) var surfaceSamp:sampler;
 @group(0) @binding(4) var lightsTex:texture_2d<f32>;
-const R=${PLANET_RADIUS}.0;const DEPTH_R=R-${GLOBE_DEPTH_DROP}.0;
+const R=${wgslF(radius)};const DEPTH_R=R-${GLOBE_DEPTH_DROP}.0;
 struct V {@builtin(position) clip:vec4f,@location(0) ndc:vec2f};
 @vertex fn vs(@builtin(vertex_index) i:u32)->V {
   var p=array<vec2f,3>(vec2f(-1,-1),vec2f(3,-1),vec2f(-1,3));
@@ -237,9 +240,10 @@ struct FO {@location(0) color:vec4f,@builtin(frag_depth) depth:f32};
   return vec4f(lightsAt(vec2f(lon/6.2831853+.5,.5-lat/3.1415927),s.rect[3].w)*dark*high,0.0);
 }
 `;
+export const spaceShader=spaceShaderFor(PLANET_RADIUS);
 
 // Patch mesh (globe-patches.js): each instance is one lat/lon patch drawn as a 16x16 grid. Edge vertices of finer patches snap onto coarser neighbours (flags) so LOD cracks close exactly.
-export const patchShader=spaceShader.slice(0,spaceShader.indexOf('@fragment fn fs'))+`
+export const patchShaderFor=radius=>{const space=spaceShaderFor(radius);return space.slice(0,space.indexOf('@fragment fn fs'))+`
 @group(0) @binding(3) var heightTex:texture_2d<f32>;
 struct PV {@builtin(position) clip:vec4f,@location(0) pv:vec3f,@location(1) n:vec3f,@location(2) w:vec3f};
 fn patchPos(p:vec4f,ij:vec2u)->vec3f {
@@ -282,4 +286,5 @@ fn patchPos(p:vec4f,ij:vec2u)->vec3f {
   let zz=select(1.0e9,max(dt*dz,1.0/v.clip.w),dt>0.0);
   var o:FO;o.color=vec4f(fogGlobe(surface(normalize(v.pv),ng,d,normalize(s.sun.xyz)),zz/max(dz,.05),n,d)*s.p.z,s.p.z);
   o.depth=clamp((zz-s.right.w)*s.up.w/((s.up.w-s.right.w)*zz),0.0,1.0);return o;
-}`;
+}`;};
+export const patchShader=patchShaderFor(PLANET_RADIUS);
