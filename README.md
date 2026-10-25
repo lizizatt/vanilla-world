@@ -2,7 +2,7 @@
 
 A single-player browser world explorer and hover-racer over World of Warcraft 1.12 terrain
 (WebGPU renderer, Rust physics and format parsers compiled to WebAssembly). The hosted site
-runs on a procedural demo world; game art and audio are never committed and are read from the
+requires WoW 1.12 data (no data shows one "WoW data folder not found" message, not a degraded world); game art and audio are never committed and are read from the
 player's own local files at runtime.
 
 - **App, docs and tests:** [browser/](browser/README.md); system diagram in

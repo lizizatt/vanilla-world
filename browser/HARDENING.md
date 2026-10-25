@@ -38,3 +38,5 @@ The intermittent default-spawn/saved-pose height failures were not a physics or 
 - Known flaky: startup-smoke occasionally times out clicking #save after fly/drive (passes on rerun); not a product failure.
 - Gate caveat: drive p99 was 28-36 ms in this pass while the host sat at 100% CPU from unrelated processes (render p99 ~10 ms unchanged); needs re-measure on an idle machine.
 - Not fixed: loading-smoke/music-smoke hard-code port 4183; music-smoke times out waiting for first track in this env; no dedicated space music track.
+
+- Removed the no-WoW-data path: the 'Play demo world' button and worker route, demo night-light settlements. M6 demo notes above are historical. demo-source.js remains only because the Elune moon source reuses its ADT helpers (trim when moon-source stops importing it).

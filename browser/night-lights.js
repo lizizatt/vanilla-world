@@ -35,16 +35,8 @@ export const SETTLEMENTS=[
   {id:'karazhan',map:'Azeroth',wow:[-11120,-1900],size:3,palette:'karazhan'},
 ];
 
-// Hosted/demo world has no manifest: demo settlements sit at fractions of the fallback land rectangles.
-export const DEMO_SETTLEMENTS=[
-  {id:'demo-port',rect:0,at:[.5,.5],size:4},{id:'demo-north',rect:0,at:[.35,.3],size:2},{id:'demo-south',rect:0,at:[.62,.7],size:3},
-  {id:'demo-keep',rect:1,at:[.5,.4],size:3},{id:'demo-arcane',rect:1,at:[.38,.65],size:4,palette:'dalaran'},
-  {id:'demo-haunt',rect:1,at:[.65,.55],size:2,palette:'karazhan'},
-];
-
 /**
  * Render-space [x,z] for every settlement: from the manifest region offsets when loaded, keeping those on land (inside ects).
- * A world with almost no land (the hosted procedural demo island, or no manifest) gets the demo settlements placed inside the rects instead.
  */
 export function settlementPositions(manifest,rects=FALLBACK_RECTS) {
   const inside=p=>rects.some(r=>p[0]>=r[0]&&p[0]<=r[2]&&p[1]>=r[1]&&p[1]<=r[3]);
@@ -54,11 +46,7 @@ export function settlementPositions(manifest,rects=FALLBACK_RECTS) {
     const [kx,kz]=regionOffset(region),pos=[-s.wow[1]+kx,-s.wow[0]+kz];
     return inside(pos)?[{...s,pos}]:[];
   }):[];
-  if(real.length>=3)return real;
-  return [...real,...DEMO_SETTLEMENTS.flatMap(s=>{
-    const r=rects[s.rect%rects.length];
-    return r?[{...s,pos:[r[0]+(r[2]-r[0])*s.at[0],r[1]+(r[3]-r[1])*s.at[1]]}]:[];
-  })];
+  return real;
 }
 
 /** Settlement for a cluster of n lit models found on the ground at render-space [x,z]; a lone lamp is a faint size-1 glimmer, a lit town grows. */
