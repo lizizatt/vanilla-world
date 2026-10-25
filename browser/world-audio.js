@@ -30,6 +30,7 @@ export function fillEngineBuffer(buffer,layer) {
 /** Procedural wind for a free camera: rushing air scales with speed and air density; with no air left only a faint low rumble tied to speed remains. */
 export const WIND={fullSpeed:2500,rumbleSpeed:20000,airGain:.22,rumbleGain:.035,rumbleCutoff:90};
 export function windLevel(speed,altitude) {
+  if(!Number.isFinite(speed))speed=0;
   const air=densityAt(Number.isFinite(altitude)?altitude:0),v=unit(Math.abs(speed)/WIND.fullSpeed),r=unit(Math.abs(speed)/WIND.rumbleSpeed);
   return {gain:WIND.airGain*v**1.3*air+WIND.rumbleGain*r*(1-air),cutoff:WIND.rumbleCutoff+(250-WIND.rumbleCutoff)*air+2200*v*air};
 }
