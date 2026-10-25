@@ -1,7 +1,7 @@
 // Bodies (design/elune.md M0): Azeroth and Elune as coexisting spheres in one inertial frame (f64, Azeroth-centred, +Y up).
 // Pure functions: per-body transition ranges, regimes, gravity, rails, tidal-lock frames and chart <-> inertial conversions.
 // Azeroth's numbers are the existing constants unchanged; nothing here is wired into the renderer yet.
-import {PLANET_RADIUS,WORLD_CENTRE,MOONS,moonPlanetPosition} from './space.js';
+import {PLANET_RADIUS,WORLD_CENTRE,MOONS} from './space.js';
 import {BEND_RANGE,GLOBE_RANGE,SPACE_RANGE,ZONE_LIGHT_RANGE} from './terrain-transition.js';
 import {SURFACE_GRAVITY,ATMOSPHERE_EDGE} from './planet-physics.js';
 import {toPlanet,fromPlanet} from './planet-frame.js';
@@ -56,7 +56,12 @@ export const horizonDistance=(body,height)=>Math.sqrt(2*body.radius*Math.max(0,h
 // Rails (analytic, circular). Elune reuses the existing moon rail shape with the physical period.
 export const ELUNE_RAIL=Object.freeze({...MOONS[0],radius:ELUNE_RADIUS,orbit:ELUNE_ORBIT,turns:1/ELUNE_ORBIT_DAYS});
 /** Inertial position (yd) of a body's centre at sim time t (SimClock units). Azeroth is the origin. */
-export const centreAt=(body,t)=>body.id==='elune'?moonPlanetPosition(ELUNE_RAIL,t):[0,0,0];
+/** Circular rail in the X-Z plane turning the same way as the sun (up toward east, east=+Z), so Elune's synodic day is regular (1.25 Azeroth days). Phase matches MOONS[0]. */
+export const centreAt=(body,t)=>{
+  if(body.id!=='elune')return [0,0,0];
+  const a=2*Math.PI*(t-720)/(ELUNE_ORBIT_DAYS*DAY_UNITS)+ELUNE_RAIL.phase;
+  return [ELUNE_ORBIT*Math.sin(a),0,ELUNE_ORBIT*Math.cos(a)];
+};
 export const orbitSpeed=()=>2*Math.PI*ELUNE_ORBIT/(ELUNE_ORBIT_DAYS*DAY_UNITS/2);
 
 const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
