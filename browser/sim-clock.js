@@ -25,3 +25,19 @@ export const cloudRate=scale=>scale<=10?Math.max(0,scale):10*Math.pow(scale/10,.
 export const flowScale=rate=>Math.min(5,Math.max(1,rate/10));
 /** Wrap for the f32 shader clock (about 1 hour at the 1000x rate). */
 export const CLOUD_TIME_WRAP=4e6;
+export const CLOUD_MAX_DT=.1,FLOW_SCALE_TAU=1.5;
+
+/**
+ * Cloud animation clock. time (cloud s) drives noise/spin; cycles (0..1) is the flow-map phase. The cycle stretch eases toward flowScale(rate)
+ * and cycles integrates dt*rate/(period*stretch), so a speed change or hitch never jumps the phase; one frame advances at most CLOUD_MAX_DT real s.
+ */
+export class CloudClock {
+  constructor(time=0,period=90) {this.time=time%CLOUD_TIME_WRAP;this.period=period;this.stretch=1;this.cycles=(time/period)%1;}
+  step(dt,simScale) {
+    const d=Math.min(Math.max(dt,0),CLOUD_MAX_DT),rate=cloudRate(simScale);
+    this.stretch+=(flowScale(rate)-this.stretch)*(1-Math.exp(-d/FLOW_SCALE_TAU));
+    this.time=(this.time+d*rate)%CLOUD_TIME_WRAP;
+    this.cycles=(this.cycles+d*rate/(this.period*this.stretch))%1;
+    return this;
+  }
+}
