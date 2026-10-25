@@ -1,5 +1,6 @@
 // Static authored geometry only. All matrices are column-major, model -> source WoW world.
 import {boundsVisible} from './world-view.js';
+import {BUDGET_TARGET,MIB} from './memory-budget.js';
 export function sceneReady(instance,assets,textures) {
   const asset=assets.get(instance.key);
   return !!asset&&asset.batches.every(b=>!b.texture||textures.has(b.texture));
@@ -7,6 +8,10 @@ export function sceneReady(instance,assets,textures) {
 export const SCENE_LIMITS = Object.freeze({
   assets: 192, textures: 192, bytes: 96 * 1024 * 1024, instances: 1024, jobs: 2, radius: 850, distantRadius: 6000,
   nearTiles: 8, distantTiles: 24,
+});
+// Hard ceilings a memory budget may raise the defaults to; bytes (not counts) are the working constraint.
+export const SCENE_CEILING = Object.freeze({
+  ...SCENE_LIMITS, assets: 2048, textures: 2048, bytes: 3072 * MIB, distantTiles: 96,
 });
 
 export function modelPath(path) {
@@ -248,11 +253,11 @@ export class SceneStream {
   constructor(source, wasm, limits = {}) {
     this.source = source; this.wasm = wasm; this.limits = { ...SCENE_LIMITS, ...limits };
     for (const [key, value] of Object.entries(this.limits)) {
-      if (!Number.isFinite(value) || value <= 0 || value > SCENE_LIMITS[key]) throw new Error(`Invalid scene limit ${key}`);
+      if (!Number.isFinite(value) || value <= 0 || value > SCENE_CEILING[key]) throw new Error(`Invalid scene limit ${key}`);
     }
     this.cache = new Map(); this.failures = new Map(); this.tiles = new Map(); this.distantTiles = new Map();
     this.requests = new Map(); this.instances = []; this.collisionCandidates = []; this.errors = [];
-    this.bytes = 0; this.clock = 0; this.busy = false; this.generation = 0; this.revision = 0;
+    this.bytes = 0; this.evictions = 0; this.clock = 0; this.busy = false; this.generation = 0; this.revision = 0;
     this.selectionRevision = -1;
     this.collisionRevision=0;this.collisionSelectionRevision=-1;
     this.placementRevision=0;
@@ -718,10 +723,14 @@ export class SceneStream {
               this.sizeHints.delete(this.sizeHints.keys().next().value);
           }
           if (result.bytes > this.limits.bytes) throw new Error('Decoded scene resource exceeds cache byte budget');
-          while (this.resourceCount(request.kind) >= limit || this.bytes + result.bytes > this.limits.bytes) {
+          // Past the byte limit, drain to the target in one go so a full cache does not evict on every load.
+          let drain = this.bytes + result.bytes > this.limits.bytes ? this.bytes + result.bytes - Math.floor(this.limits.bytes * BUDGET_TARGET) : 0;
+          while (this.resourceCount(request.kind) >= limit || this.bytes + result.bytes > this.limits.bytes || drain > 0) {
             const victim = this.victimFor(request, this.resourceCount(request.kind) >= limit);
             if (!victim) break;
+            drain -= this.cache.get(victim).bytes;
             this.evict(victim);
+            this.evictions++;
           }
           if (this.resourceCount(request.kind) >= limit || this.bytes + result.bytes > this.limits.bytes) {
             this.capacityBlocked = true;
@@ -849,10 +858,16 @@ export class SceneStream {
       return !value.batches.some(b => b.alphaCutoff > 0 && (!b.texture || !this.cache.has(`texture:${b.texture}`)));
     });
     return { instances, collisionInstances, unresolvedCollision, assets, textures, errors: [...this.errors], populationStatus: this.populationStatus,
-      cachedAssets: this.cache.size, cachedBytes: this.bytes, capacityBlocked: !!this.capacityBlocked, timings: {...this.timings},
+      cachedAssets: this.cache.size, cachedBytes: this.bytes, byteLimit: this.limits.bytes, evictions: this.evictions, capacityBlocked: !!this.capacityBlocked, timings: {...this.timings},
       budgetOmitted:this.budgetOmitted||0,
       cachedModels: this.resourceCount('m2'), cachedTextures: this.resourceCount('texture'),
       pending: [...this.requests.keys()].filter(k => !this.cache.has(k) && !this.failures.has(k)).length };
+  }
+  /** Raise or lower the working budget (bytes govern; counts only guard against runaway tiny items). */
+  setBudget(bytes) {
+    this.limits.bytes = Math.min(SCENE_CEILING.bytes, Math.max(8 * MIB, Math.floor(bytes)));
+    this.limits.assets = this.limits.textures = SCENE_CEILING.assets;
+    this.revision++;
   }
   evict(key) {
     const entry = this.cache.get(key);

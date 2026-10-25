@@ -1,4 +1,5 @@
-import {SceneStream,SCENE_LIMITS} from './scene-stream.js';
+import {SceneStream,SCENE_LIMITS,SCENE_CEILING} from './scene-stream.js';
+import {ByteBudget} from './memory-budget.js';
 import {validateView,viewChanged} from './world-view.js';
 
 export const FAR_LIMITS=Object.freeze({assets:96,textures:96,bytes:32*1024*1024,instances:256,jobs:1});
@@ -13,6 +14,7 @@ export class FarStream {
     this.scene=new SceneStream(source,wasm,FAR_LIMITS);this.scene.visualOnly=true;
     this.scene.discovered=new Map();
     this.resident=new Set();this.failures=new Map();this.wanted=[];
+    this.tileBytes=new Map();this.tileBudget=undefined;this.tileLimit=SCENE_LIMITS.distantTiles;this.blocked=new Set();this.wantedKey='';this.evictions=0;
     this.sentAssets=new Set();this.sentTextures=new Set();this.sentInstances=new Map();this.serial=0;this.reset=true;
     this.loads=0;this.peak=0;this.wasmPeakBytes=0;this.selectionMs=0;
     this.publications=0;this.transferPeakBytes=0;
@@ -27,7 +29,7 @@ export class FarStream {
       throw Error('Invalid distant worker focus');
     if(view!==undefined)validateView(view);
     if(this.region!==undefined && region!==this.region) {
-      this.scene.clear();this.resident.clear();this.failures.clear();this.reset=true;
+      this.scene.clear();this.resident.clear();this.tileBytes.clear();if(this.tileBudget)this.tileBudget.used=0;this.blocked.clear();this.failures.clear();this.reset=true;
     } else if(epoch!==this.epoch) {
       this.scene.generation++;
     }
@@ -47,7 +49,7 @@ export class FarStream {
     };
     this.wanted=this.manifest.tiles.map((t,i)=>({t,i,distance:t.region===region?distance(i):Infinity}))
       .filter(t=>t.distance<SCENE_LIMITS.distantRadius).sort((a,b)=>a.distance-b.distance)
-      .slice(0,SCENE_LIMITS.distantTiles).map(t=>t.i);
+      .slice(0,this.tileLimit).map(t=>t.i);
     if(view){
       const behind=i=>{
         const p=this.positions[i];
@@ -55,9 +57,29 @@ export class FarStream {
       };
       this.wanted.sort((a,b)=>Number(behind(a))-Number(behind(b))||distance(a)-distance(b));
     }
-    for(const index of this.resident)if(!this.wanted.includes(index)) {
-      this.scene.removeDistantTile(keyOf(this.manifest.tiles[index]));this.resident.delete(index);
-    }
+    const wantedKey=this.wanted.join();
+    if(wantedKey!==this.wantedKey){this.wantedKey=wantedKey;this.blocked.clear();}
+    for(const index of this.resident)if(!this.wanted.includes(index))this.dropTile(index);
+  }
+  dropTile(index) {
+    this.scene.removeDistantTile(keyOf(this.manifest.tiles[index]));this.resident.delete(index);
+    this.tileBudget?.remove(this.tileBytes.get(index)||0);this.tileBytes.delete(index);
+  }
+  /** Tile metadata admission: past the limit, evict farther tiles down to the target; never displace nearer ones. */
+  admitTile(index,size) {
+    const budget=this.tileBudget;if(!budget)return true;
+    let need=budget.deficit(size);if(!need)return true;
+    const rank=i=>this.wanted.indexOf(i),mine=rank(index);
+    const victims=[...this.resident].filter(i=>rank(i)>mine).sort((a,b)=>rank(b)-rank(a));
+    if(budget.used-victims.reduce((n,i)=>n+(this.tileBytes.get(i)||0),0)+size>budget.limit)return false;
+    for(const i of victims){if(need<=0)break;need-=this.tileBytes.get(i)||0;this.dropTile(i);this.evictions++;}
+    return true;
+  }
+  /** Total far budget: tile metadata gets a quarter, the model/texture cache the rest. */
+  setBudget(bytes) {
+    this.tileBudget?this.tileBudget.setLimit(bytes/4):this.tileBudget=new ByteBudget(bytes/4);
+    this.scene.setBudget(bytes*3/4);this.scene.limits.distantTiles=this.tileLimit=SCENE_CEILING.distantTiles;
+    this.blocked.clear();
   }
   select() {
     if(this.selectedPosition===this.position&&this.selectedRegion===this.region&&
@@ -86,14 +108,18 @@ export class FarStream {
     this.busy=true;
     const epoch=this.epoch;
     try {
-      const index=this.wanted.find(i=>!this.resident.has(i)&&!this.failures.has(i));
+      const index=this.wanted.find(i=>!this.resident.has(i)&&!this.failures.has(i)&&!this.blocked.has(i));
       if(index!==undefined) {
         const tile=this.manifest.tiles[index];
         try {
           const bytes=await this.source.read(`World\\Maps\\${this.manifest.regions[tile.region].map}\\${tile.file}`);
           if(epoch===this.epoch && this.wanted.includes(index)) {
-            this.scene.setDistantTile(keyOf(tile),bytes);this.resident.add(index);this.loads++;
-            this.peak=Math.max(this.peak,this.resident.size);
+            if(!this.admitTile(index,bytes.byteLength))this.blocked.add(index);
+            else {
+              this.scene.setDistantTile(keyOf(tile),bytes);this.resident.add(index);this.loads++;
+              this.tileBytes.set(index,bytes.byteLength);this.tileBudget?.add(bytes.byteLength);
+              this.peak=Math.max(this.peak,this.resident.size);
+            }
           }
         } catch(error) {
           if(epoch===this.epoch && error.code!=='DEFERRED') {
@@ -143,8 +169,8 @@ export class FarStream {
   ack(token) {if(token===this.awaitingAck)this.awaitingAck=undefined;}
   retry() {this.failures.clear();this.scene.retry();this.reset=true;}
   snapshot(state=this.scene.snapshot()) {
-    return {resident:this.resident.size,peak:this.peak,limit:SCENE_LIMITS.distantTiles,loads:this.loads,
-      pending:this.wanted.filter(i=>!this.resident.has(i)&&!this.failures.has(i)).length,
+    return {resident:this.resident.size,peak:this.peak,limit:this.tileLimit,loads:this.loads,tileBytes:this.tileBudget?.used||0,tileByteLimit:this.tileBudget?.limit||0,evictions:this.evictions+state.evictions,
+      pending:this.wanted.filter(i=>!this.resident.has(i)&&!this.failures.has(i)&&!this.blocked.has(i)).length,
       failures:[...this.failures.values()],scene:{instances:state.instances.length,models:state.cachedModels,
         textures:state.cachedTextures,bytes:state.cachedBytes,pending:state.pending,errors:state.errors,
         capacityBlocked:state.capacityBlocked,decoder:state.timings},

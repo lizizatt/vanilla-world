@@ -292,8 +292,10 @@ test('one read per pump, shared cache, transferable copies, eviction and reload 
   for(let i=0;i<TERRAIN_CACHE_LIMIT+3;i++){
     stream.removeTile(1);stream.setTile(1,fixture([`unique${i}.blp`]));await stream.pump();
   }
-  assert.equal(stream.snapshot().cache,TERRAIN_CACHE_LIMIT);
-  assert(stream.snapshot().bytes<=TERRAIN_CACHE_LIMIT*349524);
+  const snap=stream.snapshot();
+  assert(snap.cache<=TERRAIN_CACHE_LIMIT&&snap.cache>TERRAIN_CACHE_LIMIT*.85);
+  assert(snap.bytes<=snap.limit&&snap.evictions>0);
+  stream.setBudget(10*349524);assert(stream.snapshot().cache<=10);
   stream.clear();assert.equal(stream.snapshot().bytes,0);
 });
 test('late reads cannot resurrect evicted tiles and errors stay explicit',async()=>{

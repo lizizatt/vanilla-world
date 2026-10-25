@@ -1,4 +1,5 @@
 import {mapIcons} from './worldmap.js';
+import {memoryUsage,RateMeter} from './memory-budget.js';
 import {maelstromCentre} from './clouds.js';
 import {hudModel,engineLevels,levelStage} from './hud-model.js';
 import {createRealDial,createRealEngines} from './swe1r/hud.js';
@@ -20,9 +21,10 @@ function landmarks(){const m=client.info?.manifest;return app.landmarkCache??=m?
 function syncHud(){app.hudOn=$('swe1r-hud-on').checked;}
 $('swe1r-hud-on').addEventListener('change',syncHud);
 $('swe1r-sfx').addEventListener('change',()=>{audio.sampleOn=$('swe1r-sfx').checked;});
-const MiB=v=>((v||0)/1048576).toFixed(0);
+const MiB=v=>((v||0)/1048576).toFixed(0),evictionRate=new RateMeter();
 function memoryLine(s,stats) {
-  const heap=performance.memory?.usedJSHeapSize;
-  return ` · ${heap?`JS heap ${MiB(heap)} MiB · `:''}wasm ${MiB(s.horizon?.wasmPeakBytes)} MiB · GPU terrain ${MiB(stats.terrainGpuBytes)} / scene ${MiB(stats.sceneGpuMeshBytes)} / coast water ${MiB(stats.coastalWaterGpuBytes)} MiB`;
+  const heap=performance.memory?.usedJSHeapSize,m=memoryUsage(s),rate=evictionRate.sample(m.evictions,performance.now());
+  const cache=m.budget?` · cache ${MiB(m.used)}/${MiB(m.budget)} MiB · ${m.tiles} tiles · ${rate.toFixed(1)} evict/s`:'';
+  return cache+` · ${heap?`JS heap ${MiB(heap)} MiB · `:''}wasm ${MiB(s.horizon?.wasmPeakBytes)} MiB · GPU terrain ${MiB(stats.terrainGpuBytes)} / scene ${MiB(stats.sceneGpuMeshBytes)} / coast water ${MiB(stats.coastalWaterGpuBytes)} MiB`;
 }
 }
