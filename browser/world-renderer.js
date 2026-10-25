@@ -24,7 +24,7 @@ import {scenePipeline,prepareBatches,sceneMatrix,drawScene} from './renderer-sce
 import {zoneBlend,setSky,setSkyDome,horizonColour,planetRects,drawPlanet,drawPatches,drawLights,drawSkyDome,sampleSky} from './renderer-sky.js';
 import {drawShadow,enableHighClouds,highCloudGroup,maskEntries,drawClouds} from './renderer-clouds.js';
 import {initialize} from './renderer-init.js';
-const OCEAN_MESH_CEILING=25000;
+const OCEAN_MESH_CEILING=90000;
 const DAY_SKY=[.08,.15,.20],NIGHT_SKY=[.008,.016,.045];
 export class WorldRenderer {
   static async create(canvas,onError) {

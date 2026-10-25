@@ -41,7 +41,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
     color=waterColor(v.p,select(1.0,v.n.x,v.n.z>.5),rampWidth,dx,dy);
   }
   let fog=max(clamp(length(v.p-u.eye.xyz)/150000.0,0.0,.93),valleyHaze(v.p))*(1.0-u.pad[0].y);
-  return vec4f(mix(color,fogTint(),fog),1);
+  return vec4f(mix(color,fogTint(),fog)+limbGlow(v.p),1);
 }`;
 export const splatShader=`
 struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,body:vec4f,settings:vec4f,tile:vec4f,pad:array<vec4f,3>,sky:array<vec4f,4>};
@@ -86,7 +86,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) uv:vec
   let base=mix(vec3f(.63,.59,.40)*v.light,mapColor.rgb,mapColor.a);
   color=grade(mix(base,color,u.settings.z));
   let fog=max(clamp(length(v.p-u.eye.xyz)/150000.0,0.0,.93),valleyHaze(v.p))*(1.0-u.pad[0].y);
-  return vec4f(mix(color,fogTint(),fog),1);
+  return vec4f(mix(color,fogTint(),fog)+limbGlow(v.p),1);
 }`;
 export const sceneShader=`
 struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,settings:vec4f,model:mat4x4f,material:vec4f,sky:array<vec4f,4>,beam:vec4f,bend:vec4f};
