@@ -8,7 +8,7 @@ import {MINIMAP_SIZE} from './terrain-stream.js';
 import {cameraView,craftMatrix} from './world-camera.js';
 import {partMatrix,wreckFrame,WRECK_SECONDS} from './wreck.js';
 import {maelstromCentre,resolveCloudQuality,SlowFrameGuard,sunDirection} from './clouds.js';
-import {exhaustPoints,emitPlumes,emitDebris,emitHeatSmoke,emitGroundDust,QUALITY,INSTANCE_FLOATS,particleUniform} from './particles.js';
+import {exhaustPoints,emitPlumes,emitDebris,emitHeatSmoke,emitGroundDust,QUALITY,INSTANCE_FLOATS,particleUniform,emitLamps} from './particles.js';
 import {beamState} from './beam.js';
 import {horizonDip} from './space.js';
 import {planetFactors} from './terrain-transition.js';
@@ -161,7 +161,7 @@ export class WorldRenderer {
       u[base+26]=body?0:item.placement[1]-origin[1];u[base+27]=item.cell??-1;
     }
     const fxIn={...this.fxInput,...this.fxOverride},beam=beamState({throttle:fxIn.throttle,boosting:fxIn.boosting,heat:fxIn.heat,health:fxIn.health});
-const draws=[],selection=this.cameraBlocked?{selected:[],omitted:0}:
+const lamps=[],draws=[],selection=this.cameraBlocked?{selected:[],omitted:0}:
       sceneSelection(this.instances.filter(i=>(settings.distant!==false || !i.distant)&&
         (!i.distant||sceneReady(i,this.assets,this.textures))),this.assets,(instance,asset)=>
         sceneVisible(asset.bounds,this.sceneMatrix(instance,this.manifest.regions[this.sceneRegion],origin),
@@ -171,6 +171,7 @@ const draws=[],selection=this.cameraBlocked?{selected:[],omitted:0}:
         this.admissionFade??=new AdmissionFade();
         const coverage=instance.craft?1:this.admissionFade.opacity(instance.id,fadeTime);
         const cached=instance.drawItems || (instance.drawItems=[]);
+        if(asset.lamps&&distance<220&&lamps.length<24)lamps.push({points:asset.lamps,matrix:m});
         for(let b=0;b<asset.batches.length;b++) {
           const batch=asset.batches[b];
           if((batch.emissive||batch.sidn)&&!instance.litNoted&&!instance.craft&&!instance.id.includes(':npc:')){instance.litNoted=1;noteLitInstance(this,m[12]+origin[0],m[14]+origin[1]);}
@@ -275,7 +276,8 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
       if(input.heat)emitHeatSmoke(fx,{points:craft.fx.points,matrix:craftMatrix(state,origin,scale),origin,length:craft.fx.length,heat:input.heat,dt:Math.min(dt,.1)});
     }
     if(fx&&quality>0&&!this.cameraBlocked){
-      fx.update(Math.min(dt,.1));
+      emitLamps(fx,lamps,origin,Math.min(dt,.1),1-daylight);
+    fx.update(Math.min(dt,.1));
       const count=fx.fill(this.particleInstances,this.view.eye);
       if(count){
         this.device.queue.writeBuffer(this.particleBuffer,0,this.particleInstances,0,count*INSTANCE_FLOATS);

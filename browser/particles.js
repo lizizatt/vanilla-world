@@ -12,6 +12,7 @@ export const KINDS = {
   fire: { life: [.4, .9], size: [.5, .15], drag: 1.2, lift: 3, stops: [[0, 1, .9, .5, .9, 1], [.35, 1, .45, .08, .7, .9], [1, .35, .05, .02, 0, .8]] },
   smoke: { life: [1.2, 2.4], size: [.4, 1.8], drag: 1.5, lift: 2.5, stops: [[0, .35, .35, .37, .0, 0], [.12, .3, .3, .32, .5, 0], [1, .2, .2, .22, 0, 0]] },
   dust: { life: [.9, 1.8], size: [.5, 2], drag: 2.2, lift: 1.2, stops: [[0, .6, .48, .32, .7, 0], [1, .6, .48, .32, 0, 0]] },
+  lamp: { life: [.22, .3], size: [.55, .5], drag: 0, lift: 0, stops: [[0, 1, .62, .25, .5, 1], [.5, 1, .55, .18, .6, 1], [1, 1, .4, .1, 0, 1]] },
   burst: { life: [.25, .5], size: [1, 3.5], drag: 4, lift: 0, stops: [[0, 1, .95, .7, 1, 1], [.4, 1, .55, .12, .7, 1], [1, .5, .1, .02, 0, 1]] },
 };
 const KIND_IDS = Object.keys(KINDS);
@@ -181,4 +182,12 @@ export function emitGroundDust(pool, { matrix: m, origin, scale, length, speed, 
     pool.emit('dust', m[12] + origin[0] - m[0] / scale * length * .45 + m[4] / scale * side * length * .35, m[13] + length * .05, m[14] + origin[1] - m[2] / scale * length * .45 + m[6] / scale * side * length * .35,
       -m[0] / scale * speed * back + m[4] / scale * side * (drift ? 8 : 3), 1.5 + pool.rand() * 2.5 * (.5 + k), -m[2] / scale * speed * back + m[6] / scale * side * (drift ? 8 : 3), size * (drift ? 1.4 : 1), size * .3);
   }
+}
+/** Night glow halos on lamp/torch models: a few soft additive sprites per second at each model-local point of each nearby lamp. */
+export function emitLamps(pool, lamps, origin, dt, night) {
+  if (night <= .05) return;
+  lamps.forEach(({ points, matrix: m }, k) => points.forEach((p, i) => {
+    const n = pool.budget(`lamp${k}_${i}`, 14 * night, dt);
+    for (let j = 0; j < n; j++) pool.emit('lamp', m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12] + origin[0], m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13], m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14] + origin[1], 0, 0, 0, 1 + .25 * pool.rand());
+  }));
 }

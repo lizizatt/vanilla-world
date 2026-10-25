@@ -384,7 +384,8 @@ impl SceneModel {
             subs.into_iter().map(|sub| (sub, false)).collect(),
             collision,
         )?;
-        if omitted_character_batches > 0 || stand {
+        let lamps = if stand || omitted_character_batches > 0 { Vec::new() } else { lamp_points(bytes, path, &model.metadata) };
+        if omitted_character_batches > 0 || stand || !lamps.is_empty() {
             let mut metadata: serde_json::Value =
                 serde_json::from_str(&model.metadata).map_err(|e| e.to_string())?;
             if omitted_character_batches > 0 {
@@ -397,12 +398,41 @@ impl SceneModel {
                     .map(|a| json!({"bone":a.bone,"position":a.position,"space":"model-local","pose":"stand-frame-0"}))
                     .unwrap_or(serde_json::Value::Null);
             }
+            if !lamps.is_empty() {
+                metadata["lamps"] = json!(lamps);
+            }
             model.metadata = metadata.to_string();
         }
         Ok(model)
     }
 }
 
+/// Name fragments of models that carry a light: torches, lamps, lanterns, braziers, fires, candles.
+const LAMP_NAMES: [&str; 12] = [
+    "torch", "lamp", "lantern", "brazier", "candle", "chandelier", "sconce", "campfire", "bonfire",
+    "forge", "lightpost", "streetlight",
+];
+
+/// Model-local glow points for a lamp-like static M2: its attachment points (at most 6), or the top
+/// centre of its bounds when it has none. Empty for every other model.
+fn lamp_points(bytes: &[u8], path: &str, metadata: &str) -> Vec<[f32; 3]> {
+    let name = path.to_ascii_lowercase();
+    if !LAMP_NAMES.iter().any(|n| name.contains(n)) {
+        return Vec::new();
+    }
+    let mut points: Vec<[f32; 3]> = benilla_formats::parse_m2_attachments(bytes)
+        .map(|a| a.iter().take(6).map(|a| a.position).collect())
+        .unwrap_or_default();
+    if points.is_empty() {
+        let bounds = serde_json::from_str::<serde_json::Value>(metadata)
+            .ok()
+            .and_then(|m| serde_json::from_value::<[[f32; 3]; 2]>(m["bounds"].clone()).ok());
+        if let Some([lo, hi]) = bounds {
+            points.push([(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0, hi[2] * 0.9]);
+        }
+    }
+    points
+}
 /// Optional visible-geoset list (`""` means every geoset); an NPC body shows one variant per group.
 fn parse_geosets(json: &str) -> Result<Option<Vec<u16>>, String> {
     if json.is_empty() {
