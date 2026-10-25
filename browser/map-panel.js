@@ -43,7 +43,7 @@ export class MapPanel {
     const aspect=this.frame.width/this.frame.height;
     this.stage.style.setProperty('--map-aspect',aspect);
     this.canvas.height=Math.round(this.canvas.width/aspect);
-    const world=[...WORLD_MAPS,...manifest.regions.map(r=>r.map)].map(n=>this.images.get(n.toLowerCase())).find(Boolean);
+    const world=[...WORLD_MAPS,'Azeroth',...manifest.regions.map(r=>r.map)].map(n=>this.images.get(n.toLowerCase())).find(Boolean);
     const images=world?[]:manifest.regions.map(r=>this.images.get(r.map.toLowerCase()));
     if(world)this.world(world,use);else drawMap(this.canvas,this.frame,use,art?images:undefined,!art||images.some(i=>!i));
     this.status.textContent=rows===undefined?'Loading map art...':world?'':art?(images.every(Boolean)?'':'Loading map art...'):'Map art unavailable'+(this.error?` (${this.error})`:'')+'; showing schematic.';
