@@ -36,6 +36,8 @@ export const muOf=body=>body.gravity*body.radius*body.radius;
 /** Sphere of influence of Elune about Azeroth (patched conics): a*(mu_e/mu_a)^0.4. */
 export const soiOf=body=>body.rail?body.rail.orbit*(muOf(body)/muOf(bodyOf(body.parent)))**.4:Infinity;
 export const ELUNE_SOI=soiOf(ELUNE);
+/** Multi-body world is the default in a page; ?bodies=0 (or off/false) opts out, and ?moonEngine=0 skips the resident extra engines. */
+export const bodiesEnabled=(search,flag='bodies')=>{const v=new URLSearchParams(search).get(flag);return v===null||!['0','off','false'].includes(v);};
 export const SOI_ENTER=.9,SOI_EXIT=1.1;
 
 const smooth=(r,x)=>{const t=Math.min(1,Math.max(0,(x-r[0])/(r[1]-r[0])));return t*t*(3-2*t);};

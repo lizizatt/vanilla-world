@@ -12,7 +12,7 @@ import {exhaustPoints,emitPlumes,emitDebris,emitHeatSmoke,emitGroundDust,emitWat
 import {beamState} from './beam.js';
 import {horizonDip} from './space.js';
 import {planetFactors} from './terrain-transition.js';
-import {planetFactorsFor,ELUNE} from './bodies.js';
+import {planetFactorsFor,ELUNE,bodiesEnabled} from './bodies.js';
 import {skyUniform,DAY} from './sky.js';
 import {eluneSkyAt,AIRLESS_SKY} from './elune-sky.js';
 import {SimClock,sanitiseScale,daylightAt,CloudClock} from './sim-clock.js';
@@ -42,7 +42,7 @@ export class WorldRenderer {
     return result;
   }
   constructor(canvas,device) {
-    this.sharedSpace=typeof location!=='undefined'&&new URLSearchParams(location.search).has('bodies');
+    this.sharedSpace=typeof location!=='undefined'&&bodiesEnabled(location.search);
     this.canvas=canvas;this.device=device;this.format=navigator.gpu.getPreferredCanvasFormat();
     this.context=canvas.getContext('webgpu');this.context.configure({device,format:this.format,alphaMode:'opaque'});
     this.tiles=new Map();this.seams=new Map();this.horizon=[];this.water=[];this.flags=[];this.gates=[];this.coast=new Map();this.indices=new Map();
