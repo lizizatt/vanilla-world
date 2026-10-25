@@ -21,7 +21,7 @@ function aimAtElune(alt,standoff=0) {
   const from=toInertial(AZEROTH,[0,alt,0],T),c=centreAt(ELUNE,T),d=c.map((v,i)=>v-from[i]),n=Math.hypot(...d),u=d.map(v=>v/n);
   const p0=fromInertial(AZEROTH,from,T),p1=fromInertial(AZEROTH,from.map((v,i)=>v+u[i]*100),T,p0[0]);
   const l=p1.map((v,i)=>v-p0[i]),m=Math.hypot(...l),L=l.map(v=>v/m);
-  return [p0[0],p0[1],p0[2],Math.atan2(-L[0],-L[2]),Math.asin(L[1])];
+  return [p0[0],p0[1],p0[2],Math.atan2(-L[0],-L[2]),Math.asin(L[1])-0.083];
 }
 const browser=await chromium.launch({channel:'msedge',headless:true,args:['--mute-audio','--enable-unsafe-webgpu','--use-angle=default','--enable-features=Vulkan']});
 const errors=[];
@@ -37,7 +37,7 @@ try{
   await page.waitForFunction(()=>window.worldTest?.ready?.()??document.getElementById('welcome')?.hidden,null,{timeout:90000}).catch(()=>{});
   await page.waitForTimeout(6000);
   await page.evaluate(()=>{window.worldTest.settings({planet:true,globeMesh:true});window.worldTest.timeLock(720);});
-  for(const [name,alt] of [['from-orbit',120000],['from-high',240000]]) {
+  for(const [name,alt] of [['from-orbit',120000],['from-high',290000]]) {
     const pose=aimAtElune(alt);
     await page.evaluate(p=>window.worldTest.focus(p),pose);await page.waitForTimeout(3000);
     await writeFile(new URL(name+'.png',out),await page.screenshot());
