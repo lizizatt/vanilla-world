@@ -39,3 +39,5 @@ test('frame mapping round-trips and icons hold spawn and maelstrom',()=>{
   assert.deepEqual(og,[4420+kx,35,-1330+kz,0]);assert.ok(Math.abs(uc[3]-Math.PI)<1e-9);
   assert.deepEqual(icons[0].position,[100,200]);assert.deepEqual(icons[1].pose,[7,CLOUD_TOP_DROP,8,0]);assert.ok(CLOUD_TOP_DROP>CLOUD_ALTITUDE+CLOUD_THICKNESS/2);
 });
+import {WORLD_MAPS as WM} from './worldmap.js';
+test('single world map names are preferred candidates',()=>{assert.ok(WM.includes('World'));});
