@@ -25,7 +25,7 @@ export function setSkyDome(r,data) {
 /** Feeds the globe colour grid: a tile needs both its WDL placement and its minimap, in either arrival order. */
 export function horizonColour(r,key,part) {
   const e={...r.horizonMini.get(key),...part};r.horizonMini.set(key,e);
-  if(e.placement&&e.rgba){splatMinimap(r.colourGrid,e.rgba,MINIMAP_SIZE,e.placement,WORLD_CENTRE,PLANET_RADIUS,r.colourDirty);r.horizonMini.delete(key);}
+  if(e.placement&&e.rgba){splatMinimap(r.colourGrid,e.rgba,MINIMAP_SIZE,e.placement,WORLD_CENTRE,PLANET_RADIUS,r.colourDirty,r.heightGrid);r.horizonMini.delete(key);}
 }
 export function planetRects(r) {return r.manifest?.world_bounds?schematicRects(r.manifest):FALLBACK_RECTS;}
 export function drawPlanet(r,pass,pf,near) {

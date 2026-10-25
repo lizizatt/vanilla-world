@@ -4,6 +4,7 @@ import {COAST_GPU_LIMIT} from './water-stream.js';
 import {maelstromCentre} from './clouds.js';
 import {oceanMesh} from './ocean-mesh.js';
 import {splatHeights} from './height-bake.js';
+import {isLandTile,trimRimSpikes} from './land-rect.js';
 import {PLANET_RADIUS,WORLD_CENTRE} from './space.js';
 import {AdmissionFade,terrainEdgeMask,readySceneInstances} from './renderer-helpers.js';
 const OCEAN_FILL=130000;
@@ -59,12 +60,11 @@ export function event(r,data) {
     r.indices.set(data.region,r.buffer(data.indices,GPUBufferUsage.INDEX));
     r.terrainBundle=undefined;
   }
-  else if(data.event==='horizon'){splatHeights(r.heightGrid,data.vertices,data.placement,WORLD_CENTRE,PLANET_RADIUS);r.heightDirty=true;
+  else if(data.event==='horizon'){trimRimSpikes(data.vertices);splatHeights(r.heightGrid,data.vertices,data.placement,WORLD_CENTRE,PLANET_RADIUS);r.heightDirty=true;
     r.horizonColour(data.region*4096+data.source[0]+64*data.source[1],{placement:data.placement});r.horizon.push({...r.drawable(data.vertices,data.placement,r.minimapAtlases[data.region]),
     region:data.region,near:data.near,cell:data.source[0]+64*data.source[1]});
     const hb=r.horizon[r.horizon.length-1].bounds;
-    // WDL ocean tiles sit near -503 yd; anything higher is land that must not be flooded by the sea-level fill.
-    if(hb&&hb[1][1]>-450&&r.oceanSpec){r.landRects.push([hb[0][0],hb[0][2],hb[1][0],hb[1][2]]);r.oceanDirty=true;}}
+    if(hb&&r.oceanSpec&&isLandTile(data.vertices)){r.landRects.push([hb[0][0],hb[0][2],hb[1][0],hb[1][2]]);r.oceanDirty=true;}}
   else if(data.event==='horizon-material'){
     if(data.rgba.length!==MINIMAP_SIZE*MINIMAP_SIZE*4||!r.minimapAtlases[data.region]||
       !Number.isInteger(data.x)||!Number.isInteger(data.y)||data.x<0||data.x>=64||data.y<0||data.y>=64)
@@ -105,6 +105,7 @@ export function event(r,data) {
       r.releaseMaterial(r.materialPending.get(index)?.gpu);r.materialPending.delete(index);
     }
     for(const t of data.tiles){
+      trimRimSpikes(t.vertices);
       r.release(r.tiles.get(t.index));
       r.releaseMaterial(r.materialPending.get(t.index)?.gpu);r.materialPending.delete(t.index);
       const entry=r.manifest.tiles[t.index];

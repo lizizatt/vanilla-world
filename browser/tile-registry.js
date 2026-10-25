@@ -1,6 +1,8 @@
 // Sparse lat/lon chunk registry (pivot data model). A chunk is any lat/lon rectangle with a provider; a point covered by no chunk is open ocean.
 // The renderer/streamer only ask the registry, so adding a continent, the Maelstrom or a POI is a manifest entry, not a renderer change.
 import {PLANET_RADIUS,WORLD_CENTRE,FALLBACK_RECTS,subPoint} from './space.js';
+import {HEIGHT_W,HEIGHT_H} from './height-bake.js';
+import {LAND_FLOOR} from './land-rect.js';
 
 export const OCEAN={h:-60,rgb:[.04,.2,.36],water:true};
 const smooth=t=>t*t*(3-2*t);
@@ -57,17 +59,24 @@ export function defaultManifest(makeProvider=()=>proceduralProvider(),rects=FALL
 
 const TILE=1600/3;
 /** Per-texel running colour average on the same equirect layout as bakeSurface (row 0 is lat +90). */
+/** True when the equirect height grid (yd, -Infinity unset) holds known ground at or below the WDL ocean-floor band at lon/lat. */
+export function isDeepOcean(heights,lon,lat) {
+  const h=heights[Math.floor((.5-lat/Math.PI)*HEIGHT_H)*HEIGHT_W+Math.floor((lon/(2*Math.PI)+.5)*HEIGHT_W)];
+  return Number.isFinite(h)&&h<=LAND_FLOOR;
+}
+
 export function createColourGrid(w=1024,h=512) {return {w,h,sum:new Float32Array(w*h*3),n:new Uint16Array(w*h)};}
 
 /**
  * Splat one tile minimap (size x size RGBA, 533.33 yd square whose origin sits at `placement` in the flat world) into the colour grid.
  * Flat pose = globe sub-point, so lon=(x-cx)/R and lat=-(z-cz)/R. Returns the touched texel indices (appended to `dirty` when given).
  */
-export function splatMinimap(grid,rgba,size,placement,[cx,cz]=WORLD_CENTRE,radius=PLANET_RADIUS,dirty=new Set()) {
+export function splatMinimap(grid,rgba,size,placement,[cx,cz]=WORLD_CENTRE,radius=PLANET_RADIUS,dirty=new Set(),heights) {
   for(let py=0;py<size;py++)for(let px=0;px<size;px++){
     const i=(py*size+px)*4;if(rgba[i+3]<128)continue;
     const lon=(placement[0]+(px+.5)/size*TILE-cx)/radius,lat=-(placement[1]+(py+.5)/size*TILE-cz)/radius;
     if(Math.abs(lon)>=Math.PI||Math.abs(lat)>=Math.PI/2)continue;
+    if(heights&&isDeepOcean(heights,lon,lat))continue;
     const k=Math.floor((.5-lat/Math.PI)*grid.h)*grid.w+Math.floor((lon/(2*Math.PI)+.5)*grid.w);
     grid.sum[k*3]+=rgba[i]/255;grid.sum[k*3+1]+=rgba[i+1]/255;grid.sum[k*3+2]+=rgba[i+2]/255;grid.n[k]++;dirty.add(k);
   }
