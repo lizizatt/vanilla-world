@@ -1,6 +1,7 @@
 // Procedural cumulus slab: one camera-following quad whose fragments march a short ray through a layer of
 // analytic noise density, with a maelstrom (eye, eye wall, spiral arms) around a vortex centre. No textures or extra passes.
 import {PLANET_RADIUS,WORLD_CENTRE,planetFrame} from './space.js';
+import {cloudShellRadius} from './terrain-transition.js';
 import {flowWGSL,FLOW,MASK,bakeLandMask} from './cloud-flow.js';
 import {createRegistry,defaultManifest} from './tile-registry.js';
 import {CLOUD_ALTITUDE,CLOUD_THICKNESS,CLOUD_HALF_SIZE,HYJAL_SUMMIT,CLOUD_ALTITUDE_FACTOR,CLOUD_TOWER,WHIRLPOOL_DIP,MAELSTROM,MAELSTROM_MAP,FUNNEL,FUNNEL_STEPS,tier} from './cloud-config.js';
@@ -23,11 +24,13 @@ export function sunDirection(timeOfDay) {
 // The cloud layer is always the curved shell at true planet radius (no flat path), at every altitude down to the ground.
 // kappa = 1 / R is the curvature of the cloud shells (1 / yd); space blends the fade/fog distance origin to the shell entry.
 export const SHELL_CURVATURE=1/PLANET_RADIUS;
+/** Curvature used for the shells at an eye altitude: flatter near the ground, the true 1/R from altitude (see cloudShellRadius). */
+export const shellCurvatureAt=altitude=>1/cloudShellRadius(altitude,PLANET_RADIUS);
 export function cloudUniform(view,time,daylight,manifest,near,game,out=new Float32Array(60),timeOfDay=1440,planet={bend:0,space:0}) {
   const [x,z]=maelstromCentre(manifest),sun=sunDirection(timeOfDay);
   out.set([...view.eye,200000,...view.right,view.aspect,...view.up,time,...view.look,daylight,x,z,CLOUD_ALTITUDE,CLOUD_HALF_SIZE,near]);
   const f=planetFrame(view.eye[0],view.eye[2]);
-  out.set([SHELL_CURVATURE,planet.space,planet.flowScale??1,planet.flowCycles??(time/FLOW.period)%1],44);
+  out.set([shellCurvatureAt(view.eye[1]),planet.space,planet.flowScale??1,planet.flowCycles??(time/FLOW.period)%1],44);
   out.set([...f.east,WORLD_CENTRE[0],...f.up,WORLD_CENTRE[1],...f.south,PLANET_RADIUS],48);
   out.set([...sun,sun[1]],32);out.set([1,.96,.88,0],36);out.set([.55,.6,.7,0],40);
   // Zone lighting fades to the global sun/sky look by the lowest cloud base (planet.zone 1..0), so orbit is lit by the sun alone.
