@@ -1,3 +1,4 @@
+import {sanitiseScale} from './sim-clock.js';
 import {worldTuning} from './world-store.js';
 import {TUNING_FIELDS,validateTuningRecord} from './world-tuning.js';
 export function installSettings(app) {
@@ -5,10 +6,10 @@ const {canvas,keys,input,audio,evidence,settings,gib,music,client}=app;
 const $=id=>document.getElementById(id);
 Object.assign(app,{syncSettings,syncSound,pauseAudio,resumeAudio,zoom,cockpit,setNight});
 try{gib.on=localStorage.getItem('racer.gib')!=='0';gib.overheat=localStorage.getItem('racer.overheat')!=='0';gib.durable=localStorage.getItem('racer.durability')!=='0';gib.speed=Math.max(20,Math.min(400,Number(localStorage.getItem('racer.gibSpeed'))||100));}catch{/* storage unavailable (private mode): setting is not persisted */}
-try{settings.night=localStorage.getItem('racer.night')==='1';settings.music=localStorage.getItem('racer.music')!=='0';settings.animateNpcs=localStorage.getItem('racer.animateNpcs')!=='0';settings.planet=localStorage.getItem('racer.planet')!=='0';settings.globeMesh=localStorage.getItem('racer.globeMesh')!=='0';settings.globeRegistry=localStorage.getItem('racer.globeRegistry')!=='0';{const cq=localStorage.getItem('racer.cloudQuality');if(cq==='high'||cq==='standard')settings.cloudQuality=cq;}const mv=localStorage.getItem('racer.masterVolume');if(mv!==null&&mv!==''&&Number.isFinite(Number(mv)))audio.setVolume(Number(mv)/100);}catch{/* storage unavailable (private mode): setting is not persisted */}
+try{settings.night=localStorage.getItem('racer.night')==='1';settings.timeScale=sanitiseScale(localStorage.getItem('racer.timeScale')??1);settings.music=localStorage.getItem('racer.music')!=='0';settings.animateNpcs=localStorage.getItem('racer.animateNpcs')!=='0';settings.planet=localStorage.getItem('racer.planet')!=='0';settings.globeMesh=localStorage.getItem('racer.globeMesh')!=='0';settings.globeRegistry=localStorage.getItem('racer.globeRegistry')!=='0';{const cq=localStorage.getItem('racer.cloudQuality');if(cq==='high'||cq==='standard')settings.cloudQuality=cq;}const mv=localStorage.getItem('racer.masterVolume');if(mv!==null&&mv!==''&&Number.isFinite(Number(mv)))audio.setVolume(Number(mv)/100);}catch{/* storage unavailable (private mode): setting is not persisted */}
 function syncSettings() {
   for(const key of ['horizon','scenery','distant','sound','night','clouds','planet'])$(key).checked=settings[key];
-  $('particles').value=settings.particles;$('cloud-quality').value=settings.cloudQuality;$('animate-npcs').checked=settings.animateNpcs;
+  $('particles').value=settings.particles;$('time-scale').value=String(sanitiseScale(settings.timeScale));$('cloud-quality').value=settings.cloudQuality;$('animate-npcs').checked=settings.animateNpcs;
   music.setNight(settings.night);music.setEnabled(settings.music);$('music-on').checked=settings.music;
   $('control-profile').value=settings.controls;$('camera-distance').value=settings.cameraDistance;
   $('keyboard-guide').textContent=settings.controls==='legacy'
@@ -66,6 +67,7 @@ $('scenery').addEventListener('change',()=>{settings.scenery=$('scenery').checke
 $('clouds').addEventListener('change',()=>{settings.clouds=$('clouds').checked;});
 $('planet').addEventListener('change',()=>{settings.planet=$('planet').checked;try{localStorage.setItem('racer.planet',settings.planet?'1':'0');}catch{/* storage unavailable (private mode): setting is not persisted */}});
 $('animate-npcs').addEventListener('change',()=>{settings.animateNpcs=$('animate-npcs').checked;client.animate(settings.animateNpcs);try{localStorage.setItem('racer.animateNpcs',settings.animateNpcs?'1':'0');}catch{/* storage unavailable (private mode): setting is not persisted */}});
+$('time-scale').addEventListener('change',()=>{settings.timeScale=sanitiseScale($('time-scale').value);try{localStorage.setItem('racer.timeScale',String(settings.timeScale));}catch{/* storage unavailable (private mode): setting is not persisted */}canvas.focus();});
 $('particles').addEventListener('change',()=>{settings.particles=$('particles').value;});
 $('cloud-quality').addEventListener('change',()=>{settings.cloudQuality=$('cloud-quality').value;try{localStorage.setItem('racer.cloudQuality',settings.cloudQuality);}catch{/* storage unavailable (private mode): setting is not persisted */}});
 $('distant').addEventListener('change',()=>{settings.distant=$('distant').checked;});

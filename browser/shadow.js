@@ -1,4 +1,4 @@
-﻿// Projected craft shadow: one fullscreen pass (like clouds) reads the finished scene depth, rebuilds each pixel's world
+// Projected craft shadow: one fullscreen pass (like clouds) reads the finished scene depth, rebuilds each pixel's world
 // position and darkens it where it lies under the craft along the sun direction. Works on terrain, water, scenery
 // and a craft at altitude without any ground probe or shadow map.
 export const SHADOW={maxHeight:500,sun:[-.35,1,-.25],strength:.5,fallbackHalf:[5,3]};
@@ -43,3 +43,9 @@ struct V {@builtin(position) clip:vec4f,@location(0) ndc:vec2f};
   if(a<.004){discard;}
   return vec4f(0,0,0,a);
 }`;
+
+/** Shadow direction/strength from the sim sun: fades out as the sun sets, no shadow at night. */
+export function sunShadow(sun) {
+  const fade=Math.min(1,Math.max(0,sun[1]*5));
+  return {sun:[sun[0],Math.max(sun[1],.15),sun[2]],strength:SHADOW.strength*fade};
+}
