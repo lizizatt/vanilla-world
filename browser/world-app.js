@@ -101,8 +101,10 @@ async function start() {
       loadCountdownSprites(r).then(s=>{app.countdownSprites=s||undefined;}).catch(e=>console.error('SWE1R countdown',e));
   loadHudSprites(r).then(s=>{if(!s)return;if(s.real){app.realHud=s.real;app.layoutHud();}else{app.realHud=undefined;app.dial=createDial(s,$('swe1r-hud'));app.heatGauge=s.heat&&createHeatGauge(s.heat,$('swe1r-heat'));}$('swe1r-hud-row').hidden=false;$('overheat-row').hidden=false;app.syncHud();}).catch(e=>console.error('SWE1R HUD',e));
       if(raw.size){audio.sampleOn=$('swe1r-sfx').checked;$('swe1r-sfx-row').hidden=false;await audio.useSamples(raw);}});
-    app.folder=await restoreDataFolder().catch(()=>undefined);
-    if(app.folder) {
+    const moonEntry=new URLSearchParams(location.search).get('body')==='elune';
+    app.folder=moonEntry?undefined:await restoreDataFolder().catch(()=>undefined);
+    if(moonEntry)await app.open('elune');
+    else if(app.folder) {
       if(await authorizeDataFolder(app.folder))await app.open(app.folder);
       else {app.permissionNeeded=true;app.showReconnect(true);
         $('permission').textContent='Click to allow reading your remembered folder.';}

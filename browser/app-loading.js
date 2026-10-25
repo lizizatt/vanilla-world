@@ -9,6 +9,8 @@ import {loadGateKit} from './race-gates.js';
 import {getSwe1r} from './swe1r/ui.js';
 import {classifyPickError} from './swe1r/attach.js';
 import {loadPodModel} from './swe1r/skin.js';
+import {ELUNE_GRAVITY_SCALE} from './bodies.js';
+const LUNAR_GRAVITY=48*ELUNE_GRAVITY_SCALE;
 export function installLoading(app) {
 const {canvas,cameraCollision,evidence,defaults,settings,loading,loadingArt,mapPanel,music,client}=app;
 const $=id=>document.getElementById(id);
@@ -89,6 +91,7 @@ app.gateKit=undefined;void loadGateKit((a,p)=>client.request(a,p),()=>getSwe1r()
       await client.request('tuning',{values:tune.values});
       app.tuningValues=tune.values.slice();settings.cameraSeconds=tune.cameraSeconds;
     }
+    if(selection==='elune'){settings.clouds=false;app.syncSettings();const values=app.tuningValues.slice();values[14]=LUNAR_GRAVITY;await client.request('tuning',{values});app.tuningValues=values;}
     const restored=await restore(save);
     if(tune&&!restored)client.state=await client.request('reset');
     const gateStart=performance.now();
