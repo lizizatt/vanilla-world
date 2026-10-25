@@ -141,6 +141,62 @@ fn build_world(wdts: [&[u8]; 2], wdls: [&[u8]; 2]) -> Result<Manifest, String> {
     Ok(manifest)
 }
 
+/// Elune: one airless region, 60x30 tiles centred on the chart, spawn at the chart centre.
+fn build_moon(wdt: &[u8], wdl: &[u8]) -> Result<Manifest, String> {
+    let cells = topology(wdt)?;
+    let parsed = WdlFile::parse(wdl).map_err(|e| format!("WDL: {e}"))?;
+    let source_bounds = extent(parsed.present_tiles());
+    let origin = extent(cells.iter().copied());
+    let count = [origin[2] - origin[0], origin[3] - origin[1]];
+    let placement = [
+        -f64::from(count[0]) * TILE / 2.0,
+        -f64::from(count[1]) * TILE / 2.0,
+    ];
+    let tiles = cells
+        .into_iter()
+        .map(|(x, y)| TileEntry {
+            region: 0,
+            x,
+            y,
+            file: format!("Elune_{x}_{y}.adt"),
+            bytes: 0,
+            sha256: String::new(),
+        })
+        .collect();
+    let manifest = Manifest {
+        version: 4,
+        label: "Elune / procedural airless moon".into(),
+        regions: vec![Region {
+            id: "elune".into(),
+            map: "Elune".into(),
+            tile_origin: [origin[0], origin[1]],
+            tile_count: count,
+            placement,
+        }],
+        tiles,
+        horizons: vec![HorizonEntry {
+            region: 0,
+            file: "Elune.wdl".into(),
+            bytes: wdl.len(),
+            sha256: "0".repeat(64),
+            source_bounds,
+        }],
+        world_bounds: None,
+        ocean: [1.0e9, 1.0e9, 1.0e9 + 1.0, 1.0e9 + 1.0],
+        sea_level: -1.0e6,
+        spawn: [0.0, 0.0, 0.0, 0.0],
+        destination: [0.0, 0.0],
+    };
+    manifest.validate()?;
+    Ok(manifest)
+}
+
+#[wasm_bindgen]
+pub fn moon_manifest(wdt: &[u8], wdl: &[u8]) -> Result<String, JsValue> {
+    let m = build_moon(wdt, wdl).map_err(|e| JsValue::from_str(&e))?;
+    serde_json::to_string(&m).map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
 #[wasm_bindgen]
 pub fn world_manifest(
     kalimdor_wdt: &[u8],
@@ -198,7 +254,7 @@ impl Voyage {
         Some(region * 4096 + y as usize * 64 + x as usize)
     }
     pub(crate) fn locate(&self, p: [f64; 2]) -> Option<usize> {
-        (0..2).find_map(|r| self.cell(r, p).and_then(|c| self.grid[c]))
+        (0..self.manifest.regions.len()).find_map(|r| self.cell(r, p).and_then(|c| self.grid[c]))
     }
     pub(crate) fn exterior_ocean(&self, p: [f64; 2]) -> Option<usize> {
         (0..2).find(|&region| {
@@ -488,6 +544,53 @@ pub(crate) mod tests {
         assert_eq!(after[8], 0.0);
         assert_eq!(world.resident.len(), 4);
     }
+    #[test]
+    fn body_manifest_v4_has_one_airless_region_and_no_ocean() {
+        let mut tiles = Vec::new();
+        for y in 0..30 {
+            for x in 0..60 {
+                tiles.push(TileEntry {
+                    region: 0,
+                    x,
+                    y,
+                    file: format!("Elune_{x}_{y}.adt"),
+                    bytes: 0,
+                    sha256: String::new(),
+                });
+            }
+        }
+        let m = Manifest {
+            version: 4,
+            label: "Elune".into(),
+            regions: vec![Region {
+                id: "elune".into(),
+                map: "Elune".into(),
+                tile_origin: [0, 0],
+                tile_count: [60, 30],
+                placement: [-30.0 * TILE, -15.0 * TILE],
+            }],
+            tiles,
+            horizons: vec![HorizonEntry {
+                region: 0,
+                file: "Elune.wdl".into(),
+                bytes: 1,
+                sha256: "0".repeat(64),
+                source_bounds: [0, 0, 60, 30],
+            }],
+            world_bounds: None,
+            ocean: [1.0e9, 1.0e9, 1.0e9 + 1.0, 1.0e9 + 1.0],
+            sea_level: -1.0e6,
+            spawn: [0.0, 0.0, 0.0, 0.0],
+            destination: [0.0, 0.0],
+        };
+        let world = Voyage::from_manifest(m.clone()).unwrap();
+        assert_eq!(world.locate([0.0, 0.0]), Some(15 * 60 + 30));
+        assert!(world.exterior_ocean([0.0, 0.0]).is_none());
+        let mut two = m;
+        two.regions.push(two.regions[0].clone());
+        assert!(Voyage::from_manifest(two).is_err());
+    }
+
     #[test]
     fn enclosed_missing_cells_are_not_exterior_ocean() {
         let mut grid = vec![None; 8192];

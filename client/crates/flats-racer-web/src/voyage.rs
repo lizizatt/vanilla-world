@@ -304,7 +304,7 @@ impl Voyage {
             } else {
                 2
             };
-        } else if contains(self.manifest.ocean, p) {
+        } else if self.manifest.version != 4 && contains(self.manifest.ocean, p) {
             result.water = Some(self.sea_height(p));
             result.availability = 0;
             result.region = -1;
