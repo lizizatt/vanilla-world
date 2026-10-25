@@ -1,5 +1,4 @@
 import {maelstromCentre,WHIRLPOOL_DIP} from './clouds.js';
-import {boxIsLand} from './land-rect.js';
 
 /** Surface drop (yd, >= 0) at squared distance q=(r/R)^2 from the whirlpool centre; mirrors `whirlpool_dip` in voyage.rs. */
 // Flat quads are split into cells so the vertex-shader bend curves water onto the globe; one big quad bends as a chord and dips under the globe.
@@ -11,7 +10,7 @@ export const dipDepth=(r,{radius,depth}=WHIRLPOOL_DIP)=>r>=radius?0:depth*(1-(r/
 export function oceanMesh(manifest,cells=96,land=[]) {
   const [x,z,right,bottom]=manifest.ocean,y=manifest.sea_level,w=right-x,h=bottom-z,out=[];
   const tri=(x0,z0,x1,z1)=>out.push(x0,y,z0,0,1,0,2,x1,y,z0,0,1,0,2,x1,y,z1,0,1,0,2,x0,y,z0,0,1,0,2,x1,y,z1,0,1,0,2,x0,y,z1,0,1,0,2);
-  // Land tiles (absolute rects) are cut out of the fill so below-sea-level ground is not flooded; cells touching land split into SUB steps; a rect with a height mask is only cut where its ground is above sea level, so bays and shallows stay flooded.
+  // Land tiles (absolute rects) are cut out of the fill so below-sea-level ground is not flooded; cells touching land split into SUB steps.
   const buckets=new Map(),SUB=5;
   for(const r of land)for(let j=Math.floor((r[1]-z)/OCEAN_CELL);j<=Math.floor((r[3]-z)/OCEAN_CELL);j++)for(let i=Math.floor((r[0]-x)/OCEAN_CELL);i<=Math.floor((r[2]-x)/OCEAN_CELL);i++){
     const k=j*100000+i;(buckets.get(k)||buckets.set(k,[]).get(k)).push(r);
@@ -35,7 +34,7 @@ export function oceanMesh(manifest,cells=96,land=[]) {
     if(!near)return flags&&flags.some(n=>n>1)?fan(x0,z0,x1,z1,flags):tri(x0,z0,x1,z1);
     for(let j=0;j<SUB;j++)for(let i=0;i<SUB;i++){
       const a=x0+(x1-x0)*i/SUB,b=z0+(z1-z0)*j/SUB,c=x0+(x1-x0)*(i+1)/SUB,d=z0+(z1-z0)*(j+1)/SUB,mx=x+(a+c)/2,mz=z+(b+d)/2;
-      if(!near.some(r=>mx>=r[0]&&mx<r[2]&&mz>=r[1]&&mz<r[3]&&(!r[4]||boxIsLand(r[4],x+a,z+b,x+c,z+d,y))))tri(a,b,c,d);
+      if(!near.some(r=>mx>=r[0]&&mx<r[2]&&mz>=r[1]&&mz<r[3]))tri(a,b,c,d);
     }
   };
   // Axes are shared between neighbouring quads (and the dip patch is cut at multiples of its own vertex spacing), so every
