@@ -23,8 +23,10 @@ export const AZEROTH=Object.freeze({
 });
 // Transition ranges scale with sqrt(R) (design 1: linear would start bending below a pod's height).
 const ELUNE_RANGE_SCALE=Math.sqrt(ELUNE_RADIUS/PLANET_RADIUS);
+export const ELUNE_RAIL=Object.freeze({...MOONS[0],radius:ELUNE_RADIUS,orbit:ELUNE_ORBIT,turns:1/ELUNE_ORBIT_DAYS});
+// A moon is a body with a circular rail about its parent; adding another is a config entry here plus a generator and site list.
 export const ELUNE=Object.freeze({
-  id:'elune',radius:ELUNE_RADIUS,centre:[0,0],gravity:SURFACE_GRAVITY*ELUNE_GRAVITY_SCALE,atmosphereEdge:0,sea:false,
+  id:'elune',parent:'azeroth',orbitDays:ELUNE_ORBIT_DAYS,rail:ELUNE_RAIL,radius:ELUNE_RADIUS,centre:[0,0],gravity:SURFACE_GRAVITY*ELUNE_GRAVITY_SCALE,atmosphereEdge:0,sea:false,
   circumference:ELUNE_CIRCUMFERENCE,rangeScale:ELUNE_RANGE_SCALE,ranges:rangesFor(ELUNE_RANGE_SCALE),maxLevel:7,
 });
 export const BODIES=Object.freeze({azeroth:AZEROTH,elune:ELUNE});
@@ -32,7 +34,8 @@ export const bodyOf=id=>{const b=BODIES[id];if(!b)throw new RangeError('unknown 
 
 export const muOf=body=>body.gravity*body.radius*body.radius;
 /** Sphere of influence of Elune about Azeroth (patched conics): a*(mu_e/mu_a)^0.4. */
-export const ELUNE_SOI=ELUNE_ORBIT*(muOf(ELUNE)/muOf(AZEROTH))**.4;
+export const soiOf=body=>body.rail?body.rail.orbit*(muOf(body)/muOf(bodyOf(body.parent)))**.4:Infinity;
+export const ELUNE_SOI=soiOf(ELUNE);
 export const SOI_ENTER=.9,SOI_EXIT=1.1;
 
 const smooth=(r,x)=>{const t=Math.min(1,Math.max(0,(x-r[0])/(r[1]-r[0])));return t*t*(3-2*t);};
@@ -54,13 +57,13 @@ export const circularSpeedFor=(body,altitude)=>Math.sqrt(gravityFor(body,altitud
 export const horizonDistance=(body,height)=>Math.sqrt(2*body.radius*Math.max(0,height)+height*height);
 
 // Rails (analytic, circular). Elune reuses the existing moon rail shape with the physical period.
-export const ELUNE_RAIL=Object.freeze({...MOONS[0],radius:ELUNE_RADIUS,orbit:ELUNE_ORBIT,turns:1/ELUNE_ORBIT_DAYS});
+
 /** Inertial position (yd) of a body's centre at sim time t (SimClock units). Azeroth is the origin. */
 /** Circular rail in the X-Z plane turning the same way as the sun (up toward east, east=+Z), so Elune's synodic day is regular (1.25 Azeroth days). Phase matches MOONS[0]. */
 export const centreAt=(body,t)=>{
-  if(body.id!=='elune')return [0,0,0];
-  const a=2*Math.PI*(t-720)/(ELUNE_ORBIT_DAYS*DAY_UNITS)+ELUNE_RAIL.phase;
-  return [ELUNE_ORBIT*Math.sin(a),0,ELUNE_ORBIT*Math.cos(a)];
+  if(!body.rail)return [0,0,0];
+  const a=2*Math.PI*(t-720)/(body.orbitDays*DAY_UNITS)+body.rail.phase;
+  return [body.rail.orbit*Math.sin(a),0,body.rail.orbit*Math.cos(a)];
 };
 export const orbitSpeed=()=>2*Math.PI*ELUNE_ORBIT/(ELUNE_ORBIT_DAYS*DAY_UNITS/2);
 
@@ -68,7 +71,7 @@ const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]]
 const unit=a=>{const n=Math.hypot(...a);return a.map(v=>v/n);};
 /** Body-local axes in inertial space as columns [x,y,z]. Azeroth: identity. Elune is tidally locked: local +X (lon 0, lat 0) faces Azeroth and local +Y is the orbit normal. */
 export function axesAt(body,t) {
-  if(body.id!=='elune')return [[1,0,0],[0,1,0],[0,0,1]];
+  if(!body.rail)return [[1,0,0],[0,1,0],[0,0,1]];
   const dt=.5,p0=centreAt(body,t-dt),p1=centreAt(body,t+dt),p=centreAt(body,t);
   const x=unit(p.map(v=>-v)),y=unit(cross(p,p1.map((v,i)=>v-p0[i]))),z=cross(x,y);
   return [x,y,z];
@@ -99,7 +102,9 @@ export function nearestSurface(p,t) {
 export function parentOf(p,t,current='azeroth') {
   const parent=bodyOf(current);
   if(altitudeAbove(parent,p,t)<parent.ranges.space[1])return current;
-  const d=Math.hypot(...p.map((v,i)=>v-centreAt(ELUNE,t)[i]));
-  if(current==='azeroth')return d<SOI_ENTER*ELUNE_SOI?'elune':'azeroth';
-  return d>SOI_EXIT*ELUNE_SOI?'azeroth':'elune';
+  const dist=b=>Math.hypot(...p.map((v,i)=>v-centreAt(b,t)[i]));
+  if(parent.rail)return dist(parent)>SOI_EXIT*soiOf(parent)?parent.parent:current;
+  let best=current,near=Infinity;
+  for(const b of Object.values(BODIES)){if(b.parent!==current)continue;const d=dist(b);if(d<SOI_ENTER*soiOf(b)&&d<near){best=b.id;near=d;}}
+  return best;
 }

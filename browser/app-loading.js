@@ -9,7 +9,7 @@ import {loadGateKit} from './race-gates.js';
 import {getSwe1r} from './swe1r/ui.js';
 import {classifyPickError} from './swe1r/attach.js';
 import {loadPodModel} from './swe1r/skin.js';
-import {ELUNE_GRAVITY_SCALE} from './bodies.js';
+import {ELUNE_GRAVITY_SCALE,BODIES} from './bodies.js';
 const LUNAR_GRAVITY=48*ELUNE_GRAVITY_SCALE;
 import {WorldClient} from './world-client.js';
 export function installLoading(app) {
@@ -194,11 +194,15 @@ $('overview').addEventListener('click',()=>{if(client.info&&!app.race){app.fligh
 $('drive').addEventListener('click',()=>{app.flight=undefined;app.renderer.camera=undefined;canvas.focus();});
 }
 
-// Second resident engine (design/elune.md): Elune's world in its own worker, far-only and without physics, opened beside Azeroth with ?bodies&moonEngine. Its events are counted for now; the renderer sink is the next step.
+// Extra resident engines (design/elune.md): every other moon body gets its own far-only, physics-free worker beside the parent, keyed by body id, with ?bodies&moonEngine. Events are counted per body until the renderer sink lands.
 async function openMoonEngine(app,selection) {
   const q=new URLSearchParams(location.search);
-  if(selection==='elune'||!q.has('bodies')||!q.has('moonEngine')||app.moonClient)return;
-  const counts={events:0,farScenes:0},moon=new WorldClient(data=>{counts.events++;if(data.event==='far-scene')counts.farScenes++;return false;},error=>console.warn('Elune engine',error));
-  moon.farOnly=true;app.moonClient=moon;app.moonCounts=counts;
-  try{await moon.open('elune');}catch(error){console.warn('Elune engine unavailable',error);moon.stop();app.moonClient=undefined;}
+  if(!q.has('bodies')||!q.has('moonEngine'))return;
+  app.engines??={};app.engineCounts??={};
+  for(const body of Object.values(BODIES)) {
+    if(!body.rail||body.id===selection||app.engines[body.id])continue;
+    const counts=app.engineCounts[body.id]={events:0,farScenes:0},engine=new WorldClient(data=>{counts.events++;if(data.event==='far-scene')counts.farScenes++;return false;},error=>console.warn(body.id+' engine',error));
+    engine.farOnly=true;app.engines[body.id]=engine;
+    try{await engine.open(body.id);}catch(error){console.warn(body.id+' engine unavailable',error);engine.stop();delete app.engines[body.id];}
+  }
 }
