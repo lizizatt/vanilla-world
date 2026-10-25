@@ -2,6 +2,7 @@
 // Coordinate model: render x = Kx - wowY, render z = Kz - wowX, where K comes from each region's tile placement
 // (north is -z, east is +x). WorldMapArea.dbc bounds are WoW coordinates, so each continent image drops into
 // render space as a rectangle and the maelstrom (which lives in the gap between continents) can be drawn too.
+import {CLOUD_ALTITUDE,CLOUD_THICKNESS,CLOUD_TOWER} from './cloud-config.js';
 const TILE=256,COLUMNS=4,ROWS=3,SCALE=1600/3;
 const NAME=/^[A-Za-z]{3,24}$/;
 
@@ -74,11 +75,14 @@ function gateIcons(manifest) {
   });
 }
 
+/** Top of the cloud layer (slab plus the tallest storm towers), absolute render y: the maelstrom waypoint drops you here to fall through all of it. */
+export const CLOUD_TOP_DROP=CLOUD_ALTITUDE+CLOUD_THICKNESS/2+CLOUD_TOWER.up+100;
+
 /** Icons: the usual raceway spawn and the maelstrom centre, as render-space poses to teleport to. */
-export function mapIcons(manifest,maelstrom,altitude=400) {
+export function mapIcons(manifest,maelstrom) {
   return [
     {id:'raceway',label:'Steamwheedle raceway (spawn)',position:[manifest.spawn[0],manifest.spawn[2]],reset:true},
-    {id:'maelstrom',label:'The Maelstrom',position:maelstrom,pose:[maelstrom[0],(manifest.sea_level||0)+altitude,maelstrom[1],0]},
+    {id:'maelstrom',label:'The Maelstrom (cloud top)',position:maelstrom,pose:[maelstrom[0],CLOUD_TOP_DROP,maelstrom[1],0]},
     {id:'airport',label:'Ironforge airport',position:[19486,5703],pose:[19486,530,5703,-3.114]},
     ...gateIcons(manifest),
   ];

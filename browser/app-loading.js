@@ -1,6 +1,7 @@
 import {rememberDataFolder,forgetDataFolder,authorizeDataFolder} from './asset-folder.js';
 import {worldSave,worldTuning,validateWorldSave,LAYOUT_VERSION} from './world-store.js';
 import {overview} from './flight.js';
+import {nearChunksReady} from './loading-gate.js';
 import {TUNING_FIELDS,validateTuningRecord,migrateTuning} from './world-tuning.js';
 import {unstuckPoses} from './race.js';
 import {loadTracks} from './race-flags.js';
@@ -90,6 +91,7 @@ app.gateKit=undefined;void loadGateKit((a,p)=>client.request(a,p),()=>getSwe1r()
     }
     const restored=await restore(save);
     if(tune&&!restored)client.state=await client.request('reset');
+    const gateStart=performance.now();
     for(;;){
       const state=await client.request('frame',{dt:0,throttle:0,steer:0,flags:0,distant:settings.distant});
       client.state=state;
@@ -97,7 +99,7 @@ app.gateKit=undefined;void loadGateKit((a,p)=>client.request(a,p),()=>getSwe1r()
       if(failed)throw new Error(`Starting location collision unavailable: ${failed.key} (${failed.status})`);
       if(state.scene.waitingCollision&&state.scene.capacityBlocked)throw new Error('Starting collision cannot fit the scene budget');
       if(!state.required.every(i=>state.resident.includes(i)))throw new Error(state.failures.join('\n')||'Starting terrain unavailable');
-      if(!state.scene.waitingCollision&&state.required.every(i=>app.renderer.tiles.has(i)))break;
+      if(!state.scene.waitingCollision&&state.required.every(i=>app.renderer.tiles.has(i))&&nearChunksReady(state.nearTerrain,performance.now()-gateStart))break;
       if(!$('error').hidden)throw new Error($('error').textContent);
       loadingProgress({text:`Preparing nearby scenery: ${state.scene.waitingCollision} collision assets remaining. Water: ${state.water.resident} tiles streamed.`});
       await new Promise(resolve=>setTimeout(resolve,16));

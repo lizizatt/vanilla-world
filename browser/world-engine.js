@@ -226,10 +226,11 @@ function prepareDistant(focus,enabled,flying=false,view) {
 function recordTerrainFailure(index,error) {
   failures.set(index,`${manifest.tiles[index].file}: ${error?.code || 'PARSE'} ${error?.message || String(error)}`);
 }
+let lastNearby=[];
 async function stream(p,pin,fill=false) {
   const required=pin?Array.from(world.required_tiles()):[];
   if(required.length>LIMIT)throw new Error('Support footprint exceeds the bounded terrain collision budget.');
-  const nearby=nearbyTerrain(p);
+  const nearby=nearbyTerrain(p);lastNearby=nearby;
   const wanted=[...required,...nearby.filter(i=>!required.includes(i))].slice(0,LIMIT);
   const tiles=[],removed=[];
   if(terrainRead?.ready && !wanted.includes(terrainRead.index)) {
@@ -637,7 +638,7 @@ export function snapshot() {
   const terrainState=terrain.snapshot();
   const clock=performance.now();
   if(clock-areaTime>500){areaTime=clock;areaId=world.area();}
-  return {telemetry:Array.from(world.telemetry()),area:areaId,poseTime,hopConsumed,resident:Array.from(resident),required:Array.from(world.required_tiles()),
+  return {telemetry:Array.from(world.telemetry()),area:areaId,poseTime,hopConsumed,resident:Array.from(resident),nearTerrain:{total:lastNearby.length,resident:lastNearby.filter(i=>resident.has(i)).length},required:Array.from(world.required_tiles()),
     failures:Array.from(failures.values()),loads,evictions,peak,limit:LIMIT,horizon,source:source.stats,
     scene:sceneState?{instances:sceneState.instances.length,assets:sceneState.cachedAssets,bytes:sceneState.cachedBytes,
       pending:sceneState.pending,errors:sceneState.errors,population:sceneState.populationStatus,

@@ -1,4 +1,4 @@
-import {SFX,HEAT,heatStage} from './swe1r/sfx.js';
+import {SFX,HEAT,heatStage,POD_ENGINES,podEngineFor} from './swe1r/sfx.js';
 const unit=n=>Number.isFinite(n)?Math.max(0,Math.min(1,n)):0;
 const tone=(hz,t)=>Math.sin(2*Math.PI*hz*t);
 const engine=(hz,t)=>.56*tone(hz,t)+.17*tone(hz*2,t)+.06*tone(hz*3,t);
@@ -122,9 +122,20 @@ export class WorldAudio {
         source.buffer=buffers[name];source.loop=true;gain.gain.value=0;source.connect(gain);gain.connect(this.master);source.start();
         return {source,gain};
       };
-      this.samples={buffers,engine:loop('sfx_pod_varipitch_d_loop'),jet:loop(SFX.boost)};
+      const engines={};
+      for(const name of new Set([SFX.engine,...Object.values(POD_ENGINES)]))engines[name]=loop(name);
+      this.samples={buffers,engines,jet:loop(SFX.boost)};
+      this.pickEngine();
     } catch(error) {console.error('SWE1R sound decode failed',error);}
     this.building=false;
+  }
+  // Selects the engine loop for the current pod; falls back to the generic loop, then the procedural layers.
+  setPod(skin) {this.podEngine=podEngineFor(skin);this.pickEngine();}
+  pickEngine() {
+    const s=this.samples;if(!s)return;
+    const next=s.engines[this.podEngine]??s.engines[SFX.engine];
+    if(s.engine&&s.engine!==next)s.engine.gain.gain.setTargetAtTime(0,this.context.currentTime,.05);
+    s.engine=next;
   }
   // Plays raw wav bytes once (voice lines); one at a time so lines never overlap.
   async say(bytes,gain=1) {

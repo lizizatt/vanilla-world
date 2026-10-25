@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {worldMapAreas,imageRects,schematicRects,mapFrame,toMap,fromMap,mapIcons,regionOffset} from './worldmap.js';
+import {worldMapAreas,imageRects,schematicRects,mapFrame,toMap,fromMap,mapIcons,regionOffset,CLOUD_TOP_DROP} from './worldmap.js';
+import {CLOUD_ALTITUDE,CLOUD_THICKNESS} from './cloud-config.js';
 
 function dbc(rows) {
   const strings=['\0'],offsets=rows.map(r=>{const o=strings.join('').length;strings.push(r.name+'\0');return o;});
@@ -36,5 +37,5 @@ test('frame mapping round-trips and icons hold spawn and maelstrom',()=>{
   assert.deepEqual(icons.map(i=>i.id),['raceway','maelstrom','airport','stormwind','orgrimmar','undercity','darnassus']);
   const [kx,kz]=regionOffset(manifest.regions[0]),og=icons.find(i=>i.id==='orgrimmar').pose,uc=icons.find(i=>i.id==='undercity').pose;
   assert.deepEqual(og,[4420+kx,35,-1330+kz,0]);assert.ok(Math.abs(uc[3]-Math.PI)<1e-9);
-  assert.deepEqual(icons[0].position,[100,200]);assert.deepEqual(icons[1].pose,[7,400,8,0]);
+  assert.deepEqual(icons[0].position,[100,200]);assert.deepEqual(icons[1].pose,[7,CLOUD_TOP_DROP,8,0]);assert.ok(CLOUD_TOP_DROP>CLOUD_ALTITUDE+CLOUD_THICKNESS/2);
 });
