@@ -13,6 +13,7 @@ import {beamState} from './beam.js';
 import {horizonDip} from './space.js';
 import {planetFactors} from './terrain-transition.js';
 import {skyUniform,DAY} from './sky.js';
+import {eluneSkyAt,AIRLESS_SKY} from './elune-sky.js';
 import {SimClock,sanitiseScale,daylightAt,CloudClock} from './sim-clock.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
 import {cameraAxes,AdmissionFade,sceneSelection} from './renderer-helpers.js';
@@ -123,9 +124,10 @@ export class WorldRenderer {
     const cc=this.cloudClock??=new CloudClock(time);cc.step(dt,clock.scale);pf.flowScale=cc.stretch;pf.flowCycles=cc.cycles;
     this.cloudTime=cc.time;const waterTime=this.cloudTime%7200;
     this.timeOfDay=this.timeLock??clock.now();
-    const daylight=this.daylight=daylightAt(this.timeOfDay);
-    const sky0=DAY_SKY.map((v,i)=>NIGHT_SKY[i]+(v-NIGHT_SKY[i])*daylight);
-    const game=zoneBlend(this.sampleSky(),pf.zone),sky=game?game.fog:sky0;pf.fog=(game?game.horizon:sky).slice(0,3);
+    const airless=this.manifest?.version===4,moonSky=airless?eluneSkyAt(state[0],state[2],this.timeOfDay):undefined;
+    const daylight=this.daylight=moonSky?moonSky.daylight:daylightAt(this.timeOfDay);
+    const sky0=airless?AIRLESS_SKY:DAY_SKY.map((v,i)=>NIGHT_SKY[i]+(v-NIGHT_SKY[i])*daylight);
+    const game=airless?undefined:zoneBlend(this.sampleSky(),pf.zone),sky=game?game.fog:sky0;pf.fog=(game?game.horizon:sky).slice(0,3);
     this.gameSky=game;
     const skyFloats=game?[...game.fog,1,...game.sun,0,...game.horizon,0,...game.mid,0]:new Array(16).fill(0);
     if(this.manifest?.world_bounds){const [mx,mz]=maelstromCentre(this.manifest);skyFloats[7]=mx-origin[0];skyFloats[11]=mz-origin[1];skyFloats[15]=1;}
@@ -145,7 +147,7 @@ export class WorldRenderer {
     this.fadeTime=Math.max(this.fadeTime||0,time);
     const fadeTime=this.fadeTime;
     let uniformCount=0;
-    const u=this.uniformData,sunDir=sunDirection(this.timeOfDay);
+    const u=this.uniformData,sunDir=moonSky?moonSky.sun:sunDirection(this.timeOfDay);
     const writeUniform=item=>{
       if(uniformCount>=16384)throw Error('World draw uniform budget exceeded');
       const base=uniformCount++*64;

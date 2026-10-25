@@ -307,13 +307,14 @@ async function stream(p,pin,fill=false) {
 async function buildHorizon(wdls) {
   horizon={patches:0,vertices:0,gpuBytes:0,cpuParsedBound:0,wasmPeakBytes:0,regions:[]};
   const start=performance.now();
-  for(let region=0;region<2;region++)world.add_horizon(region,wdls[region]);
-  const patchesByRegion=[0,1].map(region=>world.horizon_patches(region));
+  const regionCount=manifest.regions.length;
+  for(let region=0;region<regionCount;region++)world.add_horizon(region,wdls[region]);
+  const patchesByRegion=wdls.map((_,region)=>world.horizon_patches(region));
   const total=patchesByRegion.reduce((n,p)=>n+p.length/5,0);
-  for(let region=0;region<2;region++) {
-    const exterior=world.exterior_geometry(region);
+  for(let region=0;region<regionCount;region++) {
+    if(manifest.version!==4){const exterior=world.exterior_geometry(region);
     water?.setExterior(region,exterior);
-    postMessage({event:'exterior-water',region,placement:manifest.regions[region].placement,vertices:exterior},[exterior.buffer]);
+    postMessage({event:'exterior-water',region,placement:manifest.regions[region].placement,vertices:exterior},[exterior.buffer]);}
     const patches=patchesByRegion[region],indices=world.horizon_indices(region);
     horizon.gpuBytes+=indices.byteLength;
     postMessage({event:'horizon-index',region,indices},[indices.buffer]);
@@ -679,7 +680,7 @@ export async function openWorld(message) {
     source=await openAssetSource(message.folder,undefined,data=>postMessage(data,data.rgba?[data.rgba.buffer]:[]),
       {loadingArt:true,map:message.loadingMap});
     report('World and archive workers ready');
-    const moon=message.body==='elune';
+    const moon=message.folder==='elune';
     const wdts=[],wdls=[];
     for(const map of moon?['Elune']:['Kalimdor','Azeroth']) {
       report(`Reading ${map} topology and terrain`,{stage:'topology',completed:wdts.length+wdls.length,total:moon?2:4});

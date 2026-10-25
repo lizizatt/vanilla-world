@@ -38,7 +38,7 @@ export function configure(r,manifest) {
   const [x,z]=manifest.ocean;
   // Open ocean beyond the authored rectangle: the same water mesh extended to roughly half the planet circumference.
   const pad=OCEAN_FILL,[,,right,bottom]=manifest.ocean;
-  r.oceanSpec={manifest:{...manifest,ocean:[x-pad,z-pad,right+pad,bottom+pad],whirlpool:manifest.world_bounds&&maelstromCentre(manifest)},origin:[x-pad,z-pad]};r.landRects=[];r.oceanFill=r.drawable(oceanMesh(r.oceanSpec.manifest),r.oceanSpec.origin);r.water.push(r.oceanFill);
+  r.landRects=[];if(manifest.version!==4){r.oceanSpec={manifest:{...manifest,ocean:[x-pad,z-pad,right+pad,bottom+pad],whirlpool:manifest.world_bounds&&maelstromCentre(manifest)},origin:[x-pad,z-pad]};r.oceanFill=r.drawable(oceanMesh(r.oceanSpec.manifest),r.oceanSpec.origin);r.water.push(r.oceanFill);}
   const pending=r.pendingEvents;r.pendingEvents=[];
   for(const data of pending)r.event(data);
 }
