@@ -13,7 +13,7 @@ import {beamState} from './beam.js';
 import {horizonDip} from './space.js';
 import {planetFactors} from './terrain-transition.js';
 import {skyUniform,DAY} from './sky.js';
-import {SimClock,sanitiseScale,daylightAt} from './sim-clock.js';
+import {SimClock,sanitiseScale,daylightAt,cloudRate,CLOUD_TIME_WRAP} from './sim-clock.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
 import {cameraAxes,AdmissionFade,sceneSelection} from './renderer-helpers.js';
 import {posedAsset,npcMoves,moveMatrix,pose} from './renderer-actors.js';
@@ -120,6 +120,7 @@ export class WorldRenderer {
     const clock=this.clock??=new SimClock(settings.night?0:DAY,settings.timeScale);
     if(this.lastNight!==undefined&&this.lastNight!==!!settings.night)clock.easeTo(settings.night?0:DAY);
     this.lastNight=!!settings.night;clock.scale=sanitiseScale(settings.timeScale);clock.step(dt);
+    this.cloudTime=((this.cloudTime??time)+dt*cloudRate(clock.scale))%CLOUD_TIME_WRAP;
     this.timeOfDay=this.timeLock??clock.now();
     const target=daylightAt(this.timeOfDay),previous=this.daylight??target;
     const daylight=this.daylight=Math.abs(target-previous)<.002?target:previous+(target-previous)*Math.min(1,dt*1.5);
@@ -249,7 +250,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
     if(!this.cameraBlocked&&settings.clouds!==false) {
       // Clouds read the finished scene depth to clip their ray march, so they never need a depth-test bias.
       const cloudPass=encoder.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}]});
-      this.drawClouds(cloudPass,time,daylight,near,highClouds);cloudPass.end();
+      this.drawClouds(cloudPass,this.cloudTime??time,daylight,near,highClouds);cloudPass.end();
     }
     if(!this.cameraBlocked&&propDraws.length) {
       const propPass=encoder.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}],
