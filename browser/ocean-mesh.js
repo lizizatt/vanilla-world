@@ -2,7 +2,7 @@ import {maelstromCentre,WHIRLPOOL_DIP} from './clouds.js';
 
 /** Surface drop (yd, >= 0) at squared distance q=(r/R)^2 from the whirlpool centre; mirrors `whirlpool_dip` in voyage.rs. */
 // Flat quads are split into cells so the vertex-shader bend curves water onto the globe; one big quad bends as a chord and dips under the globe.
-export const OCEAN_CELL=2500;
+export const OCEAN_CELL=1250;
 export const dipDepth=(r,{radius,depth}=WHIRLPOOL_DIP)=>r>=radius?0:depth*(1-(r/radius)**2)**2;
 
 /** Ocean triangles (7 floats per vertex: pos, normal, material 2) local to the ocean origin: a flat quad, or four flat
@@ -24,34 +24,48 @@ export function oceanMesh(manifest,cells=96,land=[]) {
   };
   // A whole cell beside a split cell gets the split cell's edge vertices (flags: z0, x1, z1, x0 sides) so the bend moves both sides of the shared edge identically and no T-junction crack opens.
   const fan=(x0,z0,x1,z1,flags)=>{
-    const ring=[],step=(ax,az,bx,bz,split)=>{ring.push([ax,az]);if(split)for(let k=1;k<SUB;k++)ring.push([ax+(bx-ax)*k/SUB,az+(bz-az)*k/SUB]);};
+    const ring=[],step=(ax,az,bx,bz,n)=>{ring.push([ax,az]);for(let k=1;k<n;k++)ring.push([ax+(bx-ax)*k/n,az+(bz-az)*k/n]);};
     step(x0,z0,x1,z0,flags[0]);step(x1,z0,x1,z1,flags[1]);step(x1,z1,x0,z1,flags[2]);step(x0,z1,x0,z0,flags[3]);
     const cx=(x0+x1)/2,cz=(z0+z1)/2,v=(p,q)=>out.push(p,y,q,0,1,0,2);
     for(let k=0;k<ring.length;k++){const a=ring[k],b=ring[(k+1)%ring.length];v(cx,cz);v(a[0],a[1]);v(b[0],b[1]);}
   };
   const cell=(x0,z0,x1,z1,flags)=>{
     const near=nearOf(x0,z0,x1,z1);
-    if(!near)return flags&&flags.some(Boolean)?fan(x0,z0,x1,z1,flags):tri(x0,z0,x1,z1);
+    if(!near)return flags&&flags.some(n=>n>1)?fan(x0,z0,x1,z1,flags):tri(x0,z0,x1,z1);
     for(let j=0;j<SUB;j++)for(let i=0;i<SUB;i++){
       const a=x0+(x1-x0)*i/SUB,b=z0+(z1-z0)*j/SUB,c=x0+(x1-x0)*(i+1)/SUB,d=z0+(z1-z0)*(j+1)/SUB,mx=x+(a+c)/2,mz=z+(b+d)/2;
       if(!near.some(r=>mx>=r[0]&&mx<r[2]&&mz>=r[1]&&mz<r[3]))tri(a,b,c,d);
     }
   };
-  const quad=(x0,z0,x1,z1)=>{
-    if(!(x1>x0&&z1>z0))return;
-    const nx=Math.ceil((x1-x0)/OCEAN_CELL),nz=Math.ceil((z1-z0)/OCEAN_CELL);
-    const X=i=>x0+(x1-x0)*i/nx,Z=j=>z0+(z1-z0)*j/nz;
-    const split=(i,j)=>i>=0&&j>=0&&i<nx&&j<nz&&!!nearOf(X(i),Z(j),X(i+1),Z(j+1));
-    for(let j=0;j<nz;j++)for(let i=0;i<nx;i++)cell(X(i),Z(j),X(i+1),Z(j+1),buckets.size?[split(i,j-1),split(i+1,j),split(i,j+1),split(i-1,j)]:undefined);
-  };
-  // The renderer pads manifest.ocean, which moves the map-derived centre, so it passes the true one in manifest.whirlpool.
+  // Axes are shared between neighbouring quads (and the dip patch is cut at multiples of its own vertex spacing), so every
+  // bent vertex on a shared edge exists on both sides and no T-junction crack opens along it.
+  const axis=(a,b,n=Math.ceil((b-a)/OCEAN_CELL))=>Array.from({length:n+1},(_,i)=>a+(b-a)*i/n);
+  const join=(...p)=>p.reduce((acc,s)=>acc.length?acc.concat(s.slice(1)):s,[]);
+  // patch: {side, lo, hi, step} - cells whose `side` edge lies within [lo,hi] border the dense dip patch and take its vertex spacing.
+  const quad=(xs,zs,patch)=>{
+    const nx=xs.length-1,nz=zs.length-1;
+    if(nx<1||nz<1)return;
+    const split=(i,j)=>i>=0&&j>=0&&i<nx&&j<nz?(nearOf(xs[i],zs[j],xs[i+1],zs[j+1])?SUB:1):1;
+    const onPatch=(side,i,j)=>{
+      if(!patch||patch.side!==side||(side===2&&j!==nz-1)||(side===0&&j!==0)||(side===1&&i!==nx-1)||(side===3&&i!==0))return 1;
+      const [a,b]=side%2?[zs[j],zs[j+1]]:[xs[i],xs[i+1]];
+      return a>=patch.lo-1e-6&&b<=patch.hi+1e-6?Math.max(1,Math.round((b-a)/patch.step)):1;
+    };
+    for(let j=0;j<nz;j++)for(let i=0;i<nx;i++){
+      const f=buckets.size?[split(i,j-1),split(i+1,j),split(i,j+1),split(i-1,j)]:[1,1,1,1];
+      for(let s=0;s<4;s++)f[s]=Math.max(f[s],onPatch(s,i,j));
+      cell(xs[i],zs[j],xs[i+1],zs[j+1],f);
+    }
+  };  // The renderer pads manifest.ocean, which moves the map-derived centre, so it passes the true one in manifest.whirlpool.
   const centre=manifest.whirlpool||(manifest.world_bounds?maelstromCentre(manifest):undefined);
   const R=WHIRLPOOL_DIP.radius;
   if(!centre||centre[0]-R<x||centre[0]+R>right||centre[1]-R<z||centre[1]+R>bottom||!(WHIRLPOOL_DIP.depth>0)) {
-    quad(0,0,w,h);return new Float32Array(out);
+    quad(axis(0,w),axis(0,h));return new Float32Array(out);
   }
   const x0=centre[0]-R-x,x1=centre[0]+R-x,z0=centre[1]-R-z,z1=centre[1]+R-z;
-  quad(0,0,w,z0);quad(0,z1,w,h);quad(0,z0,x0,z1);quad(x1,z0,w,z1);
+  const step=2*R/cells,px=axis(x0,x1,2),pz=axis(z0,z1,2),ax=join(axis(0,x0),px,axis(x1,w));
+  quad(ax,axis(0,z0),{side:2,lo:x0,hi:x1,step});quad(ax,axis(z1,h),{side:0,lo:x0,hi:x1,step});
+  quad(axis(0,x0),pz,{side:1,lo:z0,hi:z1,step});quad(axis(x1,w),pz,{side:3,lo:z0,hi:z1,step});
   const vertex=(i,j)=>{
     const dx=-R+2*R*i/cells,dz=-R+2*R*j/cells,r=Math.hypot(dx,dz),q=1-(r/R)**2,drop=r>=R?0:WHIRLPOOL_DIP.depth*q*q;
     const slope=r>=R||r<1e-6?0:4*WHIRLPOOL_DIP.depth*q/(R*R),nx=slope*dx,nz=slope*dz,n=Math.hypot(nx,1,nz);
