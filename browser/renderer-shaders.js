@@ -1,8 +1,11 @@
-import {waterShading,dayShading,localNightShading} from './water-shader.js';
+import {waterShading,dayShading,localNightShadingFor} from './water-shader.js';
 import {shaderSetFor,activeBody} from './body-shaders.js';
-const bendShader=shaderSetFor(activeBody()).bend;
 
-export const terrainShader=`
+/** terrain/splat/scene shaders with a body's radius and bend baked in; Azeroth's set is the byte-identical default below. */
+export const surfaceShadersFor=body=>{
+const bendShader=shaderSetFor(body).bend,localNightShading=localNightShadingFor(body.radius);
+
+const terrainShader=`
 struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,body:vec4f,settings:vec4f,tile:vec4f,pad:array<vec4f,3>,sky:array<vec4f,4>};
 @group(0) @binding(0) var<uniform> u:U;
 @group(0) @binding(1) var minimap:texture_2d<f32>;
@@ -44,7 +47,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   let fog=max(clamp(length(v.p-u.eye.xyz)/150000.0,0.0,.93),valleyHaze(v.p))*(1.0-u.pad[0].y);
   return vec4f(mix(color,fogTint(),fog)+limbGlow(v.p),1);
 }`;
-export const splatShader=`
+const splatShader=`
 struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,body:vec4f,settings:vec4f,tile:vec4f,pad:array<vec4f,3>,sky:array<vec4f,4>};
 @group(0) @binding(0) var<uniform> u:U;
 @group(0) @binding(1) var layers:texture_2d_array<f32>;
@@ -89,7 +92,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) uv:vec
   let fog=max(clamp(length(v.p-u.eye.xyz)/150000.0,0.0,.93),valleyHaze(v.p))*(1.0-u.pad[0].y);
   return vec4f(mix(color,fogTint(),fog)+limbGlow(v.p),1);
 }`;
-export const sceneShader=`
+const sceneShader=`
 struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,settings:vec4f,model:mat4x4f,material:vec4f,sky:array<vec4f,4>,beam:vec4f,bend:vec4f};
 @group(0) @binding(0) var<uniform> u:U;
 @group(0) @binding(1) var image:texture_2d<f32>;
@@ -124,3 +127,6 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   if(u.settings.z>.5){color=waterColor(v.p,v.uv.x,rampWidth,dx,dy);}
   return vec4f(mix(color,fogTint(),fog*(1.0-.6*glow)),texel.a);
 }`;
+return {terrainShader,splatShader,sceneShader};
+};
+export const {terrainShader,splatShader,sceneShader}=surfaceShadersFor(activeBody());

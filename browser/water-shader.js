@@ -1,7 +1,6 @@
 import {resizeRgba} from './terrain-stream.js';
 import {WHIRLPOOL_DIP} from './cloud-config.js';
 import {activeBody,wgslNumber} from './body-shaders.js';
-const PLANET_RADIUS=wgslNumber(activeBody().radius);
 
 export const WATER_NORMAL_SIZE=128;
 export function waterNormalMips() {
@@ -51,7 +50,7 @@ fn valleyHaze(p:vec3f)->f32 {
 fn fogTint()->vec3f {return select(mix(vec3f(.08,.15,.20),vec3f(.008,.016,.045),nightK()),u.sky[0].rgb,gameSky());}
 `;
 /** Per-point night (0 day .. 1 night) on the bent globe from the sun in u.pad[1]; matches the globe shader's terminator. Needs the terrain/splat U layout. */
-export const localNightShading=`
+export const localNightShadingFor=radius=>{const PLANET_RADIUS=wgslNumber(radius);return `
 fn localNight(p:vec3f)->f32 {
   let g=1.0-u.forward.w;let k=clamp(u.pad[0].x*${PLANET_RADIUS},0.0,1.0);
   if(k<=0.0){return g;}
@@ -64,7 +63,8 @@ fn limbGlow(p:vec3f)->vec3f {
     let rel=bend(p-u.eye.xyz,u.eye.xyz,u.pad[0].x);let n=normalize(rel-vec3f(0.0,-(${PLANET_RADIUS}+u.eye.y),0.0));
   let lit=clamp(dot(n,u.pad[1].xyz)*1.6+.15,0.0,1.0);
   return vec3f(.25,.5,1.0)*pow(1.0-max(dot(n,-normalize(rel)),0.0),3.0)*(.15+lit)*.8*k;
-}`;
+}`;};
+export const localNightShading=localNightShadingFor(activeBody().radius);
 export const waterShading=`
 @group(0) @binding(3) var waterNormals:texture_2d<f32>;
 @group(0) @binding(4) var waveSampler:sampler;
