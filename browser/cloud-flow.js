@@ -9,7 +9,7 @@ const smoothstep=(a,b,x)=>{const t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t);};
 
 export const FLOW={
   // Peak zonal / meridional surface wind of the belts; westerlies run stronger than the trades.
-  zonal:24,meridional:6,westerlyBoost:1.25,
+  zonal:24,meridional:6,westerlyBoost:1.25,drift:3,
   // Zonal speed fades out toward the pole (east/north degenerate there); rad. `soft` rounds the kink of |lat| at the equator.
   poleFade:[80*Math.PI/180,89*Math.PI/180],soft:.05,
   // Cloud coverage offsets by latitude band (ITCZ boost, subtropical clearing, storm-track boost, thin polar cloud).
@@ -24,7 +24,7 @@ export const FLOW={
 export function beltWind(lat) {
   const s=Math.sqrt(lat*lat+FLOW.soft*FLOW.soft)-FLOW.soft,x=Math.sin(6*s);
   const fade=1-smoothstep(FLOW.poleFade[0],FLOW.poleFade[1],Math.abs(lat));
-  return [-FLOW.zonal*x*(x<0?FLOW.westerlyBoost:1)*fade,-FLOW.meridional*Math.sin(6*lat)];
+  return [(FLOW.drift-FLOW.zonal*x*(x<0?FLOW.westerlyBoost:1))*fade,-FLOW.meridional*Math.sin(6*lat)];
 }
 
 /** Coverage offset from the global cells: wet ITCZ, dry subtropics, stormy mid-latitudes, thin polar cloud. */
@@ -144,7 +144,7 @@ fn vnoise3(p:vec3f)->f32 {
 }fn beltWind(lat:f32)->vec2f {
   let s=sqrt(lat*lat+${f(FLOW.soft*FLOW.soft)})-${f(FLOW.soft)};let x=sin(6.0*s);
   let fade=1.0-smoothstep(${f(FLOW.poleFade[0])},${f(FLOW.poleFade[1])},abs(lat));
-  return vec2f(-${f(FLOW.zonal)}*x*select(1.0,${f(FLOW.westerlyBoost)},x<0.0)*fade,-${f(FLOW.meridional)}*sin(6.0*lat));
+  return vec2f((${f(FLOW.drift)}-${f(FLOW.zonal)}*x*select(1.0,${f(FLOW.westerlyBoost)},x<0.0))*fade,-${f(FLOW.meridional)}*sin(6.0*lat));
 }
 fn g2(x:f32)->f32 {return exp(-x*x);}
 fn bandCoverage(lat:f32)->f32 {
