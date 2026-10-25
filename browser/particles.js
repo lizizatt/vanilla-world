@@ -200,12 +200,21 @@ export function emitWaterFx(pool, { matrix: m, origin, scale, length, speed, tim
   }
 }
 export function emitGroundDust(pool, { matrix: m, origin, scale, length, speed, drift, grounded, dt }) {
+  if (grounded && speed < 5) return emitIdleDust(pool, { matrix: m, origin, scale, length, dt });
   const k = Math.min(1, speed / 120), rate = !grounded || speed < 5 ? 0 : drift && speed > 25 ? 170 : 20 + 110 * k;
   const n = rate ? pool.budget('dust', rate, dt) : 0, size = length / 3.5 * (.5 + .5 * k);
   for (let j = 0; j < n; j++) {
     const side = (pool.rand() - .5) * 2, back = .05 + pool.rand() * .15;
     pool.emit('dust', m[12] + origin[0] - m[0] / scale * length * .45 + m[4] / scale * side * length * .35, m[13] + length * .05, m[14] + origin[1] - m[2] / scale * length * .45 + m[6] / scale * side * length * .35,
       -m[0] / scale * speed * back + m[4] / scale * side * (drift ? 8 : 3), 1.5 + pool.rand() * 2.5 * (.5 + k), -m[2] / scale * speed * back + m[6] / scale * side * (drift ? 8 : 3), size * (drift ? 1.4 : 1), size * .3);
+  }
+}
+/** Idle on land: a few small, slow puffs blown outward from under the craft by its hover thrust (bounded by the pool budget and quality). */
+export function emitIdleDust(pool, { matrix: m, origin, length, dt }) {
+  const n = pool.budget('dust', 7, dt);
+  for (let j = 0; j < n; j++) {
+    const a = pool.rand() * Math.PI * 2, s = 1.5 + pool.rand() * 1.5;
+    pool.emit('dust', m[12] + origin[0] + Math.cos(a) * length * .25, m[13] + length * .05, m[14] + origin[1] + Math.sin(a) * length * .25, Math.cos(a) * s, .4 + pool.rand() * .6, Math.sin(a) * s, length / 6, length * .1);
   }
 }
 /** Night glow halos on lamp/torch models: a few soft additive sprites per second at each model-local point of each nearby lamp. */
