@@ -25,3 +25,8 @@ export class SimClock {
     this.dt=simDelta(dt,this.scale);this.t=wrapTime(this.t+this.dt);return this.t;
   }
 }
+
+/** Cloud/whirlpool animation rate (cloud seconds per real second): linear to 10x, then compressed (the flow map cannot cross-fade 1000x) so 100x/1000x still read as fast but not strobing; 0 when paused. */
+export const cloudRate=scale=>scale<=10?Math.max(0,scale):10*Math.pow(scale/10,.45);
+/** Wrap for the f32 shader clock (about 1 hour at the 1000x rate). */
+export const CLOUD_TIME_WRAP=4e6;
