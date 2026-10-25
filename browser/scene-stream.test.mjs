@@ -273,6 +273,18 @@ test('collision index never retains NPCs across population and neighborhood chan
   stream.update(0,[0,0,0]);assert.equal(stream.collisionIndex.rows.size,0);
 });
 
+test('NPCs stay admitted under every memory budget, including a tiny one',async()=>{
+  for(const budget of [1,64*1024*1024,3072*1024*1024]){
+    const f=fixture(),stream=new SceneStream(f.source,f.wasm);
+    stream.asyncVisuals=true;stream.setBudget(budget);
+    stream.setPopulation({version:1,provenance:{source:'test',redistribution:'private-local-only'},
+      models:{7:{path:'creature.m2',scale:1,skins:[]}},
+      spawns:[{id:9,map:1,displayId:7,position:[0,0,0],orientation:0,scale:1}]});
+    stream.update(1,[0,0,100],[0,0,-100],152,200);await stream.prepareVisuals();await stream.pump();
+    assert(stream.snapshot().instances.some(i=>i.id==='1:npc:9'),`NPC admitted at budget ${budget}`);
+  }
+});
+
 test('NPC visuals never create hulls, readiness waits or required requests, even with a shared static model',async()=>{
   for(const asyncVisuals of [false,true]){
     const f=fixture(),stream=new SceneStream(f.source,f.wasm);
