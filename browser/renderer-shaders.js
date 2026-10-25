@@ -1,7 +1,6 @@
 import {waterShading,dayShading,localNightShading} from './water-shader.js';
-import {shaderSetFor} from './body-shaders.js';
-import {AZEROTH} from './bodies.js';
-const bendShader=shaderSetFor(AZEROTH).bend;
+import {shaderSetFor,activeBody} from './body-shaders.js';
+const bendShader=shaderSetFor(activeBody()).bend;
 
 export const terrainShader=`
 struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,body:vec4f,settings:vec4f,tile:vec4f,pad:array<vec4f,3>,sky:array<vec4f,4>};

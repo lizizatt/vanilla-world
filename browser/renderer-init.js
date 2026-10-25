@@ -8,7 +8,7 @@ import {NIGHT_W,NIGHT_H} from './night-lights-wgsl.js';
 import {createColourGrid} from './tile-registry.js';
 import {HEIGHT_W,HEIGHT_H} from './height-bake.js';
 import {shaderSetFor} from './body-shaders.js';
-import {AZEROTH} from './bodies.js';
+import {activeBody} from './body-shaders.js';
 import {skyShader,skyDomeShader} from './sky.js';
 import {sub,cross,unit} from './renderer-helpers.js';
 import {terrainShader,splatShader,sceneShader} from './renderer-shaders.js';
@@ -93,7 +93,7 @@ export async function initialize(r) {
   r.heightGrid=new Float32Array(HEIGHT_W*HEIGHT_H).fill(-Infinity);r.heightDirty=false;
   r.colourGrid=createColourGrid();r.colourDirty=new Set();r.horizonMini=new Map();
   r.surfaceSamp=r.device.createSampler({magFilter:'linear',minFilter:'linear',addressModeU:'repeat',addressModeV:'clamp-to-edge'});
-  const spaceModule=await shader(shaderSetFor(AZEROTH).space);
+  const spaceModule=await shader(shaderSetFor(activeBody()).space);
   r.spacePipeline=await r.device.createRenderPipelineAsync({layout:'auto',vertex:{module:spaceModule,entryPoint:'vs'},
     fragment:{module:spaceModule,entryPoint:'fs',targets:[{format:r.format,blend:{color:{srcFactor:'one',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},primitive:{topology:'triangle-list'},
     depthStencil:DEPTH_STATE.space});
@@ -101,7 +101,7 @@ export async function initialize(r) {
   r.lightsPipeline=await r.device.createRenderPipelineAsync({layout:'auto',vertex:{module:spaceModule,entryPoint:'vs'},
     fragment:{module:spaceModule,entryPoint:'lfs',targets:[{format:r.format,blend:{color:{srcFactor:'one',dstFactor:'one'},alpha:{srcFactor:'zero',dstFactor:'one'}}}]},primitive:{topology:'triangle-list'},depthStencil:DEPTH_STATE.sky});
   r.lightsGroup=r.device.createBindGroup({layout:r.lightsPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.spaceBuffer}},{binding:2,resource:r.surfaceSamp},{binding:4,resource:r.lightsTex.createView()}]});
-  const patchModule=await shader(shaderSetFor(AZEROTH).patch);
+  const patchModule=await shader(shaderSetFor(activeBody()).patch);
   r.patchBuffer=r.device.createBuffer({size:MAX_PATCHES*32,usage:GPUBufferUsage.VERTEX|GPUBufferUsage.COPY_DST});
   r.patchPipeline=await r.device.createRenderPipelineAsync({layout:'auto',vertex:{module:patchModule,entryPoint:'pvs',buffers:[{arrayStride:32,stepMode:'instance',attributes:[{shaderLocation:0,offset:0,format:'float32x4'},{shaderLocation:1,offset:16,format:'float32x4'}]}]},
     fragment:{module:patchModule,entryPoint:'pfs',targets:[{format:r.format,blend:{color:{srcFactor:'one',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},primitive:{topology:'triangle-list'},
@@ -135,7 +135,7 @@ export async function initialize(r) {
     for(const p of [a,b,c])vertices.push(...p,...n,1);
   }
   r.body=r.drawable(new Float32Array(vertices),[0,0]);
-  r.planetBody='azeroth';
+  r.planetBody=activeBody().id;
 }
 
 /** Space/lights/patch pipelines for the body the chart is on (design/elune.md D3): same shaders, that body's radius baked in. */
