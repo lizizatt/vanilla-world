@@ -17,7 +17,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
     position=vec3f(q.x*c+q.z*s,q.y,-q.x*s+q.z*c)+u.body.xyz;
     normal=vec3f(n.x*c+n.z*s,n.y,-n.x*s+n.z*c);
   }
-  let relative=bend(position-u.eye.xyz,u.eye.y,u.pad[0].x);let z=dot(relative,u.forward.xyz);
+  let relative=bend(position-u.eye.xyz,u.eye.xyz,u.pad[0].x);let z=dot(relative,u.forward.xyz);
   var v:V;v.clip=vec4f(dot(relative,u.right.xyz)/(0.55*u.settings.x),dot(relative,u.up.xyz)/0.55,
     (z-u.settings.w)*u.eye.w/(u.eye.w-u.settings.w),z);
   v.p=position;v.n=normal;v.material=material;v.uv=p.xz/(1600.0/3.0);return v;
@@ -56,7 +56,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) uv:vec
   @location(5) tileUv:vec2f};
 @vertex fn vs(@location(0) p:vec3f,@location(1) n:vec3f,@location(2) uv:vec2f,
   @location(3) ids:vec4f,@location(4) chunk:f32)->V {
-  let position=p+u.tile.xyz;let relative=bend(position-u.eye.xyz,u.eye.y,u.pad[0].x);let z=dot(relative,u.forward.xyz);
+  let position=p+u.tile.xyz;let relative=bend(position-u.eye.xyz,u.eye.xyz,u.pad[0].x);let z=dot(relative,u.forward.xyz);
   var v:V;v.clip=vec4f(dot(relative,u.right.xyz)/(0.55*u.settings.x),dot(relative,u.up.xyz)/0.55,
     (z-u.settings.w)*u.eye.w/(u.eye.w-u.settings.w),z);
   v.p=position;v.uv=uv;v.layers=vec4u(ids);v.chunk=u32(chunk);
@@ -96,7 +96,7 @@ struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,settings:vec4f,model:mat4
 ${dayShading}${waterShading}${bendShader}
 struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3f,@location(2) uv:vec2f,@location(3) color:vec4f};
 @vertex fn vs(@location(0) p:vec3f,@location(1) n:vec3f,@location(2) uv:vec2f,@location(3) color:vec4f)->V {
-  let position=(u.model*vec4f(p,1)).xyz;let relative=bend(position-u.eye.xyz,u.eye.y,u.bend.x);let z=dot(relative,u.forward.xyz);
+  let position=(u.model*vec4f(p,1)).xyz;let relative=bend(position-u.eye.xyz,u.eye.xyz,u.bend.x);let z=dot(relative,u.forward.xyz);
   var v:V;v.clip=vec4f(dot(relative,u.right.xyz)/(0.55*u.settings.x),dot(relative,u.up.xyz)/0.55,
     (z-u.settings.w)*u.eye.w/(u.eye.w-u.settings.w),z);
   v.p=position;v.n=(u.model*vec4f(n,0)).xyz;v.uv=uv;v.color=color;return v;

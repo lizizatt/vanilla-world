@@ -54,13 +54,13 @@ export const localNightShading=`
 fn localNight(p:vec3f)->f32 {
   let g=1.0-u.forward.w;let k=clamp(u.pad[0].x*${PLANET_RADIUS}.0,0.0,1.0);
   if(k<=0.0){return g;}
-  let rel=bend(p-u.eye.xyz,u.eye.y,u.pad[0].x);let n=normalize(rel-vec3f(0.0,-(${PLANET_RADIUS}.0+u.eye.y),0.0));
+  let rel=bend(p-u.eye.xyz,u.eye.xyz,u.pad[0].x);let n=normalize(rel-vec3f(0.0,-(${PLANET_RADIUS}.0+u.eye.y),0.0));
   return mix(g,1.0-smoothstep(-.12,.25,dot(n,u.pad[1].xyz)),k);
 }
 // Atmosphere rim the globe shader adds at the limb; added to bent terrain/water too so chunked and globe surfaces agree from orbit.
 fn limbGlow(p:vec3f)->vec3f {
   let k=u.pad[0].y*clamp(u.eye.y/3000.0,0.0,1.0);if(k<=0.0){return vec3f(0.0);}
-  let rel=bend(p-u.eye.xyz,u.eye.y,u.pad[0].x);let n=normalize(rel-vec3f(0.0,-(${PLANET_RADIUS}.0+u.eye.y),0.0));
+    let rel=bend(p-u.eye.xyz,u.eye.xyz,u.pad[0].x);let n=normalize(rel-vec3f(0.0,-(${PLANET_RADIUS}.0+u.eye.y),0.0));
   let lit=clamp(dot(n,u.pad[1].xyz)*1.6+.15,0.0,1.0);
   return vec3f(.25,.5,1.0)*pow(1.0-max(dot(n,-normalize(rel)),0.0),3.0)*(.15+lit)*.8*k;
 }`;
