@@ -1,12 +1,21 @@
 import {sanitiseScale} from './sim-clock.js';
 import {worldTuning} from './world-store.js';
+import {deriveBudget,BUDGET_SETTINGS} from './memory-budget.js';
 import {TUNING_FIELDS,validateTuningRecord} from './world-tuning.js';
 export function installSettings(app) {
 const {canvas,keys,input,audio,evidence,settings,gib,music,client}=app;
 const $=id=>document.getElementById(id);
-Object.assign(app,{syncSettings,syncSound,pauseAudio,resumeAudio,zoom,cockpit,setNight});
+Object.assign(app,{applyMemoryBudget,syncSettings,syncSound,pauseAudio,resumeAudio,zoom,cockpit,setNight});
 try{gib.on=localStorage.getItem('racer.gib')!=='0';gib.overheat=localStorage.getItem('racer.overheat')!=='0';gib.durable=localStorage.getItem('racer.durability')!=='0';gib.speed=Math.max(20,Math.min(400,Number(localStorage.getItem('racer.gibSpeed'))||100));}catch{/* storage unavailable (private mode): setting is not persisted */}
 try{settings.night=localStorage.getItem('racer.night')==='1';settings.timeScale=sanitiseScale(localStorage.getItem('racer.timeScale')??1);settings.music=localStorage.getItem('racer.music')!=='0';settings.animateNpcs=localStorage.getItem('racer.animateNpcs')!=='0';settings.planet=localStorage.getItem('racer.planet')!=='0';settings.globeMesh=localStorage.getItem('racer.globeMesh')!=='0';settings.globeRegistry=localStorage.getItem('racer.globeRegistry')!=='0';{const cq=localStorage.getItem('racer.cloudQuality');if(cq==='high'||cq==='standard')settings.cloudQuality=cq;}const mv=localStorage.getItem('racer.masterVolume');if(mv!==null&&mv!==''&&Number.isFinite(Number(mv)))audio.setVolume(Number(mv)/100);}catch{/* storage unavailable (private mode): setting is not persisted */}
+// Persisted outside settings so loading a world does not reset it.
+function applyMemoryBudget() {
+  let setting='auto';try{const v=localStorage.getItem('racer.memoryBudget');if(BUDGET_SETTINGS.includes(v))setting=v;}catch{/* storage unavailable (private mode): setting is not persisted */}
+  $('memory-budget').value=setting;
+  app.memoryBytes=deriveBudget({setting,deviceMemory:navigator.deviceMemory,heapLimit:performance.memory?.jsHeapSizeLimit});
+  client.budget(app.memoryBytes);
+}
+$('memory-budget').addEventListener('change',()=>{try{localStorage.setItem('racer.memoryBudget',$('memory-budget').value);}catch{/* storage unavailable (private mode): setting is not persisted */}applyMemoryBudget();});
 function syncSettings() {
   for(const key of ['horizon','scenery','distant','sound','night','clouds','planet'])$(key).checked=settings[key];
   $('particles').value=settings.particles;$('time-scale').value=String(sanitiseScale(settings.timeScale));$('cloud-quality').value=settings.cloudQuality;$('animate-npcs').checked=settings.animateNpcs;

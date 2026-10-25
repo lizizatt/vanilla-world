@@ -1,5 +1,8 @@
 // Authored terrain work is visual-only; callers pump it outside the collision readiness queue.
+import {BudgetedCache} from './memory-budget.js';
 export const TERRAIN_TEXTURE_SIZE=256, MINIMAP_SIZE=32, TERRAIN_CACHE_LIMIT=64;
+export const TERRAIN_MIP_BYTES=349524,TERRAIN_CACHE_BYTES=TERRAIN_CACHE_LIMIT*TERRAIN_MIP_BYTES;
+const mipBytes=mips=>mips.reduce((n,m)=>n+m.byteLength,0);
 const key=path=>path.replaceAll('/','\\').toLowerCase();
 
 export function resizeRgba(width,height,rgba,size) {
@@ -37,7 +40,7 @@ export function minimapCatalog(bytes) {
 export class TerrainStream {
   constructor(source,wasm,emit) {
     this.source=source;this.wasm=wasm;this.emit=emit;
-    this.tiles=new Map();this.cache=new Map();this.errors=new Map();this.missingMinimaps=new Map();this.far=[];this.farDone=new Set();this.failedFar=[];
+    this.tiles=new Map();this.cache=new BudgetedCache(TERRAIN_CACHE_BYTES);this.errors=new Map();this.missingMinimaps=new Map();this.far=[];this.farDone=new Set();this.failedFar=[];
     this.loads=0;this.cacheHits=0;this.minimaps=0;this.busy=false;this.generation=0;
     this.preparing=new Map();
   }
@@ -105,15 +108,14 @@ export class TerrainStream {
         const path=key(tile.paths[tile.cursor]);
         try {
           let mips=this.cache.get(path);
-          if(mips){this.cacheHits++;this.cache.delete(path);}
+          if(mips){this.cacheHits++;}
           else {
             mips=this.source.readTexture?(await this.source.readTexture(path,'mips')).mips
               :terrainMips(this.decode(await this.source.read(path)));
             this.loads++;
           }
           if(generation!==this.generation)return;
-          this.cache.set(path,mips);
-          while(this.cache.size>TERRAIN_CACHE_LIMIT)this.cache.delete(this.cache.keys().next().value);
+          this.cache.set(path,mips,mipBytes(mips));
           if(this.tiles.get(tile.index)!==tile)return;
           tile.layers.push({mips});tile.cursor++;
           if(tile.cursor===tile.paths.length){
@@ -153,10 +155,11 @@ export class TerrainStream {
   }
   snapshot() {
     return {pending:[...this.tiles.values()].filter(t=>!t.done).length,cache:this.cache.size,
-      bytes:[...this.cache.values()].reduce((sum,mips)=>sum+mips.reduce((n,m)=>n+m.byteLength,0),0),
+      bytes:this.cache.bytes,limit:this.cache.budget.limit,evictions:this.cache.budget.evictions,
       loads:this.loads,cacheHits:this.cacheHits,minimaps:this.minimaps,farPending:this.far.length,
       errors:[...this.errors.values()],missingMinimaps:[...this.missingMinimaps.values()]};
   }
+  setBudget(bytes) {this.cache.setLimit(Math.max(bytes,8*TERRAIN_MIP_BYTES));}
   async retry() {
     this.errors.clear();this.missingMinimaps.clear();
     if(!this.catalog)await this.init(this.manifest);

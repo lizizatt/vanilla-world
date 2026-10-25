@@ -69,6 +69,7 @@ async function open(selection,remember=false) {
   try {
     const loadingMap=app.renderer.manifest?.regions[app.renderer.sceneRegion]?.map;
     app.renderer.reset();app.renderer.clipCamera=undefined;cameraCollision.reset();app.flight=undefined;app.pauseAudio();music.stop();Object.assign(settings,defaults);app.syncSettings();
+    app.applyMemoryBudget();
     const result=await client.open(selection,loadingMap);
     app.renderer.configure(result.info.manifest);client.sky();client.animate(settings.animateNpcs);mapPanel.configure(result.info.manifest);
     void loadTracks().then(async found=>{app.shipped=found;app.tracks=await app.withOverrides(found);app.gateKey=undefined;});

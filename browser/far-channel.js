@@ -15,14 +15,14 @@ export class FarChannel {
       this.worker.onmessage=({data})=>{void this.receive(data).catch(error=>this.fail(error));};
       this.worker.onerror=event=>{event.preventDefault?.();this.fail(Error(event.message));};
       this.worker.onmessageerror=()=>this.fail(Error('Distant worker message could not be decoded'));
-      this.post({action:'init',manifest});
+      this.post({action:'init',manifest});      if(this.bytes)this.post({action:'budget',bytes:this.bytes});
     } catch(error) {this.fail(error);}
   }
   post(data,transfers=[]) {
     if(this.active)try {this.worker.postMessage(data,transfers);}
     catch(error) {this.fail(error);}
   }
-  focus(region,position,enabled,view) {
+  budget(bytes) {this.bytes=bytes;this.post({action:'budget',bytes});}  focus(region,position,enabled,view) {
     if(region!==this.region||enabled!==this.enabled) {
       if(region!==this.region)this.state={...this.state,resident:0,pending:0,scene:undefined};
       this.epoch++;this.region=region;this.enabled=enabled;

@@ -30,7 +30,9 @@ const context=await browser.newContext({viewport:{width:1280,height:800},service
 const page=await context.newPage(),errors=[];
 // Service-worker-owned fetches bypass route instrumentation; offline behavior has a separate smoke test.
 await context.addInitScript(()=>{delete Navigator.prototype.serviceWorker;navigator.getGamepads=()=>[];});
+if(process.env.BUDGET_SETTING)await context.addInitScript(v=>localStorage.setItem('racer.memoryBudget',v),process.env.BUDGET_SETTING);
 page.on('pageerror',e=>errors.push(e.message));
+if(process.env.MEM_SAMPLE)page.on('console',m=>{if(m.type()==='error')console.log('CONSOLE '+m.text());});
 const distribution=values=>{
   if(!values.length)return null;
   const a=values.toSorted((a,b)=>a-b),at=p=>a[Math.min(a.length-1,Math.floor(a.length*p))];
@@ -270,12 +272,12 @@ try{
   if(await page.locator('#drive').evaluate(e=>!e.hidden)){await page.locator('#drive').evaluate(e=>e.click());await page.locator('#world').focus();}
   else await page.locator('#world').click();
   const clock=await page.evaluate(()=>({...worldEvidence.state.drivingClock}));
-  await page.waitForFunction(before=>{
+  try{await page.waitForFunction(before=>{
     const state=worldEvidence.state;
     return state.drivingClock.input>before.input && state.drivingClock.steps>before.steps
       && Number.isFinite(state.transport?.begin) && Number.isFinite(state.transport?.end)
       && state.transport.end>=state.transport.begin;
-  },clock,{timeout:15000});
+  },clock,{timeout:15000});}catch(e){console.log('STALL '+JSON.stringify(await page.evaluate(()=>{const s=worldEvidence.state,w=s.drivingWork||[],by={};for(const x of w){const k=by[x.kind]??={n:0,ms:0,max:0};k.n++;k.ms+=x.ms;k.max=Math.max(k.max,x.ms);}return {resident:s.resident?.length,required:s.required,timings:s.timings,holds:s.holds,work:by,errors:worldEvidence.errors};})));throw e;}
   if(warmSeconds)await page.waitForTimeout(warmSeconds*1000);
   if(mode==='fly')await page.evaluate(()=>{
     const p=worldEvidence.state.telemetry;worldTest.focus([...p.slice(0,4),0]);
@@ -402,6 +404,9 @@ try{
     const progress=await page.evaluate(()=>({t:Math.round((performance.now()-driveProfile.start)/1000),
       p:worldEvidence.state.telemetry,wait:worldEvidence.state.scene.waitingCollision,clock:worldEvidence.state.drivingClock}));
     console.log(JSON.stringify(progress));
+    if(process.env.MEM_SAMPLE)console.log('MEM '+JSON.stringify(await page.evaluate(()=>{const s=worldEvidence.state,d=s.distant||{};return {t:Math.round((performance.now()-driveProfile.start)/1000),
+      budget:s.memory?.budget,sceneLimit:s.memory?.sceneLimit,resident:s.resident?.length,farTiles:d.resident,sceneBytes:s.scene?.bytes,terrainBytes:s.terrain?.bytes,farBytes:d.scene?.bytes,farTileBytes:d.tileBytes,
+      evictions:(s.memory?.sceneEvictions||0)+(s.terrain?.evictions||0)+(d.evictions||0),gpu:worldEvidence.gpuBytes,jsHeap:performance.memory?.usedJSHeapSize,wasm:s.horizon?.wasmPeakBytes};})));
     stopped=progress.p[5]<.01&&progress.p[8]===3?stopped+1:0;
     if(process.env.WAYPOINTS && stopped>=2)break;
   }

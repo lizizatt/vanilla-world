@@ -1,5 +1,6 @@
 import init,{SceneTexture} from './pkg/flats_racer_web.js';
 import {openDataSource} from './asset-source.js';
+import {TILE_CAP_MAX} from './memory-budget.js';
 import {terrainMips,resizeRgba,MINIMAP_SIZE} from './terrain-stream.js';
 import {prepareDetail} from './camera-collision.js';
 import {loadLoadingArt} from './loading-art.js';
@@ -42,8 +43,8 @@ async function pump() {
     } else if(job.action==='detail') {
       if(!source)throw Error('Asset source is not open');
       const data=job.detail;
-      if(data.tiles.length>8||data.seams.length>8||
-        [...data.tiles,...data.seams].reduce((n,t)=>n+t.vertices.byteLength,0)>64*1024*1024)
+      if(data.tiles.length>TILE_CAP_MAX||data.seams.length>TILE_CAP_MAX||
+        [...data.tiles,...data.seams].reduce((n,t)=>n+t.vertices.byteLength,0)> TILE_CAP_MAX * 8 * 1024 * 1024)
         throw Error('Detail preparation exceeds bounded tile payload');
       reply(job,prepareDetail(data));
     } else {

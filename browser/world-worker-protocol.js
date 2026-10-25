@@ -5,7 +5,7 @@ import {MusicService} from './music.js';
 import {SkyService} from './sky.js';
 import {WorldMapService} from './worldmap.js';
 import {ready,source,world,timings,postFrameVisuals,openWorld,runFrame,restoreWorld,resetWorld,retryWorld,
-  requireWorld,setPopulation,setActorsOn,stopLoadingArt,farAck,farReject,snapshot,settleAfterAction,
+  requireWorld,setPopulation,setActorsOn,setMemoryBudget,stopLoadingArt,farAck,farReject,snapshot,settleAfterAction,
   finishFrame,scheduleTerrainMaterials,sceneFault} from './world-engine.js';
 import {formatError,validateHop,validateSampleTime,validateParkedPose,validateTuning} from './world-worker-logic.js';
 
@@ -15,6 +15,7 @@ let music,sky,worldMap;
 export function routeImmediate(data) {
   if(data.action==='stop-loading-art'){stopLoadingArt();return true;}
   if(data.action==='animate'){setActorsOn(data.on!==false);return true;}
+  if(data.action==='budget'){setMemoryBudget(data.bytes,data.gpu);return true;}
   if(data.action==='music'){
     if(!source)return true;
     const owner=source;

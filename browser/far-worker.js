@@ -38,7 +38,7 @@ onmessage=({data})=>{
       stream.focus(data);send({event:'far-focus-ack'});schedule();
     } else if(data.action==='near') {
       stream.near(data.ids);send({event:'far-near-ack'});
-    } else if(data.action==='retry')stream.retry();
+    } else if(data.action==='budget') {      stream.setBudget(data.bytes);    } else if(data.action==='retry')stream.retry();
     else throw Error('Unknown distant worker operation');
   }).catch(fault);
 };
