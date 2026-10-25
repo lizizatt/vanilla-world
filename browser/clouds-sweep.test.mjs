@@ -138,7 +138,7 @@ test('above-layer look-down: no hard edge across pitch, saturated tops stay lit 
 });
 
 test('far sheet stays visible below a tall High slab (right-side-culled regression)',()=>{
-  const mean=(high,yaw)=>{let a=0,n=0;for(let p=-.1;p<=-.02;p+=.01)for(let j=0;j<4;j++){a+=march({eye:[0,6000,1600],dir:[Math.cos(p)*Math.cos(yaw),Math.sin(p),Math.cos(p)*Math.sin(yaw)],t:500,coverage:.8,high,jitter:(j+.5)/4}).alpha;n++;}return a/n;};
+  const mean=(high,yaw)=>{let a=0,n=0;for(let p=-.1;p<=-.02;p+=.01)for(let j=0;j<4;j++){a+=march({eye:[0,6000,5067],dir:[Math.cos(p)*Math.cos(yaw),Math.sin(p),Math.cos(p)*Math.sin(yaw)],t:500,coverage:.8,high,jitter:(j+.5)/4}).alpha;n++;}return a/n;};
   for(const yaw of [0,1,2,3,4,5]) assert.ok(mean(true,yaw)>mean(false,yaw)*.7,`High loses the sheet at yaw ${yaw}`);
 });
 

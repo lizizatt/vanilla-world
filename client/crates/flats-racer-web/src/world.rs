@@ -88,8 +88,8 @@ fn build_world(wdts: [&[u8]; 2], wdls: [&[u8]; 2]) -> Result<Manifest, String> {
             sha256: String::new(),
         }));
     }
-    // Kalimdor sits 6 tiles (3200 yd) south of its old row so it lies lower than Eastern Kingdoms, as on the WoW world map.
-    let west_origin = [-41.0 * TILE, -27.0 * TILE];
+    // Kalimdor sits 19 tiles (about 10100 yd) south of its old row, measured from the WoW world map (Kalimdor land centre about 1.6k yd below Eastern Kingdoms), so it lies lower than Eastern Kingdoms, as on the WoW world map.
+    let west_origin = [-41.0 * TILE, -14.0 * TILE];
     let west_edge = west_origin[0] + f64::from(bounds[0][2]) * TILE;
     // User-directed layout: broad ocean and Eastern Kingdoms south by half its actual WDL length.
     let south = f64::from(horizons[1].source_bounds[3] - horizons[1].source_bounds[1]) * TILE * 0.5;
