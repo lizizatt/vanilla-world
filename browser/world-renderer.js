@@ -25,7 +25,7 @@ import {reset,configure,event,clearFar} from './renderer-events.js';
 import {scenePipeline,prepareBatches,sceneMatrix,drawScene} from './renderer-scene.js';
 import {zoneBlend,setSky,setSkyDome,horizonColour,planetRects,drawPlanet,sharedFrame,drawPatches,drawLights,drawSkyDome,sampleSky,noteLitInstance} from './renderer-sky.js';
 import {drawShadow,enableHighClouds,highCloudGroup,maskEntries,drawClouds} from './renderer-clouds.js';
-import {initialize} from './renderer-init.js';
+import {initialize,prepareBody,useBody} from './renderer-init.js';
 const OCEAN_MESH_CEILING=90000;
 const DAY_SKY=[.08,.15,.20],NIGHT_SKY=[.008,.016,.045];
 export class WorldRenderer {
@@ -75,6 +75,8 @@ export class WorldRenderer {
   endWreck(){return endWreck(this);}
   setProps(list){return setProps(this,list);}
   setCraftOverride(model){return setCraftOverride(this,model);}
+  prepareBody(body){return prepareBody(this,body);}
+  useBody(body){return useBody(this,body);}
   reset(){return reset(this);}
   configure(manifest){return configure(this,manifest);}
   event(data){return event(this,data);}
