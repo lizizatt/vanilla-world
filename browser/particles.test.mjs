@@ -94,7 +94,7 @@ test('debris burns for the first 1.4 s, smokes throughout and kicks up dust only
     return kinds(pool);
   };
   assert.ok(run(.2, [5, 5, 5]).fire > 0 && !run(2, [5, 5, 5]).fire);
-  assert.ok(run(2, [5, 5, 5]).smoke > 0);
+  assert.ok(run(2, [5, 5, 5, 5, 5, 5, 5, 5]).smoke > 0);
   assert.ok(!run(.5, [10, 9, 8]).dust, 'falling is not landing');
   assert.ok(run(.5, [10, 9, 8, 8]).dust > 0, 'losing the downward speed raises dust');
 });

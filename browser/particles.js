@@ -146,7 +146,7 @@ export function emitBurst(pool, [x, y, z], size) {
     const a = r() * 6.2832, up = r() * 8, out = 4 + r() * 14;
     pool.emit('burst', x, y, z, Math.cos(a) * out, up, Math.sin(a) * out, size * (.6 + r() * .8), size * .3);
     if (i % 2) pool.emit('fire', x, y, z, Math.cos(a) * out * .5, up * .5, Math.sin(a) * out * .5, size * 1.5, size * .3);
-    if (i % 3 === 0) pool.emit('smoke', x, y + size, z, Math.cos(a) * 3, 5 + r() * 6, Math.sin(a) * 3, size * 2, size * .5);
+    if (i % 5 === 0) pool.emit('smoke', x, y + size, z, Math.cos(a) * 3, 5 + r() * 6, Math.sin(a) * 3, size * 1.3, size * .4);
   }
 }
 
@@ -158,12 +158,12 @@ export function emitDebris(pool, memo, [x, y, z], age, dt, size, key, seconds = 
   const vy = memo.has ? (y - memo.y) / dt : 0, land = memo.has && memo.vy < -5 && vy > memo.vy * .4;
   const vx = memo.has ? (x - memo.x) / dt : 0, vz = memo.has ? (z - memo.z) / dt : 0;
   Object.assign(memo, { x, y, z, vy, has: true });
-  const fire = pool.budget(`${key}f`, age < 1.4 ? 55 * (1 - age / 1.4) : 0, dt), smoke = pool.budget(`${key}s`, 22 * (1 - .6 * age / seconds), dt);
+  const fire = pool.budget(`${key}f`, age < 1.4 ? 55 * (1 - age / 1.4) : 0, dt), smoke = pool.budget(`${key}s`, 7 * (1 - .6 * age / seconds), dt);
   for (let i = 0; i < fire; i++) pool.emit('fire', x, y, z, vx * .2, vy * .2, vz * .2, size, size * .3);
-  for (let i = 0; i < smoke; i++) pool.emit('smoke', x, y, z, vx * .15, vy * .15, vz * .15, size * 1.2, size * .3);
-  if (land) for (let i = 0, n = Math.round(8 * Math.max(.4, pool.quality)); i < n; i++) {
+  for (let i = 0; i < smoke; i++) pool.emit('smoke', x, y, z, vx * .15, vy * .15, vz * .15, size * .7, size * .2);
+  if (land) for (let i = 0, n = Math.round(3 * Math.max(.4, pool.quality)); i < n; i++) {
     const a = pool.rand() * 6.2832, s = 3 + pool.rand() * 5;
-    pool.emit('dust', x, y, z, Math.cos(a) * s, 1 + pool.rand() * 2, Math.sin(a) * s, size * 1.6, size * .3);
+    pool.emit('dust', x, y, z, Math.cos(a) * s, 1 + pool.rand() * 2, Math.sin(a) * s, size, size * .2);
   }
 }
 
