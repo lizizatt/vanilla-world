@@ -95,12 +95,12 @@ function frame(now) {
       $('cockpit').setAttribute('aria-pressed',String(settings.cockpit&&!app.flight));
       $('motion').textContent=app.flight?'':scene?.waitingCollision||p[8]===1?'Loading nearby ground'
         :p[8]===2?'Unsupported surface':p[8]===3?'Obstacle or steep ground':'';
+      const airborne=!!app.flight&&regimeOf(app.flight[1])!=='ground';$('space-hud').hidden=!airborne;if(airborne)$('space-hud').textContent=app.space?spaceReadout(app.space,app.renderer.timeOfDay??0,keys.has('ShiftLeft')).label:spaceHud(app.flight,app.flightSpeed,app.renderer.planetRects?.(),app.landmarks());
       if(app.raceMenu.open&&!app.raceMenu.querySelector('[data-page=diagnostics]').hidden) {
       $('input-device').textContent=input.device==='controller'?'Controller':'Keyboard';
       $('camera-status').textContent=app.flight?'Flight camera is collision-free':settings.cockpit
         ?cameraWarning||(app.renderer.cameraMode==='cockpit'?'Cockpit / exact posed seat':'Cockpit waiting for craft'):!cameraCollision.ready?'Chase clearance waiting for geometry'
         :cameraCollision.coverageLimited?'Chase distance limited to its collision window':'Vehicle-relative chase collision ready';
-      const airborne=!!app.flight&&regimeOf(app.flight[1])!=='ground';$('space-hud').hidden=!airborne;if(airborne)$('space-hud').textContent=app.space?spaceReadout(app.space,app.renderer.timeOfDay??0,keys.has('ShiftLeft')).label:spaceHud(app.flight,app.flightSpeed,app.renderer.planetRects?.(),app.landmarks());
       $('place').textContent=app.flight?'FREE FLIGHT':p[10]===-1?'THE GREAT SEA':p[10]===1?'EASTERN KINGDOMS':'KALIMDOR';
       $('coordinates').textContent=`${(app.flight?.[0]??p[0]).toFixed(0)} E / ${(app.flight?.[2]??p[2]).toFixed(0)} S`;
       $('resident').textContent=`${s.resident.length}/${s.limit} terrain tiles · ${stats.horizonTiles} distant patches · ${stats.sceneInstances||0} scene instances`;

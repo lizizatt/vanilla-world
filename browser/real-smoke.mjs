@@ -20,7 +20,7 @@ await page.keyboard.press('Escape');await page.locator('[data-tab=options]').cli
 const shot=async name=>page.screenshot({path:path.join(out,`${tag}-${name}.png`)});
 await page.waitForTimeout(3000);await shot('spawn');
 for(const [name,step] of JSON.parse(process.env.STEPS||'[]')) {
-  await page.evaluate(s=>{window.worldTest.settings({planet:true,...s.settings});if(s.time!==undefined)window.worldTest.timeLock(s.time);window.worldTest.focus(s.pose);},step);
+  if(step.key)await page.keyboard.press(step.key);else await page.evaluate(s=>{window.worldTest.settings({planet:true,...s.settings});if(s.time!==undefined)window.worldTest.timeLock(s.time);window.worldTest.focus(s.pose);},step);
   await page.waitForTimeout(step.wait??6000);await shot(name);
   if(step.eval)console.log(name,JSON.stringify(await page.evaluate(step.eval)));
 }

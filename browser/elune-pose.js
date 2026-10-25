@@ -1,5 +1,5 @@
 // Poses that look at Elune from Azeroth, solved through the real chart<->inertial map (no calibration constants).
-// node elune-pose.mjs [altitude=30000] [time=720]  -> prints a ?pose= link query that spawns that far from Elune, looking at it.
+// node elune-pose.js [altitude=30000] [time=720]  -> prints a ?pose= link query that spawns that far from Elune, looking at it.
 import {AZEROTH,ELUNE,centreAt,toInertial,fromInertial} from './bodies.js';
 import {inertialDir} from './shared-flight.js';
 
@@ -20,8 +20,8 @@ export function overheadLooking(alt=120000,t=720) {
   const chart=[0,alt,0],from=toInertial(AZEROTH,chart,t),c=centreAt(ELUNE,t);
   return poseLooking(AZEROTH,chart,unit(c.map((v,i)=>v-from[i])),t);
 }
-export const poseLink=(flight,time,settings={planet:true,globeMesh:true})=>'?bodies&moonEngine&pose='+encodeURIComponent(JSON.stringify({v:1,flight,time,settings}));
-if(process.argv[1]?.endsWith('elune-pose.mjs')){
+export const poseLink=(flight,time,settings={planet:true,globeMesh:true})=>'?pose='+encodeURIComponent(JSON.stringify({v:1,flight,time,settings}));
+if(typeof process!=='undefined'&&process.argv[1]?.endsWith('elune-pose.js')){
   const standoff=+process.argv[2]||30000,t=+process.argv[3]||720;
   console.log(JSON.stringify(nearElune(standoff,t)));console.log(poseLink(nearElune(standoff,t),t));
 }

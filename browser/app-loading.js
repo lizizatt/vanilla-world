@@ -9,7 +9,7 @@ import {loadGateKit} from './race-gates.js';
 import {getSwe1r} from './swe1r/ui.js';
 import {classifyPickError} from './swe1r/attach.js';
 import {loadPodModel} from './swe1r/skin.js';
-import {ELUNE_GRAVITY_SCALE,BODIES} from './bodies.js';
+import {ELUNE_GRAVITY_SCALE,BODIES,bodiesEnabled} from './bodies.js';
 const LUNAR_GRAVITY=48*ELUNE_GRAVITY_SCALE;
 import {WorldClient} from './world-client.js';
 export function installLoading(app) {
@@ -196,8 +196,7 @@ $('drive').addEventListener('click',()=>{app.flight=undefined;app.renderer.camer
 
 // Extra resident engines (design/elune.md): every other moon body gets its own far-only, physics-free worker beside the parent, keyed by body id, with ?bodies&moonEngine. Events are counted per body until the renderer sink lands.
 async function openMoonEngine(app,selection) {
-  const q=new URLSearchParams(location.search);
-  if(!q.has('bodies')||!q.has('moonEngine'))return;
+  if(!bodiesEnabled(location.search)||!bodiesEnabled(location.search,'moonEngine'))return;
   app.engines??={};app.engineCounts??={};
   for(const body of Object.values(BODIES)) {
     if(!body.rail||body.id===selection||app.engines[body.id])continue;
