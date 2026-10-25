@@ -2,7 +2,7 @@ import {chromium} from 'playwright';
 import assert from 'node:assert/strict';
 import {mkdir,writeFile} from 'node:fs/promises';
 
-// Actual-Edge smoke for runtime zone music: needs WOW_DATA and a server on 4183. Audio is never written to disk.
+// Actual-Edge smoke for runtime zone music: needs WOW_DATA and a server on PORT (default 4183). Audio is never written to disk.
 assert(process.env.WOW_DATA,'Set WOW_DATA to the read-only local Data directory');
 const label=process.env.LABEL||'music-smoke';
 assert(/^[\w-]+$/.test(label));
@@ -16,7 +16,7 @@ try{
   const page=await context.newPage();
   page.on('pageerror',error=>result.errors.push(error.message));
   page.on('console',m=>{if(m.type()==='error')result.errors.push(m.text());});
-  await page.goto('http://127.0.0.1:4183/?test');
+  await page.goto(process.env.WORLD_URL||`http://127.0.0.1:${process.env.PORT||4183}/?test`);
   await page.waitForFunction(()=>!document.getElementById('select').disabled||worldEvidence.errors.length);
   await page.locator('#files').setInputFiles(process.env.WOW_DATA);
   await page.waitForFunction(()=>worldEvidence.ready||worldEvidence.errors.length,null,{timeout:180000});

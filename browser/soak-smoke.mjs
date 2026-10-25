@@ -10,7 +10,7 @@ try{
   page.on('crash',()=>console.log('PAGE CRASH'));
   page.on('console',m=>{if(['error','warning'].includes(m.type()))console.log('CONSOLE',m.type(),m.text().slice(0,200));});
   page.on('worker',w=>{console.log('WORKER up');w.on('close',()=>console.log('WORKER closed'));});
-  await page.goto('http://127.0.0.1:4183/?test');
+  await page.goto(process.env.WORLD_URL||`http://127.0.0.1:${process.env.PORT||4183}/?test`);
   await page.waitForFunction(()=>!document.getElementById('select').disabled,null,{timeout:60000});
   await page.locator('#files').setInputFiles(process.env.WOW_DATA);
   await page.waitForFunction(()=>worldEvidence.ready||worldEvidence.errors.length,null,{timeout:180000});
