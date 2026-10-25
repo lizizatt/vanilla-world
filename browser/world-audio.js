@@ -1,4 +1,5 @@
 import {SFX,HEAT,heatStage,POD_ENGINES,podEngineFor} from './swe1r/sfx.js';
+import {densityAt} from './planet-physics.js';
 const unit=n=>Number.isFinite(n)?Math.max(0,Math.min(1,n)):0;
 const tone=(hz,t)=>Math.sin(2*Math.PI*hz*t);
 const engine=(hz,t)=>.56*tone(hz,t)+.17*tone(hz*2,t)+.06*tone(hz*3,t);
@@ -26,6 +27,15 @@ export function fillEngineBuffer(buffer,layer) {
     }
   }
 }
+/** Procedural wind for a free camera: rushing air scales with speed and air density; with no air left only a faint low rumble tied to speed remains. */
+export const WIND={fullSpeed:2500,rumbleSpeed:20000,airGain:.22,rumbleGain:.035,rumbleCutoff:90};
+export function windLevel(speed,altitude) {
+  const air=densityAt(Number.isFinite(altitude)?altitude:0),v=unit(Math.abs(speed)/WIND.fullSpeed),r=unit(Math.abs(speed)/WIND.rumbleSpeed);
+  return {gain:WIND.airGain*v**1.3*air+WIND.rumbleGain*r*(1-air),cutoff:WIND.rumbleCutoff+(250-WIND.rumbleCutoff)*air+2200*v*air};
+}
+/** Idle throb (0..1 strength at rest) that fades as the pod speeds up or throttles. */
+export const IDLE_HZ=6.5;
+export const idleThrob=(idle,phase)=>idle*(.5+.5*Math.sin(2*Math.PI*IDLE_HZ*phase));
 export class EngineEnvelope {
   constructor(){
     this.layers=[[0,1,1000],[0,1,1000],[0,1,1000]];
@@ -33,7 +43,7 @@ export class EngineEnvelope {
   }
   reset(){
     this.speed=0;this.thrust=0;this.boost=0;this.air=0;this.water=0;
-    this.landing=0;this.lift=0;this.braking=0;this.airTime=0;this.initialized=false;
+    this.landing=0;this.lift=0;this.braking=0;this.airTime=0;this.initialized=false;this.idle=0;this.phase=0;
   }
   advance(speed,throttle,boosting,held,brake,dt,grounded=true,water=false) {
     dt=Number.isFinite(dt)?Math.max(0,Math.min(.1,dt)):0;
@@ -49,10 +59,11 @@ export class EngineEnvelope {
       if(!grounded && this.grounded)this.lift=.016;
       if(brake && !this.brake)this.braking=.025*this.speed;
     }
+    this.idle=(1-this.thrust)*(1-this.speed)*(held?0:1);this.phase=(this.phase+dt)%1000;
     this.airTime=grounded || held?0:this.airTime+dt;
     this.grounded=grounded;this.brake=brake;this.initialized=true;
     const core=this.layers[0],air=this.layers[1],jet=this.layers[2];
-    core[0]=.085+.035*this.thrust+.018*this.boost-.015*this.air+this.landing;
+    core[0]=.085+.035*this.thrust+.018*this.boost-.015*this.air+this.landing+.02*idleThrob(this.idle,this.phase);
     core[1]=.82+.48*this.speed+.24*this.thrust+.12*this.boost;
     core[2]=260+420*this.thrust+180*this.speed;
     air[0]=.008+this.speed*(.065*(.65+.35*this.air)+.025*this.water)+this.lift+this.braking;
@@ -65,7 +76,7 @@ export class EngineEnvelope {
 /** Perceptual master curve: slider 0..1 -> amplitude v^2 (50% = 0.25, about -12 dB). */
 export const masterGain=v=>unit(v)**2;
 export class WorldAudio {
-  constructor(){this.volume=.5;this.envelope=new EngineEnvelope();this.enabled=false;this.voices=[];this.active=false;this.activation=0;}
+  constructor(){this.volume=.8;this.envelope=new EngineEnvelope();this.enabled=false;this.voices=[];this.active=false;this.activation=0;}
   setVolume(v) {this.volume=unit(v);if(this.out)this.out.gain.setTargetAtTime(masterGain(this.volume),this.context.currentTime,.03);}
   async enable() {
     if(this.enabled && this.context?.state==='running')return;
@@ -96,8 +107,20 @@ export class WorldAudio {
     for(const voice of this.voices)voice.gain.gain.setValueAtTime(0,this.context.currentTime);
     this.master.gain.setValueAtTime(0,this.context.currentTime);this.enabled=true;
   }
+  // Wind belongs to the free camera, so it bypasses the engine master (which is silent while flying) and joins at the analyser.
+  setWind(speed,altitude,on) {
+    if(!this.windVoice&&on&&this.enabled&&this.context&&this.context.state!=='closed') {
+      const buffer=this.context.createBuffer(2,48000,24000);fillEngineBuffer(buffer,1);
+      const source=this.context.createBufferSource(),gain=this.context.createGain(),filter=this.context.createBiquadFilter();
+      source.buffer=buffer;source.loop=true;gain.gain.value=0;filter.type='lowpass';filter.Q.value=.4;filter.frequency.value=WIND.rumbleCutoff;
+      source.connect(filter);filter.connect(gain);gain.connect(this.analyser);source.start();this.windVoice={source,gain,filter};
+    }
+    const w=this.windVoice;if(!w)return;
+    const level=on&&this.enabled&&this.context.state==='running'?windLevel(speed,altitude):{gain:0,cutoff:WIND.rumbleCutoff},now=this.context.currentTime;
+    w.gain.gain.setTargetAtTime(level.gain,now,.15);w.filter.frequency.setTargetAtTime(level.cutoff,now,.15);
+  }
   mute() {
-    this.activation++;
+    this.activation++;this.setWind(0,0,false);
     this.enabled=false;this.active=false;this.setDrift(false);this.setHeat(0,false);
     clearTimeout(this.release);
     const context=this.context;
@@ -232,8 +255,8 @@ export class WorldAudio {
     const s=this.samples,real=this.sampleOn && s?.engine;
     if(real) {
       const e=this.envelope;
-      s.engine.gain.gain.setTargetAtTime(.12+.25*e.thrust,now,.05);
-      s.engine.source.playbackRate.setTargetAtTime(.7+1.1*e.speed+.3*e.thrust,now,.08);
+      s.engine.gain.gain.setTargetAtTime(.12+.25*e.thrust+.03*idleThrob(e.idle,e.phase),now,.03);
+      s.engine.source.playbackRate.setTargetAtTime(.7+1.1*e.speed+.3*e.thrust+.025*idleThrob(e.idle,e.phase),now,.03);
       if(s.jet){s.jet.gain.gain.setTargetAtTime(.3*e.boost,now,.05);s.jet.source.playbackRate.setTargetAtTime(.9+.2*e.speed,now,.08);}
     } else if(s?.engine) {
       s.engine.gain.gain.setTargetAtTime(0,now,.05);

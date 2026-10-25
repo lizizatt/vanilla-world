@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {MusicCatalog,MusicService} from './music.js';
-import {MusicPlayer} from './world-music.js';
+import {MusicPlayer,flightMusicArea} from './world-music.js';
 
 function dbc(fields,rows) {
   const strings=[0],offsets=new Map(),str=s=>{
@@ -126,4 +126,10 @@ test('cue requests are made once and playCue waits for the decoded buffer',async
   await new Promise(r=>setImmediate(r));
   assert.equal(player.playCue('click'),true);
   player.setEnabled(false);assert.equal(player.playCue('click'),false);
+});
+test('flying keeps zone music: follows the zone near the ground, holds it in the atmosphere and orbit',()=>{
+  assert.equal(flightMusicArea(14,undefined,3),14,'driving uses the car zone');
+  assert.equal(flightMusicArea(14,50,3),14,'low flight follows the zone under the camera');
+  assert.equal(flightMusicArea(0,1e6,14),14,'orbit holds the last zone');
+  assert.equal(flightMusicArea(0,1e6,undefined),0);
 });

@@ -1106,7 +1106,12 @@ impl Voyage {
 
     /// The `AreaTable` id under the car, or 0 when no resident terrain covers it (open ocean).
     pub fn area(&self) -> u32 {
-        let p = self.global();
+        self.area_at(self.global()[0], self.global()[1])
+    }
+
+    /// The AreaTable id at a global position (x, z), 0 where no resident terrain covers it.
+    pub fn area_at(&self, x: f64, z: f64) -> u32 {
+        let p = [x, z];
         let Some(index) = self.locate(p) else {
             return 0;
         };

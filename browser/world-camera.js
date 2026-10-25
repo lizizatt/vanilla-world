@@ -24,13 +24,19 @@ export function cockpitAnchor(metadata) {
   return [seat.position[0],seat.position[1],seat.position[2]+.75];
 }
 
+/** Keeps a free or chase camera above terrain and the sea (rig.cameraFloor is supplied by camera collision; absent until it loads). */
+export function lifted(rig,eye,origin) {
+  const floor=rig.cameraFloor?.(eye[0]+origin[0],eye[1],eye[2]+origin[1]);
+  return floor!==undefined&&eye[1]<floor?[eye[0],floor,eye[2]]:eye;
+}
+
 export function cameraView(rig,state,flight,dt,origin,settings={},lookBack=false) {
   rig.origin=origin;
   const mode=flight?'fly':settings.cockpit&&rig.craft?.anchor?'cockpit':'chase';
   if(rig.cameraMode!==undefined && mode!==rig.cameraMode)rig.camera=undefined;
   rig.cameraMode=mode;rig.cameraBlocked=undefined;
   if(flight) {
-    rig.camera=[flight[0]-origin[0],flight[1],flight[2]-origin[1]];
+    rig.camera=lifted(rig,[flight[0]-origin[0],flight[1],flight[2]-origin[1]],origin);
     const aim=flight.length>=9?basis(flight.slice(5,9)):undefined;
     return {look:aim?.look??[-Math.sin(flight[3])*Math.cos(flight[4]),Math.sin(flight[4]),-Math.cos(flight[3])*Math.cos(flight[4])],up:aim?.up,
       near:Math.max(.1,Math.min(100,Math.abs(flight[1])*.01)),collisionReady:true};
@@ -89,7 +95,7 @@ export function cameraView(rig,state,flight,dt,origin,settings={},lookBack=false
   rig.chaseBounce=!reset&&grounded&&rig.chaseGrounded&&seconds!==0
     ?Math.max(-.35,Math.min(.35,((rig.chaseBounce||0)-(state[1]-rig.chaseY))*(1-blend))):0;
   rig.chaseY=state[1];rig.chaseGrounded=grounded;
-  rig.camera=clip(pivot.map((n,i)=>n+direction[i]*rig.chaseDistance+(i===1?rig.chaseBounce:0)));
+  rig.camera=lifted(rig,clip(pivot.map((n,i)=>n+direction[i]*rig.chaseDistance+(i===1?rig.chaseBounce:0))),origin);
   const offset=pivot.map((n,i)=>n+(i===1?rig.chaseBounce:0)-rig.camera[i]);
   return {look:Math.hypot(...offset)>1e-6?unit(offset):direction.map(n=>-n),near:.1,collisionReady:!!rig.clipCamera};
 }

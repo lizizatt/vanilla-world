@@ -1,3 +1,4 @@
+import {regimeOf} from './regime.js';
 const FADE=2;
 
 /** Intermittent zone music: tracks arrive as encoded bytes from the worker, play through a media element, then silence. */
@@ -150,3 +151,6 @@ export class MusicPlayer {
       battle:this.battle,battlePlay:this.battlePlay,enabled:this.enabled,cues:[...this.cues.keys()],silenceMs:this.silence,nextInMs:Math.max(0,Math.round(this.nextAt-this.clock())),track:this.lastPath};
   }
 }
+
+/** Zone music while flying: follows the zone under the camera near the ground, and holds the last zone once the terrain bends away (atmosphere/orbit) so it never goes silent. */
+export const flightMusicArea=(area,altitude,held)=>altitude===undefined||regimeOf(altitude)==='ground'?area:held??area;
