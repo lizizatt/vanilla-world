@@ -10,14 +10,14 @@ export function demoHeight(map,tx,ty) {
   return 90*(1-d*d)-8+14*Math.sin(tx*7.3)*Math.cos(ty*5.1)*(k>0?1:0);
 }
 
-const chunk=(magic,body)=>{const out=new Uint8Array(8+body.length),v=new DataView(out.buffer);
+export const chunk=(magic,body)=>{const out=new Uint8Array(8+body.length),v=new DataView(out.buffer);
   for(let i=0;i<4;i++)out[i]=magic.charCodeAt(3-i);v.setUint32(4,body.length,true);out.set(body,8);return out;};
-const join=parts=>{const out=new Uint8Array(parts.reduce((n,a)=>n+a.length,0));let p=0;for(const a of parts){out.set(a,p);p+=a.length;}return out;};
-const ver=()=>{const b=new Uint8Array(4);b[0]=18;return chunk('MVER',b);};
+export const join=parts=>{const out=new Uint8Array(parts.reduce((n,a)=>n+a.length,0));let p=0;for(const a of parts){out.set(a,p);p+=a.length;}return out;};
+export const ver=()=>{const b=new Uint8Array(4);b[0]=18;return chunk('MVER',b);};
 const present=(map,x,y)=>{const [cx,cy]=MAPS[map].centre;return Math.abs(x-cx)<=REACH&&Math.abs(y-cy)<=REACH;};
 
 /** Palettized BLP2, size x size, two-tone grass-like checker; stands in for every texture the world asks for. */
-function demoBlp(size=64) {
+export function demoBlp(size=64) {
   const out=new Uint8Array(148+1024+size*size),v=new DataView(out.buffer);
   out.set([0x42,0x4c,0x50,0x32]);v.setUint32(4,1,true);out[8]=1;v.setUint32(12,size,true);v.setUint32(16,size,true);
   v.setUint32(20,148+1024,true);v.setUint32(84,size*size,true);
