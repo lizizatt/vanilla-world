@@ -14,7 +14,7 @@ export function relativeCentre(body,other,t) {
 /** `body` option for spaceUniform: viewing body plus the moon slots (other body real-size, then Azeroth's second stylised moon when viewed from Azeroth). */
 export function viewFrom(body,t) {
   const other=body.id==='elune'?AZEROTH:ELUNE;
-  const moons=[{position:relativeCentre(body,other,t),radius:other.radius,tint:TINT[other.id]}];
+  const moons=[{position:relativeCentre(body,other,t),radius:other.radius,tint:TINT[other.id],axisY:other.id==='elune'?axesAt(other,t)[1]:undefined}];
   if(body.id==='azeroth')moons.push({...MOONS[1],position:moonPlanetPosition(MOONS[1],t)});
   return {radius:body.radius,centre:body.centre,moons};
 }
