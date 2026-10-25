@@ -4,13 +4,13 @@ import {createRegistry,defaultManifest,proceduralProvider,rectBounds,OCEAN,creat
 import {FALLBACK_RECTS,globeToFlat,PLANET_RADIUS} from './space.js';
 
 test('uncovered bins are open ocean',() => {
-  const r=createRegistry(defaultManifest());
+  const r=createRegistry(defaultManifest().map(c=>({...c,jitter:0})));
   assert.deepEqual(r.sample(0,Math.PI),{...OCEAN,land:0});
   assert.equal(r.cover(0,Math.PI).length,0);
 });
 
 test('continent interior is land, edge feathers to ocean',() => {
-  const r=createRegistry(defaultManifest()),[a0,a1,o0,o1]=rectBounds(FALLBACK_RECTS[0]);
+  const r=createRegistry(defaultManifest().map(c=>({...c,jitter:0}))),[a0,a1,o0,o1]=rectBounds(FALLBACK_RECTS[0]);
   const mid=r.sample((a0+a1)/2,(o0+o1)/2),edge=r.sample(a0+1e-9,(o0+o1)/2);
   assert.equal(mid.water,false);
   assert(Math.abs(edge.h-OCEAN.h)<1,'edge height meets ocean (no step)');
@@ -18,7 +18,7 @@ test('continent interior is land, edge feathers to ocean',() => {
 });
 
 test('custom irregular chunk added later, higher priority wins in overlap',() => {
-  const r=createRegistry(defaultManifest()),[a0,a1,o0,o1]=rectBounds(FALLBACK_RECTS[0]);
+  const r=createRegistry(defaultManifest().map(c=>({...c,jitter:0}))),[a0,a1,o0,o1]=rectBounds(FALLBACK_RECTS[0]);
   const lat=(a0+a1)/2,lon=(o0+o1)/2,w=3000/PLANET_RADIUS;
   r.add({id:'maelstrom',kind:'poi',priority:5,blend:0,bounds:[lat-w,lat+w,lon-w,lon+w],provider:proceduralProvider({height:500,rgb:[1,0,0]})});
   assert.deepEqual(r.sample(lat,lon).rgb,[1,0,0]);

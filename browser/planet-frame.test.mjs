@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {toPlanet,fromPlanet,localAxes,relative} from './planet-frame.js';
-import {PLANET_RADIUS} from './space.js';
+import {PLANET_RADIUS,WORLD_CENTRE} from './space.js';
 
 const rnd=(a,b)=>a+Math.random()*(b-a);
 
 test('flat -> planet -> flat round trip incl. world edges, ocean, 500k altitude', () => {
   const edges=[[-21867,0,-17600],[24725,0,17067],[1429,0,-267],[1429,0,40000],[-30000,0,5000]];
-  const poses=[...edges,...Array.from({length:2000},()=>[rnd(-60000,60000),rnd(-40,500000),rnd(-55000,55000)])];
+  const poses=[...edges,...Array.from({length:2000},()=>[rnd(-60000,60000),rnd(-40,500000),WORLD_CENTRE[1]+rnd(-60000,60000)])];
   for(const p of poses){const q=fromPlanet(toPlanet(p),p[0]);for(let i=0;i<3;i++)assert.ok(Math.abs(q[i]-p[i])<1e-6*Math.max(1,Math.abs(p[i])),`${p} -> ${q}`);}
 });
 

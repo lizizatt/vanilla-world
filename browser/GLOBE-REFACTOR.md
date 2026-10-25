@@ -83,3 +83,7 @@ Adopted from user direction. The planet is not a tile grid; it is a **registry o
 - **Hosted fallback**: `defaultManifest()` builds both continents with `proceduralProvider`; with WoW data the same entries receive the `adt` provider.
 
 Status: registry + tests landed (pure data model); wiring `registry.sample` into the patch-tree vertex height/colour is the next M4 step.
+
+## Maelstrom latitude
+The planet frame origin (WORLD_CENTRE in space.js) is set so the Maelstrom sits at latitude +20 deg (MAELSTROM_Z, MAELSTROM_LAT). Interpretation: one rigid shift of the whole layout along latitude only; continent distances and relative placement are unchanged, and WORLD_CENTRE[0] is untouched. Everything keyed to the planet frame (patches, registry, night lights, sun, cloud flow) follows automatically. Water/whirlpool time follows the sim clock via cloudRate, wrapping every 7200 s.
+
