@@ -8,7 +8,7 @@ const globePoint=(eye,x,z,h)=>{
   const n=[f.east,f.up,f.south].map(a=>a[0]*pv[0]+a[1]*pv[1]+a[2]*pv[2]),r=PLANET_RADIUS+h;
   return [n[0]*r,n[1]*r-(PLANET_RADIUS+eye[1]),n[2]*r];
 };
-const landmarks=[...FALLBACK_RECTS.flatMap(([a,b,c,d])=>[[a,b],[c,b],[a,d],[c,d],[(a+c)/2,(b+d)/2]]),[8855,-1560]];
+const landmarks=[...FALLBACK_RECTS.flatMap(([a,b,c,d])=>[[a,b],[c,b],[a,d],[c,d],[(a+c)/2,(b+d)/2]]),[8855,40]];
 const cameras=[[9314,110875,1342],[34603,110875,-9209],[-40000,60000,20000],[1429,30000,WORLD_CENTRE[1]],[-100000,200000,-20000]];
 
 test('bend at full strength places every landmark at the globe sphere point from any camera',()=>{
