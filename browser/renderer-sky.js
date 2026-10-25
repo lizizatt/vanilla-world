@@ -47,6 +47,10 @@ export function drawPlanet(r,pass,pf,near) {
   r.device.queue.writeBuffer(r.spaceBuffer,0,uniform);
   pass.setPipeline(r.spacePipeline);pass.setBindGroup(0,r.spaceGroup);pass.draw(3);
 }
+export function drawLights(r,pass,pf) {
+  if(r.view.eye[1]<2500||!r.lightsGroup)return;
+  pass.setPipeline(r.lightsPipeline);pass.setBindGroup(0,r.lightsGroup);pass.draw(3);
+}
 export function drawPatches(r,pass) {
   if(r.heightDirty&&performance.now()-(r.heightAt||0)>1000){
     r.device.queue.writeTexture({texture:r.heightTex},encodeHeights(r.heightGrid),{bytesPerRow:HEIGHT_W},[HEIGHT_W,HEIGHT_H]);

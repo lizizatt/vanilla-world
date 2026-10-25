@@ -162,10 +162,7 @@ fn surface(pv:vec3f,n:vec3f,d:vec3f,sun:vec3f)->vec3f {
   let lit=clamp(dot(n,sun)*1.6+.15,0.0,1.0);
   let spec=pow(max(dot(reflect(-sun,n),-d),0.0),40.0)*(1.0-land);
   let rim=pow(1.0-max(dot(n,-d),0.0),3.0);
-  // Settlement lights: dark side only (table coordinates are authoritative, so coastal towns are not land-masked), fading out toward the ground where the real scene takes over.
-  var glow=vec3f(0.0);let night=(1.0-smoothstep(-.12,.1,dot(n,sun)))*smoothstep(2500.0,9000.0,s.p.x);
-  if(night>.002){glow=lightsAt(vec2f(lon/6.2831853+.5,.5-lat/3.1415927),s.rect[3].w)*night;}
-  return glow+col*(.03+lit)+vec3f(.5,.6,.7)*spec*lit+vec3f(.25,.5,1.0)*rim*(.15+lit)*.8*clamp(s.p.x/3000.0,0.0,1.0);
+  return col*(.03+lit)+vec3f(.5,.6,.7)*spec*lit+vec3f(.25,.5,1.0)*rim*(.15+lit)*.8*clamp(s.p.x/3000.0,0.0,1.0);
 }
 // Same haze law as the terrain/water shaders (distance/150000, gone once the bend takes over); fog colour rides in the unused fourth rect slot.
 fn fogGlobe(c:vec3f,t:f32,n:vec3f,d:vec3f)->vec3f {let low=1.0-${wgslRamp(BEND_RANGE)}s.p.x);let f=pow(1.0-abs(dot(normalize(n),normalize(d))),3.0);let k=max(clamp(t/150000.0,0.0,.93),.85*f)*low;return mix(c,s.rect[3].xyz,k);}
@@ -212,7 +209,20 @@ struct FO {@location(0) color:vec4f,@builtin(frag_depth) depth:f32};
     acc=over(acc,vec3f(.3,.55,1.0)*(.2+.8*clamp(dot(np,sun)+.3,0.0,1.0)),near*.8*globe*clamp(alt/3000.0,0.0,1.0));
   }
   var out:FO;out.color=acc;out.depth=depth;return out;
-}`;
+}
+// Settlement lights, drawn additively after terrain so the horizon meshes that cover the globe at orbit cannot hide them.
+@fragment fn lfs(v:V)->@location(0) vec4f {
+  let d=normalize(s.look.xyz+s.right.xyz*v.ndc.x*.55*s.look.w+s.up.xyz*v.ndc.y*.55);
+  let centre=vec3f(0.0,-(R+s.p.x),0.0);let t=sphereT(vec3f(0.0),d,centre,R);
+  let high=smoothstep(2500.0,9000.0,s.p.x)*s.p.z;
+  if(t<0.0||high<.002){discard;}
+  let n=normalize(d*t-centre);let pv=toPlanet(n);
+  let dark=1.0-smoothstep(-.12,.1,dot(n,normalize(s.sun.xyz)));
+  if(dark<.002){discard;}
+  let lat=asin(clamp(pv.y,-1.0,1.0));let lon=atan2(pv.z,pv.x);
+  return vec4f(lightsAt(vec2f(lon/6.2831853+.5,.5-lat/3.1415927),s.rect[3].w)*dark*high,0.0);
+}
+`;
 
 // Patch mesh (globe-patches.js): each instance is one lat/lon patch drawn as a 16x16 grid. Edge vertices of finer patches snap onto coarser neighbours (flags) so LOD cracks close exactly.
 export const patchShader=spaceShader.slice(0,spaceShader.indexOf('@fragment fn fs'))+`
