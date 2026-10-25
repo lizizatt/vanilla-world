@@ -3,6 +3,7 @@
 // Sizing: Kalimdor is the largest populated continent, about 29,870 yd north-south, and is meant to span 40 degrees of latitude.
 import {HEIGHT_RANGE,HEIGHT_MIN} from './height-bake.js';
 import {BEND_RANGE,wgslRamp} from './terrain-transition.js';
+import {nightLightsWgsl} from './night-lights-wgsl.js';
 export const CONTINENT_YD=29867,CONTINENT_DEG=40;
 export const PLANET_RADIUS=Math.round(CONTINENT_YD/(CONTINENT_DEG*Math.PI/180));
 // World centre (render yd) at lat/lon 0, and the fallback continent rectangles [x0,z0,x1,z1] when no manifest is loaded (hosted build).
@@ -104,6 +105,7 @@ struct S {look:vec4f,right:vec4f,up:vec4f,p:vec4f,sun:vec4f,e:vec4f,u:vec4f,s:ve
 @group(0) @binding(0) var<uniform> s:S;
 @group(0) @binding(1) var surfaceTex:texture_2d<f32>;
 @group(0) @binding(2) var surfaceSamp:sampler;
+@group(0) @binding(4) var lightsTex:texture_2d<f32>;
 const R=${PLANET_RADIUS}.0;const DEPTH_R=R-${GLOBE_DEPTH_DROP}.0;
 struct V {@builtin(position) clip:vec4f,@location(0) ndc:vec2f};
 @vertex fn vs(@builtin(vertex_index) i:u32)->V {
@@ -117,6 +119,7 @@ fn vn(p:vec2f)->f32 {
   return mix(mix(h2(i),h2(i+vec2f(1,0)),q.x),mix(h2(i+vec2f(0,1)),h2(i+vec2f(1,1)),q.x),q.y);
 }
 fn fbm(p:vec2f)->f32 {return .5*vn(p)+.25*vn(p*2.03+7.0)+.125*vn(p*4.1+13.0)+.0625*vn(p*8.3+3.0);}
+${nightLightsWgsl}
 fn stars(d:vec3f)->f32 {
   var t=0.0;
   for(var l=0;l<2;l++){
@@ -159,7 +162,10 @@ fn surface(pv:vec3f,n:vec3f,d:vec3f,sun:vec3f)->vec3f {
   let lit=clamp(dot(n,sun)*1.6+.15,0.0,1.0);
   let spec=pow(max(dot(reflect(-sun,n),-d),0.0),40.0)*(1.0-land);
   let rim=pow(1.0-max(dot(n,-d),0.0),3.0);
-  return col*(.03+lit)+vec3f(.5,.6,.7)*spec*lit+vec3f(.25,.5,1.0)*rim*(.15+lit)*.8*clamp(s.p.x/3000.0,0.0,1.0);
+  // Settlement lights: dark side only (table coordinates are authoritative, so coastal towns are not land-masked), fading out toward the ground where the real scene takes over.
+  var glow=vec3f(0.0);let night=(1.0-smoothstep(-.12,.1,dot(n,sun)))*smoothstep(2500.0,9000.0,s.p.x);
+  if(night>.002){glow=lightsAt(vec2f(lon/6.2831853+.5,.5-lat/3.1415927),s.rect[3].w)*night;}
+  return glow+col*(.03+lit)+vec3f(.5,.6,.7)*spec*lit+vec3f(.25,.5,1.0)*rim*(.15+lit)*.8*clamp(s.p.x/3000.0,0.0,1.0);
 }
 // Same haze law as the terrain/water shaders (distance/150000, gone once the bend takes over); fog colour rides in the unused fourth rect slot.
 fn fogGlobe(c:vec3f,t:f32,n:vec3f,d:vec3f)->vec3f {let low=1.0-${wgslRamp(BEND_RANGE)}s.p.x);let f=pow(1.0-abs(dot(normalize(n),normalize(d))),3.0);let k=max(clamp(t/150000.0,0.0,.93),.85*f)*low;return mix(c,s.rect[3].xyz,k);}
