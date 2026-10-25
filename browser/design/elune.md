@@ -305,3 +305,5 @@ M0, M1 and M2 prove the architecture (second body, ADT synthesis, drivable moon)
 - A (Rust manifest v4, area ids): done, merged. B (depth prototype): 11a14cb3. C (?body=elune flat-chart drive): 176c02c8. D partial (space-hud.js readout): d0bfa3b5.
 - D remaining: wire space-flight.js into app-frame/input, per-radius shader factories (space.js) into renderer-shaders/renderer-init (PLANET_RADIUS is baked in ~13 modules), reversed-Z or two-layer depth in render-passes, second resident body. Must keep Azeroth golden + p99.
 - E: teleport/map/streaming, clouds + bubble microclimate, procedural grove.
+
+- **D4 (shared-flight.js)**: under ?bodies the fly camera keeps its chart pose but moves through space-flight.js (inertial f64, nearest-body speed law, SOI swap with hysteresis); HUD shows the space readout. Crossing into Elune's well hands off to ?body=elune&bodies with the pose in sessionStorage (one loading cut until a second resident engine exists). Unverified: Azeroth golden/p99, real Azeroth->Elune flight in a WoW-data browser.
