@@ -22,3 +22,5 @@ Method: static scan of every `browser\*.js|mjs` export (referenced by any other 
 
 ## Proposed phase 2 (needs go-ahead)
 Order: (5) un-export + delete `METRES`, (4) catch helper, (1) manifest check test, (2) shared maelstrom config, (7) legacy path after confirmation, (8) scripts folder, (3) splits last.
+
+- demo-source.js: only the generator helpers used by moon-source.js are still needed; demoSource/demoWdt/demoWdl are dead outside tests once Elune stops importing them.

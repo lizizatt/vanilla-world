@@ -297,7 +297,7 @@ export async function openDataSource(input,onProgress=()=>{}) {
   if (root?.length > 1 && catalog.every(({ path }) => path.replaceAll('\\', '/').startsWith(`${root[0]}/`)))
     catalog = catalog.map(entry => ({ ...entry, path: entry.path.replaceAll('\\', '/').slice(root[0].length + 1) }));
   const selected = mountOrder(catalog);
-  if (!selected.length) fail('INVALID_FOLDER', 'No known WoW 1.12 MPQs in this folder; select Data, not the install parent');
+  if (!selected.length) fail('INVALID_FOLDER', 'WoW data folder not found: no WoW 1.12 MPQs in this folder. Select the Data folder, not the install parent');
   const stats = { indexBytes: 0, readBytes: 0, readCalls: 0, maxReadBytes: 0, windowBytes: 0, extractionYields: 0,
     decodeActive:0,decodeBytes:0,decodePeak:0,decodePeakBytes:0,inflateMs:0 };
   const archives = [];

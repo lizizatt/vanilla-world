@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {SETTLEMENTS,DEMO_SETTLEMENTS,PALETTES,FIRE,NIGHT_W,NIGHT_H,FLAG_ARCANE,FLAG_EERIE,settlementPositions,settlementLights,bakeNightLights,createNightBake,litSpot,nightLightsWgsl} from './night-lights.js';
+import {SETTLEMENTS,PALETTES,FIRE,NIGHT_W,NIGHT_H,FLAG_ARCANE,FLAG_EERIE,settlementPositions,settlementLights,bakeNightLights,createNightBake,litSpot,nightLightsWgsl} from './night-lights.js';
 import {spaceShader,patchShader,subPoint} from './space.js';
 
 const manifest={world_bounds:[[0,0,0,0],[0,0,0,0]],regions:[
@@ -18,14 +18,12 @@ test('table is well formed with unique ids and the two special cities', () => {
   assert.ok(PALETTES.dalaran.colours.length>=3&&PALETTES.karazhan.colours.length>=3);
 });
 
-test('positions follow manifest region offsets; demo world falls back to rect fractions', () => {
-  const rects=[[-1e5,-1e5,1e5,1e5]],real=settlementPositions(manifest,rects),demo=settlementPositions(undefined);
+test('positions follow manifest region offsets', () => {
+  const rects=[[-1e5,-1e5,1e5,1e5]],real=settlementPositions(manifest,rects);
   assert.equal(real.length,SETTLEMENTS.length);
-  assert.equal(settlementPositions(manifest,[[0,0,100,100]]).length,DEMO_SETTLEMENTS.length,'tiny demo island gets demo settlements');
-  assert.equal(demo.length,DEMO_SETTLEMENTS.length);
+  assert.deepEqual(settlementPositions(undefined),[]);
   const org=real.find(s=>s.id==='orgrimmar'),kx=-5000+32*1600/3,kz=-3000+32*1600/3;
   assert.ok(Math.abs(org.pos[0]-(4400+kx))<1e-6&&Math.abs(org.pos[1]-(-1500+kz))<1e-6);
-  assert.ok(demo.some(s=>s.palette==='dalaran'));
 });
 
 test('bake: fire cities glow warm, scaled by size; Dalaran/Karazhan are multi-colour and flagged', () => {

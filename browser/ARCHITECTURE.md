@@ -1,7 +1,7 @@
 # Azeroth Racer: system architecture (current)
 
 Single-player browser world over WoW 1.12 Kalimdor + Eastern Kingdoms, with a globe (planet R = 42,785 yd), driveable Rocket/podracers, and space.
-The hosted site works with no game data (procedural demo world); art and audio are never committed.
+WoW 1.12 data is required (no demo/no-data world: a missing Data folder shows "WoW data folder not found"); art and audio are never committed. Agents use the real data read-only via the parent checkout runtime\browser (never commit it).
 
 ```mermaid
 flowchart TB

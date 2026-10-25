@@ -4,7 +4,7 @@ import {TILE_CAP_MAX} from './memory-budget.js';
 import {terrainMips,resizeRgba,MINIMAP_SIZE} from './terrain-stream.js';
 import {prepareDetail} from './camera-collision.js';
 import {loadLoadingArt} from './loading-art.js';
-import {demoSource} from './demo-source.js';
+
 import {moonSource} from './moon-source.js';
 import {errorFields,isRequestId} from './worker-rpc.js';
 
@@ -32,7 +32,7 @@ async function pump() {
   try {
     if(job.action==='open') {
       if(source)throw Error('Asset source already open');
-      wasm=await init();source=job.folder==='demo'?demoSource():job.folder==='elune'?moonSource():await openDataSource(job.folder,progress=>
+      wasm=await init();source=job.folder==='elune'?moonSource():await openDataSource(job.folder,progress=>
         postMessage({event:'progress',stage:'archives',text:'Indexing local archives',...progress}));
       if(job.loadingArt&&!artStopped)void loadLoadingArt(source,bytes=>{
         const texture=new SceneTexture(bytes);
