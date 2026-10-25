@@ -124,11 +124,16 @@ export function shellRoots(e,dy,y,k) {
 /** Mirror of the shell branch of the extent: first contiguous piece inside the outer shell and outside the inner one. */
 export function shellExtent(eyeY,dirY,k,high,far=1e8) {
   const {ya,yb,down}=slab(high),O=shellRoots(eyeY,dirY,yb,k),I=shellRoots(eyeY,dirY,ya+down*(1-smoothstep(0,.12,dirY)),k);
-  let s0=Math.max(O[0],0),sFull=O[1],live=O[0]<=O[1];
-  if(I[0]<=I[1]){if(I[0]>s0)sFull=Math.min(sFull,I[0]);else if(I[1]>s0)s0=I[1];}
+  const G=shellRoots(eyeY,dirY,0,k),gHit=eyeY>0&&G[0]>0&&G[0]<=G[1];
+  let s0=Math.max(O[0],0),sFull=gHit?Math.min(O[1],G[0]):O[1],live=O[0]<=O[1];
+  if(I[0]<=I[1]){
+    if(I[0]>s0){
+      // An eye inside the layer looking slightly down leaves through the base, then re-enters farther out: keep the longer piece so the horizon bank does not vanish when the eye crosses the base.
+      if(I[1]<sFull&&sFull-I[1]>.25*(Math.min(sFull,I[0])-s0))s0=I[1];else sFull=Math.min(sFull,I[0]);
+    }else if(I[1]>s0)s0=I[1];
+  }
   live=live&&sFull>s0;
-  const G=shellRoots(eyeY,dirY,0,k);
-  if(eyeY>0&&G[0]>0&&G[0]<=G[1]){sFull=Math.min(sFull,G[0]);live=live&&s0<G[0];}
+  if(gHit)live=live&&s0<G[0];
   const cap=s0+Math.max(tier(high).minSpan,SPAN_PER_DISTANCE*s0),s1=Math.min(sFull,cap);
   return {s0,s1,sFull,live:live&&s1>s0&&s0<far};
 }

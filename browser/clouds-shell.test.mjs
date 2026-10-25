@@ -65,6 +65,8 @@ test('continuity: a tiny turn changes the entry distance by a bounded amount awa
     if(!a.live||!b.live||a.s0>1e6)continue;
     const [t1,t2]=shellRoots(s.e,d1[1],slab(s.high).yb,s.k);
     if(t2-t1<.02*Math.max(t1,1))continue;
+    const [i1,i2]=shellRoots(s.e,d1[1],slab(s.high).ya+slab(s.high).down*(1-Math.min(1,Math.max(0,d1[1]/.12))),s.k);
+    if(i1<=i2&&i1>0&&i2<t2)continue; // eye in the layer: the near/far piece choice is a deliberate switch
     checked++;worst=Math.max(worst,Math.abs(a.s0-b.s0)/Math.max(a.s0,100));
   }
   assert.ok(checked>300);assert.ok(worst<.05,`entry jumped ${worst}`);

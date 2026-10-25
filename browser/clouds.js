@@ -217,12 +217,16 @@ const NF=${FUNNEL_STEPS};
     // Curved layer: inside the outer shell and outside the inner one, first contiguous piece along the ray.
     // Looking level or down, the inner limb uses the nominal base: the downward billows (DOWN) would put a low eye inside the slab and cut the sheet at a hard line below it.
     let O=shellRoots(c.eye.y,dir.y,yb);let I=shellRoots(c.eye.y,dir.y,ya+DOWN*(1.0-smoothstep(0.0,.12,dir.y)));
-    s0=max(O.x,0.0);sFull=O.y;live=O.x<=O.y;
-    if(I.x<=I.y){if(I.x>s0){sFull=min(sFull,I.x);}else if(I.y>s0){s0=I.y;}}
+    let G=shellRoots(c.eye.y,dir.y,0.0);let gHit=c.eye.y>0.0&&G.x>0.0&&G.x<=G.y;
+    s0=max(O.x,0.0);sFull=select(O.y,min(O.y,G.x),gHit);live=O.x<=O.y;
+    if(I.x<=I.y){
+      if(I.x>s0){
+        if(I.y<sFull&&sFull-I.y>.25*(min(sFull,I.x)-s0)){s0=I.y;}else{sFull=min(sFull,I.x);}
+      }else if(I.y>s0){s0=I.y;}
+    }
     live=live&&sFull>s0;
     // A ray that reaches the sea-level sphere ends there: the far-side layer behind the planet is never visible.
-    let G=shellRoots(c.eye.y,dir.y,0.0);
-    if(c.eye.y>0.0&&G.x>0.0&&G.x<=G.y){sFull=min(sFull,G.x);live=live&&s0<G.x;}
+    if(gHit){live=live&&s0<G.x;}
   } else {
     let dy=select(select(-.0005,.0005,dir.y>=0.0),dir.y,abs(dir.y)>=.0005);
     let ta=(ya-c.eye.y)/dy;let tb=(yb-c.eye.y)/dy;
