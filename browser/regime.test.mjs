@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {regimeOf,REGIME_BANDS} from './regime.js';
-import {BEND_RANGE,GLOBE_RANGE,SPACE_RANGE,CLOUD_RANGE,planetFactors,wgslRamp} from './terrain-transition.js';
+import {BEND_RANGE,GLOBE_RANGE,SPACE_RANGE,planetFactors,wgslRamp} from './terrain-transition.js';
 import {CLOUD_ALTITUDE,CLOUD_THICKNESS} from './cloud-config.js';
 import {zoneBlend} from './renderer-sky.js';
 import {spaceShader} from './space.js';
@@ -22,10 +22,10 @@ test('regime tag follows the planet ramps at the band edges', () => {
 });
 
 test('tuning tables are frozen and keep their shipped values', () => {
-  for(const t of [FLIGHT,ORIENT,CAMERA,BEND_RANGE,GLOBE_RANGE,SPACE_RANGE,CLOUD_RANGE])assert.ok(Object.isFrozen(t));
+  for(const t of [FLIGHT,ORIENT,CAMERA,BEND_RANGE,GLOBE_RANGE,SPACE_RANGE])assert.ok(Object.isFrozen(t));
   assert.deepEqual({...FLIGHT},{walkSpeed:1200,fastSpeed:8000,floor:-10000,ceiling:1000000,pitch:Math.PI/2,boostFrom:1000,boostMax:40});
   assert.deepEqual([...ORIENT.levelAlt],[800,4000]);
-  assert.deepEqual([BEND_RANGE,GLOBE_RANGE,SPACE_RANGE,CLOUD_RANGE].map(r=>[...r]),[[150,1500],[0,60],[2000,9000],[3000,9000]]);
+  assert.deepEqual([BEND_RANGE,GLOBE_RANGE,SPACE_RANGE].map(r=>[...r]),[[150,1500],[0,60],[2000,9000]]);
   assert.equal(CAMERA.recentre,7);
 });
 

@@ -2,6 +2,9 @@
 
 Status: recommendation (no code changed). Inputs: `clouds.js`, `cloud-flow.js`, `cloud-march.js`, `renderer-clouds.js`, `CLOUD-FLOW.md`, cloud tests.
 
+## As built: one curved cloud path
+The layer is always the spherical shell at true planet radius (`SHELL_CURVATURE = 1/PLANET_RADIUS`, written to `c.bend.x`), at every altitude from the ground to orbit. There is no flat slab branch, no bend-gated switch, and no cloud altitude ramp (`CLOUD_RANGE` / `planet.cloud` are gone); the shader and the `cloud-march.js` mirror (`extent`/`worldAt`/`upAt` over `shellExtent`) share the one geometry. Only the High/Standard tier crossfade (`planet.tierMix` -> `c.fog.w`) remains as a blend. Near the ground the horizon cloud bank therefore ends about sqrt(2 R h) = 11-12 kyd out, where the shell drops below the eye's horizon, instead of running flat to the far fade distance.
+
 ## Recommendation: keep tiers and the JS mirror, make them data-driven
 1. `cloud-config.js`: one frozen record per tier (`steps`, slab/tower extents, span caps, noise mode, light taps), plus Maelstrom and flow constants and per-tier budgets. Imported by `clouds.js`, `cloud-march.js`, `renderer-clouds.js`.
 2. Generate WGSL constants from the config (extend the existing `flowWGSL()` approach); delete hand-copied `NS`, tower and cap literals.

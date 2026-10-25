@@ -14,7 +14,7 @@ Status: proposal only. No renderer code changed. Numbers are estimates from reas
 ## 2. How clouds work today
 
 - `clouds.js`: one fullscreen-triangle ray march (`NS=8` Standard, 28 High) through a 520 yd slab at ~1577 yd. Density is analytic value noise (`sheetDensity`), no textures. Funnel is a second 14-step cylinder march.
-- Spherical shell variant: `shellCurvature` and the `cloudUniform` frame (`planetFrame` east/up/south + `WORLD_CENTRE` + `PLANET_RADIUS`) map the ray onto an **equirectangular lat/lon** coordinate (`theta = arc/(k*R)`), so the noise is sampled in (lon, lat) space.
+- Spherical shell (now the only path, constant `SHELL_CURVATURE = 1/R`): the `SHELL_CURVATURE` uniform and the `cloudUniform` frame (`planetFrame` east/up/south + `WORLD_CENTRE` + `PLANET_RADIUS`) map the ray onto an **equirectangular lat/lon** coordinate (`theta = arc/(k*R)`), so the noise is sampled in (lon, lat) space.
 - The Maelstrom is a *static analytic* decoration (eye, eye wall, 3 arms around `maelstromCentre(manifest)`) layered on the noise; nothing flows. `cloud-march.js` is a pure-JS mirror used by `clouds-sweep.test.mjs` (seeded Monte Carlo over eyes/rays/time) and `clouds-shell.test.mjs` (shell roots, extent, orbit continuity).
 - `space.js` fades `clouds` by altitude; `tile-registry.js` exposes `surfaceTexel`/`bakeSurface` (height, water) which is the only land/ocean source.
 

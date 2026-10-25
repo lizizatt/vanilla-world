@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {shellRoots,shellExtent,extent,slab} from './cloud-march.js';
+import {shellRoots,shellExtent,slab} from './cloud-march.js';
 import {PLANET_RADIUS} from './space.js';
-import {shellCurvature} from './clouds.js';
+import {SHELL_CURVATURE} from './clouds.js';
 const rng=s=>()=>(s=(s*1664525+1013904223)>>>0)/4294967296;
 const unit=v=>{const n=Math.hypot(...v);return v.map(x=>x/n);};
 const dirOf=(yaw,pitch)=>[Math.cos(pitch)*Math.cos(yaw),Math.sin(pitch),Math.cos(pitch)*Math.sin(yaw)];
@@ -11,7 +11,7 @@ function sample(r,n) {
   const out=[];
   for(let i=0;i<n;i++){const e=[50,520,2000,9000,60000,500000,1e6][Math.floor(r()*7)]*(.5+r());
     const bend=.003+r()*r()*.997,pitch=(r()*2-1)*Math.PI/2*(r()<.3?.2:1);
-    out.push({e,k:shellCurvature(bend),bend,high:r()<.5,yaw:r()*6.283,pitch:r()<.1?-Math.PI/2+r()*.01:pitch});}
+    out.push({e,k:bend*SHELL_CURVATURE,bend,high:r()<.5,yaw:r()*6.283,pitch:r()<.1?-Math.PI/2+r()*.01:pitch});}
   return out;
 }
 
@@ -30,17 +30,6 @@ test('shell roots lie on the shell, and the extent stays inside the cloud band',
   assert.ok(live>500,`only ${live} live rays`);
 });
 
-test('small curvature reproduces the flat slab extent',()=>{
-  const r=rng(5);
-  for(let i=0;i<2000;i++) {
-    const e=r()*30000,high=r()<.5,d=dirOf(r()*6.283,(r()*2-1)*1.5);
-    if(Math.abs(d[1])<.02||high&&d[1]<.12)continue; // below that the shell deliberately uses the nominal base (no downward billows)
-    const f=extent(e,d[1],1e9,high),s=shellExtent(e,d[1],1e-9,high);
-    if(f.s1<=f.s0||f.s0>50000)continue;
-    assert.ok(Math.abs(f.s0-s.s0)<5e-3*Math.max(1,f.s0),`s0 ${f.s0} vs ${s.s0} e=${e} dy=${d[1]}`);
-  }
-});
-
 test('High tier: a low eye inside the downward billow zone still sees the sheet down to the sea horizon',()=>{
   const k=.85/42785;
   for(let deg=-1;deg>=-12;deg-=.5) {
@@ -51,7 +40,7 @@ test('High tier: a low eye inside the downward billow zone still sees the sheet 
 
 test('orbit: straight down reaches the shell, view from space is live at the limb',()=>{
   for(const e of [20000,100000,500000,1e6]) {
-    const k=shellCurvature(1),{yb}=slab(true),x=shellExtent(e,-1,k,true);
+    const k=SHELL_CURVATURE,{yb}=slab(true),x=shellExtent(e,-1,k,true);
     assert.ok(x.live&&Math.abs(x.s0-(e-yb))<1,`nadir ${e} ${x.s0}`);
     const tangent=-Math.sqrt(1-((1+k*yb)/(1+k*e))**2)*1.001;
     assert.ok(shellExtent(e,tangent,k,true).live,`limb ray from ${e} should graze the cloud shell`);

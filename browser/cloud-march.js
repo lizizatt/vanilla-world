@@ -4,10 +4,10 @@
 // noise (the texture is baked from the same kind of value noise), so High geometry (towers, 28 steps, light tap) is covered, its noise is not.
 import {sphereAt,vnoise3,bandCoverage,flowShift,flowPhase,FLOW,maskAt,landCoverage,landDrag} from './cloud-flow.js';
 import {CLOUD_ALTITUDE,CLOUD_THICKNESS,CLOUD_HALF_SIZE,MAELSTROM as M,tier} from './cloud-config.js';
-import {sunDirection} from './clouds.js';
+import {sunDirection,SHELL_CURVATURE} from './clouds.js';
 import {PLANET_RADIUS} from './space.js';
 
-export const FADE_START=30000,FOG_RANGE=150000,SPAN_PER_DISTANCE=.3,MIN_DIR_Y=.0005;
+export const FADE_START=30000,FOG_RANGE=150000,SPAN_PER_DISTANCE=.3;
 export const MIN_SPAN=tier(false).minSpan;
 export const steps=high=>tier(high).steps;
 const clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
@@ -24,31 +24,6 @@ function vnoise(x,y) {
 export function slab(high) {
   const {up,down}=tier(high).tower;
   return {ya:CLOUD_ALTITUDE-CLOUD_THICKNESS/2-down,yb:CLOUD_ALTITUDE+CLOUD_THICKNESS/2+up,up,down};
-}
-
-/** Ray/slab extent: start, end, whether the end was cut by the span cap (not by leaving the slab), and the scene-depth soft edge. */
-export function extent(eyeY,dirY,sceneDist,high,far=CLOUD_HALF_SIZE,legacy=false) {
-  const {ya,yb}=slab(high);
-  if(legacy)return extentLegacy(eyeY,dirY,sceneDist,high,ya,yb);
-  const dy=Math.abs(dirY)<MIN_DIR_Y?(dirY>=0?MIN_DIR_Y:-MIN_DIR_Y):dirY;
-  const ta=(ya-eyeY)/dy,tb=(yb-eyeY)/dy;
-  const s0=Math.max(0,Math.min(ta,tb)),full=Math.max(ta,tb),cap=s0+Math.max(tier(high).minSpan,SPAN_PER_DISTANCE*s0);
-  let s1=Math.min(full,cap),sEdge=1;
-  if(sceneDist<1e8){sEdge=smoothstep(0,350,sceneDist-s0);s1=Math.min(s1,sceneDist);}
-  const ns=s1>s0&&sEdge>0&&s0<far?steps(high):0;
-  return {s0,s1,ns,sEdge,capped:full>cap&&s1===cap,cutK:smoothstep(0,.5,(full-cap)/Math.max(cap-s0,1))};
-}
-
-// The pre-fix behaviour (flat 9 km cap with a hard end, no march for near-horizontal rays), kept so the sweep can prove it detects those defects.
-function extentLegacy(eyeY,dirY,sceneDist,high,ya,yb) {
-  let s0=0,s1=0,ns=0,sEdge=1;
-  if(Math.abs(dirY)>MIN_DIR_Y){
-    const ta=(ya-eyeY)/dirY,tb=(yb-eyeY)/dirY;
-    s0=Math.max(0,Math.min(ta,tb));s1=Math.min(Math.max(ta,tb),s0+Math.max(MIN_SPAN,SPAN_PER_DISTANCE*s0));
-    if(sceneDist<1e8){sEdge=smoothstep(0,350,sceneDist-s0);s1=Math.min(s1,sceneDist);}
-    if(s1>s0&&sEdge>0)ns=steps(high);
-  }
-  return {s0,s1,ns,sEdge,capped:false};
 }
 
 /** Density at a world position: [body, storm, height fraction]; `coverage` may be forced to sweep storm values. */
@@ -83,14 +58,14 @@ export function density(pos,t,high,centre=[0,0],coverageOverride,mask) {
  * `o`: {eye:[x,y,z], dir:[x,y,z] (unit), t, high, time (Light.dbc half-minutes), centre, coverage, sceneDist, jitter (0..1), night (0..1)}.
  */
 export function march(o) {
-  const {eye,dir,t=0,high=false,time=1440,centre=[0,0],coverage,sceneDist=1e9,jitter=.5,night=0,legacy=false}=o;
-  const ex=extent(eye[1],dir[1],sceneDist,high,CLOUD_HALF_SIZE,legacy);
+  const {eye,dir,t=0,high=false,time=1440,centre=[0,0],coverage,sceneDist=1e9,jitter=.5,night=0}=o;
+  const ex=extent(eye[1],dir[1],sceneDist,high);
   if(!ex.ns)return {alpha:0,rgb:[0,0,0],extent:ex};
-  const sun=sunDirection(time),day=smoothstep(-.1,.25,sun[1]),ns=ex.ns,ss=(ex.s1-ex.s0)/steps(high);
+  const sun=sunDirection(time),ns=ex.ns,ss=(ex.s1-ex.s0)/steps(high);
   const grade=[1-.8*night,1-.73*night,1-.5*night],fog=[.08*(1-night),.15*(1-night),.2*(1-night)];
   let trans=1;const light=[0,0,0];
   for(let i=0;i<ns;i++) {
-    const ts=ex.s0+ss*(i+jitter),pos=[eye[0]+dir[0]*ts,eye[1]+dir[1]*ts,eye[2]+dir[2]*ts];
+    const ts=ex.s0+ss*(i+jitter),rel=[dir[0]*ts,dir[1]*ts,dir[2]*ts],pos=worldAt(eye,rel),sunY=dot(upAt(eye[1],rel),sun),day=smoothstep(-.1,.25,sunY);
     const s=density(pos,t,high,centre,coverage,o.mask);
     if(s[0]<=.001)continue;
     const tail=ex.capped?1-ex.cutK*smoothstep(.55,1,(ts-ex.s0)/(ex.s1-ex.s0)):1;
@@ -112,6 +87,22 @@ export function march(o) {
   return {alpha,rgb:alpha<.01?[0,0,0]:light.map(v=>Math.min(v/alpha,1)),extent:ex};
 }
 const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+
+/** Mirror of the WGSL upAt/worldAt for the always-curved layer: eye-relative point -> local up, and -> world (x, height, z) on the planet mapping. */
+const upAt=(eyeY,rel)=>{const n=[SHELL_CURVATURE*rel[0],1+SHELL_CURVATURE*(rel[1]+eyeY),SHELL_CURVATURE*rel[2]],l=Math.hypot(...n);return n.map(v=>v/l);};
+function worldAt(eye,rel) {
+  const k=SHELL_CURVATURE,u=rel[1]+eye[1],hd2=rel[0]*rel[0]+rel[2]*rel[2],ry=1+k*u,qs=Math.sqrt(k*k*hd2+ry*ry);
+  const h=(k*hd2+u*(2+k*u))/(qs+1),hd=Math.sqrt(hd2),arc=Math.atan2(k*hd,ry)/k;
+  return hd>1e-3?[eye[0]+rel[0]/hd*arc,h,eye[2]+rel[2]/hd*arc]:[eye[0],h,eye[2]];
+}
+/** Ray extent through the curved layer: start, end, whether the end was cut by the span cap (not by leaving the layer), and the scene-depth soft edge. */
+export function extent(eyeY,dirY,sceneDist,high,far=1e8) {
+  const x=shellExtent(eyeY,dirY,SHELL_CURVATURE,high,far),cap=x.s0+Math.max(tier(high).minSpan,SPAN_PER_DISTANCE*x.s0);
+  let s1=x.s1,sEdge=1;
+  if(sceneDist<1e8){sEdge=smoothstep(0,350,sceneDist-x.s0);s1=Math.min(s1,sceneDist);}
+  const ns=x.live&&s1>x.s0&&sEdge>0?steps(high):0;
+  return {s0:x.s0,s1,ns,sEdge,capped:x.sFull>cap&&s1===cap,cutK:smoothstep(0,.5,(x.sFull-cap)/Math.max(cap-x.s0,1))};
+}
 
 /** Mirror of the WGSL shellRoots: both distances where a ray from height `e` (direction y `dy`) meets the shell at altitude `y` of curvature k = 1/Re. */
 export function shellRoots(e,dy,y,k) {
