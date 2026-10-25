@@ -73,16 +73,17 @@ export function moonPlanetPosition(moon,timeOfDay) {
 }
 
 /** Uniform floats (16 x vec4) for spaceShader. */
-export function spaceUniform(view,sun,factors,rects,timeOfDay,near,far,out=new Float32Array(64)) {
-  const eye=view.eye,altitude=Math.max(0,eye[1]),f=planetFrame(eye[0],eye[2]);
+export function spaceUniform(view,sun,factors,rects,timeOfDay,near,far,out=new Float32Array(64),body) {
+  const radius=body?.radius??PLANET_RADIUS,chart=body?.centre??WORLD_CENTRE,moons=body?.moons??null;
+  const eye=view.eye,altitude=Math.max(0,eye[1]),f=planetFrame(eye[0],eye[2],chart,radius);
   out.fill(0);
-  out.set([...view.look,view.aspect,...view.right,near,...view.up,far,altitude,factors.space,factors.globe,PLANET_RADIUS],0);
+  out.set([...view.look,view.aspect,...view.right,near,...view.up,far,altitude,factors.space,factors.globe,radius],0);
   out.set([...sun,timeOfDay],16);
-  out.set([...f.east,WORLD_CENTRE[0],...f.up,WORLD_CENTRE[1],...f.south,Math.min(3,rects.length)],20);
+  out.set([...f.east,chart[0],...f.up,chart[1],...f.south,Math.min(3,rects.length)],20);
   rects.slice(0,3).forEach((r,i)=>out.set(r,32+i*4));
-  const centre=[0,-(PLANET_RADIUS+altitude),0];
-  MOONS.forEach((moon,i)=>{
-    const p=moonPlanetPosition(moon,timeOfDay),local=[f.east,f.up,f.south].map(axis=>axis[0]*p[0]+axis[1]*p[1]+axis[2]*p[2]);
+  const centre=[0,-(radius+altitude),0];
+  (moons??MOONS).forEach((moon,i)=>{
+    const p=moons?moon.position:moonPlanetPosition(moon,timeOfDay),local=[f.east,f.up,f.south].map(axis=>axis[0]*p[0]+axis[1]*p[1]+axis[2]*p[2]);
     out.set([centre[0]+local[0],centre[1]+local[1],centre[2]+local[2],moon.radius],48+i*4);
     out.set([...moon.tint,0],56+i*4);
   });

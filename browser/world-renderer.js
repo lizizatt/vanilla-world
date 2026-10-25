@@ -12,6 +12,7 @@ import {exhaustPoints,emitPlumes,emitDebris,emitHeatSmoke,emitGroundDust,emitWat
 import {beamState} from './beam.js';
 import {horizonDip} from './space.js';
 import {planetFactors} from './terrain-transition.js';
+import {planetFactorsFor,ELUNE} from './bodies.js';
 import {skyUniform,DAY} from './sky.js';
 import {eluneSkyAt,AIRLESS_SKY} from './elune-sky.js';
 import {SimClock,sanitiseScale,daylightAt,CloudClock} from './sim-clock.js';
@@ -22,7 +23,7 @@ import {buffer,texture,drawable,setFlags,setGates,releaseMaterial,release,upload
 import {destroyCraft,releaseCraft,buildCraft,startWreck,wreckChunk,endWreck,setProps,setCraftOverride} from './renderer-craft.js';
 import {reset,configure,event,clearFar} from './renderer-events.js';
 import {scenePipeline,prepareBatches,sceneMatrix,drawScene} from './renderer-scene.js';
-import {zoneBlend,setSky,setSkyDome,horizonColour,planetRects,drawPlanet,drawPatches,drawLights,drawSkyDome,sampleSky,noteLitInstance} from './renderer-sky.js';
+import {zoneBlend,setSky,setSkyDome,horizonColour,planetRects,drawPlanet,sharedFrame,drawPatches,drawLights,drawSkyDome,sampleSky,noteLitInstance} from './renderer-sky.js';
 import {drawShadow,enableHighClouds,highCloudGroup,maskEntries,drawClouds} from './renderer-clouds.js';
 import {initialize} from './renderer-init.js';
 const OCEAN_MESH_CEILING=90000;
@@ -41,6 +42,7 @@ export class WorldRenderer {
     return result;
   }
   constructor(canvas,device) {
+    this.sharedSpace=typeof location!=='undefined'&&new URLSearchParams(location.search).has('bodies');
     this.canvas=canvas;this.device=device;this.format=navigator.gpu.getPreferredCanvasFormat();
     this.context=canvas.getContext('webgpu');this.context.configure({device,format:this.format,alphaMode:'opaque'});
     this.tiles=new Map();this.seams=new Map();this.horizon=[];this.water=[];this.flags=[];this.gates=[];this.coast=new Map();this.indices=new Map();
@@ -88,6 +90,7 @@ export class WorldRenderer {
   refreshOcean(){return refreshOcean(this);}
   planetRects(){return planetRects(this);}
   drawPlanet(pass,pf,near){return drawPlanet(this,pass,pf,near);}
+  sharedFrame(){return sharedFrame(this);}
   drawPatches(pass){return drawPatches(this,pass);}
   drawLights(pass,pf){return drawLights(this,pass,pf);}
   drawSkyDome(pass){return drawSkyDome(this,pass);}
@@ -118,7 +121,7 @@ export class WorldRenderer {
     this.cameraLook=look;
     const aspect=width/height;
     this.view={eye:[this.camera[0]+origin[0],this.camera[1],this.camera[2]+origin[1]],right,up,look,aspect};
-    const planetOn=!!flight&&settings.planet!==false,pf=this.planet=planetFactors(planetOn?this.view.eye[1]:0,planetOn);pf.mesh=planetOn&&!!settings.globeMesh;pf.registry=planetOn&&!!settings.globeRegistry;
+    const planetOn=!!flight&&settings.planet!==false,pf=this.planet=this.manifest?.version===4?planetFactorsFor(ELUNE,planetOn?this.view.eye[1]:0,planetOn):planetFactors(planetOn?this.view.eye[1]:0,planetOn);pf.mesh=planetOn&&!!settings.globeMesh;pf.registry=planetOn&&!!settings.globeRegistry;
     const clock=this.clock??=new SimClock(DAY,1);
     clock.scale=flight?sanitiseScale(settings.timeScale):1;clock.step(dt);
     const cc=this.cloudClock??=new CloudClock(time);cc.step(dt,clock.scale);pf.flowScale=cc.stretch;pf.flowCycles=cc.cycles;

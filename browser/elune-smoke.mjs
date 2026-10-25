@@ -28,6 +28,11 @@ try{
   await writeFile(new URL('idle.png',out),await page.screenshot());
   await page.keyboard.down('w');await page.waitForTimeout(4000);await page.keyboard.up('w');
   await writeFile(new URL('driven.png',out),await page.screenshot());
+  await page.evaluate(()=>{window.worldTest.settings({planet:true,globeMesh:true});window.worldTest.timeLock(720);});
+  for(const [name,pose] of [['orbit-down',[0,40000,0,0,-1.45]],['low-up',[0,600,0,0,1.2]],['orbit-limb',[0,40000,0,0,-.35]]]){
+    await page.evaluate(p=>window.worldTest.focus(p),pose);await page.waitForTimeout(2500);
+    await writeFile(new URL(name+'.png',out),await page.screenshot());
+  }
   console.log('error panel:',await page.evaluate(()=>document.getElementById('error').textContent));
 }finally{await browser.close();server.close();}
 console.log('errors:',errors);

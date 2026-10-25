@@ -6,6 +6,8 @@ import {oceanMesh} from './ocean-mesh.js';
 import {splatHeights} from './height-bake.js';
 import {isLandTile,trimRimSpikes} from './land-rect.js';
 import {PLANET_RADIUS,WORLD_CENTRE} from './space.js';
+import {buildPlanetPipelines} from './renderer-init.js';
+import {ELUNE} from './bodies.js';
 import {AdmissionFade,terrainEdgeMask,readySceneInstances} from './renderer-helpers.js';
 const OCEAN_FILL=130000;
 export function reset(r) {
@@ -39,6 +41,7 @@ export function configure(r,manifest) {
   // Open ocean beyond the authored rectangle: the same water mesh extended to roughly half the planet circumference.
   const pad=OCEAN_FILL,[,,right,bottom]=manifest.ocean;
   r.landRects=[];if(manifest.version!==4){r.oceanSpec={manifest:{...manifest,ocean:[x-pad,z-pad,right+pad,bottom+pad],whirlpool:manifest.world_bounds&&maelstromCentre(manifest)},origin:[x-pad,z-pad]};r.oceanFill=r.drawable(oceanMesh(r.oceanSpec.manifest),r.oceanSpec.origin);r.water.push(r.oceanFill);}
+  if(manifest.version===4)void buildPlanetPipelines(r,ELUNE).catch(e=>console.error(e));
   const pending=r.pendingEvents;r.pendingEvents=[];
   for(const data of pending)r.event(data);
 }
