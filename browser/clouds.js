@@ -1,7 +1,7 @@
 // Procedural cumulus slab: one camera-following quad whose fragments march a short ray through a layer of
 // analytic noise density, with a maelstrom (eye, eye wall, spiral arms) around a vortex centre. No textures or extra passes.
 import {PLANET_RADIUS,WORLD_CENTRE,planetFrame} from './space.js';
-import {cloudShellRadius} from './terrain-transition.js';
+import {cloudShellRadius,CLOUD_RADIUS_GROUND_SCALE} from './terrain-transition.js';
 import {flowWGSL,FLOW,MASK,bakeLandMask} from './cloud-flow.js';
 import {createRegistry,defaultManifest} from './tile-registry.js';
 import {CLOUD_ALTITUDE,CLOUD_THICKNESS,CLOUD_HALF_SIZE,HYJAL_SUMMIT,CLOUD_ALTITUDE_FACTOR,CLOUD_TOWER,WHIRLPOOL_DIP,MAELSTROM,MAELSTROM_MAP,FUNNEL,FUNNEL_STEPS,tier} from './cloud-config.js';
@@ -26,6 +26,8 @@ export function sunDirection(timeOfDay) {
 export const SHELL_CURVATURE=1/PLANET_RADIUS;
 /** Curvature used for the shells at an eye altitude: flatter near the ground, the true 1/R from altitude (see cloudShellRadius). */
 export const shellCurvatureAt=altitude=>1/cloudShellRadius(altitude,PLANET_RADIUS);
+/** 0 (flat ground) .. 1 (globe): the terrain bend weight, recovered from the shell curvature exactly as the shader's shellBend(). */
+export const shellBendFromCurvature=k=>{const g=1/CLOUD_RADIUS_GROUND_SCALE;return Math.min(Math.max((k*PLANET_RADIUS-g)/(1-g),0),1);};
 export function cloudUniform(view,time,daylight,manifest,near,game,out=new Float32Array(60),timeOfDay=1440,planet={bend:0,space:0}) {
   const [x,z]=maelstromCentre(manifest),sun=sunDirection(timeOfDay);
   out.set([...view.eye,200000,...view.right,view.aspect,...view.up,time,...view.look,daylight,x,z,CLOUD_ALTITUDE,CLOUD_HALF_SIZE,near]);
@@ -84,7 +86,14 @@ fn worldAt(rel:vec3f)->vec3f {
   let n=vec3f(sin(theta)*hx.x,cos(theta),sin(theta)*hx.y);
   let pv=c.fe.xyz*n.x+c.fu.xyz*n.y+c.fs.xyz*n.z;
   let lat=asin(clamp(pv.y,-1.0,1.0));let lon=atan2(pv.z,pv.x);
-  return vec3f(c.fe.w+c.fs.w*lon,h,c.fu.w-c.fs.w*lat);
+  let flat=c.eye.xz+hx*(thetaE/k);
+  let b=shellBend();
+  return vec3f(mix(flat.x,c.fe.w+c.fs.w*lon,b),h,mix(flat.y,c.fu.w-c.fs.w*lat,b));
+}
+// How far the terrain bend has curved the ground onto the globe (0 flat .. 1 globe), recovered from the shell curvature so clouds blend flat/equirect exactly as the terrain does.
+fn shellBend()->f32 {
+  let g=${1/CLOUD_RADIUS_GROUND_SCALE};
+  return clamp((c.bend.x*${PLANET_RADIUS}.0-g)/(1.0-g),0.0,1.0);
 }
 fn vnoise(p:vec2f)->f32 {
   let i=floor(p);let f=fract(p);let s=f*f*(3.0-2.0*f);
@@ -174,15 +183,27 @@ fn radius(h:f32,y:f32)->f32 {
 }
 // Inverse of worldAt: a flat world point (x, height, z) -> eye-relative render-frame position on the curved shells, so the funnel sits on the same
 // equirectangular globe mapping as the cloud sheets and the globe.
-fn shellFwd(w:vec3f)->vec3f {
+fn shellFwdAt(w:vec3f,b:f32)->vec3f {
   let k=c.bend.x;
   let lon=(w.x-c.fe.w)/c.fs.w;let lat=-(w.z-c.fu.w)/c.fs.w;
   let pv=vec3f(cos(lat)*cos(lon),sin(lat),cos(lat)*sin(lon));
   let n=vec3f(dot(pv,c.fe.xyz),dot(pv,c.fu.xyz),dot(pv,c.fs.xyz));
-  let thE=acos(clamp(n.y,-1.0,1.0))*k*${PLANET_RADIUS}.0;
-  let hl=length(n.xz);let hx=select(vec2f(1.0,0.0),n.xz/hl,hl>1e-6);
+  let thG=acos(clamp(n.y,-1.0,1.0))*k*${PLANET_RADIUS}.0;
+  let hg=length(n.xz);let dg=select(vec2f(1.0,0.0),n.xz/hg,hg>1e-6);
+  let df=w.xz-c.eye.xz;let lf=length(df);
+  let thF=lf*k;let dfl=select(vec2f(1.0,0.0),df/lf,lf>1e-3);
+  let th=mix(thF,thG,b);let hx=normalize(mix(dfl,dg,b)+vec2f(1e-6,0.0));
   let Re=1.0/k;let r=Re+w.y;
-  return vec3f(hx.x*r*sin(thE),r*cos(thE)-Re-c.eye.y,hx.y*r*sin(thE));
+  return vec3f(hx.x*r*sin(th),r*cos(th)-Re-c.eye.y,hx.y*r*sin(th));
+}
+// The blended mapping has no closed inverse, so refine the guess by the horizontal error of worldAt (exact at b = 0 and 1).
+fn shellFwd(w:vec3f)->vec3f {
+  let b=shellBend();
+  var t=w;var p=shellFwdAt(t,b);
+  if(b>0.0&&b<1.0){
+    for(var i=0;i<2;i++){let e=worldAt(p);t=vec3f(t.x-(e.x-w.x),w.y,t.z-(e.z-w.z));p=shellFwdAt(t,b);}
+  }
+  return p;
 }
 fn funnelDensity(pos:vec3f,t:f32)->vec2f {
   let h=clamp((pos.y-BASE)/(TOP-BASE),0.0,1.0);

@@ -4,8 +4,8 @@
 // noise (the texture is baked from the same kind of value noise), so High geometry (towers, 28 steps, light tap) is covered, its noise is not.
 import {sphereAt,vnoise3,bandCoverage,flowShift,flowPhase,FLOW,maskAt,landCoverage,landDrag} from './cloud-flow.js';
 import {CLOUD_ALTITUDE,CLOUD_THICKNESS,CLOUD_HALF_SIZE,MAELSTROM as M,tier} from './cloud-config.js';
-import {sunDirection,shellCurvatureAt} from './clouds.js';
-import {PLANET_RADIUS} from './space.js';
+import {sunDirection,shellCurvatureAt,shellBendFromCurvature} from './clouds.js';
+import {PLANET_RADIUS,WORLD_CENTRE,planetFrame} from './space.js';
 
 export const FADE_START=30000,FOG_RANGE=150000,SPAN_PER_DISTANCE=.3;
 export const MIN_SPAN=tier(false).minSpan;
@@ -90,10 +90,14 @@ const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
 
 /** Mirror of the WGSL upAt/worldAt for the always-curved layer: eye-relative point -> local up, and -> world (x, height, z) on the planet mapping. */
 const upAt=(eyeY,rel)=>{const k=shellCurvatureAt(eyeY),n=[k*rel[0],1+k*(rel[1]+eyeY),k*rel[2]],l=Math.hypot(...n);return n.map(v=>v/l);};
-function worldAt(eye,rel) {
+export function worldAt(eye,rel) {
   const k=shellCurvatureAt(eye[1]),u=rel[1]+eye[1],hd2=rel[0]*rel[0]+rel[2]*rel[2],ry=1+k*u,qs=Math.sqrt(k*k*hd2+ry*ry);
-  const h=(k*hd2+u*(2+k*u))/(qs+1),hd=Math.sqrt(hd2),arc=Math.atan2(k*hd,ry)/k;
-  return hd>1e-3?[eye[0]+rel[0]/hd*arc,h,eye[2]+rel[2]/hd*arc]:[eye[0],h,eye[2]];
+  const h=(k*hd2+u*(2+k*u))/(qs+1),hd=Math.sqrt(hd2),thetaE=Math.atan2(k*hd,ry);
+  if(hd<=1e-3)return [eye[0],h,eye[2]];
+  const hx=[rel[0]/hd,rel[2]/hd],theta=thetaE/(k*PLANET_RADIUS),f=planetFrame(eye[0],eye[2]),s=Math.sin(theta),c=Math.cos(theta);
+  const n=[s*hx[0],c,s*hx[1]],pv=[0,1,2].map(i=>f.east[i]*n[0]+f.up[i]*n[1]+f.south[i]*n[2]);
+  const lat=Math.asin(Math.min(Math.max(pv[1],-1),1)),lon=Math.atan2(pv[2],pv[0]),b=shellBendFromCurvature(k),arc=thetaE/k;
+  return [mix(eye[0]+hx[0]*arc,WORLD_CENTRE[0]+PLANET_RADIUS*lon,b),h,mix(eye[2]+hx[1]*arc,WORLD_CENTRE[1]-PLANET_RADIUS*lat,b)];
 }
 /** Ray extent through the curved layer: start, end, whether the end was cut by the span cap (not by leaving the layer), and the scene-depth soft edge. */
 export function extent(eyeY,dirY,sceneDist,high,far=1e8) {
