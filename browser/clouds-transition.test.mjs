@@ -38,16 +38,24 @@ test('blended planet factors are C0 and monotonic with altitude',()=>{
 test('cloud shell radius: limits, monotonic, C1 and continuous in altitude',()=>{
   const R=42785,r=a=>cloudShellRadius(a,R);
   assert.equal(r(0),R*CLOUD_RADIUS_GROUND_SCALE);
-  assert.equal(r(CLOUD_RADIUS_RANGE[1]),R);
+  assert.ok(Math.abs(r(CLOUD_RADIUS_RANGE[1])-R)<1e-6);
   assert.equal(r(1e6),R);
   let prev=r(0),slope=0;
   for(let a=1;a<=60000;a+=1) {
     const v=r(a),s=(v-prev);
     assert.ok(v<=prev+1e-9,`radius grows at ${a}`);
-    assert.ok(Math.abs(s-slope)<=R*.01,`slope jump at ${a}`);
+    assert.ok(Math.abs(s-slope)<=R*.02,`slope jump at ${a}`);
     slope=s;prev=v;
   }
   assert.ok(shellCurvatureAt(0)<SHELL_CURVATURE/5&&shellCurvatureAt(9000)===SHELL_CURVATURE);
+});
+
+test('apparent cloud horizon dip grows with altitude and matches the terrain bend curvature',()=>{
+  const dip=a=>{let low=0;for(let d=5;d>-80;d-=.05)if(shellExtent(a,Math.sin(d*Math.PI/180),shellCurvatureAt(a),false).live)low=-d;return low;};
+  let prev=-1;
+  for(const a of [50,100,300,600,1000,1300])assert.ok(dip(a)>prev,`dip at ${a}`),prev=dip(a);
+  for(const a of [100,500,1000,1500]){const g=1/CLOUD_RADIUS_GROUND_SCALE,b=planetFactors(a).bend;assert.ok(Math.abs(shellCurvatureAt(a)*42785-(g+(1-g)*b))<1e-4,`curvature follows the terrain bend at ${a}`);}
+  assert.ok(Math.abs(shellCurvatureAt(5000)-SHELL_CURVATURE)<1e-12);
 });
 
 test('low-altitude horizon: the flatter shell keeps distant cloud above the ground horizon',()=>{

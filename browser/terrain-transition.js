@@ -15,10 +15,10 @@ const ramp=(range,altitude)=>fix(smooth(range[0],range[1],altitude));
 export const wgslRamp=range=>`smoothstep(${range[0].toFixed(1)},${range[1].toFixed(1)},`;
 
 // The cloud shell's rendered radius is CLOUD_RADIUS_GROUND_SCALE x the planet radius at the ground and relaxes (smoothstep, C1, monotonic) to the true radius by CLOUD_RADIUS_RANGE[1],
-// so the horizon cloud arc is flat near the ground and matches the globe from altitude up.
-export const CLOUD_RADIUS_RANGE=Object.freeze([150,8000]);
+// following the terrain bend ramp so the clouds curve exactly as much as the terrain below them (curvature, not radius, is blended) and match the globe from BEND_RANGE[1] up.
+export const CLOUD_RADIUS_RANGE=BEND_RANGE;
 export const CLOUD_RADIUS_GROUND_SCALE=12;
-export const cloudShellRadius=(altitude,planetRadius)=>planetRadius*(1+(CLOUD_RADIUS_GROUND_SCALE-1)*(1-smooth(CLOUD_RADIUS_RANGE[0],CLOUD_RADIUS_RANGE[1],altitude)));
+export const cloudShellRadius=(altitude,planetRadius)=>planetRadius/(1/CLOUD_RADIUS_GROUND_SCALE+(1-1/CLOUD_RADIUS_GROUND_SCALE)*smooth(CLOUD_RADIUS_RANGE[0],CLOUD_RADIUS_RANGE[1],altitude));
 
 /** Fade factors for an altitude: bend (terrain curvature), globe (sphere alpha), space (black sky, stars), zone (per-zone lighting). Clouds have no ramp of their own: the curved layer is always drawn. */
 export function planetFactors(altitude,enabled=true) {
