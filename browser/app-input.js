@@ -4,7 +4,6 @@ const {canvas,keys,input,settings,mapPanel}=app;
 const $=id=>document.getElementById(id);
 canvas.addEventListener('keydown',event=>{
   if(!event.repeat && event.code==='KeyK' && event.ctrlKey && event.altKey && app.running){event.preventDefault();app.testCrash();return;}
-  if(!event.repeat && event.code==='KeyN' && !event.ctrlKey && !event.altKey && !event.metaKey)app.setNight(!settings.night);
   if(!event.repeat && event.code==='KeyM' && !event.ctrlKey && !event.altKey && !event.metaKey && app.running){event.preventDefault();mapPanel.toggle();}
   if(!event.repeat && event.code==='KeyU' && !event.ctrlKey && !event.altKey && !event.metaKey && app.running && !app.flight){event.preventDefault();$('unstuck').click();return;}
   if(!event.repeat && event.code==='KeyG' && !event.ctrlKey && !event.altKey && !event.metaKey && app.running){event.preventDefault();app.openGarage();return;}

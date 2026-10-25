@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {SimClock,simDelta,wrapTime,sanitiseScale,daylightAt,DAY_PERIOD,NOON,TIME_SCALES} from './sim-clock.js';
+import {SimClock,simDelta,istText,wrapTime,sanitiseScale,daylightAt,DAY_PERIOD,NOON,TIME_SCALES} from './sim-clock.js';
 import {sunDirection} from './clouds.js';
 import {sunShadow} from './shadow.js';
 
 test('scale converts real seconds to sim minutes and pause freezes', () => {
-  assert.equal(simDelta(1,60),1);
-  const c=new SimClock(NOON,100);c.step(0.6);assert.ok(Math.abs(c.dt-1)<1e-9);assert.ok(Math.abs(c.now()-(NOON+1))<1e-9);
+  assert.equal(simDelta(1,1),2);
+  const c=new SimClock(NOON,100);c.step(0.5);assert.ok(Math.abs(c.dt-100)<1e-9);assert.ok(Math.abs(c.now()-(NOON+100))<1e-9);
   c.scale=0;const t=c.now();c.step(5);assert.equal(c.now(),t);assert.equal(c.dt,0);
 });
 test('time wraps over the period and bad scales fall back', () => {
@@ -15,10 +15,8 @@ test('time wraps over the period and bad scales fall back', () => {
   for(const s of TIME_SCALES)assert.equal(sanitiseScale(s),s);
   const c=new SimClock(DAY_PERIOD-1,1000);c.step(1);assert.ok(c.now()>=0&&c.now()<DAY_PERIOD);
 });
-test('easeTo reaches the target then free-runs', () => {
-  const c=new SimClock(NOON,1);c.easeTo(0);let n=0;
-  while(c.target!==undefined&&n++<1000)c.step(1/60);
-  assert.equal(c.now(),0);assert.ok(n<200);c.step(60);assert.ok(c.now()>0);
+test('IST readout: noon 12:00, midnight 00:00, wraps', () => {
+  assert.equal(istText(NOON),'12:00 IST');assert.equal(istText(0),'00:00 IST');assert.equal(istText(DAY_PERIOD-1),'23:59 IST');assert.equal(istText(720),'06:00 IST');
 });
 test('sun is overhead at noon, below the horizon at midnight, and moves continuously', () => {
   assert.ok(sunDirection(NOON)[1]>.9);assert.ok(sunDirection(0)[1]<-.9);

@@ -3,11 +3,14 @@
 One authoritative clock, `SimClock` in `sim-clock.js`, owned by `WorldRenderer` (`renderer.clock`).
 
 - `clock.now()` – sim time of day in minutes, period `DAY_PERIOD` = 2880. 1440 = noon (sun overhead), 0 = midnight.
-- `clock.dt` – sim minutes elapsed this frame (real `dt` × scale / 60); 0 when paused.
-- `scale` – sim seconds per real second: 0 (pause), 1, 10, 100, 1000. Stored in `settings.timeScale`, persisted in
+- `clock.dt` – sim units elapsed this frame (real `dt` × scale × 2); 0 when paused.
+- `scale` – multiplier: 0 (pause), 1, 10, 100, 1000. Stored in `settings.timeScale`, persisted in
   `localStorage` (`racer.timeScale`) and carried in the F8 pose link (`time` + `settings.timeScale`).
 - `timeLock` (pose import / test hook) pins `now()`; the clock keeps running underneath so unlocking resumes.
-- Night toggle eases the clock to midnight/noon (`easeTo`), then free-runs.
+- Day/night is always on: the clock never stops (starts at noon) and there is no night toggle; the old `night` setting and pose field are ignored.
+- 1x = one game minute per real second (24 min day); units are half-minutes (`UNITS_PER_SECOND` = 2).
+- The speed slider is a top-of-screen control shown only in fly mode; outside fly mode the clock runs at 1x without changing the stored `settings.timeScale`.
+- Top-of-screen readout shows `HH:MM IST` (Ironforge Standard Time) from `istText(clock.now())`; music night/day follows `daylightAt`.
 
 Sun direction is `sunDirection(timeOfDay)` (clouds.js) and is the single source for the sky, cloud march, planet
 terminator (`spaceUniform`), craft shadow direction/strength, and `daylight` (`daylightAt(now)`). The planet terminator
