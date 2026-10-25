@@ -52,3 +52,9 @@ test('moonAdt yields a valid ADT-sized buffer with 256 chunks', () => {
 test('albedo is a plausible lavender-silver regolith', () => {
   for(let i=0;i<20;i++){const [x,y,z]=chartDir(i*900,i*200-2000),c=moonAlbedo(1,x,y,z);assert.ok(c.every(v=>v>.15&&v<.95));}
 });
+
+test('every MCNK carries the synthetic Elune area id at +0x34', async () => {
+  const {ELUNE_AREA}=await import('./moon-terrain.js');const a=moonAdt(1,30,15),v=new DataView(a.buffer,a.byteOffset);
+  let p=0,seen=0;while(p<a.length){const n=v.getUint32(p+4,true);if(String.fromCharCode(a[p+3],a[p+2],a[p+1],a[p])==='MCNK'){assert.equal(v.getUint32(p+8+0x34,true),ELUNE_AREA);seen++;}p+=8+n;}
+  assert.equal(seen,256);
+});

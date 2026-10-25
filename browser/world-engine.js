@@ -1,4 +1,5 @@
 import init,{Voyage,world_manifest} from './pkg/flats_racer_web.js';
+import * as pkg from './pkg/flats_racer_web.js';
 import * as wasmTypes from './pkg/flats_racer_web.js';
 import {openAssetSource} from './asset-channel.js';
 import {SceneStream,SCENE_LIMITS,transformedBounds,globalCollisionVertices,sceneReady} from './scene-stream.js';
@@ -678,14 +679,15 @@ export async function openWorld(message) {
     source=await openAssetSource(message.folder,undefined,data=>postMessage(data,data.rgba?[data.rgba.buffer]:[]),
       {loadingArt:true,map:message.loadingMap});
     report('World and archive workers ready');
+    const moon=message.body==='elune';
     const wdts=[],wdls=[];
-    for(const map of ['Kalimdor','Azeroth']) {
-      report(`Reading ${map} topology and terrain`,{stage:'topology',completed:wdts.length+wdls.length,total:4});
+    for(const map of moon?['Elune']:['Kalimdor','Azeroth']) {
+      report(`Reading ${map} topology and terrain`,{stage:'topology',completed:wdts.length+wdls.length,total:moon?2:4});
       wdts.push(await source.read(`World\\Maps\\${map}\\${map}.wdt`));
-      report(`Reading ${map} topology and terrain`,{stage:'topology',completed:wdts.length+wdls.length,total:4});
+      report(`Reading ${map} topology and terrain`,{stage:'topology',completed:wdts.length+wdls.length,total:moon?2:4});
       wdls.push(await source.read(`World\\Maps\\${map}\\${map}.wdl`));
     }
-    const json=world_manifest(wdts[0],wdls[0],wdts[1],wdls[1]);
+    const json=moon?pkg.moon_manifest(wdts[0],wdls[0]):world_manifest(wdts[0],wdls[0],wdts[1],wdls[1]);
     manifest=JSON.parse(json);
     world=new Voyage(json);
     if(manifest.world_bounds){const [x,z]=maelstromCentre(manifest);world.set_whirlpool(x,z,WHIRLPOOL_DIP.radius,WHIRLPOOL_DIP.depth);}

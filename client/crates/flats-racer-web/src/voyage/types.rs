@@ -75,7 +75,68 @@ pub struct Manifest {
 }
 
 impl Manifest {
+    /// Version 4: a single airless body (Elune): one region, no ocean, no second continent.
+    fn validate_body(&self) -> Result<(), String> {
+        let [r] = self.regions.as_slice() else {
+            return Err("A body manifest has exactly one region".into());
+        };
+        let [h] = self.horizons.as_slice() else {
+            return Err("A body manifest has exactly one horizon".into());
+        };
+        if r.id.is_empty()
+            || r.id.len() > 64
+            || r.map != "Elune"
+            || r.tile_count.contains(&0)
+            || r.tile_count.iter().any(|&n| n > 64)
+            || r.tile_origin
+                .iter()
+                .zip(r.tile_count)
+                .any(|(&a, n)| a >= 64 || a + n > 64)
+            || r.placement.iter().any(|v| !v.is_finite() || v.abs() > 1.0e12)
+            || self.tiles.is_empty()
+            || self.tiles.len() > 4096
+            || self.label.len() > 120
+            || !self.sea_level.is_finite()
+            || self.spawn[1].abs() > 10_000.0
+            || self.spawn.iter().any(|v| !v.is_finite() || v.abs() > 1.0e12)
+            || !contains(r.bounds(), [self.spawn[0], self.spawn[2]])
+        {
+            return Err("Invalid body manifest".into());
+        }
+        if h.region != 0
+            || h.file != format!("{}.wdl", r.map)
+            || h.bytes == 0
+            || h.bytes > 5 * 1024 * 1024
+            || h.sha256.len() != 64
+            || !h.sha256.bytes().all(|c| c.is_ascii_hexdigit())
+            || h.source_bounds.iter().any(|&n| n > 64)
+            || h.source_bounds[0] >= h.source_bounds[2]
+            || h.source_bounds[1] >= h.source_bounds[3]
+        {
+            return Err("Invalid WDL horizon descriptor".into());
+        }
+        let mut names = std::collections::HashSet::new();
+        for t in &self.tiles {
+            if t.region != 0
+                || t.file != format!("{}_{}_{}.adt", r.map, t.x, t.y)
+                || !names.insert(&t.file)
+                || t.bytes > 16 * 1024 * 1024
+                || !t.sha256.bytes().all(|c| c.is_ascii_hexdigit())
+                || t.x < r.tile_origin[0]
+                || t.x >= r.tile_origin[0] + r.tile_count[0]
+                || t.y < r.tile_origin[1]
+                || t.y >= r.tile_origin[1] + r.tile_count[1]
+            {
+                return Err("Invalid body tile descriptor".into());
+            }
+        }
+        Ok(())
+    }
+
     pub fn validate(&self) -> Result<(), String> {
+        if self.version == 4 {
+            return self.validate_body();
+        }
         if let Some(bounds) = self.world_bounds {
             if bounds
                 .iter()
