@@ -21,7 +21,7 @@ export const ready=init().then(exports=>(wasm=exports));
 export let world,source,manifest,placements,scene,terrain,water,accumulator=0,queue=Promise.resolve();
 // Every queued job runs strictly after the previous one; scheduled timers and message handlers share this chain.
 export const enqueue=job=>{queue=queue.then(job);return queue;};
-let poseTime,areaTime=-1e9,areaId=0,actors,actorFocus,actorRegion=0,actorsOn=true;
+let poseTime,flightFocus,areaTime=-1e9,areaId=0,actors,actorFocus,actorRegion=0,actorsOn=true;
 export const setActorsOn=on=>{actorsOn=on;if(actors)actors.enabled=on;};
 // Total residency budget in bytes; each stream gets its share (memory-budget.js). Zero keeps the built-in defaults.
 let memoryBudget=0;
@@ -637,7 +637,7 @@ export function snapshot() {
   horizon.wasmPeakBytes=Math.max(horizon.wasmPeakBytes,wasm.memory.buffer.byteLength);
   const terrainState=terrain.snapshot();
   const clock=performance.now();
-  if(clock-areaTime>500){areaTime=clock;areaId=world.area();}
+  if(clock-areaTime>500){areaTime=clock;areaId=flightFocus?world.area_at(flightFocus[0],flightFocus[1]):world.area();}
   return {telemetry:Array.from(world.telemetry()),area:areaId,poseTime,hopConsumed,resident:Array.from(resident),nearTerrain:{total:lastNearby.length,resident:lastNearby.filter(i=>resident.has(i)).length},required:Array.from(world.required_tiles()),
     failures:Array.from(failures.values()),loads,evictions,peak,limit:LIMIT,horizon,source:source.stats,
     scene:sceneState?{instances:sceneState.instances.length,assets:sceneState.cachedAssets,bytes:sceneState.cachedBytes,
@@ -723,7 +723,7 @@ export function requireWorld() {
 export async function runFrame(message) {
     {
     const started=performance.now();
-    const p=world.telemetry(),focus=message.focus || Array.from(p.slice(0,3));
+    const p=world.telemetry(),focus=message.focus || Array.from(p.slice(0,3));flightFocus=message.focus?[message.focus[0],message.focus[2]]:undefined;
     if(!Array.isArray(focus)||focus.length!==3||!focus.every(v=>Number.isFinite(v)&&Math.abs(v)<1e12))throw new Error('Invalid world focus');
     prepareDistant(focus,message.distant!==false,!!message.focus,message.view);
     const frameLoads=loads;

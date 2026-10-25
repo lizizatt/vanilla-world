@@ -61,11 +61,11 @@ const client=new WorldClient(data=>{
     }
     else {
       cameraCollision.event(data);
-      if(data.event==='collision')app.renderer.clipCamera=(pivot,point,origin)=>{
+      if(data.event==='collision'){app.renderer.cameraFloor=(x,y,z)=>cameraCollision.floorY(x,y,z);app.renderer.clipCamera=(pivot,point,origin)=>{
         const pointWithClearance=cameraCollision.clip(pivot,point,origin);
         app.renderer.cameraCollisionReady=cameraCollision.ready;
         return pointWithClearance;
-      };
+      };}
       else app.renderer.event(data);
     }
     return true;

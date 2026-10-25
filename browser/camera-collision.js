@@ -99,6 +99,18 @@ export class CameraCollision {
       this.pending.push([-max[1]+dx-pad,min[2]-pad,-max[0]+dz-pad,-min[1]+dx+pad,max[2]+pad,-min[0]+dz+pad]);
     }
   }
+  /** Lowest allowed camera height at world (x,z): the terrain surface or the sea, whichever is higher, plus clearance. Only terrain tiles count, so tunnels and WMOs stay flyable. */
+  floorY(x,y,z,clearance=.5) {
+    const sea=(this.manifest?.sea_level??0)+clearance,top=y+200;
+    let hit=Infinity;
+    for(const tile of this.tiles.values()) {
+      const [px,pz]=tile.placement,lx=x-px,lz=z-pz;
+      if(lx<0||lx>=TILE||lz<0||lz>=TILE)continue;
+      const bucket=cell(lz)*CELLS+cell(lx),local=[lx,top,lz],direction=[0,-200,0];
+      for(let i=tile.offsets[bucket];i<tile.offsets[bucket+1];i++)hit=Math.min(hit,triangleHit(tile.vertices,tile.triangles[i],local,direction));
+    }
+    return Math.max(sea,hit<Infinity?top-200*hit+clearance:-Infinity);
+  }
   clip(pivot,point,origin) {
     const from=[pivot[0]+origin[0],pivot[1],pivot[2]+origin[1]],direction=point.map((n,i)=>n-pivot[i]);
     let length=Math.hypot(...direction);if(length<1e-9)return point;
