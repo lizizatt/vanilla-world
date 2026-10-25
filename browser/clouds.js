@@ -20,14 +20,14 @@ export function sunDirection(timeOfDay) {
   return v.map(x=>x/n);
 }
 
-// Curvature is only applied once the terrain bend has started (bend >= .003), so ground flight and driving keep the flat sheet.
-// kappa = bend / R is the curvature of the cloud shells (1 / yd); space blends the fade/fog distance origin to the shell entry.
-export const shellCurvature=bend=>bend>=.003?bend/PLANET_RADIUS:0;
+// The cloud layer is always the curved shell at true planet radius (no flat path), at every altitude down to the ground.
+// kappa = 1 / R is the curvature of the cloud shells (1 / yd); space blends the fade/fog distance origin to the shell entry.
+export const SHELL_CURVATURE=1/PLANET_RADIUS;
 export function cloudUniform(view,time,daylight,manifest,near,game,out=new Float32Array(60),timeOfDay=1440,planet={bend:0,space:0}) {
   const [x,z]=maelstromCentre(manifest),sun=sunDirection(timeOfDay);
   out.set([...view.eye,200000,...view.right,view.aspect,...view.up,time,...view.look,daylight,x,z,CLOUD_ALTITUDE,CLOUD_HALF_SIZE,near]);
   const f=planetFrame(view.eye[0],view.eye[2]);
-  out.set([shellCurvature(planet.bend),planet.space,planet.flowScale??1,planet.flowCycles??(time/FLOW.period)%1],44);
+  out.set([SHELL_CURVATURE,planet.space,planet.flowScale??1,planet.flowCycles??(time/FLOW.period)%1],44);
   out.set([...f.east,WORLD_CENTRE[0],...f.up,WORLD_CENTRE[1],...f.south,PLANET_RADIUS],48);
   out.set([...sun,sun[1]],32);out.set([1,.96,.88,0],36);out.set([.55,.6,.7,0],40);
   // Zone lighting fades to the global sun/sky look by the lowest cloud base (planet.zone 1..0), so orbit is lit by the sun alone.
@@ -67,11 +67,10 @@ fn upAt(rel:vec3f)->vec3f {
   let k=c.bend.x;
   return normalize(vec3f(k*rel.x,1.0+k*(rel.y+c.eye.y),k*rel.z));
 }
-// Eye-relative point -> world (x, height, z). Flat when kappa = 0. Otherwise heights are above the shells' sea level and the horizontal position
+// Eye-relative point -> world (x, height, z). Heights are above the shells' sea level and the horizontal position
 // is the equirectangular planet mapping (same as the globe), with the arc scaled from the effective radius to the true one.
 fn worldAt(rel:vec3f)->vec3f {
   let k=c.bend.x;
-  if(k<=0.0){return c.eye.xyz+rel;}
   let u=rel.y+c.eye.y;let hd2=dot(rel.xz,rel.xz);
   let ry=1.0+k*u;let qs=sqrt(k*k*hd2+ry*ry);
   let h=(k*hd2+u*(2.0+k*u))/(qs+1.0);
@@ -171,10 +170,9 @@ fn radius(h:f32,y:f32)->f32 {
   return mix(${F.skirtRadius.toFixed(1)},up,pow(smoothstep(SEA,BASE,y),.5));
 }
 // Inverse of worldAt: a flat world point (x, height, z) -> eye-relative render-frame position on the curved shells, so the funnel sits on the same
-// equirectangular globe mapping as the cloud sheets and the globe (flat and unchanged when kappa = 0).
+// equirectangular globe mapping as the cloud sheets and the globe.
 fn shellFwd(w:vec3f)->vec3f {
   let k=c.bend.x;
-  if(k<=0.0){return w-c.eye.xyz;}
   let lon=(w.x-c.fe.w)/c.fs.w;let lat=-(w.z-c.fu.w)/c.fs.w;
   let pv=vec3f(cos(lat)*cos(lon),sin(lat),cos(lat)*sin(lon));
   let n=vec3f(dot(pv,c.fe.xyz),dot(pv,c.fu.xyz),dot(pv,c.fs.xyz));
@@ -219,31 +217,23 @@ const NF=${FUNNEL_STEPS};
   // Sheet slab extent.
   var s0=0.0;var s1=0.0;var ns=0;var sEdge=1.0;var capped=false;var sFull=0.0;var live=true;
   let ya=c.cloud.z-THICK*.5-DOWN;let yb=c.cloud.z+THICK*.5+UP;
-  let shell=c.bend.x>0.0;
-  // Near-horizontal rays are clamped to a minimum slope so the horizon has no gap; a march cut by the span cap fades out instead of ending hard.
-  if(shell){
-    // Curved layer: inside the outer shell and outside the inner one, first contiguous piece along the ray.
-    // Looking level or down, the inner limb uses the nominal base: the downward billows (DOWN) would put a low eye inside the slab and cut the sheet at a hard line below it.
-    let O=shellRoots(c.eye.y,dir.y,yb);let I=shellRoots(c.eye.y,dir.y,ya+DOWN*(1.0-smoothstep(0.0,.12,dir.y)));
-    let G=shellRoots(c.eye.y,dir.y,0.0);let gHit=c.eye.y>0.0&&G.x>0.0&&G.x<=G.y;
-    s0=max(O.x,0.0);sFull=select(O.y,min(O.y,G.x),gHit);live=O.x<=O.y;
-    if(I.x<=I.y){
-      if(I.x>s0){
-        if(I.y<sFull&&sFull-I.y>.25*(min(sFull,I.x)-s0)){s0=I.y;}else{sFull=min(sFull,I.x);}
-      }else if(I.y>s0){s0=I.y;}
-    }
-    live=live&&sFull>s0;
-    // A ray that reaches the sea-level sphere ends there: the far-side layer behind the planet is never visible.
-    if(gHit){live=live&&s0<G.x;}
-  } else {
-    let dy=select(select(-.0005,.0005,dir.y>=0.0),dir.y,abs(dir.y)>=.0005);
-    let ta=(ya-c.eye.y)/dy;let tb=(yb-c.eye.y)/dy;
-    s0=max(0.0,min(ta,tb));sFull=max(ta,tb);
+  // Curved layer (a march cut by the span cap fades out instead of ending hard): inside the outer shell and outside the inner one, first contiguous piece along the ray.
+  // Looking level or down, the inner limb uses the nominal base: the downward billows (DOWN) would put a low eye inside the slab and cut the sheet at a hard line below it.
+  let O=shellRoots(c.eye.y,dir.y,yb);let I=shellRoots(c.eye.y,dir.y,ya+DOWN*(1.0-smoothstep(0.0,.12,dir.y)));
+  let G=shellRoots(c.eye.y,dir.y,0.0);let gHit=c.eye.y>0.0&&G.x>0.0&&G.x<=G.y;
+  s0=max(O.x,0.0);sFull=select(O.y,min(O.y,G.x),gHit);live=O.x<=O.y;
+  if(I.x<=I.y){
+    if(I.x>s0){
+      if(I.y<sFull&&sFull-I.y>.25*(min(sFull,I.x)-s0)){s0=I.y;}else{sFull=min(sFull,I.x);}
+    }else if(I.y>s0){s0=I.y;}
   }
+  live=live&&sFull>s0;
+  // A ray that reaches the sea-level sphere ends there: the far-side layer behind the planet is never visible.
+  if(gHit){live=live&&s0<G.x;}
   let sCap=s0+max(${tier(high).minSpan.toFixed(1)},.3*s0);s1=min(sFull,sCap);
   if(sceneDist<1e8){sEdge=smoothstep(0.0,350.0,sceneDist-s0);s1=min(s1,sceneDist);}
   capped=sFull>sCap&&s1==sCap;let cutK=smoothstep(0.0,.5,(sFull-sCap)/max(sCap-s0,1.0));
-  if(live&&s1>s0&&sEdge>0.0&&s0<select(c.cloud.w,1e8,shell)){ns=NS;}
+  if(live&&s1>s0&&sEdge>0.0&&s0<1e8){ns=NS;}
   // Funnel cylinder-and-height extent.
   var f0=0.0;var f1=1e9;var nf=NF;var fEdge=1.0;
   let oc=shellFwd(vec3f(c.cloud.x,0.0,c.cloud.y));let o=-oc.xz;let dxz=dir.xz;
@@ -258,7 +248,7 @@ const NF=${FUNNEL_STEPS};
     f0=max(f0,min(ta,tb));f1=min(f1,max(ta,tb));
   } else if(SEA+oc.y-120.0>0.0||TOP+oc.y+120.0<0.0){nf=0;}
   // Far from the funnel on a curved planet its axis tilts by d/R, so the vertical cylinder above misses it: bound it with a sphere in the render frame instead.
-  if(c.bend.x>0.0&&length(oc.xz)>6000.0){
+  if(length(oc.xz)>6000.0){
     let mid=.5*(SEA+TOP);let sc=shellFwd(vec3f(c.cloud.x,mid,c.cloud.y));
     let sr=sqrt(pow(.5*(TOP-SEA)+120.0,2.0)+R*R);let so=-sc;
     let sb=dot(so,dir);let sd=sb*sb-(dot(so,so)-sr*sr);
@@ -291,7 +281,7 @@ const NF=${FUNNEL_STEPS};
       let absorb=(1.0-exp(-s.x*ss*.008))*w;
       ${high?HIGH_TAP:'let shade=1.0;'}
       let lit=mix(.62,1.0,hf)*mix(.75,1.0,s.y)*(.7+.3*trans)*shade;
-      let sunY=select(c.sun.w,dot(upAt(rel),c.sun.xyz),shell);
+      let sunY=dot(upAt(rel),c.sun.xyz);
       let day=smoothstep(-.1,.25,sunY);
       let under=select(vec3f(.55,.60,.70),c.cloud2.rgb,game);
       let lite=mix(vec3f(.98,.97,.95),c.sunCol.rgb,.5*(1.0-smoothstep(.2,.9,c.sun.w)));

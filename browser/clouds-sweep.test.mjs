@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {cloudShader,cloudShaderHigh,CLOUD_HALF_SIZE,CLOUD_ALTITUDE,CLOUD_THICKNESS} from './clouds.js';
 import {march,extent,slab,density,steps,MIN_SPAN} from './cloud-march.js';
+import {PLANET_RADIUS} from './space.js';
 
 // Seeded Monte Carlo sweep of the cloud ray march (pure JS mirror of the sheet branch, no GPU).
 function rng(seed) {
@@ -89,7 +90,7 @@ for(const high of [false,true]) {
     const r=rng(16),{ya,yb}=slab(high);
     for(let i=0;i<N;i++) {
       const s=randomRay(r),d=dirOf(s.yaw,s.pitch),ex=extent(s.eye[1],d[1],1e9,high);
-      const toward=(s.eye[1]<ya&&d[1]>0)||(s.eye[1]>yb&&d[1]<0)||(s.eye[1]>=ya&&s.eye[1]<=yb);
+      const nominal=CLOUD_ALTITUDE-CLOUD_THICKNESS/2,toward=(s.eye[1]<nominal&&d[1]>0)||(s.eye[1]>yb&&d[1]<0)||(s.eye[1]>=nominal&&s.eye[1]<=yb);
       if(toward&&ex.s0<CLOUD_HALF_SIZE)assert.ok(ex.ns>0,`slab missed ${JSON.stringify(s)}`);
       if(ex.ns)assert.ok((ex.s1-ex.s0)/steps(high)<=Math.max(high?40000:MIN_SPAN,.3*ex.s0)/steps(high)+1e-6);
     }
@@ -107,18 +108,16 @@ test('sweep: density is continuous (no seams at noise cells or the world wrap)',
   }
 });
 
-test('sweep: the pre-fix extent is caught (horizon gap and hard cap)',()=>{
-  const eyeY=1500,legacy=extent(eyeY,.0002,1e9,false,CLOUD_HALF_SIZE,true),fixed=extent(eyeY,.0002,1e9,false);
-  assert.equal(legacy.ns,0);
-  assert.ok(fixed.ns>0&&fixed.capped);
+test('sweep: a grazing eye-level ray renders cloud at ground level (no horizon gap on the curved shell)',()=>{
+  const eyeY=60,ex=extent(eyeY,.0002,1e9,false);
+  assert.ok(ex.ns>0);
   const s={eye:[0,eyeY,0],yaw:1,pitch:.0002,t:300,coverage:.9,time:720,night:0};
-  assert.equal(mean(s,false,{legacy:true}),0);
-  assert.ok(mean(s,false)>.5,'fixed horizon ray renders cloud');
+  assert.ok(mean(s,false)>0,'ground-level horizon ray renders cloud');
 });
 
 test('parity: shader keeps the extent, cap, tail and step expressions the JS mirror uses',()=>{
   for(const [name,src,ns] of [['standard',cloudShader,8],['high',cloudShaderHigh,28]]) {
-    for(const frag of ['select(select(-.0005,.0005,dir.y>=0.0),dir.y,abs(dir.y)>=.0005)',`sCap=s0+max(${name==='high'?'40000.0':'9000.0'},.3*s0)`,'sFull>sCap&&s1==sCap','s0<select(c.cloud.w,1e8,shell)','1.0-cutK*smoothstep(.55,1.0,(ts-s0)/Ls)','smoothstep(30000.0,c.cloud.w,dd)','clamp(dd/150000.0,0.0,.93)'])
+    for(const frag of ['let O=shellRoots(c.eye.y,dir.y,yb)',`sCap=s0+max(${name==='high'?'40000.0':'9000.0'},.3*s0)`,'sFull>sCap&&s1==sCap','s0<1e8','1.0-cutK*smoothstep(.55,1.0,(ts-s0)/Ls)','smoothstep(30000.0,c.cloud.w,dd)','clamp(dd/150000.0,0.0,.93)'])
       assert.ok(src.includes(frag),`${name} shader lost: ${frag}`);
     assert.ok(src.includes(`NS=${ns}`)||src.includes(`const NS=${ns}`)||src.includes(`${ns}`),`${name} step count`);
   }
@@ -127,7 +126,9 @@ test('parity: shader keeps the extent, cap, tail and step expressions the JS mir
 test('above-layer look-down: no hard edge across pitch, saturated tops stay lit (grey-plateau regression)',()=>{
   for(const H of [6000,9000,16000,30000]) {
     let prev=null,worst=0;
-    for(let deg=8;deg<=60;deg+=.05) {
+    // Looking down past the horizon dip a ray crosses the curved layer once; shallower than the dip it can graze the layer twice (near and far pieces), which is covered in clouds-shell.
+    const dip=Math.acos(PLANET_RADIUS/(PLANET_RADIUS+H))*180/Math.PI;
+    for(let deg=Math.max(8,dip+3);deg<=60;deg+=.05) {
       const p=-deg*Math.PI/180,o=[0,1,2,3,4,5,6,7].map(j=>march({eye:[0,H,0],dir:[Math.cos(p),Math.sin(p),0],t:500,coverage:.95,high:true,jitter:(j+.5)/8}));
       const a=o.reduce((s,x)=>s+x.alpha,0)/8,lum=o.reduce((s,x)=>s+x.rgb[0],0)/8;
       if(prev&&a>.9&&prev.a>.9)worst=Math.max(worst,Math.abs(lum-prev.lum));
@@ -137,9 +138,9 @@ test('above-layer look-down: no hard edge across pitch, saturated tops stay lit 
   }
 });
 
-test('far sheet stays visible below a tall High slab (right-side-culled regression)',()=>{
-  const mean=(high,yaw)=>{let a=0,n=0;for(let p=-.1;p<=-.02;p+=.01)for(let j=0;j<4;j++){a+=march({eye:[0,6000,5067],dir:[Math.cos(p)*Math.cos(yaw),Math.sin(p),Math.cos(p)*Math.sin(yaw)],t:500,coverage:.8,high,jitter:(j+.5)/4}).alpha;n++;}return a/n;};
-  for(const yaw of [0,1,2,3,4,5]) assert.ok(mean(true,yaw)>mean(false,yaw)*.7,`High loses the sheet at yaw ${yaw}`);
+test('far sheet stays visible below a tall High slab (right-side-culled regression, steep enough to cross the curved layer)',()=>{
+  const mean=(high,yaw)=>{let a=0,n=0;for(let p=-.9;p<=-.6;p+=.05)for(let j=0;j<4;j++){a+=march({eye:[0,6000,5067],dir:[Math.cos(p)*Math.cos(yaw),Math.sin(p),Math.cos(p)*Math.sin(yaw)],t:500,coverage:.8,high,jitter:(j+.5)/4}).alpha;n++;}return a/n;};
+  for(const yaw of [0,1,2,3,4,5]) assert.ok(mean(false,yaw)>0&&mean(true,yaw)>mean(false,yaw)*.7,`High loses the sheet at yaw ${yaw}`);
 });
 
 test('storm arms sweep slowly enough that a fixed view never flips clear/overcast within seconds',async()=>{

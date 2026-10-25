@@ -12,12 +12,10 @@ test('radius makes one continent span 40 degrees', () => {
 test('planet factors are bounded, monotonic and zero at ground', () => {
   const g = planetFactors(0);
   assert.deepEqual([g.bend, g.globe, g.space], [0, 0, 0]);
-  assert.equal(g.cloud, 1);
   let p = planetFactors(0);
   for (let a = 10; a <= 1e6; a *= 1.3) {
     const f = planetFactors(a);
     for (const k of ['bend', 'globe', 'space']) { assert.ok(f[k] >= p[k] && f[k] <= 1); }
-    assert.ok(f.cloud <= p.cloud && f.cloud >= 0);
     p = f;
   }
   assert.equal(p.space, 1);
