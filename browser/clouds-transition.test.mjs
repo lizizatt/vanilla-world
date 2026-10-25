@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {shellExtent,extent} from './cloud-march.js';
-import {shellCurvature} from './clouds.js';
+import {shellCurvature,stepTierMix,TIER_FADE_SECONDS,cloudShader,cloudShaderHigh,cloudUniform} from './clouds.js';
 import {planetFactors,BEND_RANGE,SPACE_RANGE,GLOBE_RANGE,CLOUD_RANGE,ZONE_LIGHT_RANGE} from './terrain-transition.js';
 
 const VISIBLE=15e4; // beyond this the sheet is fully fogged
@@ -33,5 +33,26 @@ test('blended planet factors are C0 and monotonic with altitude',()=>{
   }
   for(const r of [BEND_RANGE,SPACE_RANGE,GLOBE_RANGE,CLOUD_RANGE,ZONE_LIGHT_RANGE])assert.ok(r[1]>r[0]);
 });
+
+
+
+test('tier crossfade weight is continuous, bounded per frame and reaches both ends',()=>{
+  for(const dt of [.004,.016,.05,.5,3]) {
+    let m=0,prev=0,frames=0;
+    while(m<1&&frames++<1000){m=stepTierMix(m,1,dt);assert.ok(m-prev<=.1/TIER_FADE_SECONDS+1e-9,`step ${m-prev} at dt ${dt}`);prev=m;}
+    assert.equal(m,1);
+    while(m>0&&frames++<2000){m=stepTierMix(m,0,dt);}
+    assert.equal(m,0);
+  }
+  assert.equal(stepTierMix(.5,.5,.016),.5);
+});
+
+test('High and Standard shaders cull complementary pixel sets from the tier weight',()=>{
+  assert.match(cloudShaderHigh,/tierPick>=c\.fog\.w\)\{discard/);
+  assert.match(cloudShader,/tierPick<c\.fog\.w\)\{discard/);
+  const u=cloudUniform({eye:[0,100,0],right:[1,0,0],up:[0,1,0],look:[0,0,1],aspect:1},0,1,{ocean:[5333,-17600,13525,17066],world_bounds:[[0,0,51,56],[24,20,45,62]],regions:[{placement:[-21866,-17600]},{placement:[725,-16000]}]},1,null,undefined,1440,{bend:0,space:0,tierMix:.37});
+  assert.ok(Math.abs(u[31]-.37)<1e-6);
+});
+
 
 
