@@ -9,7 +9,7 @@ const page=await context.newPage(),errors=[];
 await context.addInitScript(()=>{delete Navigator.prototype.serviceWorker;});
 page.on('pageerror',error=>errors.push(error.message));
 try{
-  await page.goto('http://127.0.0.1:4183/?test');
+  await page.goto(process.env.WORLD_URL||`http://127.0.0.1:${process.env.PORT||4183}/?test`);
   await page.waitForFunction(()=>!document.getElementById('select').disabled);
   await page.locator('#files').setInputFiles(process.env.WOW_DATA);
   await page.waitForFunction(()=>worldEvidence.ready||worldEvidence.errors.length,null,{timeout:180000});

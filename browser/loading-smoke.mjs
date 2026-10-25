@@ -4,8 +4,8 @@ import {mkdir,writeFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 
 assert(process.env.WOW_DATA,'Set WOW_DATA to the local Classic Data folder');
-const base=process.env.WORLD_URL||'http://127.0.0.1:4183/?test';
-assert.equal(new URL(base).port,'4183','Startup probes use the isolated server only');
+const base=process.env.WORLD_URL||`http://127.0.0.1:${process.env.PORT||4183}/?test`;
+assert.notEqual(new URL(base).port,'4173','Startup probes must not use the shared 4173 server');
 const output=new URL(`./test-results/loading/${process.env.LABEL||'current'}/`,import.meta.url);
 await mkdir(output,{recursive:true});
 const browser=await chromium.launch({channel:'msedge',headless:true,args:['--mute-audio']});

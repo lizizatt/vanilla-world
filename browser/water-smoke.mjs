@@ -16,7 +16,7 @@ try{
   await context.addInitScript(()=>{delete Navigator.prototype.serviceWorker;});
   const page=await context.newPage();
   page.on('pageerror',error=>result.errors.push(error.message));
-  await page.goto('http://127.0.0.1:4183/?test');
+  await page.goto(process.env.WORLD_URL||`http://127.0.0.1:${process.env.PORT||4183}/?test`);
   await page.waitForFunction(()=>!document.getElementById('select').disabled||worldEvidence.errors.length);
   assert.deepEqual(await page.evaluate(()=>worldEvidence.errors),[]);
   await page.evaluate(async()=>{
