@@ -33,7 +33,7 @@ export class MapPanel {
     if(this.local===undefined){this.local=null;fetch('/local/world-map.jpg').then(r=>r.ok?r.blob():null).then(b=>b&&createImageBitmap(b)).then(i=>{if(i){this.local=i;if(this.dialog.open)this.render();}}).catch(()=>{});}
     if(!this.requested){this.requested=true;this.requestArt(this.manifest.regions.map(r=>r.map));}
     const was=document.activeElement;this.dialog.show();was?.focus?.();this.render();
-    this.timer=setInterval(()=>this.marker(),100);
+    clearInterval(this.timer);this.timer=setInterval(()=>this.marker(),100);
   }
   stop() {clearInterval(this.timer);}
   render() {
