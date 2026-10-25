@@ -87,6 +87,8 @@ export function spaceUniform(view,sun,factors,rects,timeOfDay,near,far,out=new F
     out.set([centre[0]+local[0],centre[1]+local[1],centre[2]+local[2],moon.radius],48+i*4);
     out.set([...moon.tint,0],56+i*4);
   });
+  const axisY=moons?.[0]?.axisY;
+  if(axisY){if(out.length<68){const wide=new Float32Array(68);wide.set(out);out=wide;}out.set([f.east,f.up,f.south].map(axis=>axis[0]*axisY[0]+axis[1]*axisY[1]+axis[2]*axisY[2]),64);}
   out.set(factors.fog||[0,0,0],44);out[59]=factors.mesh?1:0;out[63]=factors.registry?1:0;
   return out;
 }
@@ -116,7 +118,16 @@ fn bend(rel:vec3f,eye:vec3f,k:f32)->vec3f {
 }`;
 export const bendShader=bendShaderFor(PLANET_RADIUS,WORLD_CENTRE);
 
-export const spaceShaderFor=radius=>`
+export const spaceShaderFor=(radius,opts={})=>{const src=spaceShaderSource(radius);return opts.moonTex?withMoonTexture(src):src;};
+/** Variant that samples a baked body-frame texture (binding 5, axis in S.axis) on moon slot 1 instead of the stylised crater noise. */
+const withMoonTexture=src=>src
+  .replace('tint:array<vec4f,2>};','tint:array<vec4f,2>,axis:vec4f};')
+  .replace('@group(0) @binding(4) var lightsTex:texture_2d<f32>;','@group(0) @binding(5) var moonTex:texture_2d<f32>;\n@group(0) @binding(4) var lightsTex:texture_2d<f32>;')
+  .replace('acc=over(acc,s.tint[id-1].rgb*crater*lit,space);',`var col=s.tint[id-1].rgb*crater;
+      if(id==1){let ax=normalize(centre-mc.xyz);let ay=normalize(s.axis.xyz);let az=cross(ax,ay);let b=vec3f(dot(n,ax),dot(n,ay),dot(n,az));
+        col=textureSampleLevel(moonTex,surfaceSamp,vec2f(atan2(b.z,b.x)/6.2831853+.5,.5-asin(clamp(b.y,-1.0,1.0))/3.1415927),0.0).rgb*(.85+.15*crater);}
+      acc=over(acc,col*lit,space);`);
+const spaceShaderSource=radius=>`
 struct S {look:vec4f,right:vec4f,up:vec4f,p:vec4f,sun:vec4f,e:vec4f,u:vec4f,s:vec4f,rect:array<vec4f,4>,moon:array<vec4f,2>,tint:array<vec4f,2>};
 @group(0) @binding(0) var<uniform> s:S;
 @group(0) @binding(1) var surfaceTex:texture_2d<f32>;

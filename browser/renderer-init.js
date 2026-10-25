@@ -9,6 +9,8 @@ import {createColourGrid} from './tile-registry.js';
 import {HEIGHT_W,HEIGHT_H} from './height-bake.js';
 import {shaderSetFor} from './body-shaders.js';
 import {activeBody} from './body-shaders.js';
+import {spaceShaderFor} from './space.js';
+import {bakeMoonSurface,MOON_TEX_W,MOON_TEX_H} from './moon-surface.js';
 import {skyShader,skyDomeShader} from './sky.js';
 import {sub,cross,unit} from './renderer-helpers.js';
 import {terrainShader,splatShader,sceneShader} from './renderer-shaders.js';
@@ -86,18 +88,24 @@ export async function initialize(r) {
     fragment:{module:skyModule,entryPoint:'fs',targets:[{format:r.format}]},primitive:{topology:'triangle-list'},
     depthStencil:DEPTH_STATE.sky});
   r.skyGroup=r.device.createBindGroup({layout:r.skyPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.skyBuffer}}]});
-  r.spaceBuffer=r.device.createBuffer({size:256,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
+  r.spaceBuffer=r.device.createBuffer({size:512,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
   r.surfaceTex=r.device.createTexture({size:[1024,512],format:'rgba8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});
   r.lightsTex=r.device.createTexture({size:[NIGHT_W,NIGHT_H],format:'rgba8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});
   r.heightTex=r.device.createTexture({size:[HEIGHT_W,HEIGHT_H],format:'r8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});
   r.heightGrid=new Float32Array(HEIGHT_W*HEIGHT_H).fill(-Infinity);r.heightDirty=false;
   r.colourGrid=createColourGrid();r.colourDirty=new Set();r.horizonMini=new Map();
   r.surfaceSamp=r.device.createSampler({magFilter:'linear',minFilter:'linear',addressModeU:'repeat',addressModeV:'clamp-to-edge'});
-  const spaceModule=await shader(shaderSetFor(activeBody()).space);
+  // Shared space (?bodies) on Azeroth: Elune's slot samples a baked procedural moon surface instead of stylised noise.
+  const moonSurface=!!r.sharedSpace&&activeBody().id==='azeroth';
+  const spaceModule=await shader(moonSurface?spaceShaderFor(activeBody().radius,{moonTex:true}):shaderSetFor(activeBody()).space);
+  if(moonSurface){
+    r.moonTex=r.device.createTexture({size:[MOON_TEX_W,MOON_TEX_H],format:'rgba8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});
+    r.device.queue.writeTexture({texture:r.moonTex},bakeMoonSurface(),{bytesPerRow:MOON_TEX_W*4},[MOON_TEX_W,MOON_TEX_H]);
+  }
   r.spacePipeline=await r.device.createRenderPipelineAsync({layout:'auto',vertex:{module:spaceModule,entryPoint:'vs'},
     fragment:{module:spaceModule,entryPoint:'fs',targets:[{format:r.format,blend:{color:{srcFactor:'one',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},primitive:{topology:'triangle-list'},
     depthStencil:DEPTH_STATE.space});
-  r.spaceGroup=r.device.createBindGroup({layout:r.spacePipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.spaceBuffer}},{binding:1,resource:r.surfaceTex.createView()},{binding:2,resource:r.surfaceSamp}]});
+  r.spaceGroup=r.device.createBindGroup({layout:r.spacePipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.spaceBuffer}},{binding:1,resource:r.surfaceTex.createView()},{binding:2,resource:r.surfaceSamp},...(moonSurface?[{binding:5,resource:r.moonTex.createView()}]:[])]});
   r.lightsPipeline=await r.device.createRenderPipelineAsync({layout:'auto',vertex:{module:spaceModule,entryPoint:'vs'},
     fragment:{module:spaceModule,entryPoint:'lfs',targets:[{format:r.format,blend:{color:{srcFactor:'one',dstFactor:'one'},alpha:{srcFactor:'zero',dstFactor:'one'}}}]},primitive:{topology:'triangle-list'},depthStencil:DEPTH_STATE.sky});
   r.lightsGroup=r.device.createBindGroup({layout:r.lightsPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.spaceBuffer}},{binding:2,resource:r.surfaceSamp},{binding:4,resource:r.lightsTex.createView()}]});
