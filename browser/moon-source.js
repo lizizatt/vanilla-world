@@ -28,6 +28,15 @@ export function moonWdl(seed=MOON_SEED) {
   return join([ver(),chunk('MAOF',maof),...tiles]);
 }
 
+/** Solid regolith-coloured 64x64 palettised BLP2, used as the minimap of procedural moon tiles that sit beside real ones. */
+export function regolithBlp(size=64,rgb=[165,152,112]) {
+  const out=new Uint8Array(148+1024+size*size),v=new DataView(out.buffer);
+  out.set([0x42,0x4c,0x50,0x32]);v.setUint32(4,1,true);out[8]=1;v.setUint32(12,size,true);v.setUint32(16,size,true);
+  v.setUint32(20,148+1024,true);v.setUint32(84,size*size,true);
+  out.set([rgb[2],rgb[1],rgb[0],255],148);
+  return out;
+}
+
 export function moonSource(seed=MOON_SEED) {
   const base=`world\\maps\\${ELUNE_MAP}\\${ELUNE_MAP}`.toLowerCase(),blp=demoBlp();
   const files=new Map([[base+'.wdt',moonWdt()],[base+'.wdl',moonWdl(seed)]]);
