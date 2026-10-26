@@ -2,7 +2,7 @@
 // The graft ends exactly at the site's dome circle (ground, textures, liquids and minimap colour); the procedural moon starts immediately outside it, with no blend or apron.
 // Everything else (textures, models, DBCs) falls through to the real data first, then to the body's own source. Game data is only read at runtime.
 import {adtChunks,translateAdt,reshapeAdt,cutAdt,maskMinimap} from './graft-adt.js';
-import {sitesOf,tilesOf,siteRect,siteCentre,siteMask,siteTiles,rectVsCircle} from './elune-sites.js';
+import {sitesOf,tilesOf,siteRect,siteCentre,siteMask,siteTiles,rectVsCircle,domeCentre} from './elune-sites.js';
 import {ADT_TILE,ADT_CHUNK} from './adt-synth.js';
 import {moonAdt,moonHeightChart,MOON_TILES_X,MOON_TILES_Y} from './moon-terrain.js';
 import {regolithBlp} from './moon-source.js';
@@ -57,6 +57,21 @@ export function graftMinimapRows(bytes,sites,mapName) {
   }
   return new TextEncoder().encode(text.replace(/\s*$/,'\n')+extra);
 }
+/** Vertex heights across the dome circle, on the tile's own vertex lattice: outside the circle every vertex is the procedural moon height, inside it is the graft height eased over the last RIM_BAND yd
+ * by the procedural-minus-graft difference at the rim point on the same bearing, so the two height fields meet at the circle (no cliff, no per-chunk stair-step). `lift` is the same correction for placements. */
+export const RIM_BAND=40;
+export function rimShape(site,prepared,seed) {
+  const [sx,sz]=domeCentre(site,CX,CY),R=site.dome.radius;
+  const proc=(x,z)=>Math.round(moonHeightChart(seed,x,z)*64)/64,graft=(x,z)=>sampleGrid(prepared.grid,prepared.rect,x,z,prepared.yOffset);
+  const ease=d=>{const t=Math.min(1,Math.max(0,(d-(R-RIM_BAND))/RIM_BAND));return t*t*(3-2*t);};
+  const correction=(x,z,d)=>{
+    const k=R/d,rx=sx+(x-sx)*k,rz=sz+(z-sz)*k;return ease(d)*(proc(rx,rz)-graft(rx,rz));
+  };
+  return {
+    height:(x,z,h)=>{const d=Math.hypot(x-sx,z-sz);return d>R?proc(x,z):d<=R-RIM_BAND?h:h+correction(x,z,d);},
+    lift:(x,z)=>{const d=Math.hypot(x-sx,z-sz);return d<=R-RIM_BAND||d>R?0:correction(x,z,d);},
+  };
+}
 export function graftSource(base,real,{bodyId,seed}) {
   const sites=sitesOf(bodyId),mapName=bodyId[0].toUpperCase()+bodyId.slice(1),re=new RegExp(`^world\\\\maps\\\\${bodyId}\\\\${bodyId}_(\\d+)_(\\d+)\\.adt$`);
   const trs=`textures\\minimap\\md5translate.trs`;
@@ -78,8 +93,9 @@ export function graftSource(base,real,{bodyId,seed}) {
       if(hit<0||rectVsCircle(site,tileRect(tx,ty),CX,CY)==='outside')continue;
       return remember(`g${tx}_${ty}`,async()=>{
         const p=await prepare(site),t=tilesOf(site)[hit],moved=translateAdt(p.bytes[hit],{from:[t.sx,t.sy],to:[tx,ty],yOffset:p.yOffset});
-        const kept=reshapeAdt(moved,{tile:[tx,ty],cx:CX,cy:CY,keep:(x,z)=>siteMask(site,x,z,CX,CY)>=1,height:(x,z,h)=>h});
-        return cutAdt(kept,moonAdt(seed,tx,ty),{tile:[tx,ty],cx:CX,cy:CY,inside:(x,z)=>siteMask(site,x,z,CX,CY)>=1,groundTexture:GROUND});
+        const edge=rimShape(site,p,seed),inside=(x,z)=>siteMask(site,x,z,CX,CY)>=1;
+        const kept=reshapeAdt(moved,{tile:[tx,ty],cx:CX,cy:CY,keep:inside,lift:edge.lift,height:edge.height});
+        return cutAdt(kept,moonAdt(seed,tx,ty),{tile:[tx,ty],cx:CX,cy:CY,inside,relation:(x0,z0,x1,z1)=>rectVsCircle(site,[x0,z0,x1,z1],CX,CY),groundTexture:GROUND});
       });
     }
   }
@@ -97,7 +113,7 @@ export function graftSource(base,real,{bodyId,seed}) {
     }
   }
   return {
-    get fingerprint(){return `${base.fingerprint}+${real.fingerprint}+graft3`;},
+    get fingerprint(){return `${base.fingerprint}+${real.fingerprint}+graft4`;},
     get archives(){return real.archives;},get stats(){return real.stats;},
     async read(path,options) {
       const key=path.replaceAll('/','\\').toLowerCase(),m=re.exec(key);
