@@ -21,6 +21,21 @@ test('showing the map twice never leaves a second marker timer running', () => {
   }
 });
 
+test('each body from config gets a button that flies there', () => {
+  const els=[],make=()=>({style:{},dataset:{},addEventListener(t,f){this[t]=f;},remove(){},getContext:()=>({clearRect(){},save(){},restore(){}})});
+  globalThis.document={createElement:()=>make()};globalThis.fetch=async()=>({ok:false});
+  const stage={ownerDocument:{createElement:()=>make()},style:{setProperty(){}},querySelectorAll:()=>[],append:e=>els.push(e)},flown=[];
+  try {
+    const panel=new MapPanel({dialog:{addEventListener(){},close(){}},canvas:{width:100,getContext:()=>({clearRect(){},save(){},restore(){},fillRect(){},strokeRect(){},fillText(){},beginPath(){},rect(){},stroke(){},fill(){}})},stage,status:{},close:{addEventListener(){}}},{requestArt(){},teleport(){},pose:()=>null,bodies:()=>[{id:'elune',label:'Elune'},{id:'second',label:'Second'}],teleportBody:id=>flown.push(id)});
+    panel.manifest={spawn:[0,0,0],sea_level:0,ocean:[5333,-16000,13525,17066],world_bounds:[[0,0,51,56]],horizons:[{region:0,source_bounds:[0,0,51,56]}],regions:[{map:'K',tile_origin:[0,0],tile_count:[64,64],placement:[-21866,-7466]}]};panel.you=make();panel.world=()=>{};
+    panel.render();
+    const buttons=els.filter(e=>e.dataset.body);
+    assert.deepEqual(buttons.map(b=>b.textContent),['Elune','Second']);
+    buttons[0].click();buttons[1].click();
+    assert.deepEqual(flown,['elune','second']);
+  } finally { delete globalThis.document;delete globalThis.fetch; }
+});
+
 test('every race start gets a pin at its own map position', () => {
   const els=[],make=()=>({style:{},dataset:{},addEventListener(){},remove(){},getContext:()=>({clearRect(){},save(){},restore(){}})});
   globalThis.document={createElement:()=>make()};globalThis.fetch=async()=>({ok:false});

@@ -10,11 +10,12 @@ export function poseLooking(body,chart,dir,t) {
   return [chart[0],chart[1],chart[2],Math.atan2(-l[0],-l[2]),Math.asin(Math.max(-1,Math.min(1,l[1])))];
 }
 /** A pose `standoff` yd short of Elune's surface on the line to Azeroth's side, looking at Elune's centre (inertial placement, parent-frame chart). */
-export function nearElune(standoff=30000,t=720) {
-  const c=centreAt(ELUNE,t),a=centreAt(AZEROTH,t),d=unit(a.map((v,i)=>v-c[i])),at=c.map((v,i)=>v+d[i]*(ELUNE.radius+standoff));
+export function nearBody(body,standoff=30000,t=720) {
+  const c=centreAt(body,t),a=centreAt(AZEROTH,t),d=unit(a.map((v,i)=>v-c[i])),at=c.map((v,i)=>v+d[i]*(body.radius+standoff));
   const chart=fromInertial(AZEROTH,at,t,0),look=unit(c.map((v,i)=>v-at[i]));
   return poseLooking(AZEROTH,chart,look,t);
 }
+export const nearElune=(standoff=30000,t=720)=>nearBody(ELUNE,standoff,t);
 /** A pose `alt` over the chart origin looking at Elune. */
 export function overheadLooking(alt=120000,t=720) {
   const chart=[0,alt,0],from=toInertial(AZEROTH,chart,t),c=centreAt(ELUNE,t);

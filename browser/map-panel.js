@@ -3,8 +3,8 @@ import {maelstromCentre} from './clouds.js';
 
 /** Fullscreen world map dialog. Art arrives from the worker (runtime Data read); without it a schematic is drawn. */
 export class MapPanel {
-  constructor({dialog,canvas,stage,status,close},{requestArt,teleport,pose,tracks=()=>[]}) {
-    Object.assign(this,{dialog,canvas,stage,status,requestArt,teleport,pose,tracks,rows:undefined,images:new Map(),requested:false,timer:0});
+  constructor({dialog,canvas,stage,status,close},  {requestArt,teleport,pose,tracks=()=>[],bodies=()=>[],teleportBody=()=>{}}) {
+      Object.assign(this,{dialog,canvas,stage,status,requestArt,teleport,pose,tracks,bodies,teleportBody,rows:undefined,images:new Map(),requested:false,timer:0});
     close.addEventListener('click',()=>dialog.close());
     dialog.addEventListener('close',()=>this.stop());
     this.you=stage.ownerDocument.createElement('div');this.you.id='map-you';this.you.hidden=true;
@@ -57,6 +57,13 @@ export class MapPanel {
       button.title=button.ariaLabel=`Teleport to ${icon.label}`;
       button.style.left=`${u*100}%`;button.style.top=`${v*100}%`;
       button.addEventListener('click',()=>{this.dialog.close();this.teleport(icon);});button.addEventListener('pointerdown',e=>e.preventDefault());
+      this.stage.append(button);
+    }
+    for(const body of this.bodies()) { // one plain button per moon from the body config
+      const button=this.stage.ownerDocument.createElement('button');
+      button.type='button';button.className='map-icon map-body';button.dataset.body=body.id;button.textContent=body.label;
+      button.title=button.ariaLabel=`Fly to ${body.label}`;button.style.right='8px';button.style.bottom=`${8+this.bodies().indexOf(body)*34}px`;button.style.left='auto';button.style.top='auto';
+      button.addEventListener('click',()=>{this.dialog.close();this.teleportBody(body.id);});button.addEventListener('pointerdown',e=>e.preventDefault());
       this.stage.append(button);
     }
     for(const t of this.tracks()) { // race start markers (a flagpole + beacon stands there in the world); informational, not teleports
