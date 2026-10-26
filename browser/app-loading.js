@@ -11,12 +11,14 @@ import {classifyPickError} from './swe1r/attach.js';
 import {loadPodModel} from './swe1r/skin.js';
 import {ELUNE_GRAVITY_SCALE,BODIES,bodiesEnabled} from './bodies.js';
 import {activeBody,setActiveBody} from './body-shaders.js';
+import {weightedSplit} from './engine-pair.js';
+import {bodyAltitudes} from './space-flight.js';
 const LUNAR_GRAVITY=48*ELUNE_GRAVITY_SCALE;
 import {WorldClient} from './world-client.js';
 export function installLoading(app) {
 const {canvas,cameraCollision,evidence,defaults,settings,loading,loadingArt,mapPanel,music,client}=app;
 const $=id=>document.getElementById(id);
-Object.assign(app,{loadingProgress,fail,open,showReconnect,operation,soiSwap:id=>soiSwap(app,id)});
+Object.assign(app,{loadingProgress,fail,open,showReconnect,operation,soiSwap:id=>soiSwap(app,id),budgetEngines:gpu=>budgetEngines(app,gpu)});
 loading.addEventListener('cancel',event=>event.preventDefault());
 loading.addEventListener('close',()=>{if(!loading.open){loadingArt.clear();client.stopLoadingArt();}});
 function loadingProgress({text,completed,total}) {
@@ -193,6 +195,15 @@ $('fly').addEventListener('click',()=>{
 });
 $('overview').addEventListener('click',()=>{if(client.info&&!app.race){app.flight=overview(client.info.manifest);canvas.focus();}});
 $('drive').addEventListener('click',()=>{app.flight=undefined;app.renderer.camera=undefined;canvas.focus();});
+}
+
+/** Proximity-weighted residency budget over every live engine (engine-pair.js weightedSplit); with one engine it is the whole budget. */
+function budgetEngines(app,gpu=0) {
+  const ids=[activeBody().id,...Object.keys(app.engines||{})],engines={[ids[0]]:app.client,...app.engines};
+  if(ids.length<2||!app.space||!app.renderer?.sharedSpace){app.client.budget(app.memoryBytes,gpu);return;}
+  const plan=weightedSplit(app.memoryBytes,bodyAltitudes(app.space,app.renderer.timeOfDay??0),ids);
+  app.enginePlan=plan;
+  for(const id of ids)engines[id]?.budget(plan[id].bytes,id===ids[0]?gpu:0);
 }
 
 // Extra resident engines (design/elune.md): every other moon body gets its own far-only, physics-free worker beside the parent, keyed by body id, with ?bodies&moonEngine. Events are counted per body until the renderer sink lands.

@@ -13,6 +13,17 @@ export function splitEngines(total,parent,ids=Object.keys(BODIES)) {
   return plan;
 }
 
+/** Config for proximity weighting: `scale` is the camera altitude (yd) at which an engine's weight halves; `floor` is the minimum share of the total any engine keeps (horizon patches). */
+export const PROXIMITY={scale:6000,floor:.08};
+
+/** Proximity-weighted memory split over N live engines: weight = 1/(1+alt/scale) so the body the camera is near gets most of the budget and distant bodies keep only a floor share. Bytes always sum to total; no near/far roles. `altitudes` maps body id to camera altitude above that body's surface. */
+export function weightedSplit(total,altitudes,ids=Object.keys(BODIES),cfg=PROXIMITY) {
+  const w=ids.map(id=>1/(1+Math.max(0,altitudes[id]??Infinity)/cfg.scale)),sum=w.reduce((a,b)=>a+b,0)||1,free=1-cfg.floor*ids.length;
+  const plan={};let used=0;
+  ids.forEach((id,i)=>{const bytes=i===ids.length-1?total-used:Math.floor(total*(cfg.floor+free*w[i]/sum));used+=bytes;plan[id]={bytes,tiles:residentTileCap(bytes)};});
+  return plan;
+}
+
 /** Engine pair state: which body each worker serves and which one is near. */
 export class EnginePair {
   constructor(total,parent='azeroth',ids=Object.keys(BODIES)) {this.total=total;this.parent=parent;this.ids=ids;this.plan=splitEngines(total,parent,ids);}
