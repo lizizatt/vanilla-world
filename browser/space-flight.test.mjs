@@ -69,3 +69,23 @@ test('floating origin keeps eye offsets small near a body', () => {
   const rel=eyeRelative(s,ELUNE,t);assert.ok(Math.abs(Math.hypot(...rel)-ELUNE.radius-10)<1e-6);
   assert.ok(Math.abs(Math.fround(rel[0])-rel[0])<1e-3);
 });
+
+test('1000x warp: camera stays over the same ground within 2000 yd, is inertial far away, and does not drift over long sim time', async () => {
+  const {stepFlight,createFlight}=await import('./space-flight.js');
+  const {ELUNE,AZEROTH,toInertial,fromInertial,centreAt}=await import('./bodies.js');
+  const input={look:[1,0,0],right:[0,0,1],up:[0,1,0],forward:0,strafe:0,lift:0,simRate:2000};
+  const run=(body,alt,steps)=>{
+    const chart=[body.centre[0]+300,alt,body.centre[1]+200];let t=1000;
+    let s=createFlight(toInertial(body,chart,t),t,body.id,2000);const p0=fromInertial(body,s.pos,t);
+    for(let i=0;i<steps;i++){s=stepFlight(s,input,1/60,t);t+=2000/60;}
+    return {p0,p1:fromInertial(body,s.pos,t,p0[0]),s,t};
+  };
+  for(const [body,alt] of [[ELUNE,300],[ELUNE,1500],[AZEROTH,300],[AZEROTH,1500]]) {
+    const {p0,p1}=run(body,alt,3600);
+    assert.ok(Math.hypot(p1[0]-p0[0],p1[2]-p0[2])<.5,`${body.id}@${alt} ground drift`);
+    assert.ok(Math.abs(p1[1]-p0[1])<.5,`${body.id}@${alt} altitude drift`);
+  }
+  const far=run(ELUNE,40000,600),p=toInertial(ELUNE,[ELUNE.centre[0]+300,40000,ELUNE.centre[1]+200],1000);
+  assert.ok(Math.hypot(far.s.pos[0]-p[0],far.s.pos[1]-p[1],far.s.pos[2]-p[2])<1e-6,'far camera is inertial under warp');
+  const c0=centreAt(ELUNE,1000),c1=centreAt(ELUNE,far.t);assert.ok(Math.hypot(c1[0]-c0[0],c1[2]-c0[2])>1000);
+});
