@@ -45,7 +45,7 @@ const real=()=>({fingerprint:'real',archives:['a'],stats:{},reads:[],
 test('graft source serves translated Moonglade on its tiles, the procedural moon elsewhere, real files first', async () => {
   const r=real(),s=graftSource(moonSource(),r,{bodyId:'elune',seed:MOON_SEED}),plain=moonSource();
   const t=tilesOf(site)[4],grafted=await s.read(`world/maps/elune/elune_${t.dx}_${t.dy}.adt`);
-  assert.deepEqual([...new Set(mcnkAreas(grafted))],[493]);
+  assert.ok(mcnkAreas(grafted).includes(493),'Moonglade chunks inside the circle keep their area');
   const far=await s.read('world/maps/elune/elune_5_5.adt');
   assert.deepEqual(far,await plain.read('world/maps/elune/elune_5_5.adt'));
   assert.deepEqual([...(await s.read('World\\Maps\\Elune\\Elune.wdt'))],[...(await plain.read('World\\Maps\\Elune\\Elune.wdt'))]);
@@ -55,7 +55,7 @@ test('graft source serves translated Moonglade on its tiles, the procedural moon
 });
 
 test('each read of a cached graft tile is its own buffer, so transferring one cannot detach the next', async () => {
-  const s=graftSource(moonSource(),real(),{bodyId:'elune',seed:MOON_SEED}),t=tilesOf(site)[0],path=`world/maps/elune/elune_${t.dx}_${t.dy}.adt`;
+  const s=graftSource(moonSource(),real(),{bodyId:'elune',seed:MOON_SEED}),  t=tilesOf(site)[4],path=`world/maps/elune/elune_${t.dx}_${t.dy}.adt`;
   const a=await s.read(path),b=await s.read(path);
   assert.notEqual(a.buffer,b.buffer);
   structuredClone(a,{transfer:[a.buffer]});
@@ -71,34 +71,52 @@ test('reshapeAdt re-heights every vertex from its chart position', () => {
 });
 
 test('dome: full inside, soft shell, nothing outside or on other bodies; terrain mask shares the footprint', () => {
-  const [mx,mz]=domeCentre(site,30,15),{radius,shell,ease}=site.dome;
+  const [mx,mz]=domeCentre(site,30,15),{radius,shell}=site.dome;
   assert.equal(domeMask('elune',mx,mz),1);assert.equal(domeMask('elune',mx+radius,mz),1);
   assert.equal(domeMask('elune',mx+radius+shell,mz),0);
   const mid=domeMask('elune',mx+radius+shell/2,mz);assert.ok(mid>.4&&mid<.6);
   assert.ok(domeMask('elune',mx,mz,30,15,radius+shell/2)<.6,'it is a sphere: high altitude leaves it');
   assert.equal(domeMask('azeroth',mx,mz),0);
-  assert.ok(radius+ease<=site.apron&&radius<=siteRect(site)[2]-siteRect(site)[0]);
-  assert.equal(siteMask(site,mx+radius,mz),1);assert.equal(siteMask(site,mx,mz+radius+ease),0);
+  assert.ok(radius<=siteRect(site)[2]-siteRect(site)[0]);
+  assert.equal(siteMask(site,mx+radius,mz),1);assert.equal(siteMask(site,mx,mz+radius+1),0);
 });
 
-test('the apron meets the graft edge exactly and rejoins the moon at its outer limit', async () => {
-  const s=graftSource(moonSource(),real(),{bodyId:'elune',seed:MOON_SEED}),rect=siteRect(site);
-  const g=tilesOf(site).find(t=>t.dx===site.dest.x+3-1&&t.dy===site.dest.y);// north-east graft tile
-  const apronX=g.dx+1,y=g.dy;// the tile east of it
-  const a=await s.read(`world/maps/elune/elune_${apronX}_${y}.adt`),b=await s.read(`world/maps/elune/elune_${g.dx}_${y}.adt`);
-  assert.deepEqual([...new Set(mcnkAreas(a))],[90003]);
-  // shared edge: west column of the apron tile vs east column of the graft tile, same chart z
-  const mcvt=(bytes,cx,cy,i)=>{const v=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);let n=0;for(const c of adtChunks(bytes)){if(c.magic!=='MCNK')continue;
-    if(v.getUint32(c.start+4,true)===cx&&v.getUint32(c.start+8,true)===cy){const z=v.getFloat32(c.start+0x70,true);for(const sc of adtChunks(bytes,c.start+128,c.start+c.size))if(sc.magic==='MCVT')return z+v.getFloat32(sc.start+i*4,true);}n++;}};
-  for(const cy of [0,5,15])for(const row of [0,4,8])assert.ok(Math.abs(mcvt(a,0,cy,row*17)-mcvt(b,15,cy,row*17+8))<.01,`edge row ${row} chunk ${cy}`);
-  assert.ok(rect[2]>0&&Math.abs(outside(site,rect[2]+site.apron,rect[1])-site.apron)<1e-6);
-  const [mx,mz]=domeCentre(site,30,15);
-  assert.equal(siteMask(site,mx+site.dome.radius+site.dome.ease,mz),0);assert.equal(siteMask(site,mx+site.dome.radius-10,mz),1);
-  // beyond the apron the tile is the untouched moon
-  const farTile=Math.ceil((rect[2]+site.apron)/T)+30+1;
-  assert.deepEqual(await s.read(`world/maps/elune/elune_${farTile}_${site.dest.y}.adt`),await moonSource().read(`world/maps/elune/elune_${farTile}_${site.dest.y}.adt`));
+const mtex=b=>{for(const c of adtChunks(b))if(c.magic==='MTEX')return new TextDecoder().decode(b.subarray(c.start,c.start+c.size)).split('\0').filter(Boolean);};
+const chunkInfo=b=>{const v=new DataView(b.buffer,b.byteOffset,b.byteLength),out=new Map();for(const c of adtChunks(b)){if(c.magic!=='MCNK')continue;
+  let tex=null;for(const sc of adtChunks(b,c.start+128,c.start+c.size))if(sc.magic==='MCLY')tex=v.getUint32(sc.start,true);
+  out.set(v.getUint32(c.start+8,true)*16+v.getUint32(c.start+4,true),{area:v.getUint32(c.start+0x34,true),tex});}return out;};
+
+test('the graft ends exactly at the dome circle: chunk ground, texture and area switch to regolith, nothing outside is Moonglade', async () => {
+  const s=graftSource(moonSource(),real(),{bodyId:'elune',seed:MOON_SEED}),[mx,mz]=domeCentre(site,30,15),{radius}=site.dome;
+  let inside=0,outsideChunks=0;
+  for(const t of tilesOf(site)) {
+    const b=await s.read(`world/maps/elune/elune_${t.dx}_${t.dy}.adt`),tex=mtex(b),info=chunkInfo(b);
+    for(const [k,c] of info) {
+      const x=(t.dx-30)*T+((k%16)+.5)*T/16,z=(t.dy-15)*T+(Math.floor(k/16)+.5)*T/16,inCircle=Math.hypot(x-mx,z-mz)<=radius;
+      if(inCircle){inside++;assert.equal(c.area,493);assert.match(tex[c.tex],/Grass/);}
+      else{outsideChunks++;assert.equal(c.area,90001,'outside the circle is the moon');assert.equal(tex[c.tex],'Tileset\\Elune\\Regolith.blp');}
+    }
+  }
+  assert.ok(inside>20&&outsideChunks>20,'the circle cuts through the graft block');
+  // a tile entirely outside the circle is the untouched procedural tile
+  const rect=siteRect(site),far=tilesOf(site).find(t=>Math.hypot((t.dx-30+.5)*T-mx,(t.dy-15+.5)*T-mz)>radius+T);
+  if(far)assert.deepEqual(await s.read(`world/maps/elune/elune_${far.dx}_${far.dy}.adt`),await moonSource().read(`world/maps/elune/elune_${far.dx}_${far.dy}.adt`));
+  assert.ok(rect[2]>0);
+  assert.equal(siteMask(site,mx+radius,mz),1);assert.equal(siteMask(site,mx+radius+.01,mz),0,'hard edge, no ease band');
 });
 
+test('the circle cuts the minimap too: inside real, outside regolith, straddling tiles masked per block', async () => {
+  const {graftMinimapRows,maskedHash,REGOLITH_HASH}=await import('./graft-source.js'),{maskMinimap}=await import('./graft-adt.js'),{regolithBlp}=await import('./moon-source.js');
+  const hash='0123456789abcdef0123456789abcdef.blp',lines=tilesOf(site).map(t=>`Kalimdor\\map${t.sx}_${t.sy}.blp\t${hash}`).join('\n')+'\n';
+  const rows=new TextDecoder().decode(graftMinimapRows(new TextEncoder().encode(lines),[site],'Elune'));
+  const kinds=new Set(tilesOf(site).map(t=>{const row=rows.split('\n').find(l=>l.startsWith(`Elune\\map${t.dx}_${t.dy}.blp`));return row.endsWith(hash)?'in':row.endsWith(REGOLITH_HASH)?'out':row.includes(maskedHash(t.dx,t.dy))?'cut':'?';}));
+  assert.ok(kinds.has('cut')&&!kinds.has('?'));
+  const dxt=new Uint8Array(148+32768),v=new DataView(dxt.buffer);dxt.set([0x42,0x4c,0x50,0x32]);v.setUint32(4,1,true);dxt[8]=2;v.setUint32(12,256,true);v.setUint32(16,256,true);v.setUint32(20,148,true);v.setUint32(84,32768,true);
+  for(let i=0;i<4096;i++)v.setUint16(148+i*8,0x07e0,true);
+  const out=maskMinimap(dxt,(u)=>u<.5),ov=new DataView(out.buffer);
+  assert.equal(ov.getUint16(148,true),0x07e0);assert.notEqual(ov.getUint16(148+63*8,true),0x07e0);
+  assert.equal(regolithBlp().length>0,true);
+});
 test('graft mean altitude equals the moon height at the site centre (self-consistent basin)', async () => {
   const bytes=tilesOf(site).map(t=>fakeTile(t.sx,t.sy,(x,z)=>300+x*.05)),grid=heightGrid(site,bytes);
   assert.equal(grid.width,385);

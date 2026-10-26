@@ -69,6 +69,50 @@ export function reshapeAdt(bytes,{tile:[tx,ty],cx,cy,height,keep}) {
   return out;
 }
 
+/** Cut a (translated) graft tile at a boundary: every MCNK whose centre fails `inside(x,z)` (chart yd) is replaced by the same chunk of `procedural` (a synthAdt of one regolith layer), whose
+ * layer then points at `groundTexture`, appended to this tile's MTEX. Terrain, ground layers, alpha, liquids and area id all switch together, chunk by chunk, so no graft texture is left outside. */
+export function cutAdt(bytes,procedural,{tile:[tx,ty],cx,cy,inside,groundTexture}) {
+  const src=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength),procChunks=[];
+  for(const c of adtChunks(procedural))if(c.magic==='MCNK')procChunks.push(c);
+  const parts=[];let texIndex=0;
+  for(const c of adtChunks(bytes)) {
+    const raw=bytes.subarray(c.start-8,c.start+c.size);
+    if(c.magic==='MTEX') {
+      const names=new TextDecoder().decode(bytes.subarray(c.start,c.start+c.size)).split('\0').filter(Boolean);texIndex=names.length;
+      const body=new TextEncoder().encode(names.concat(groundTexture).join('\0')+'\0'),out=new Uint8Array(8+body.length);
+      out.set(raw.subarray(0,4));new DataView(out.buffer).setUint32(4,body.length,true);out.set(body,8);parts.push(out);continue;
+    }
+    if(c.magic==='MCNK'&&c.size>=MCNK_HEADER) {
+      const ix=src.getUint32(c.start+4,true),iy=src.getUint32(c.start+8,true);
+      if(!inside((tx-cx)*TILE+(ix+.5)*TILE/16,(ty-cy)*TILE+(iy+.5)*TILE/16)) {
+        const p=procChunks[iy*16+ix],swapped=procedural.slice(p.start-8,p.start+p.size),pv=new DataView(swapped.buffer);
+        for(const s of adtChunks(swapped,8+MCNK_HEADER,swapped.length))if(s.magic==='MCLY')pv.setUint32(s.start,texIndex,true);
+        parts.push(swapped);continue;
+      }
+    }
+    parts.push(raw);
+  }
+  const out=new Uint8Array(parts.reduce((n,a)=>n+a.length,0));let at=0;for(const a of parts){out.set(a,at);at+=a.length;}
+  return out;
+}
+
+/** Mask a DXT1 minimap BLP2 (all mip levels) to a boundary: each 4x4 block whose centre fails `inside(u,v)` (0..1 across the tile, v south) becomes flat `rgb`. Other encodings pass through unchanged. */
+export function maskMinimap(blp,inside,rgb=[165,152,112]) {
+  const v0=new DataView(blp.buffer,blp.byteOffset,blp.byteLength);
+  if(blp.length<148||blp[8]!==2||blp[9]!==0)return blp;
+  const out=blp.slice(),ov=new DataView(out.buffer),w0=v0.getUint32(12,true),h0=v0.getUint32(16,true),flat=((rgb[0]>>3)<<11)|((rgb[1]>>2)<<5)|(rgb[2]>>3);
+  for(let m=0;m<16;m++) {
+    const at=v0.getUint32(20+m*4,true),size=v0.getUint32(84+m*4,true);if(!at||!size)continue;
+    const w=Math.max(1,w0>>m),h=Math.max(1,h0>>m),bw=Math.max(1,w>>2),bh=Math.max(1,h>>2);
+    for(let by=0;by<bh;by++)for(let bx=0;bx<bw;bx++) {
+      const p=at+(by*bw+bx)*8;if(p+8>out.length)continue;
+      if(inside(Math.min(1,(bx*4+2)/w),Math.min(1,(by*4+2)/h)))continue;
+      ov.setUint16(p,flat,true);ov.setUint16(p+2,flat,true);ov.setUint32(p+4,0,true);
+    }
+  }
+  return out;
+}
+
 /** Height range of an ADT's terrain (posZ + MCVT), used to pick the graft's yOffset. Returns {min,max,mean}. */
 export function adtHeights(bytes) {
   const v=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);let min=Infinity,max=-Infinity,sum=0,n=0;

@@ -1,5 +1,5 @@
 // Elune site list (design/elune.md M8/M9): committed config only, no game data. A site grafts a block of source tiles from a real map onto a body at integer tile offset;
-// the surrounding `apron` yd is generated procedurally and blends from the graft's own edge heights back into the moon. Adding a body or site is a list entry.
+// the graft is cut at the dome's footprint circle and everything outside it is the procedural moon (a hard edge hidden under the dome shell). Adding a body or site is a list entry.
 import {ADT_TILE as T} from './adt-synth.js';
 
 /** Circumcircle of three chart points as a dome config: centre and adius (the circle passes exactly through all three), plus extra fields. */
@@ -14,11 +14,9 @@ export const SITES=Object.freeze({
     id:'moonglade',label:'Moonglade',map:'Kalimdor',area:493,
     source:Object.freeze({x:[35,37],y:[16,18]}),// measured with moonglade-census.mjs: the 3 x 3 plateau holding the town, Lake Elune'ara and the grove
     dest:Object.freeze({x:29,y:14}),// north-west tile of the grafted block on the body's tile grid (chart centre = tile 30,15, the sub-Azeroth point since Elune is tidally locked, so Azeroth hangs overhead)
-    apron:1200,// outer limit of the procedural ring that is generated around the graft (selects apron tiles)
-    dome:circleThrough([[205.845,52.071],[268.196,588.637],[879.646,459.553]],{shell:50,ease:300}),// druidic dome whose footprint circle passes exactly through the user's track new-track-2 start + 2 gates (chart x,z); shell skin width; height ease back to the moon outside the circle
+    dome:circleThrough([[205.845,52.071],[268.196,588.637],[879.646,459.553]],{shell:50}),// druidic dome whose footprint circle passes exactly through the user's track new-track-2 start + 2 gates (chart x,z); shell skin width. The graft ends at this circle (chunk centres) and procedural regolith starts right outside it.
   })],
 });
-export const APRON_AREA=90003;// "Moonglade Reach"
 
 export const sitesOf=bodyId=>SITES[bodyId]??[];
 export const tilesOf=site=>{const out=[];for(let y=site.source.y[0];y<=site.source.y[1];y++)for(let x=site.source.x[0];x<=site.source.x[1];x++)out.push({sx:x,sy:y,dx:x-site.source.x[0]+site.dest.x,dy:y-site.source.y[0]+site.dest.y});return out;};
@@ -46,7 +44,11 @@ export function domeMask(bodyId,x,z,cx=30,cy=15,alt=0) {
   }
   return m;
 }
-/** 1 inside the dome footprint circle (where the real Moonglade terrain is kept), easing to 0 over `dome.ease` yd outside it, where the procedural moon takes over. */
-export function siteMask(site,x,z,cx,cy) {
-  const t=Math.min(1,Math.max(0,(radial(site,x,z,cx,cy)-site.dome.radius)/site.dome.ease));return 1-t*t*(3-2*t);
+/** 1 inside the dome footprint circle (where the real Moonglade ground is kept), 0 outside it: the graft ends exactly at the circle and the procedural moon starts immediately beyond, with no blend. */
+export const siteMask=(site,x,z,cx,cy)=>radial(site,x,z,cx,cy)<=site.dome.radius*(1+1e-12)?1:0;
+/** How a chart rectangle [x0,z0,x1,z1] relates to the footprint circle: 'inside', 'outside' or 'partial'. */
+export function rectVsCircle(site,rect,cx,cy) {
+  const [sx,sz]=domeCentre(site,cx,cy),{radius}=site.dome,nx=Math.max(rect[0]-sx,0,sx-rect[2]),nz=Math.max(rect[1]-sz,0,sz-rect[3]);
+  if(Math.hypot(nx,nz)>radius)return 'outside';
+  return Math.hypot(Math.max(Math.abs(rect[0]-sx),Math.abs(rect[2]-sx)),Math.max(Math.abs(rect[1]-sz),Math.abs(rect[3]-sz)))<=radius?'inside':'partial';
 }
