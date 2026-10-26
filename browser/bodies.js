@@ -64,20 +64,25 @@ export const horizonDistance=(body,height)=>Math.sqrt(2*body.radius*Math.max(0,h
 /** Circular rail in the X-Z plane turning the same way as the sun (up toward east, east=+Z), so Elune's synodic day is regular (1.25 Azeroth days). Phase matches MOONS[0]. */
 export const centreAt=(body,t)=>{
   if(!body.rail)return [0,0,0];
-  const a=2*Math.PI*(t-720)/(body.orbitDays*DAY_UNITS)+body.rail.phase;
+  const a=railAngle(body,t);
   return [body.rail.orbit*Math.sin(a),0,body.rail.orbit*Math.cos(a)];
+};
+/** Rail angle with the whole cycles removed in double precision first, so sin/cos stay exact at any sim time or timeScale. */
+export const railAngle=(body,t)=>{
+  const cycles=(t-720)/(body.orbitDays*DAY_UNITS);
+  return 2*Math.PI*(cycles-Math.floor(cycles))+body.rail.phase;
 };
 export const orbitSpeed=()=>2*Math.PI*ELUNE_ORBIT/(ELUNE_ORBIT_DAYS*DAY_UNITS/2);
 
 const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
-const unit=a=>{const n=Math.hypot(...a);return a.map(v=>v/n);};
-/** Body-local axes in inertial space as columns [x,y,z]. Azeroth: identity. Elune is tidally locked: local +X (lon 0, lat 0) faces Azeroth and local +Y is the orbit normal. */
+/** Body-local axes in inertial space as columns [x,y,z]. Azeroth: identity. Every rail body is tidally locked (spin period = orbital period): local +X (lon 0, lat 0) faces the parent and +Y is the orbit normal. Closed form, so the frame is exact and the parent stays at body-frame +X at any time. */
 export function axesAt(body,t) {
   if(!body.rail)return [[1,0,0],[0,1,0],[0,0,1]];
-  const dt=.5,p0=centreAt(body,t-dt),p1=centreAt(body,t+dt),p=centreAt(body,t);
-  const x=unit(p.map(v=>-v)),y=unit(cross(p,p1.map((v,i)=>v-p0[i]))),z=cross(x,y);
-  return [x,y,z];
+  const a=railAngle(body,t),s=Math.sin(a),c=Math.cos(a);
+  return [[-s,0,-c],[0,1,0],[c,0,-s]];
 }
+/** Parent direction in a tidally locked body's frame: constant (libration is not modelled). */
+export const PARENT_DIRECTION=Object.freeze([1,0,0]);
 const apply=(axes,v)=>[0,1,2].map(i=>axes[0][i]*v[0]+axes[1][i]*v[1]+axes[2][i]*v[2]);
 const applyT=(axes,v)=>axes.map(a=>a[0]*v[0]+a[1]*v[1]+a[2]*v[2]);
 

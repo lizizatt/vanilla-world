@@ -118,7 +118,20 @@ fn bend(rel:vec3f,eye:vec3f,k:f32)->vec3f {
 }`;
 export const bendShader=bendShaderFor(PLANET_RADIUS,WORLD_CENTRE);
 
-export const spaceShaderFor=(radius,opts={})=>{const src=spaceShaderSource(radius);return opts.moonTex?withMoonTexture(src):src;};
+export const spaceShaderFor=(radius,opts={})=>{let src=spaceShaderSource(radius);if(opts.airless)src=airlessShader(src);return opts.moonTex?withMoonTexture(src):src;};
+/** Airless-body variant: regolith instead of the Azeroth sea/land stylisation, and no atmosphere (limb glow, rim light, haze). */
+const AIRLESS_SURFACE=`fn surface(pv:vec3f,n:vec3f,d:vec3f,sun:vec3f)->vec3f {
+  let tex=fbm(pv.xz*85.0+vec2f(pv.y*31.0,pv.y*17.0));let broad=fbm(pv.xz*9.0+vec2f(pv.y*5.0,pv.y*3.0));
+  let reg=mix(vec3f(.34,.32,.29),vec3f(.58,.55,.5),smoothstep(.3,.7,tex))*(.78+.44*broad);
+  // The zero-weighted registry read keeps the shared bind-group layout (surfaceTex) alive.
+  let keep=textureSampleLevel(surfaceTex,surfaceSamp,vec2f(.5,.5),0.0).a*0.0;
+  return reg*(clamp(dot(n,sun)*1.6+.04,0.0,1.0)+.02)+keep;
+}
+fn surfaceSea(`;
+const airlessShader=src=>src
+  .replace('fn surface(',AIRLESS_SURFACE)
+  .replace('return mix(c,s.rect[3].xyz,k);','return c;')
+  .replace('near*.8*globe*clamp(alt/3000.0,0.0,1.0)','0.0');
 /** Variant that samples a baked body-frame texture (binding 5, axis in S.axis) on moon slot 1 instead of the stylised crater noise. */
 const withMoonTexture=src=>src
   .replace('tint:array<vec4f,2>};','tint:array<vec4f,2>,axis:vec4f};')
@@ -255,7 +268,7 @@ struct FO {@location(0) color:vec4f,@builtin(frag_depth) depth:f32};
 export const spaceShader=spaceShaderFor(PLANET_RADIUS);
 
 // Patch mesh (globe-patches.js): each instance is one lat/lon patch drawn as a 16x16 grid. Edge vertices of finer patches snap onto coarser neighbours (flags) so LOD cracks close exactly.
-export const patchShaderFor=radius=>{const space=spaceShaderFor(radius);return space.slice(0,space.indexOf('@fragment fn fs'))+`
+export const patchShaderFor=(radius,opts={})=>{const space=spaceShaderFor(radius,opts);return space.slice(0,space.indexOf('@fragment fn fs'))+`
 @group(0) @binding(3) var heightTex:texture_2d<f32>;
 struct PV {@builtin(position) clip:vec4f,@location(0) pv:vec3f,@location(1) n:vec3f,@location(2) w:vec3f};
 fn patchPos(p:vec4f,ij:vec2u)->vec3f {
