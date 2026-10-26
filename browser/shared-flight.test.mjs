@@ -31,3 +31,5 @@ function chartAim(space,t) {
 
 
 test('a page booted on another body steps in that body chart (home parent)',()=>{const A={look:[0,0,-1],right:[1,0,0],up:[0,1,0]},r=stepShared(undefined,[-32000,15000,0,0,0],A,{forward:0,strafe:0,lift:0,fast:false},.016,720,2,'elune');assert.equal(r.parent,'elune');assert.ok(r.pose.every(Number.isFinite));});
+
+

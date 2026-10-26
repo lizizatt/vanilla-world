@@ -1,5 +1,5 @@
 import {moveFlight,FLIGHT_PITCH} from './flight.js';
-import {basis,fromEuler,toEuler,stepOrient,turnAround} from './orient.js';
+import {basis,fromEuler,fromBasis,toEuler,stepOrient,turnAround} from './orient.js';
 import {spaceHud} from './space.js';
 import {stepShared} from './shared-flight.js';
 import {spaceReadout} from './space-hud.js';
@@ -50,6 +50,7 @@ function frame(now) {
         const r=stepShared(app.space,app.flight,aim,{forward:down('KeyW')-down('KeyS'),strafe:down('KeyD')-down('KeyA'),lift:down('KeyE')-down('KeyQ'),fast:keys.has('ShiftLeft')||keys.has('ShiftRight')        },dt,app.renderer.timeOfDay??0,2,activeBody().id);
         app.space=r.space;app.flight=r.pose;app.spacePose=r.pose;
                 if(r.swapped&&r.parent!==activeBody().id)swap=r.parent;
+        if(r.aim)q=fromBasis(r.aim.right,r.aim.up,r.aim.look);// same physical attitude in the new parent's chart (no orientation reset at the swap)
       } else app.flight=moveFlight(app.flight,keys,dt,aim);if(app.flight.poleFlip)q=turnAround(q);const [ny,np]=toEuler(q,app.flight[3]);app.flightSpeed=dt>0?Math.hypot(app.flight[0]-before[0],app.flight[1]-before[1],app.flight[2]-before[2])/dt:0;
       app.flight[3]=ny;app.flight[4]=np;app.flight.length=5;app.flight.push(...q);
       if(swap)app.soiSwap(swap).then(ok=>{if(!ok)app.soiHandoff(swap,app.flight);}).catch(error=>{console.error('SOI swap failed',error);app.soiHandoff(swap,app.flight);});

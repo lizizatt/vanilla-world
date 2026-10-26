@@ -337,6 +337,40 @@ async function buildHorizon(wdls) {
   horizon.cpuParsedBound=world.horizon_cpu_bound();horizon.buildMs=performance.now()-start;
 }
 function focusRegion(p) {return focusRegionOf(manifest,p);}
+/** Re-post the static horizon (index buffers and patch vertices) to a fresh consumer; the world already holds it, so this only reads. */
+async function replayHorizon(token) {
+  const regionCount=manifest.regions.length;
+  for(let region=0;region<regionCount;region++) {
+    if(token!==rebindToken)return;
+    if(manifest.version!==4){const exterior=world.exterior_geometry(region);postMessage({event:'exterior-water',region,placement:manifest.regions[region].placement,vertices:exterior},[exterior.buffer]);}
+    const patches=world.horizon_patches(region),indices=world.horizon_indices(region);
+    postMessage({event:'horizon-index',region,indices},[indices.buffer]);
+    for(let i=0;i<patches.length;i+=5) {
+      if(token!==rebindToken)return;
+      const vertices=world.horizon_vertices(region,i/5);
+      terrain.addHorizon(region,patches[i],patches[i+1]);
+      postMessage({event:'horizon',region,source:Array.from(patches.slice(i,i+2)),placement:Array.from(patches.slice(i+2,i+4)),near:patches[i+4],vertices},[vertices.buffer]);
+      if(i%20===15){
+        if(globalThis.scheduler?.postTask)await scheduler.postTask(()=>{},{priority:'background'});
+        else await new Promise(resolve=>setTimeout(resolve,0));
+      }
+    }
+  }
+}
+let rebindToken=0;
+/** The renderer consuming this engine changed (gravity-well swap): drop all near residency and everything "already sent" so streaming re-emits it in full, then (for the new near engine) replay the horizon in the background and restart the far channel. */
+export async function rebindRenderer(replay=true) {
+  const token=++rebindToken;
+  cancelMaterialTimer();discardTerrainRead();
+  for(const index of resident) {world.remove_tile(index);scene.removeTile(tileKey(index));terrain.removeTile(index);terrainErrors.delete(index);evictions++;}
+  resident.clear();tileVersions.clear();detailReady.clear();terrainMaterials.clear();
+  detailPending=undefined;detailBusy=false;geometryJob=undefined;geometryRevision++;geometryDirty=false;geometryPending.clear();geometryRemoved.clear();
+  sentAssets=new Set();sentTextures=new Set();sentInstances=new Map();sentSceneRegion=undefined;sceneSignature='';
+  sceneState=undefined;sceneFocus=undefined;sceneSubmissionPending=true;objectWait=[];unresolvedWindow=undefined;
+  craft={ready:false,pending:false};
+  terrain.clear();await terrain.init(manifest);
+  if(replay){startFarWorker();void replayHorizon(token);}
+}
 function sourcePosition(region,p) {return sourcePositionOf(manifest,region,p);}
 function nearUnresolved(p,region,radius=84,vertical=84) {
   radius=Math.max(84,radius);vertical=Math.max(84,vertical);

@@ -5,7 +5,7 @@ import {MusicService} from './music.js';
 import {SkyService} from './sky.js';
 import {WorldMapService} from './worldmap.js';
 import {ready,source,world,timings,postFrameVisuals,openWorld,runFrame,restoreWorld,resetWorld,retryWorld,
-  requireWorld,setPopulation,setActorsOn,setMemoryBudget,stopLoadingArt,farAck,farReject,snapshot,settleAfterAction,
+  requireWorld,setPopulation,setActorsOn,setMemoryBudget,stopLoadingArt,farAck,farReject,snapshot,settleAfterAction,rebindRenderer,
   finishFrame,scheduleTerrainMaterials,sceneFault} from './world-engine.js';
 import {formatError,validateHop,validateSampleTime,validateParkedPose,validateTuning} from './world-worker-logic.js';
 
@@ -57,6 +57,8 @@ export async function handle(message) {
     await restoreWorld(message);
   } else if(message.action==='reset') {
     await resetWorld();
+  } else if(message.action==='rebind') {
+    await rebindRenderer(message.replay!==false);
   } else if(message.action==='retry') {
     await retryWorld();
   } else if(message.action==='population') {
