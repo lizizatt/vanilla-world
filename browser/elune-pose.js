@@ -1,8 +1,8 @@
 // Poses that look at Elune from Azeroth, solved through the real chart<->inertial map (no calibration constants).
 // node elune-pose.js [altitude=30000] [time=720]  -> prints a ?pose= link query that spawns that far from Elune, looking at it.
-import {AZEROTH,ELUNE,centreAt,toInertial,fromInertial} from './bodies.js';
+import {AZEROTH,ELUNE,BODIES,centreAt,toInertial,fromInertial} from './bodies.js';
 import {inertialDir} from './shared-flight.js';
-import {sitesOf,siteCentre} from './elune-sites.js';
+import {sitesOf,siteCentre,domeCentre} from './elune-sites.js';
 import {moonHeightChart} from './moon-terrain.js';
 import {MOON_SEED} from './moon-source.js';
 
@@ -27,6 +27,17 @@ export function overSite(body,alt=250,t=720,pitch=-.35) {
   const fwd=[0,0,-1].map((v,i)=>v*Math.cos(pitch)+(i===1?Math.sin(pitch):0));
   const axes=[[1,0,0],[0,1,0],[0,0,1]].map(a=>inertialDir(body,chart,a,t)),look=unit([0,1,2].map(i=>axes[0][i]*fwd[0]+axes[1][i]*fwd[1]+axes[2][i]*fwd[2]));
   return poseLooking(AZEROTH,azChart,look,t);
+}
+/** Chart pose [x,y,z,yaw,pitch] `alt` yd over a body's first site, in that body's own chart (no inertial detour: used by map teleports after the in-page swap). */
+export function siteChartPose(body,alt=250,pitch=-.35) {
+  const site=sitesOf(body.id)[0];if(!site)return [body.centre[0],alt,body.centre[1],0,pitch];
+  const [x,z]=domeCentre(site,30,15);
+  return [x,moonHeightChart(MOON_SEED,x,z)+alt,z,0,pitch];
+}
+/** Teleport target schema: {body?: id (default azeroth)} names the destination body; without a body the icon is an Azeroth chart pose/reset as before. */
+export function teleportPlan(icon,activeId,altitude=250) {
+  const body=icon.body??'azeroth';
+  return {body,swap:body!==activeId,pose:icon.body&&icon.body!=='azeroth'?siteChartPose(BODIES[icon.body],altitude):undefined};
 }
 /** A pose `alt` over the chart origin looking at Elune. */
 export function overheadLooking(alt=120000,t=720) {
