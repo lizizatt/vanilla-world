@@ -9,7 +9,7 @@ import {LoadingArt} from './loading-art.js';
 import {MusicPlayer} from './world-music.js';
 import {MapPanel} from './map-panel.js';
 import {BODIES} from './bodies.js';
-import {overSite} from './elune-pose.js';
+import {teleportPlan} from './elune-pose.js';
 import {bootChoice,writeChoice,tracksFor,normalizeChoice,setRuntimeSkins} from './vehicles.js';
 import {activeBody} from './body-shaders.js';
 import {initSwe1rRow,onSwe1r} from './swe1r/ui.js';
@@ -42,11 +42,16 @@ const loadingArt=new LoadingArt($('loading-art'),$('loading-bar-art'),loading);
 const mapPanel=new MapPanel({dialog:$('map-panel'),canvas:$('map-canvas'),stage:$('map-stage'),status:$('map-status'),close:$('map-close')},{
   requestArt:names=>client.worldmap(names),  pose:()=>activeBody().id==='azeroth'?app.flight??client.state?.telemetry:undefined,tracks:()=>tracksFor(app.tracks,app.choice.vehicle,activeBody().id),
   bodies:()=>app.renderer?.sharedSpace?Object.values(BODIES).filter(b=>b.rail).map(b=>({id:b.id,label:b.label??b.id[0].toUpperCase()+b.id.slice(1)})):[],
-  teleportBody:id=>{app.flight=overSite(BODIES[id],250,app.renderer.timeOfDay??0);app.space=undefined;app.race?.jump();app.running=true;app.report(`Flying to ${id}.`,true);},
-  teleport:icon=>app.operation(async()=>{
-    app.flight=undefined;client.state=await client.request(icon.reset?'reset':'restore',icon.reset?undefined:{pose:icon.pose});app.race?.jump();
-    app.renderer.camera=undefined;app.running=true;$('error').hidden=true;app.report(`Teleported to ${icon.label}.`,true);
-  }),
+  teleport:async icon=>{
+    const plan=teleportPlan(icon,activeBody().id);
+    // The in-page well swap needs the app idle, so it runs before the operation that places the pose.
+    if(plan.swap&&!(await app.soiSwap(plan.body))){app.report(`Cannot reach ${plan.body} yet.`,true);return;}
+    if(plan.pose){app.flight=plan.pose;app.space=undefined;app.race?.jump();app.renderer.camera=undefined;app.running=true;app.report(`Teleported to ${icon.label}.`,true);return;}
+    return app.operation(async()=>{
+      app.flight=undefined;client.state=await client.request(icon.reset?'reset':'restore',icon.reset?undefined:{pose:icon.pose});app.race?.jump();
+      app.renderer.camera=undefined;app.running=true;$('error').hidden=true;app.report(`Teleported to ${icon.label}.`,true);
+    });
+  },
 });
 mapPanel.dialog.addEventListener('close',()=>canvas.focus());
 mapPanel.dialog.addEventListener('keydown',event=>{if(event.code==='KeyM'&&!event.repeat){event.preventDefault();mapPanel.toggle();}});

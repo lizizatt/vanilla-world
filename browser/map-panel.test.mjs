@@ -26,7 +26,7 @@ test('each body from config gets a button that flies there', () => {
   globalThis.document={createElement:()=>make()};globalThis.fetch=async()=>({ok:false});
   const stage={ownerDocument:{createElement:()=>make()},style:{setProperty(){}},querySelectorAll:()=>[],append:e=>els.push(e)},flown=[];
   try {
-    const panel=new MapPanel({dialog:{addEventListener(){},close(){}},canvas:{width:100,getContext:()=>({clearRect(){},save(){},restore(){},fillRect(){},strokeRect(){},fillText(){},beginPath(){},rect(){},stroke(){},fill(){}})},stage,status:{},close:{addEventListener(){}}},{requestArt(){},teleport(){},pose:()=>null,bodies:()=>[{id:'elune',label:'Elune'},{id:'second',label:'Second'}],teleportBody:id=>flown.push(id)});
+    const panel=new MapPanel({dialog:{addEventListener(){},close(){}},canvas:{width:100,getContext:()=>({clearRect(){},save(){},restore(){},fillRect(){},strokeRect(){},fillText(){},beginPath(){},rect(){},stroke(){},fill(){}})},stage,status:{},close:{addEventListener(){}}},{requestArt(){},teleport:icon=>flown.push(icon.body),pose:()=>null,bodies:()=>[{id:'elune',label:'Elune'},{id:'second',label:'Second'}]});
     panel.manifest={spawn:[0,0,0],sea_level:0,ocean:[5333,-16000,13525,17066],world_bounds:[[0,0,51,56]],horizons:[{region:0,source_bounds:[0,0,51,56]}],regions:[{map:'K',tile_origin:[0,0],tile_count:[64,64],placement:[-21866,-7466]}]};panel.you=make();panel.world=()=>{};
     panel.render();
     const buttons=els.filter(e=>e.dataset.body);
@@ -65,4 +65,16 @@ test('configuring with a moon manifest (no world_bounds) keeps Azeroth\'s map, s
     assert.doesNotThrow(()=>panel.render());
     panel.configure(Object.assign({},azeroth));assert.notEqual(panel.manifest,azeroth);
   } finally { delete globalThis.document;delete globalThis.fetch; }
+});
+
+test('map teleport schema: optional body id; Elune lands on the site in its own chart, Azeroth entries swap back from a moon', async () => {
+  const {teleportPlan,siteChartPose}=await import('./elune-pose.js');
+  const {ELUNE}=await import('./bodies.js');const {sitesOf,domeMask}=await import('./elune-sites.js');
+  const up=teleportPlan({id:'elune',body:'elune'},'azeroth');
+  assert.equal(up.body,'elune');assert.equal(up.swap,true);assert.deepEqual(up.pose,siteChartPose(ELUNE,250));
+  assert.ok(Math.abs(up.pose[0]-523.9)<60&&Math.abs(up.pose[2]-287)<60);
+  assert.equal(teleportPlan({id:'elune',body:'elune'},'elune').swap,false);
+  const home=teleportPlan({id:'stormwind',pose:[1,2,3]},'elune');
+  assert.equal(home.body,'azeroth');assert.equal(home.swap,true);assert.equal(home.pose,undefined);
+  assert.equal(teleportPlan({id:'stormwind'},'azeroth').swap,false);void sitesOf;void domeMask;
 });

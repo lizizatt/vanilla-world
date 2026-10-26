@@ -64,8 +64,8 @@ export class MapPanel {
     for(const body of this.bodies()) { // one plain button per moon from the body config
       const button=this.stage.ownerDocument.createElement('button');
       button.type='button';button.className='map-icon map-body';button.dataset.body=body.id;button.textContent=body.label;
-      button.title=button.ariaLabel=`Fly to ${body.label}`;button.style.right='8px';button.style.bottom=`${8+this.bodies().indexOf(body)*34}px`;button.style.left='auto';button.style.top='auto';
-      button.addEventListener('click',()=>{this.dialog.close();this.teleportBody(body.id);});button.addEventListener('pointerdown',e=>e.preventDefault());
+      button.title=button.ariaLabel=`Teleport to ${body.label}`;button.style.right='8px';button.style.bottom=`${8+this.bodies().indexOf(body)*34}px`;button.style.left='auto';button.style.top='auto';
+      button.addEventListener('click',()=>{this.dialog.close();this.teleport({id:body.id,label:body.label,body:body.id});});button.addEventListener('pointerdown',e=>e.preventDefault());
       this.stage.append(button);
     }
     for(const t of this.tracks()) { // race start markers (a flagpole + beacon stands there in the world); informational, not teleports
