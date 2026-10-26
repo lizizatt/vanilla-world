@@ -25,9 +25,10 @@ const LAYERS=[[7,.42,150,.55],[17,.4,60,.6],[43,.38,22,.65],[109,.36,7,.7]];
 function craters(seed,x,y,z) {
   let h=0;
   for(let L=0;L<LAYERS.length;L++) {
-    const [n,rf,depth,p]=LAYERS[L],sx=x*n,sy=y*n,sz=z*n,cx=Math.floor(sx),cy=Math.floor(sy),cz=Math.floor(sz);
-    for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++)for(let c=-1;c<=1;c++) {
-      const ix=cx+a,iy=cy+b,iz=cz+c,s=seed+L*7919;
+    const [n,rf,depth,p]=LAYERS[L],sx=x*n,sy=y*n,sz=z*n,reach=1.6*rf+1e-9,s=seed+L*7919;
+    // A crater centre sits in [i+.2,i+.8] and reaches at most 1.6*rf cells, so only the cells within reach of the point can contribute (about 2 per axis, not 3).
+    const x0=Math.ceil(sx-.8-reach),x1=Math.floor(sx-.2+reach),y0=Math.ceil(sy-.8-reach),y1=Math.floor(sy-.2+reach),z0=Math.ceil(sz-.8-reach),z1=Math.floor(sz-.2+reach);
+    for(let ix=x0;ix<=x1;ix++)for(let iy=y0;iy<=y1;iy++)for(let iz=z0;iz<=z1;iz++) {
       if(hash3(s,ix,iy,iz)>p)continue;
       const px=ix+.2+.6*hash3(s+1,ix,iy,iz),py=iy+.2+.6*hash3(s+2,ix,iy,iz),pz=iz+.2+.6*hash3(s+3,ix,iy,iz);
       const r0=rf*(.5+.5*hash3(s+4,ix,iy,iz)),d=Math.hypot(sx-px,sy-py,sz-pz)/r0;

@@ -5,6 +5,7 @@ import {clampTrack} from './track-edit.js';
 import {flagPosition} from './race-flags.js';
 import {gateScene,sceneKey,sceneProps,startLine} from './race-gates.js';
 import {tracksFor,vehicleOf} from './vehicles.js';
+import {activeBody} from './body-shaders.js';
 import {SFX,STINGER,wipeoutBlast,pickRaceMusic} from './swe1r/sfx.js';
 import {pickVoice,raceEndEvents} from './swe1r/voice-map.js';
 import {WRECK_CHUNK,WRECK_CHUNKS} from './wreck.js';
@@ -68,9 +69,9 @@ async function settleGates(list,key) {
   } catch {/* surface probe failed: gates keep their authored height */}
 }
 function syncGates(force) {
-  const live=app.editor.isOpen?app.tracks:tracksFor(app.tracks,app.choice.vehicle);
+  const live=app.editor.isOpen?app.tracks:tracksFor(app.tracks,app.choice.vehicle,activeBody().id);
   if(!app.editor.isOpen){
-    const list=gateScene(live,app.race,performance.now()/1000),key='w|'+sceneKey(list)+'|'+!!app.gateKit;
+    const list=gateScene(live,app.race,performance.now()/1000),key='w|'+activeBody().id+'|'+sceneKey(list)+'|'+!!app.gateKit;
     if(!force&&key===app.gateKey)return;
     app.gateKey=key;flagKey=undefined;
     app.renderer.setGates([]);app.renderer.setFlags([]);app.renderer.setProps(sceneProps(list,app.gateKit));
