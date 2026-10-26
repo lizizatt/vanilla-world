@@ -53,6 +53,14 @@ test('graft source serves translated Moonglade on its tiles, the procedural moon
   assert.match(s.fingerprint,/real/);
 });
 
+test('each read of a cached graft tile is its own buffer, so transferring one cannot detach the next', async () => {
+  const s=graftSource(moonSource(),real(),{bodyId:'elune',seed:MOON_SEED}),t=tilesOf(site)[0],path=`world/maps/elune/elune_${t.dx}_${t.dy}.adt`;
+  const a=await s.read(path),b=await s.read(path);
+  assert.notEqual(a.buffer,b.buffer);
+  structuredClone(a,{transfer:[a.buffer]});
+  assert.ok(b.byteLength>0);assert.ok((await s.read(path)).byteLength>0);
+});
+
 test('the apron meets the graft edge exactly and rejoins the moon at its outer limit', async () => {
   const s=graftSource(moonSource(),real(),{bodyId:'elune',seed:MOON_SEED}),rect=siteRect(site);
   const g=tilesOf(site).find(t=>t.dx===site.dest.x+3-1&&t.dy===site.dest.y);// north-east graft tile
