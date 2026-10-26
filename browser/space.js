@@ -4,6 +4,7 @@
 import {HEIGHT_RANGE,HEIGHT_MIN} from './height-bake.js';
 import {BEND_RANGE,wgslRamp} from './terrain-transition.js';
 import {nightLightsWgsl} from './night-lights-wgsl.js';
+import {wrapAngle,wrapTurn} from './math.js';
 export const CONTINENT_YD=29867,CONTINENT_DEG=40;
 export const PLANET_RADIUS=Math.round(CONTINENT_YD/(CONTINENT_DEG*Math.PI/180));
 // World centre (render yd) at lat/lon 0, and the fallback continent rectangles [x0,z0,x1,z1] when no manifest is loaded (hosted build).
@@ -38,11 +39,11 @@ export function globeToFlat(lat,lon,centre=WORLD_CENTRE,radius=PLANET_RADIUS) {
 }
 /** Flight stays on the globe: longitude wraps and flying over a pole continues down the far meridian (lat' = pi - lat, lon + pi), returning flipped=true so the caller turns the heading half a turn. */
 export function wrapFlat(x,z,centre=WORLD_CENTRE,radius=PLANET_RADIUS) {
-  const turn=2*Math.PI*radius,half=turn/2,TAU=2*Math.PI;
+  const turn=2*Math.PI*radius,half=turn/2;
   let lat=-(z-centre[1])/radius,dx=x-centre[0],flipped=false;
-  lat=((lat+Math.PI)%TAU+TAU)%TAU-Math.PI;
+  lat=wrapAngle(lat);
   if(Math.abs(lat)>Math.PI/2){lat=Math.sign(lat)*Math.PI-lat;dx+=half;flipped=true;}
-  dx=((dx+half)%turn+turn)%turn-half;
+  dx=wrapTurn(dx,turn);
   const k=Math.PI/2-1e-4;
   return [centre[0]+dx,Math.abs(z-centre[1])>k*radius?centre[1]-radius*Math.max(-k,Math.min(k,lat)):z,flipped];
 }
@@ -57,7 +58,7 @@ export function nearestLandmark(x,z,icons=[]) {
   for(const i of icons){const d=Math.hypot(...wrapDelta(i.position[0]-x,i.position[1]-z));if(!best||d<best.distance)best={label:i.label,distance:d};}
   return best;
 }
-const wrapDelta=(dx,dz)=>{const turn=2*Math.PI*PLANET_RADIUS;return [((dx+turn/2)%turn+turn)%turn-turn/2,dz];};
+const wrapDelta=(dx,dz)=>[wrapTurn(dx,2*Math.PI*PLANET_RADIUS),dz];
 export function spaceHud(pose,speed,rects,icons) {
   const {lat,lon}=subPoint(pose[0],pose[2]),d=r=>(Math.abs(r*180/Math.PI)).toFixed(1),near=nearestLandmark(pose[0],pose[2],icons),
     nearText=near?` · ${near.distance>=1000?(near.distance/1000).toFixed(1)+"k":near.distance.toFixed(0)} yd from ${near.label}`:"";

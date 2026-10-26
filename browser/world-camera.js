@@ -1,5 +1,5 @@
 import {basis} from './orient.js';
-const wrap=a=>Math.atan2(Math.sin(a),Math.cos(a));
+import {wrapAngle as wrap} from './math.js';
 const unit=v=>{const length=Math.hypot(...v);return length?v.map(n=>n/length):[0,0,-1];};
 // Tuning: cockpit look pitch limit (rad), mouse-orbit sensitivity (rad/px), return-to-centre rate (1/s).
 export const CAMERA=Object.freeze({pitchLimit:89*Math.PI/180,orbitSense:.004,recentre:7});
