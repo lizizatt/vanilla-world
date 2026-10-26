@@ -51,3 +51,18 @@ test('every race start gets a pin at its own map position', () => {
     assert.ok(pins.every(p=>/^-?[\d.]+%$/.test(p.style.left)&&/^-?[\d.]+%$/.test(p.style.top)));
   } finally { delete globalThis.document;delete globalThis.fetch; }
 });
+
+test('configuring with a moon manifest (no world_bounds) keeps Azeroth\'s map, so opening the map on Elune cannot crash', () => {
+  const els=[],make=()=>({style:{},dataset:{},addEventListener(){},remove(){},getContext:()=>({clearRect(){},save(){},restore(){}})});
+  globalThis.document={createElement:()=>make()};globalThis.fetch=async()=>({ok:false});
+  const stage={ownerDocument:{createElement:()=>make()},style:{setProperty(){}},querySelectorAll:()=>[],append:e=>els.push(e)};
+  try {
+    const panel=new MapPanel({dialog:{addEventListener(){}},canvas:{width:100,getContext:()=>({clearRect(){},save(){},restore(){},fillRect(){},strokeRect(){},fillText(){},beginPath(){},rect(){},stroke(){},fill(){}})},stage,status:{},close:{addEventListener(){}}},{requestArt(){},teleport(){},pose:()=>undefined});
+    const azeroth={spawn:[0,0,0],sea_level:0,ocean:[5333,-16000,13525,17066],world_bounds:[[0,0,51,56]],horizons:[{region:0,source_bounds:[0,0,51,56]}],regions:[{map:'K',tile_origin:[0,0],tile_count:[64,64],placement:[-21866,-7466]}]};
+    panel.configure(azeroth);panel.configure({spawn:[0,0,0],regions:[{map:'Elune',tile_origin:[0,0],tile_count:[60,30],placement:[0,0]}]});
+    assert.equal(panel.manifest,azeroth);
+    panel.you=make();panel.world=()=>{};
+    assert.doesNotThrow(()=>panel.render());
+    panel.configure(Object.assign({},azeroth));assert.notEqual(panel.manifest,azeroth);
+  } finally { delete globalThis.document;delete globalThis.fetch; }
+});

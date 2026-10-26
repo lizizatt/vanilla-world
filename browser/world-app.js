@@ -40,7 +40,7 @@ const gib={on:true,speed:100,overheat:true};const gibMem={};
 const loading=$('loading-screen');
 const loadingArt=new LoadingArt($('loading-art'),$('loading-bar-art'),loading);
 const mapPanel=new MapPanel({dialog:$('map-panel'),canvas:$('map-canvas'),stage:$('map-stage'),status:$('map-status'),close:$('map-close')},{
-  requestArt:names=>client.worldmap(names),pose:()=>app.flight??client.state?.telemetry,tracks:()=>tracksFor(app.tracks,app.choice.vehicle,activeBody().id),
+  requestArt:names=>client.worldmap(names),  pose:()=>activeBody().id==='azeroth'?app.flight??client.state?.telemetry:undefined,tracks:()=>tracksFor(app.tracks,app.choice.vehicle,activeBody().id),
   bodies:()=>app.renderer?.sharedSpace?Object.values(BODIES).filter(b=>b.rail).map(b=>({id:b.id,label:b.label??b.id[0].toUpperCase()+b.id.slice(1)})):[],
   teleportBody:id=>{app.flight=overSite(BODIES[id],250,app.renderer.timeOfDay??0);app.space=undefined;app.race?.jump();app.running=true;app.report(`Flying to ${id}.`,true);},
   teleport:icon=>app.operation(async()=>{

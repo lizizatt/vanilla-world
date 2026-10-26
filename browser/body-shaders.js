@@ -1,7 +1,8 @@
 // Per-body shader sets (design/elune.md step D1). Azeroth's set is byte-identical to the module-level constants in space.js,
 // so the renderer's Azeroth output is unchanged; Elune gets the same shaders at its own radius and chart centre.
 import {bendShaderFor,spaceShaderFor,patchShaderFor} from './space.js';
-import {AZEROTH,ELUNE} from './bodies.js';
+import {AZEROTH,ELUNE,bodyOf} from './bodies.js';
+import {atmosphericDisc} from './body-sky.js';
 
 /** The body this page's chart renders: ?body=elune boots the moon, anything else Azeroth; setActiveBody switches it in-page (the renderer rebuilds its radius-baked pipelines via useBody). */
 let current;
@@ -13,7 +14,7 @@ const cache=new Map();
 export function shaderSetFor(body) {
   let set=cache.get(body.id);
   if(!set){
-    const o={airless:!(body.atmosphereEdge>0)};
+    const o={airless:!(body.atmosphereEdge>0),atmosphericDisc:!!body.parent&&atmosphericDisc(bodyOf(body.parent))};
     set={bend:bendShaderFor(body.radius,body.centre),space:spaceShaderFor(body.radius,o),patch:patchShaderFor(body.radius,o)};
     cache.set(body.id,set);
   }

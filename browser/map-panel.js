@@ -10,6 +10,8 @@ export class MapPanel {
     this.you=stage.ownerDocument.createElement('div');this.you.id='map-you';this.you.hidden=true;
   }
   configure(manifest) {
+    // A moon's manifest has no Azeroth world layout (no world_bounds): the panel keeps showing Azeroth's map while the ship is away from it.
+    if(this.manifest&&!manifest?.world_bounds)return;
     this.manifest=manifest;this.rows=undefined;this.images.clear();this.requested=false;
   }
   event(data) {
