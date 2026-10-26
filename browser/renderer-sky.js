@@ -27,7 +27,7 @@ export function setSkyDome(r,data) {
 /** Feeds the globe colour grid: a tile needs both its WDL placement and its minimap, in either arrival order. */
 export function horizonColour(r,key,part) {
   const e={...r.horizonMini.get(key),...part};r.horizonMini.set(key,e);
-  if(e.placement&&e.rgba){splatMinimap(r.colourGrid,e.rgba,MINIMAP_SIZE,e.placement,WORLD_CENTRE,PLANET_RADIUS,r.colourDirty,r.heightGrid);r.horizonMini.delete(key);}
+  if(e.placement&&e.rgba){const b=r.manifest?.version===4?ELUNE:{centre:WORLD_CENTRE,radius:PLANET_RADIUS};splatMinimap(r.colourGrid,e.rgba,MINIMAP_SIZE,e.placement,b.centre,b.radius,r.colourDirty,r.heightGrid);r.horizonMini.delete(key);}
 }
 export function planetRects(r) {return r.manifest?.world_bounds?schematicRects(r.manifest):FALLBACK_RECTS;}
 /** Shared-space view (design/elune.md D3): Elune is always the moon-slot sphere seen from Azeroth when enabled; v4 charts are Elune looking back at Azeroth. */

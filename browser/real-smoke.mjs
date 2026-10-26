@@ -10,7 +10,7 @@ if(!WOW_DATA)throw new Error('WOW_DATA required');
 const tag=process.argv[2]||'real',out=path.resolve('..','runtime','real-smoke');fs.mkdirSync(out,{recursive:true});
 const ctx=await chromium.launchPersistentContext(fs.mkdtempSync(path.join(os.tmpdir(),'edge-real-')),{channel:'msedge',headless:!process.env.LAB_HEADED,args:['--mute-audio'],ignoreDefaultArgs:['--autoplay-policy=no-user-gesture-required'],viewport:{width:1280,height:720},serviceWorkers:'block'});
 const page=ctx.pages()[0]||await ctx.newPage(),errors=[];
-page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error')errors.push(m.text());});
+page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error'){errors.push(m.text());Promise.all(m.args().map(a=>a.evaluate(v=>v&&v.message||String(v)).catch(()=>''))).then(x=>console.log('ERRMSG',x.join(' ').slice(0,600)));}});
 await page.goto(`http://127.0.0.1:${PORT}/?${QUERY}`);
 await page.waitForFunction(()=>!document.getElementById('select').disabled,null,{timeout:60000});
 await page.locator('#files').setInputFiles(WOW_DATA);

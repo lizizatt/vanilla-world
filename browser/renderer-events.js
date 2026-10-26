@@ -8,9 +8,12 @@ import {isLandTile,trimRimSpikes} from './land-rect.js';
 import {PLANET_RADIUS,WORLD_CENTRE} from './space.js';
 import {buildPlanetPipelines} from './renderer-init.js';
 import {ELUNE} from './bodies.js';
+import {createColourGrid} from './tile-registry.js';
 import {AdmissionFade,terrainEdgeMask,readySceneInstances} from './renderer-helpers.js';
 const OCEAN_FILL=130000;
 export function reset(r) {
+  // The globe height/colour grids are chart-lon/lat baked: a body switch must not inherit the previous body's relief (Azeroth peaks became spikes on Elune).
+  if(r.heightGrid){r.heightGrid.fill(-Infinity);r.heightDirty=true;r.heightAt=0;r.colourGrid=createColourGrid();r.colourDirty=new Set();r.horizonMini=new Map();}
   r.terrainBundle=undefined;r.terrainBundleBuilds=0;
   r.sceneBundle=undefined;r.sceneBundleBuilds=0;
   r.releaseCraft();
@@ -63,7 +66,7 @@ export function event(r,data) {
     r.indices.set(data.region,r.buffer(data.indices,GPUBufferUsage.INDEX));
     r.terrainBundle=undefined;
   }
-  else if(data.event==='horizon'){trimRimSpikes(data.vertices);splatHeights(r.heightGrid,data.vertices,data.placement,WORLD_CENTRE,PLANET_RADIUS);r.heightDirty=true;
+  else if(data.event==='horizon'){trimRimSpikes(data.vertices);const chartBody=r.manifest.version===4?ELUNE:{centre:WORLD_CENTRE,radius:PLANET_RADIUS};splatHeights(r.heightGrid,data.vertices,data.placement,chartBody.centre,chartBody.radius);r.heightDirty=true;
     r.horizonColour(data.region*4096+data.source[0]+64*data.source[1],{placement:data.placement});r.horizon.push({...r.drawable(data.vertices,data.placement,r.minimapAtlases[data.region]),
     region:data.region,near:data.near,cell:data.source[0]+64*data.source[1]});
     const hb=r.horizon[r.horizon.length-1].bounds;

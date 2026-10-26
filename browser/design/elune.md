@@ -320,3 +320,8 @@ Swap fixes (user report: orientation reset, low-res bodies, can't approach, Azer
 
 ### N bodies
 Bodies are config: a moon is an entry in `bodies.js` with `parent`, `rail` and `orbitDays` (centres, tidal-lock axes, SOI via `soiOf` and parent-well swap run over every body); `engine-pair.js` splits the budget over N engines (one near, rest far-only); extra engines open per body id with `?bodies&moonEngine` (`app.engines[id]`). Adding a moon = config entry + terrain generator/source + site list. Still Elune-specific: `moon-source.js` (its generator), the Moonglade site, and the renderer's single boot-body shader radius (step 2).
+
+## Airless shading, tidal lock, per-body grids
+- Elune uses an airless variant of the planet/patch shader (regolith, no sea, haze or limb glow); Azeroth's shader source is unchanged.
+- Rail bodies are tidally locked: xesAt is closed form (+X faces the parent, +Y orbit normal) and the rail angle drops whole cycles first, so the parent is constant at body-frame +X at any time/timeScale (	idal-lock.test.mjs).
+- Globe height/colour grids are cleared on renderer reset and splatted with the chart body's centre/radius, so Azeroth relief no longer shows as spikes on Elune.
