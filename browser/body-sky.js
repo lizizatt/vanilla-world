@@ -2,6 +2,7 @@
 // ready for spaceUniform's moon slots. Elune from Azeroth replaces the stylised moon; Azeroth from Elune is the other large disc.
 import {BODIES,AZEROTH,ELUNE,centreAt,axesAt} from './bodies.js';
 import {MOONS,moonPlanetPosition} from './space.js';
+import {sunInertial} from './sky-coupling.js';
 
 const TINT={azeroth:[.45,.62,1],elune:[.9,.93,1]};
 
@@ -16,6 +17,6 @@ export function viewFrom(body,t) {
   const other=body.id==='elune'?AZEROTH:ELUNE;
   const moons=[{position:relativeCentre(body,other,t),radius:other.radius,tint:TINT[other.id],axisY:other.id==='elune'?axesAt(other,t)[1]:undefined}];
   if(body.id==='azeroth')moons.push({...MOONS[1],position:moonPlanetPosition(MOONS[1],t)});
-  return {radius:body.radius,centre:body.centre,moons};
+  return {radius:body.radius,centre:body.centre,moons,sun:body.id==='azeroth'?sunInertial(t):undefined};
 }
 export {BODIES};

@@ -39,8 +39,9 @@ function frame(now) {
     const locked=app.wreckLocked();if(locked){Object.assign(controls,{throttle:0,steer:0,flags:0});client.pendingHop=0;}else if(app.wasLocked&&!app.flight)void app.respawn();app.wasLocked=locked;
     if(app.flight) {
       let swap;const before=app.flight,[yaw,pitch]=app.flight.length>=9?toEuler(app.flight.slice(5,9),app.flight[3]):[0,0];
-      // A pose without a matching quaternion (fresh, loaded, or moved by a test hook) is rebuilt from its yaw/pitch.
-      let q=app.flight.length>=9&&Math.abs(Math.sin(yaw-app.flight[3]))<1e-6&&Math.abs(pitch-app.flight[4])<1e-6?app.flight.slice(5,9):fromEuler(app.flight[3],app.flight[4]);
+      // The attitude quaternion is authoritative while this frame loop owns the pose (no Euler round trip, so no gimbal reset near +-90 degrees pitch).
+      // A pose set from outside (fresh, loaded, or moved by a test hook) is rebuilt from its quaternion if consistent, else from its yaw/pitch.
+      let q=app.attitude?.ref===app.flight?app.attitude.q:app.flight.length>=9&&Math.abs(Math.sin(yaw-app.flight[3]))<1e-6&&Math.abs(pitch-app.flight[4])<1e-6?app.flight.slice(5,9):fromEuler(app.flight[3],app.flight[4]);
       const dk=k=>Number(keys.has(k));
       q=keys.has('KeyX')?fromEuler(toEuler(q,app.flight[3])[0],-FLIGHT_PITCH):stepOrient(q,{yaw:(dk('ArrowLeft')-dk('ArrowRight'))*dt-cameraOrbit[0]*.004,pitch:(dk('ArrowUp')-dk('ArrowDown'))*dt-cameraOrbit[1]*.004},app.flight[1],dt);
       const aim=basis(q);
@@ -52,7 +53,7 @@ function frame(now) {
                 if(r.swapped&&r.parent!==activeBody().id)swap=r.parent;
         if(r.aim)q=fromBasis(r.aim.right,r.aim.up,r.aim.look);// same physical attitude in the new parent's chart (no orientation reset at the swap)
       } else app.flight=moveFlight(app.flight,keys,dt,aim);if(app.flight.poleFlip)q=turnAround(q);const [ny,np]=toEuler(q,app.flight[3]);app.flightSpeed=dt>0?Math.hypot(app.flight[0]-before[0],app.flight[1]-before[1],app.flight[2]-before[2])/dt:0;
-      app.flight[3]=ny;app.flight[4]=np;app.flight.length=5;app.flight.push(...q);
+      app.flight[3]=ny;app.flight[4]=np;app.flight.length=5;app.flight.push(...q);app.attitude={ref:app.flight,q};
       if(swap){app.swapHold=true;const release=()=>{app.swapHold=false;};app.soiSwap(swap).then(ok=>{if(!ok)app.soiHandoff(swap,app.flight);}).catch(error=>{console.error('SOI swap failed',error);app.soiHandoff(swap,app.flight);}).finally(release);}
     }
     if(!app.flight)app.space=undefined;
