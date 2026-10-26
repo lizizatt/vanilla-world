@@ -10,7 +10,7 @@ test('gravity is inverse-square and monotone',() => {
 });
 test('atmosphere density falls continuously to zero at the edge',() => {
   assert.equal(densityAt(0),1);assert.equal(densityAt(ATMOSPHERE_EDGE),0);assert.equal(densityAt(1e7),0);
-  let prev=1;for(let h=0;h<=ATMOSPHERE_EDGE;h+=50){const d=densityAt(h);assert.ok(d<=prev+1e-12&&d>=0);assert.ok(prev-d<.08);prev=d;}
+  let prev=1;for(let h=0;h<=ATMOSPHERE_EDGE;h+=ATMOSPHERE_EDGE/100){const d=densityAt(h);assert.ok(d<=prev+1e-12&&d>=0);assert.ok(prev-d<.08);prev=d;}
 });
 test('circular orbit speed matches v^2/r = g',() => {
   const h=20000,v=circularSpeed(h);assert.ok(Math.abs(v*v/(PLANET_RADIUS+h)-gravityAt(h))<1e-9);

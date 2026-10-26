@@ -12,10 +12,10 @@ import {WorldInput,idleIntent} from './world-input.js';
 
 test('regime tag follows the planet ramps at the band edges', () => {
   assert.equal(regimeOf(-5),'ground');
-  assert.equal(regimeOf(149.99),'ground');
-  assert.equal(regimeOf(150),'atmosphere');
-  assert.equal(regimeOf(8999),'atmosphere');
-  assert.equal(regimeOf(9000),'orbit');
+  assert.equal(regimeOf(BEND_RANGE[0]-.01),'ground');
+  assert.equal(regimeOf(BEND_RANGE[0]),'atmosphere');
+  assert.equal(regimeOf(SPACE_RANGE[1]-1),'atmosphere');
+  assert.equal(regimeOf(SPACE_RANGE[1]),'orbit');
   assert.equal(REGIME_BANDS.atmosphere,BEND_RANGE[0]);
   assert.equal(planetFactors(REGIME_BANDS.atmosphere).bend,0);
   assert.equal(planetFactors(REGIME_BANDS.orbit).space,1);
@@ -25,7 +25,7 @@ test('tuning tables are frozen and keep their shipped values', () => {
   for(const t of [FLIGHT,ORIENT,CAMERA,BEND_RANGE,GLOBE_RANGE,SPACE_RANGE])assert.ok(Object.isFrozen(t));
   assert.deepEqual({...FLIGHT},{walkSpeed:1200,fastSpeed:8000,floor:-10000,ceiling:1000000,pitch:Math.PI/2,boostFrom:1000,boostMax:40});
   assert.deepEqual([...ORIENT.levelAlt],[800,4000]);
-  assert.deepEqual([BEND_RANGE,GLOBE_RANGE,SPACE_RANGE].map(r=>[...r]),[[150,1500],[0,60],[2000,9000]]);
+  assert.deepEqual([BEND_RANGE,GLOBE_RANGE,SPACE_RANGE].map(r=>[...r]),[[87,865],[0,35],[1154,5193]]);
   assert.equal(CAMERA.recentre,7);
 });
 

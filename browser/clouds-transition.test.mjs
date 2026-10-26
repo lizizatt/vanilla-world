@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {shellExtent} from './cloud-march.js';
+import {PLANET_RADIUS} from './space.js';
 import {SHELL_CURVATURE,shellCurvatureAt,stepTierMix,TIER_FADE_SECONDS,cloudShader,cloudShaderHigh,cloudUniform} from './clouds.js';
 import {cloudShellRadius,CLOUD_RADIUS_RANGE,CLOUD_RADIUS_GROUND_SCALE,planetFactors,BEND_RANGE,SPACE_RANGE,GLOBE_RANGE,ZONE_LIGHT_RANGE} from './terrain-transition.js';
 
@@ -36,7 +37,7 @@ test('blended planet factors are C0 and monotonic with altitude',()=>{
 
 
 test('cloud shell radius: limits, monotonic, C1 and continuous in altitude',()=>{
-  const R=42785,r=a=>cloudShellRadius(a,R);
+  const R=PLANET_RADIUS,r=a=>cloudShellRadius(a,R);
   assert.equal(r(0),R*CLOUD_RADIUS_GROUND_SCALE);
   assert.ok(Math.abs(r(CLOUD_RADIUS_RANGE[1])-R)<1e-6);
   assert.equal(r(1e6),R);
@@ -54,7 +55,7 @@ test('apparent cloud horizon dip grows with altitude and matches the terrain ben
   const dip=a=>{let low=0;for(let d=5;d>-80;d-=.05)if(shellExtent(a,Math.sin(d*Math.PI/180),shellCurvatureAt(a),false).live)low=-d;return low;};
   let prev=-1;
   for(const a of [50,100,300,600,1000,1300])assert.ok(dip(a)>prev,`dip at ${a}`),prev=dip(a);
-  for(const a of [100,500,1000,1500]){const g=1/CLOUD_RADIUS_GROUND_SCALE,b=planetFactors(a).bend;assert.ok(Math.abs(shellCurvatureAt(a)*42785-(g+(1-g)*b))<1e-4,`curvature follows the terrain bend at ${a}`);}
+  for(const a of [100,500,1000,1500]){const g=1/CLOUD_RADIUS_GROUND_SCALE,b=planetFactors(a).bend;assert.ok(Math.abs(shellCurvatureAt(a)*PLANET_RADIUS-(g+(1-g)*b))<1e-4,`curvature follows the terrain bend at ${a}`);}
   assert.ok(Math.abs(shellCurvatureAt(5000)-SHELL_CURVATURE)<1e-12);
 });
 

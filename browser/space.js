@@ -6,11 +6,11 @@ import {BEND_RANGE,wgslRamp} from './terrain-transition.js';
 import {nightLightsWgsl} from './night-lights-wgsl.js';
 import {wrapAngle,wrapTurn} from './math.js';
 import {LAT_MAX,clampLat,latLonOf,flatOf,frameAtLatLon} from './equirect.js';
-export const CONTINENT_YD=29867,CONTINENT_DEG=40;
+export const CONTINENT_YD=29867,CONTINENT_DEG=120;
 export const PLANET_RADIUS=Math.round(CONTINENT_YD/(CONTINENT_DEG*Math.PI/180));
 // World centre (render yd) at lat/lon 0, and the fallback continent rectangles [x0,z0,x1,z1] when no manifest is loaded (hosted build).
 // The z is set so the Maelstrom (render z 3507, from maelstromCentre on the WoW map layout) sits MAELSTROM_LAT degrees north of the equator; the whole layout shifts rigidly, so distances are unchanged.
-export const MAELSTROM_Z=3507,MAELSTROM_LAT=20;
+export const MAELSTROM_Z=3507,MAELSTROM_LAT=16;
 export const WORLD_CENTRE=[1429,Math.round(MAELSTROM_Z+PLANET_RADIUS*MAELSTROM_LAT*Math.PI/180)];
 export const FALLBACK_RECTS=[[-21867,-7467,5333,22400],[13525,-5333,24725,17067]];
 // Altitude ramps in yd above sea level, chosen from the horizon dip acos(R/(R+h)): 100 yd is 3.9 deg, 500 yd 8.6 deg, 2000 yd 17.7 deg.
@@ -18,8 +18,8 @@ export const FALLBACK_RECTS=[[-21867,-7467,5333,22400],[13525,-5333,24725,17067]
 // (the atmosphere is about 12% of R, ~5 kyd, so space is complete by 9 kyd).
 // Globe depth sits this far below sea level so terrain, the whirlpool hole (180 yd) and low valleys are never hidden by the globe.
 const GLOBE_DEPTH_DROP=400;
-export const MOONS=[{radius:9000,orbit:300000,phase:2.4,turns:1,plane:[0,0],tint:[.9,.93,1]},
-  {radius:5500,orbit:480000,phase:.9,turns:-2,plane:[.5,.35],tint:[.4,.65,1]}];
+export const MOONS=[{radius:9000,orbit:100000,phase:2.4,turns:1,plane:[0,0],tint:[.9,.93,1]},
+  {radius:5500,orbit:160000,phase:.9,turns:-2,plane:[.5,.35],tint:[.4,.65,1]}];
 /** Local-to-planet frame at a render position: columns east, up, south (render x east, y up, z south). */
 /** Sine of the angle the true horizon sits below level at an altitude, faded in with the terrain bend, so the sky gradient meets the limb instead of a flat horizon. */
 export function horizonDip(altitude,bend=1,radius=PLANET_RADIUS) {

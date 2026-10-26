@@ -7,10 +7,10 @@ import {ELUNE,AZEROTH,centreAt,toInertial} from './bodies.js';
 
 const sha=s=>createHash('sha1').update(s).digest('hex').slice(0,12);
 
-test('Azeroth shaders are byte-identical to the pre-refactor strings', () => {
-  assert.equal(sha(bendShader),'3aae78507b34');
-  assert.equal(sha(spaceShader),'a5796b802004');
-  assert.equal(sha(patchShader),'c37c4ad3fede');
+test('Azeroth shaders are byte-identical to the current radius-baked strings', () => {
+  assert.equal(sha(bendShader),'cf0807e77aee');
+  assert.equal(sha(spaceShader),'ac9818c942e5');
+  assert.equal(sha(patchShader),'09deadd0e1b7');
   assert.equal(bendShader,bendShaderFor(PLANET_RADIUS,WORLD_CENTRE));
   assert.equal(patchShader,patchShaderFor(PLANET_RADIUS));
 });
@@ -36,7 +36,7 @@ test('depth range adapts and layers split only at extreme ratios', () => {
   const t=0,ground=depthRange(toInertial(AZEROTH,[0,2,0],t),t);
   assert.equal(ground.near,.25);
   const c=centreAt(ELUNE,t),mid=[c[0]+1e5*0+ELUNE.radius+20000,c[1],c[2]],r=depthRange(mid,t);
-  assert.ok(r.near>=.25&&r.far>3e5);
+  assert.ok(r.near>=.25&&r.far>1e5);
   assert.equal(depthLayers(mid,t).length,1);
   assert.equal(depthLayers(toInertial(AZEROTH,[0,2,0],t),t).length,1);
   const ls=depthLayers(toInertial(AZEROTH,[0,.1,0],t),t,{minNear:.01});

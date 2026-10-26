@@ -76,7 +76,7 @@ test('turn rate does not depend on altitude', () => {
 test('flat -> globe -> flat round trip is exact, incl. world edges, and matches the render frame', () => {
   let s = 99;
   const rnd = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296;
-  const pts = [[-21867, -7467], [24725, 17067], [5333, 22400], [13525, -5333], [1429, -267], ...Array.from({ length: 2000 }, () => [-30000 + rnd() * 60000, -30000 + rnd() * 60000])];
+  const pts = [[-21867, -7467], [24725, 17067], [5333, 22400], [13525, -5333], [1429, -267], ...Array.from({ length: 2000 }, () => [-10000 + rnd() * 20000, -10000 + rnd() * 20000])];
   for (const [x, z] of pts) {
     const { lat, lon } = subPoint(x, z);
     const [rx, rz] = globeToFlat(lat, lon);
@@ -85,11 +85,12 @@ test('flat -> globe -> flat round trip is exact, incl. world edges, and matches 
     assert.ok(Math.abs(lat2 - lat) < 1e-9 && Math.abs(lon2 - lon) < 1e-9);
   }
   const k = subPoint(-21867, 0), e = subPoint(5333, 0);
-  assert.ok(Math.abs((e.lon - k.lon) * 180 / Math.PI - 36.9) < 1);
+  assert.ok(Math.abs((e.lon - k.lon) * 180 / Math.PI - 109.3) < 1);
 });
 
 test('wrapFlat wraps longitude and clamps latitude without moving points inside the world', () => {
-  assert.deepEqual(wrapFlat(1000, 2000), [1000, 2000, false]);
+  const w = wrapFlat(1000, 2000);
+  assert.ok(Math.abs(w[0] - 1000) < 1e-6 && w[1] === 2000 && w[2] === false);
   const turn = 2 * Math.PI * PLANET_RADIUS, [x] = wrapFlat(WORLD_CENTRE[0] + turn + 5, 0);
   assert.ok(Math.abs(x - (WORLD_CENTRE[0] + 5)) < 1e-6);
   assert.ok(wrapFlat(0, 1e9)[1] <= WORLD_CENTRE[1] + Math.PI / 2 * PLANET_RADIUS + 1e-6);

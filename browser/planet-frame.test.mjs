@@ -6,8 +6,8 @@ import {PLANET_RADIUS,WORLD_CENTRE} from './space.js';
 const rnd=(a,b)=>a+Math.random()*(b-a);
 
 test('flat -> planet -> flat round trip incl. world edges, ocean, 500k altitude', () => {
-  const edges=[[-21867,0,-7467],[24725,0,17067],[1429,0,-267],[1429,0,40000],[-30000,0,5000]];
-  const poses=[...edges,...Array.from({length:2000},()=>[rnd(-60000,60000),rnd(-40,500000),WORLD_CENTRE[1]+rnd(-60000,60000)])];
+  const edges=[[-21867,0,-7467],[24725,0,17067],[1429,0,-267],[1429,0,20000],[-30000,0,5000]];
+  const poses=[...edges,...Array.from({length:2000},()=>[rnd(-20000,20000),rnd(-40,500000),WORLD_CENTRE[1]+rnd(-6000,6000)])];
   for(const p of poses){const q=fromPlanet(toPlanet(p),p[0]);for(let i=0;i<3;i++)assert.ok(Math.abs(q[i]-p[i])<1e-6*Math.max(1,Math.abs(p[i])),`${p} -> ${q}`);}
 });
 
@@ -17,7 +17,7 @@ test('radius of the planet vector is planet radius plus altitude', () => {
 
 test('local up is the radial and the frame is orthonormal', () => {
   for(let i=0;i<200;i++){
-    const p=[rnd(-50000,50000),rnd(0,1000),rnd(-40000,40000)],a=localAxes(p),v=toPlanet(p),n=Math.hypot(...v);
+    const p=[rnd(-16000,16000),rnd(0,1000),rnd(-12000,12000)],a=localAxes(p),v=toPlanet(p),n=Math.hypot(...v);
     for(let k=0;k<3;k++)assert.ok(Math.abs(a.up[k]-v[k]/n)<1e-9);
     const dot=(u,w)=>u[0]*w[0]+u[1]*w[1]+u[2]*w[2];
     assert.ok(Math.abs(dot(a.east,a.up))<1e-9&&Math.abs(dot(a.east,a.south))<1e-9&&Math.abs(dot(a.up,a.south))<1e-9);
@@ -25,7 +25,7 @@ test('local up is the radial and the frame is orthonormal', () => {
 });
 
 test('camera-relative offsets stay f32-safe at 500k yd', () => {
-  const eye=toPlanet([100,500000,200]),pt=toPlanet([100,500000,203]),d=relative(pt,eye);
+  const eye=toPlanet([100,500000,200]),pt=toPlanet([100,500000,201]),d=relative(pt,eye);
   assert.ok(Math.abs(Math.fround(d[0])-d[0])<1e-3&&Math.hypot(...d)<50);
 });
 
