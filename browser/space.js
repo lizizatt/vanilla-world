@@ -133,11 +133,12 @@ export const spaceShaderFor=(radius,opts={})=>{let src=spaceShaderSource(radius)
 /** Variant for viewers of an atmospheric body (Azeroth seen from a moon): moon slot 1 is shaded with the registry sea/land colours, cloud wisps and a limb glow instead of grey crater noise. Body axes ride in S.axis (Y), S.axx (X), S.axz (Z). */
 const withAtmosphericDisc=src=>src
   .replace('tint:array<vec4f,2>};','tint:array<vec4f,2>,axis:vec4f,ms:vec4f,axx:vec4f,axz:vec4f};')
+  .replace('@group(0) @binding(4) var lightsTex:texture_2d<f32>;','@group(0) @binding(6) var discTex:texture_2d<f32>;\n@group(0) @binding(4) var lightsTex:texture_2d<f32>;')
   .replace('acc=over(acc,s.tint[id-1].rgb*crater*lit,space);',`var col=s.tint[id-1].rgb*crater;var lit2=lit;
       if(id==1&&s.axx.w>.5){
         let sunD=select(sun,normalize(s.ms.xyz),s.ms.w>.5);
         let b=vec3f(dot(n,normalize(s.axx.xyz)),dot(n,normalize(s.axis.xyz)),dot(n,normalize(s.axz.xyz)));
-        let reg=textureSampleLevel(surfaceTex,surfaceSamp,vec2f(atan2(b.z,b.x)/6.2831853+.5,.5-asin(clamp(b.y,-1.0,1.0))/3.1415927),0.0);
+        let reg=textureSampleLevel(discTex,surfaceSamp,vec2f(atan2(b.z,b.x)/6.2831853+.5,.5-asin(clamp(b.y,-1.0,1.0))/3.1415927),0.0);
         let land=smoothstep(.4,.6,reg.a);let sea=vec3f(.04,.2,.36);
         let cloud=smoothstep(.55,.8,fbm(b.xz*7.0+b.y*4.0));
         var base=mix(sea,reg.rgb*.8+.1,land);base=mix(base,vec3f(.92),cloud*.7);

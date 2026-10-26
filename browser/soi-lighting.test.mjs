@@ -46,3 +46,12 @@ test('the other body\'s disc shader variant follows its config: Azeroth seen fro
   const u=spaceUniform({eye:[0,100,0],look:[0,0,-1],right:[1,0,0],up:[0,1,0],aspect:1},[0,1,0],{space:1,globe:0},[],1000,1,1e6,undefined,v);
   assert.equal(u[75],1);assert.ok(u.length>=80);void BODIES;
 });
+
+test('the other body disc samples its own baked registry (discTex, binding 6), only bodies with an atmospheric parent bind it', async () => {
+  const {shaderSetFor}=await import('./body-shaders.js');
+  const {wantsDisc}=await import('./renderer-init.js');
+  const src=shaderSetFor(ELUNE).space;
+  assert.match(src,/@binding\(6\) var discTex/);assert.match(src,/textureSampleLevel\(discTex/);
+  assert.doesNotMatch(shaderSetFor(AZEROTH).space,/discTex/);
+  assert.equal(wantsDisc(ELUNE),true);assert.equal(wantsDisc(AZEROTH),false);
+});
