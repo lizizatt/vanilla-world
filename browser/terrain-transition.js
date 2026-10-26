@@ -1,4 +1,5 @@
 import {CLOUD_ALTITUDE,CLOUD_THICKNESS} from './cloud-config.js';
+import {smoothstep as smooth} from './math.js';
 // Sole owner of the far-to-near transition ramps. Altitude (yd) ranges [start,end] of each smoothstep fade between the
 // flat near terrain and the planet view; space.js (globe/fog shader), regime.js, clouds and the renderer all read these.
 export const BEND_RANGE=Object.freeze([150,1500]);
@@ -7,7 +8,7 @@ export const SPACE_RANGE=Object.freeze([2000,9000]);
 // Per-zone lighting (Light.dbc tint) fades to the global sun look, reaching zero at the base of the lowest cloud layer.
 export const ZONE_LIGHT_RANGE=Object.freeze([300,CLOUD_ALTITUDE-CLOUD_THICKNESS*.5]);
 
-const smooth=(a,b,x)=>{const t=Math.min(1,Math.max(0,(x-a)/(b-a)));return t*t*(3-2*t);};
+
 const fix=n=>Number(n.toFixed(6));
 const ramp=(range,altitude)=>fix(smooth(range[0],range[1],altitude));
 

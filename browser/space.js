@@ -4,6 +4,8 @@
 import {HEIGHT_RANGE,HEIGHT_MIN} from './height-bake.js';
 import {BEND_RANGE,wgslRamp} from './terrain-transition.js';
 import {nightLightsWgsl} from './night-lights-wgsl.js';
+import {wrapAngle,wrapTurn} from './math.js';
+import {LAT_MAX,clampLat,latLonOf,flatOf,frameAtLatLon} from './equirect.js';
 export const CONTINENT_YD=29867,CONTINENT_DEG=40;
 export const PLANET_RADIUS=Math.round(CONTINENT_YD/(CONTINENT_DEG*Math.PI/180));
 // World centre (render yd) at lat/lon 0, and the fallback continent rectangles [x0,z0,x1,z1] when no manifest is loaded (hosted build).
@@ -24,29 +26,28 @@ export function horizonDip(altitude,bend=1,radius=PLANET_RADIUS) {
   const k=radius/(radius+Math.max(0,altitude));return Math.sqrt(1-k*k)*bend;
 }
 export function planetFrame(x,z,centre=WORLD_CENTRE,radius=PLANET_RADIUS) {
-  const lon=(x-centre[0])/radius,lat=Math.max(-LAT_MAX,Math.min(LAT_MAX,-(z-centre[1])/radius));
-  const [sl,cl,sp,cp]=[Math.sin(lon),Math.cos(lon),Math.sin(lat),Math.cos(lat)];
-  return {east:[-sl,0,cl],up:[cp*cl,sp,cp*sl],south:[sp*cl,-cp,sp*sl]};
+  const {lat,lon}=latLonOf(x,z,centre,radius);
+  return frameAtLatLon(clampLat(lat),lon);
 }
 
 /** Position model: the flat pose (x, z) is the globe sub-point (the radial below you), lon = (x - cx)/R and lat = -(z - cz)/R, so descending radially lands on the same flat (x, z). */
 export function subPoint(x,z,centre=WORLD_CENTRE,radius=PLANET_RADIUS) {
-  return {lat:-(z-centre[1])/radius,lon:(x-centre[0])/radius};
+  return latLonOf(x,z,centre,radius);
 }
 export function globeToFlat(lat,lon,centre=WORLD_CENTRE,radius=PLANET_RADIUS) {
-  return [centre[0]+radius*lon,centre[1]-radius*lat];
+  return flatOf(lat,lon,centre,radius);
 }
 /** Flight stays on the globe: longitude wraps and flying over a pole continues down the far meridian (lat' = pi - lat, lon + pi), returning flipped=true so the caller turns the heading half a turn. */
 export function wrapFlat(x,z,centre=WORLD_CENTRE,radius=PLANET_RADIUS) {
-  const turn=2*Math.PI*radius,half=turn/2,TAU=2*Math.PI;
+  const turn=2*Math.PI*radius,half=turn/2;
   let lat=-(z-centre[1])/radius,dx=x-centre[0],flipped=false;
-  lat=((lat+Math.PI)%TAU+TAU)%TAU-Math.PI;
+  lat=wrapAngle(lat);
   if(Math.abs(lat)>Math.PI/2){lat=Math.sign(lat)*Math.PI-lat;dx+=half;flipped=true;}
-  dx=((dx+half)%turn+turn)%turn-half;
+  dx=wrapTurn(dx,turn);
   const k=Math.PI/2-1e-4;
   return [centre[0]+dx,Math.abs(z-centre[1])>k*radius?centre[1]-radius*Math.max(-k,Math.min(k,lat)):z,flipped];
 }
-export const LAT_MAX=Math.PI/2-1e-4;/** Continent under a flat position from the populated continent rectangles (first = Kalimdor, second = Eastern Kingdoms). */
+export {LAT_MAX};/** Continent under a flat position from the populated continent rectangles (first = Kalimdor, second = Eastern Kingdoms). */
 export function placeName(x,z,rects=FALLBACK_RECTS) {
   const inside=r=>x>=r[0]&&x<=r[2]&&z>=r[1]&&z<=r[3];
   return inside(rects[0])?'KALIMDOR':rects[1]&&inside(rects[1])?'EASTERN KINGDOMS':'THE GREAT SEA';
@@ -57,7 +58,7 @@ export function nearestLandmark(x,z,icons=[]) {
   for(const i of icons){const d=Math.hypot(...wrapDelta(i.position[0]-x,i.position[1]-z));if(!best||d<best.distance)best={label:i.label,distance:d};}
   return best;
 }
-const wrapDelta=(dx,dz)=>{const turn=2*Math.PI*PLANET_RADIUS;return [((dx+turn/2)%turn+turn)%turn-turn/2,dz];};
+const wrapDelta=(dx,dz)=>[wrapTurn(dx,2*Math.PI*PLANET_RADIUS),dz];
 export function spaceHud(pose,speed,rects,icons) {
   const {lat,lon}=subPoint(pose[0],pose[2]),d=r=>(Math.abs(r*180/Math.PI)).toFixed(1),near=nearestLandmark(pose[0],pose[2],icons),
     nearText=near?` · ${near.distance>=1000?(near.distance/1000).toFixed(1)+"k":near.distance.toFixed(0)} yd from ${near.label}`:"";
@@ -104,7 +105,7 @@ export function spaceUniform(view,sun,factors,rects,timeOfDay,near,far,out=new F
 /** JS mirror of the WGSL bend(): eye-relative flat offset -> eye-relative render position on the equirect globe (k = 1), flat at k = 0. */
 export function bendRel(rel,eye,k=1,radius=PLANET_RADIUS,centre=WORLD_CENTRE) {
   if(k<=0||Math.hypot(rel[0],rel[2])<1)return rel.slice();
-  const lat0=Math.max(-LAT_MAX,Math.min(LAT_MAX,(centre[1]-eye[2])/radius)),lat=Math.max(-LAT_MAX,Math.min(LAT_MAX,lat0-rel[2]/radius)),dl=rel[0]/radius;
+  const lat0=clampLat((centre[1]-eye[2])/radius),lat=clampLat(lat0-rel[2]/radius),dl=rel[0]/radius;
   const cl=Math.cos(lat),sp0=Math.sin(lat0),cp0=Math.cos(lat0),cd=cl*Math.cos(dl);
   const n=[cl*Math.sin(dl),cp0*cd+sp0*Math.sin(lat),sp0*cd-cp0*Math.sin(lat)],r=radius+rel[1]+eye[1];
   return [rel[0]+(n[0]*r-rel[0])*k,rel[1]+(n[1]*r-(radius+eye[1])-rel[1])*k,rel[2]+(n[2]*r-rel[2])*k];

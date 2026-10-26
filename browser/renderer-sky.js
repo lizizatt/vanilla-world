@@ -4,6 +4,7 @@ import {eluneSkyAt} from './elune-sky.js';
 import {schematicRects} from './worldmap.js';
 import {viewFrom} from './body-sky.js';
 import {AZEROTH,ELUNE} from './bodies.js';
+import {activeBody} from './body-shaders.js';
 import {patchesAt,packPatches,PATCH_GRID} from './globe-patches.js';
 import {createRegistry,defaultManifest,bakeSurface,surfaceTexel,splatMinimap,adtChunk} from './tile-registry.js';
 import {HEIGHT_W,HEIGHT_H,encodeHeights} from './height-bake.js';
@@ -28,16 +29,16 @@ export function setSkyDome(r,data) {
 /** Feeds the globe colour grid: a tile needs both its WDL placement and its minimap, in either arrival order. */
 export function horizonColour(r,key,part) {
   const e={...r.horizonMini.get(key),...part};r.horizonMini.set(key,e);
-  if(e.placement&&e.rgba){const b=r.manifest?.version===4?ELUNE:{centre:WORLD_CENTRE,radius:PLANET_RADIUS};splatMinimap(r.colourGrid,e.rgba,MINIMAP_SIZE,e.placement,b.centre,b.radius,r.colourDirty,r.heightGrid);r.horizonMini.delete(key);}
+  if(e.placement&&e.rgba){const b=activeBody();splatMinimap(r.colourGrid,e.rgba,MINIMAP_SIZE,e.placement,b.centre,b.radius,r.colourDirty,r.heightGrid);r.horizonMini.delete(key);}
 }
 export function planetRects(r) {return r.manifest?.world_bounds?schematicRects(r.manifest):FALLBACK_RECTS;}
 /** Shared-space view (design/elune.md D3): Elune is always the moon-slot sphere seen from Azeroth when enabled; v4 charts are Elune looking back at Azeroth. */
 export function sharedFrame(r) {
-  if(r.manifest?.version===4)return viewFrom(ELUNE,r.timeOfDay);
+  if(activeBody().id==='elune')return viewFrom(ELUNE,r.timeOfDay);
   return r.sharedSpace?viewFrom(AZEROTH,r.timeOfDay):undefined;
 }
 export function drawPlanet(r,pass,pf,near) {
-  if(r.planetBody!==(r.manifest?.version===4?'elune':'azeroth'))return;
+  if(r.planetBody!==activeBody().id)return;
   const rects=r.planetRects(),key=JSON.stringify(rects);
   if(pf.registry&&r.surfaceKey!==key){
     r.surfaceRegistry=// With real data the minimap colours own the land: procedural fill would paint green over the unseen coast water.
@@ -57,24 +58,24 @@ export function drawPlanet(r,pass,pf,near) {
     r.device.queue.writeTexture({texture:r.lightsTex,origin:[0,y0,0]},r.nightBake.out,{offset:y0*NIGHT_W*4,bytesPerRow:NIGHT_W*4},[NIGHT_W,y1-y0+1]);}
   if(r.surfaceDirty){r.device.queue.writeTexture({texture:r.surfaceTex},r.surfaceBytes,{bytesPerRow:4096},[1024,512]);r.surfaceDirty=false;}
   // On an Elune chart the sun is the true one in the pod's local frame, matching the moon-slot shading seen from Azeroth.
-  const sun=r.manifest?.version===4?eluneSkyAt(r.view.eye[0],r.view.eye[2],r.timeOfDay).sun:sunDirection(r.timeOfDay);
+  const sun=activeBody().id==='elune'?eluneSkyAt(r.view.eye[0],r.view.eye[2],r.timeOfDay).sun:sunDirection(r.timeOfDay);
   const uniform=spaceUniform(r.view,sun,pf,rects,r.timeOfDay,near,200000,undefined,r.sharedFrame());
   uniform[47]=performance.now()/1000%3600;// wall-clock seconds for light twinkle
   r.device.queue.writeBuffer(r.spaceBuffer,0,uniform);
   pass.setPipeline(r.spacePipeline);pass.setBindGroup(0,r.spaceGroup);pass.draw(3);
 }
 export function drawLights(r,pass,pf) {
-  if(r.planetBody!==(r.manifest?.version===4?'elune':'azeroth'))return;
+  if(r.planetBody!==activeBody().id)return;
   if(r.view.eye[1]<2500||!r.lightsGroup)return;
   pass.setPipeline(r.lightsPipeline);pass.setBindGroup(0,r.lightsGroup);pass.draw(3);
 }
 export function drawPatches(r,pass) {
-  if(r.planetBody!==(r.manifest?.version===4?'elune':'azeroth'))return;
+  if(r.planetBody!==activeBody().id)return;
   if(r.heightDirty&&performance.now()-(r.heightAt||0)>1000){
     r.device.queue.writeTexture({texture:r.heightTex},encodeHeights(r.heightGrid),{bytesPerRow:HEIGHT_W},[HEIGHT_W,HEIGHT_H]);
     r.heightDirty=false;r.heightAt=performance.now();
   }
-  const eye=r.view.eye,patches=patchesAt(eye[0],eye[2],Math.max(0,eye[1]),r.manifest?.version===4?{radius:ELUNE.radius,centre:ELUNE.centre,maxLevel:ELUNE.maxLevel}:undefined);
+  const eye=r.view.eye,patches=patchesAt(eye[0],eye[2],Math.max(0,eye[1]),activeBody().id==='elune'?{radius:ELUNE.radius,centre:ELUNE.centre,maxLevel:ELUNE.maxLevel}:undefined);
   r.device.queue.writeBuffer(r.patchBuffer,0,packPatches(patches));
   r.patchCount=patches.length;
   pass.setPipeline(r.patchPipeline);pass.setBindGroup(0,r.patchGroup);pass.setVertexBuffer(0,r.patchBuffer);pass.draw(PATCH_GRID*PATCH_GRID*6,patches.length);

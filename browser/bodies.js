@@ -2,8 +2,9 @@
 // Pure functions: per-body transition ranges, regimes, gravity, rails, tidal-lock frames and chart <-> inertial conversions.
 // Azeroth's numbers are the existing constants unchanged; nothing here is wired into the renderer yet.
 import {PLANET_RADIUS,WORLD_CENTRE,MOONS} from './space.js';
+import {smoothRange} from './math.js';
 import {BEND_RANGE,GLOBE_RANGE,SPACE_RANGE,ZONE_LIGHT_RANGE} from './terrain-transition.js';
-import {SURFACE_GRAVITY,ATMOSPHERE_EDGE} from './planet-physics.js';
+import {SURFACE_GRAVITY,ATMOSPHERE_EDGE,gravityAt,densityAt,circularSpeed} from './planet-physics.js';
 import {toPlanet,fromPlanet} from './planet-frame.js';
 
 export const ELUNE_CIRCUMFERENCE=32000;
@@ -40,7 +41,7 @@ export const ELUNE_SOI=soiOf(ELUNE);
 export const bodiesEnabled=(search,flag='bodies')=>{const v=new URLSearchParams(search).get(flag);return v===null||!['0','off','false'].includes(v);};
 export const SOI_ENTER=.9,SOI_EXIT=1.1;
 
-const smooth=(r,x)=>{const t=Math.min(1,Math.max(0,(x-r[0])/(r[1]-r[0])));return t*t*(3-2*t);};
+const smooth=smoothRange;
 /** Regime tag for an altitude above a body's surface. */
 export const regimeOf=(altitude,body=AZEROTH)=>altitude>=body.ranges.space[1]?'orbit':altitude>=body.ranges.bend[0]?'atmosphere':'ground';
 /** Fade factors (bend, globe, space, zone) for an altitude above a body; same shape as terrain-transition planetFactors. */
@@ -49,12 +50,9 @@ export function planetFactorsFor(body,altitude,enabled=true) {
   const f=n=>Number(n.toFixed(6)),r=body.ranges;
   return {zone:f(1-smooth(r.zone,altitude)),bend:f(smooth(r.bend,altitude)),globe:f(smooth(r.globe,altitude)),space:body.atmosphereEdge?f(smooth(r.space,altitude)):1};
 }
-export const gravityFor=(body,altitude)=>body.gravity*(body.radius/(body.radius+Math.max(0,altitude)))**2;
-export const densityFor=(body,altitude)=>{
-  const e=body.atmosphereEdge,h=Math.max(0,altitude);
-  return !e||h>=e?0:Math.exp(-h/(e/7))*(1-h/e);
-};
-export const circularSpeedFor=(body,altitude)=>Math.sqrt(gravityFor(body,altitude)*(body.radius+altitude));
+export const gravityFor=(body,altitude)=>gravityAt(altitude,body.radius,body.gravity);
+export const densityFor=(body,altitude)=>densityAt(altitude,body.atmosphereEdge);
+export const circularSpeedFor=(body,altitude)=>circularSpeed(altitude,body.radius,body.gravity);
 /** Distance to the horizon from an eye height above a sphere. */
 export const horizonDistance=(body,height)=>Math.sqrt(2*body.radius*Math.max(0,height)+height*height);
 

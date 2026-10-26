@@ -6,6 +6,8 @@ import {sphereAt,vnoise3,bandCoverage,flowShift,flowPhase,FLOW,maskAt,landCovera
 import {CLOUD_ALTITUDE,CLOUD_THICKNESS,CLOUD_HALF_SIZE,MAELSTROM as M,tier} from './cloud-config.js';
 import {sunDirection,shellCurvatureAt,shellBendFromCurvature} from './clouds.js';
 import {PLANET_RADIUS,WORLD_CENTRE,planetFrame} from './space.js';
+import {smoothstep} from './math.js';
+import {dirLatLon,flatOf} from './equirect.js';
 
 export const FADE_START=30000,FOG_RANGE=150000,SPAN_PER_DISTANCE=.3;
 export const MIN_SPAN=tier(false).minSpan;
@@ -13,7 +15,7 @@ export const steps=high=>tier(high).steps;
 const clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
 const mix=(a,b,t)=>a+(b-a)*t;
 const fract=x=>x-Math.floor(x);
-export const smoothstep=(a,b,x)=>{const t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t);};
+export {smoothstep};
 const hash=(x,y)=>fract(Math.sin(x*127.1+y*311.7)*43758.5453);
 function vnoise(x,y) {
   const ix=Math.floor(x),iy=Math.floor(y),fx=x-ix,fy=y-iy,sx=fx*fx*(3-2*fx),sy=fy*fy*(3-2*fy);
@@ -96,8 +98,8 @@ export function worldAt(eye,rel) {
   if(hd<=1e-3)return [eye[0],h,eye[2]];
   const hx=[rel[0]/hd,rel[2]/hd],theta=thetaE/(k*PLANET_RADIUS),f=planetFrame(eye[0],eye[2]),s=Math.sin(theta),c=Math.cos(theta);
   const n=[s*hx[0],c,s*hx[1]],pv=[0,1,2].map(i=>f.east[i]*n[0]+f.up[i]*n[1]+f.south[i]*n[2]);
-  const lat=Math.asin(Math.min(Math.max(pv[1],-1),1)),lon=Math.atan2(pv[2],pv[0]),b=shellBendFromCurvature(k),arc=thetaE/k;
-  return [mix(eye[0]+hx[0]*arc,WORLD_CENTRE[0]+PLANET_RADIUS*lon,b),h,mix(eye[2]+hx[1]*arc,WORLD_CENTRE[1]-PLANET_RADIUS*lat,b)];
+  const {lat,lon}=dirLatLon(pv),g=flatOf(lat,lon,WORLD_CENTRE,PLANET_RADIUS),b=shellBendFromCurvature(k),arc=thetaE/k;
+  return [mix(eye[0]+hx[0]*arc,g[0],b),h,mix(eye[2]+hx[1]*arc,g[1],b)];
 }
 /** Ray extent through the curved layer: start, end, whether the end was cut by the span cap (not by leaving the layer), and the scene-depth soft edge. */
 export function extent(eyeY,dirY,sceneDist,high,far=1e8) {
