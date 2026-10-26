@@ -43,3 +43,14 @@ test('wrapFlat and planet-frame round trips still unwrap',()=>{
   for(let i=0;i<3;i++)assert.ok(Math.abs(back[i]-p[i])<1e-6);
   const far=fromPlanet(toPlanet(p),p[0]+2*Math.PI*R);assert.ok(Math.abs(far[0]-(p[0]+2*Math.PI*R))<1e-6);
 });
+
+import {latLonOf,flatOf,dirLatLon,frameAtLatLon,clampLat,LAT_MAX} from './equirect.js';
+import {planetFrame,subPoint,globeToFlat} from './space.js';
+test('equirect module matches the space.js wrappers',()=>{
+  const c=[100,200],r=1000,{lat,lon}=latLonOf(350,-300,c,r);
+  assert.deepEqual([lat,lon],[.5,.25]);assert.deepEqual(flatOf(lat,lon,c,r),[350,-300]);
+  assert.deepEqual(subPoint(350,-300,c,r),{lat,lon});assert.deepEqual(globeToFlat(lat,lon,c,r),[350,-300]);
+  assert.deepEqual(planetFrame(350,-300,c,r),frameAtLatLon(lat,lon));
+  assert.equal(clampLat(9),LAT_MAX);
+  const f=frameAtLatLon(.4,1.1),back=dirLatLon(f.up);assert.ok(Math.abs(back.lat-.4)<1e-12&&Math.abs(back.lon-1.1)<1e-12);
+});

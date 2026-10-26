@@ -2,6 +2,7 @@
 // (lon, lat) plus radial altitude, so old saves/poses need no migration: flat -> planet -> flat is the identity.
 import {PLANET_RADIUS,WORLD_CENTRE,subPoint,globeToFlat,planetFrame} from './space.js';
 import {unwrapNear} from './math.js';
+import {dirLatLon} from './equirect.js';
 
 // Sea level sits on the sphere: planet radius is measured to altitude 0.
 /** Flat pose [x,y,z] -> planet-centred [X,Y,Z] (X toward lon 0 / lat 0, Y north, Z toward lon +90deg). */
@@ -11,8 +12,7 @@ export function toPlanet(pose,centre=WORLD_CENTRE,radius=PLANET_RADIUS) {
 }
 /** Planet-centred vector -> flat pose [x,y,z]; longitude is unwrapped near `near` (a flat x) so continuous flight does not jump a full turn. */
 export function fromPlanet(v,near=WORLD_CENTRE[0],centre=WORLD_CENTRE,radius=PLANET_RADIUS) {
-  const r=Math.hypot(v[0],v[1],v[2]),lat=Math.asin(Math.max(-1,Math.min(1,v[1]/r)));
-  let lon=Math.atan2(v[2],v[0]);
+  const r=Math.hypot(v[0],v[1],v[2]),{lat,lon}=dirLatLon([v[0]/r,v[1]/r,v[2]/r]);
   const turn=2*Math.PI*radius,[x,z]=globeToFlat(lat,lon,centre,radius);
   return [unwrapNear(x,near,turn),r-radius,z];
 }
