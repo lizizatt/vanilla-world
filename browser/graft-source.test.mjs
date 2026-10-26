@@ -119,3 +119,18 @@ test('reshapeAdt keep() culls MDDF/MODF placements outside the footprint by inva
   assert.deepEqual(ids,[7,0xffffffff,7,0xffffffff]);
   assert.equal(out.length,bytes.length);
 });
+
+test('procedural moon textures are regolith, never the demo green checker (plain and via the graft source)', async () => {
+  const {demoBlp}=await import('./demo-source.js');
+  const tex='world/../tileset\\elune\\regolith.blp'.replace('world/../','');
+  const plain=moonSource(),grafted=graftSource(moonSource(),real(),{bodyId:'elune',seed:MOON_SEED});
+  const demo=Buffer.from(demoBlp());
+  for(const s of [plain,grafted]) {
+    const ground=Buffer.from(await s.read(tex)),mini=Buffer.from(await s.read('textures/minimap/elune/map10_10.blp'));
+    assert.ok(!ground.equals(demo)&&!mini.equals(demo));
+    const pal=i=>[ground[148+i*4+2],ground[148+i*4+1],ground[148+i*4]];
+    const used=new Set(ground.subarray(1172));
+    assert.ok(used.size>8,'mottled, not flat');
+    for(const i of used){const [r,g,b]=pal(i);assert.ok(r>=g&&g>=b&&r-b<40&&r>60,`shade ${i} not grey-tan: ${r},${g},${b}`);}
+  }
+});
