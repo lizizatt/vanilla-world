@@ -15,8 +15,3 @@ export function eluneSkyAt(x,z,t) {
   return {sun,azeroth,daylight:daylightFor(ELUNE,t,frame.up),ambient:ambientFor(ELUNE,t),up:frame.up};
 }
 export const AIRLESS_SKY=[0,0,0];
-export const BUBBLE_SKY=[0.38,0.55,0.8];
-/** Sky/fog colour: airless black outside the bubble, a daylight-scaled blue inside it. */
-export function bubbleSky(mask,daylight) {
-  const k=mask*(0.12+0.88*daylight);return BUBBLE_SKY.map((v,i)=>AIRLESS_SKY[i]+(v-AIRLESS_SKY[i])*k);
-}

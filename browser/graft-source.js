@@ -1,7 +1,7 @@
 // Graft source (design/elune.md M9): wraps a body's procedural asset source and, for the body's sites, serves real source-map ADTs translated onto the body's tile grid.
 // Tiles in the apron ring are generated procedurally and meet the graft's own edge heights, so there are no cracks. Everything else (textures, models, DBCs) falls through to
 // the real data first, then to the body's own source. Game data is only read at runtime.
-import {adtChunks,translateAdt} from './graft-adt.js';
+import {adtChunks,translateAdt,reshapeAdt} from './graft-adt.js';
 import {sitesOf,tilesOf,siteRect,siteCentre,siteMask,siteTiles,APRON_AREA} from './elune-sites.js';
 import {ADT_TILE,ADT_CHUNK} from './adt-synth.js';
 import {moonAdt,moonHeightChart,MOON_TILES_X,MOON_TILES_Y} from './moon-terrain.js';
@@ -81,7 +81,11 @@ export function graftSource(base,real,{bodyId,seed}) {
   async function tile(tx,ty) {
     for(const site of sites) {
       const hit=tilesOf(site).findIndex(t=>t.dx===tx&&t.dy===ty);
-      if(hit>=0)return remember(`g${tx}_${ty}`,async()=>{const p=await prepare(site),t=tilesOf(site)[hit];return translateAdt(p.bytes[hit],{from:[t.sx,t.sy],to:[tx,ty],yOffset:p.yOffset});});
+      if(hit>=0)return remember(`g${tx}_${ty}`,async()=>{
+        const p=await prepare(site),t=tilesOf(site)[hit],moved=translateAdt(p.bytes[hit],{from:[t.sx,t.sy],to:[tx,ty],yOffset:p.yOffset});
+        // Real terrain ends at the dome circle; beyond it the heights ease into the procedural moon.
+        return reshapeAdt(moved,{tile:[tx,ty],cx:CX,cy:CY,height:(x,z,h)=>{const m=siteMask(site,x,z,CX,CY);if(m>=1)return h;const pr=moonHeightChart(seed,x,z);return pr+(h-pr)*m;}});
+      });
       const rect=siteRect(site,CX,CY),x0=(tx-CX)*ADT_TILE,z0=(ty-CY)*ADT_TILE;
       const gap=Math.hypot(Math.max(rect[0]-(x0+ADT_TILE),0,x0-rect[2]),Math.max(rect[1]-(z0+ADT_TILE),0,z0-rect[3]));
       if(gap<site.apron)return remember(`a${tx}_${ty}`,async()=>{
@@ -91,7 +95,7 @@ export function graftSource(base,real,{bodyId,seed}) {
     }
   }
   return {
-    get fingerprint(){return `${base.fingerprint}+${real.fingerprint}+graft1`;},
+    get fingerprint(){return `${base.fingerprint}+${real.fingerprint}+graft2`;},
     get archives(){return real.archives;},get stats(){return real.stats;},
     async read(path,options) {
       const key=path.replaceAll('/','\\').toLowerCase(),m=re.exec(key);
