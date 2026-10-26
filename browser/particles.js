@@ -17,6 +17,7 @@ export const KINDS = {
   wake: { life: [1.4, 2.6], size: [.6, 3.2], drag: 2.5, lift: 0, stops: [[0, .9, .96, 1, .38, 0], [1, .8, .9, .98, 0, 0]] },
   ripple: { life: [1.6, 2.2], size: [.4, 4.5], drag: 4, lift: 0, stops: [[0, .85, .95, 1, 0, 0], [.2, .85, .95, 1, .28, 0], [1, .8, .9, 1, 0, 0]] },
   burst: { life: [.25, .5], size: [1, 3.5], drag: 4, lift: 0, stops: [[0, 1, .95, .7, 1, 1], [.4, 1, .55, .12, .7, 1], [1, .5, .1, .02, 0, 1]] },
+  mist: { life: [7, 11], size: [30, 62], drag: .2, lift: .15, stops: [[0, .7, .95, .85, 0, .25], [.25, .72, .96, .86, .09, .25], [.75, .85, .95, .8, .07, .25], [1, .85, .95, .8, 0, .25]] },
 };
 const KIND_IDS = Object.keys(KINDS);
 
@@ -215,6 +216,16 @@ export function emitIdleDust(pool, { matrix: m, origin, length, dt }) {
   for (let j = 0; j < n; j++) {
     const a = pool.rand() * Math.PI * 2, s = 1.5 + pool.rand() * 1.5;
     pool.emit('dust', m[12] + origin[0] + Math.cos(a) * length * .25, m[13] + length * .05, m[14] + origin[1] + Math.sin(a) * length * .25, Math.cos(a) * s, .4 + pool.rand() * .6, Math.sin(a) * s, length / 6, length * .1);
+  }
+}
+/** Microclimate inside a druidic dome: thin, slow, ethereal mist wisps drifting low around the camera, only while `level` (dome membership 0..1) is non-zero.
+ * `ground` is the world height of the dome floor; wisps hover 6..70 yd above it and wander within 320 yd of the eye. */
+export function emitDomeMist(pool, { eye, level, ground, dt }) {
+  if (level <= .05) return;
+  const n = pool.budget('dome-mist', 22 * level, dt);
+  for (let j = 0; j < n; j++) {
+    const a = pool.rand() * Math.PI * 2, r = 320 * Math.sqrt(pool.rand());
+    pool.emit('mist', eye[0] + Math.cos(a) * r, ground + 6 + pool.rand() * 64, eye[2] + Math.sin(a) * r, (pool.rand() - .5) * 2, 0, (pool.rand() - .5) * 2, 1);
   }
 }
 /** Night glow halos on lamp/torch models: a few soft additive sprites per second at each model-local point of each nearby lamp. */

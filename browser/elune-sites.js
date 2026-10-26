@@ -2,13 +2,20 @@
 // the surrounding `apron` yd is generated procedurally and blends from the graft's own edge heights back into the moon. Adding a body or site is a list entry.
 import {ADT_TILE as T} from './adt-synth.js';
 
+/** Circumcircle of three chart points as a dome config: centre and adius (the circle passes exactly through all three), plus extra fields. */
+export function circleThrough([a,b,c],extra) {
+  const d=2*(a[0]*(b[1]-c[1])+b[0]*(c[1]-a[1])+c[0]*(a[1]-b[1])),sq=p=>p[0]*p[0]+p[1]*p[1];
+  const x=(sq(a)*(b[1]-c[1])+sq(b)*(c[1]-a[1])+sq(c)*(a[1]-b[1]))/d,z=(sq(a)*(c[0]-b[0])+sq(b)*(a[0]-c[0])+sq(c)*(b[0]-a[0]))/d;
+  return Object.freeze({centre:Object.freeze([x,z]),radius:Math.hypot(a[0]-x,a[1]-z),through:Object.freeze([a,b,c]),...extra});
+}
+
 export const SITES=Object.freeze({
   elune:[Object.freeze({
     id:'moonglade',label:'Moonglade',map:'Kalimdor',area:493,
     source:Object.freeze({x:[35,37],y:[16,18]}),// measured with moonglade-census.mjs: the 3 x 3 plateau holding the town, Lake Elune'ara and the grove
     dest:Object.freeze({x:29,y:14}),// north-west tile of the grafted block on the body's tile grid (chart centre = tile 30,15, the sub-Azeroth point since Elune is tidally locked, so Azeroth hangs overhead)
     apron:1200,// outer limit of the procedural ring that is generated around the graft (selects apron tiles)
-    dome:Object.freeze({radius:780,shell:50,ease:420}),// druidic dome footprint (inside the 1600 yd graft square), soft shell width, and the height ease back to the moon outside the circle
+    dome:circleThrough([[205.845,52.071],[268.196,588.637],[879.646,459.553]],{shell:50,ease:300}),// druidic dome whose footprint circle passes exactly through the user's track new-track-2 start + 2 gates (chart x,z); shell skin width; height ease back to the moon outside the circle
   })],
 });
 export const APRON_AREA=90003;// "Moonglade Reach"
@@ -26,13 +33,15 @@ export function outside(site,x,z,cx,cy) {
   const r=siteRect(site,cx,cy);return Math.hypot(Math.max(r[0]-x,0,x-r[2]),Math.max(r[1]-z,0,z-r[3]));
 }
 /** Distance from the dome's footprint centre. */
-const radial=(site,x,z,cx,cy)=>{const [sx,sz]=siteCentre(site,cx,cy);return Math.hypot(x-sx,z-sz);};
+/** Dome centre in chart yd: the configured dome.centre, else the graft's centre. */
+export const domeCentre=(site,cx,cy)=>site.dome?.centre??siteCentre(site,cx,cy);
+const radial=(site,x,z,cx,cy)=>{const [sx,sz]=domeCentre(site,cx,cy);return Math.hypot(x-sx,z-sz);};
 /** Druidic dome strength 0..1 at chart (x,z) and altitude `alt` above the site centre's ground: the dome is a sphere of `dome.radius` centred on the ground, so membership is 1 inside,
  * easing to 0 over the `dome.shell` yd skin. It contains only local weather (cloud microclimate, nature ambience); sky and light stay airless everywhere. */
 export function domeMask(bodyId,x,z,cx=30,cy=15,alt=0) {
   let m=0;
   for(const site of sitesOf(bodyId)) {
-    const {radius,shell}=site.dome,[sx,sz]=siteCentre(site,cx,cy),d=Math.hypot(x-sx,z-sz,Math.max(alt,0)),t=Math.min(1,Math.max(0,(d-radius)/shell));
+    const {radius,shell}=site.dome,[sx,sz]=domeCentre(site,cx,cy),d=Math.hypot(x-sx,z-sz,Math.max(alt,0)),t=Math.min(1,Math.max(0,(d-radius)/shell));
     m=Math.max(m,1-t*t*(3-2*t));
   }
   return m;

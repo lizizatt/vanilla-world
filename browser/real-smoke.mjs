@@ -19,6 +19,7 @@ console.log('ready',await page.evaluate(()=>worldEvidence.ready),'errors',await 
 await page.keyboard.press('Escape');await page.locator('[data-tab=options]').click();await page.keyboard.press('Escape');await page.locator('#world').click();
 const shot=async name=>page.screenshot({path:path.join(out,`${tag}-${name}.png`)});
 await page.waitForTimeout(3000);await shot('spawn');
+await page.evaluate(()=>{window.__maxGap=0;let last=performance.now();const tick=t=>{window.__maxGap=Math.max(window.__maxGap,t-last);last=t;requestAnimationFrame(tick);};requestAnimationFrame(tick);});
 let cdp,t0;
 if(process.env.PROFILE){cdp=await ctx.newCDPSession(page);await cdp.send('Profiler.enable');await cdp.send('Profiler.setSamplingInterval',{interval:200});await cdp.send('Profiler.start');t0=await page.evaluate(()=>performance.now());}
 for(const [name,step] of JSON.parse(process.env.STEPS||'[]')) {
@@ -46,5 +47,8 @@ if(cdp) {
     console.log('PROFILE swap@',Math.round(start),[...self].sort((a,b)=>b[1]-a[1]).slice(0,12).map(([k,v])=>`${v.toFixed(0)}ms ${k}`).join('\n  '));
   }
 }
+console.log('METRICS',JSON.stringify(await page.evaluate(()=>({swaps:(worldEvidence.swapProfiles||[]).map(p=>({to:p.to,blockedMs:p.total,phases:p.phases,firstNearMs:p.firstNearMs})),maxFrameGapMs:+window.__maxGap.toFixed(1)}))));
+const blocked=await page.evaluate(()=>Math.max(0,...(worldEvidence.swapProfiles||[]).map(p=>p.total)));
+if(blocked>+(process.env.MAX_SWAP_MS||20)){errors.push(`swap blocked ${blocked}ms > ${process.env.MAX_SWAP_MS||20}`);}
 console.log('url',page.url(),'errors',errors);
 await ctx.close();process.exit(errors.length?1:0);

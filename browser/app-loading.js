@@ -228,11 +228,13 @@ async function soiSwap(app,parentId) {
     const manifest=client.info.manifest;
     app.renderer.configure(manifest);client.sky();client.animate(settings.animateNpcs);mapPanel.configure(manifest);    cameraCollision.configure(manifest);lap('configure');
     void engine.request('rebind',{replay:false}).catch(e=>console.warn('demote rebind',e));// old near world sheds its near residency; its events are only counted now
-    await client.request('rebind');lap('rebind');// new near world forgets what it "already sent" so streaming and the horizon reach the fresh renderer
+    // The worker handles messages in order, so rebind then tuning are queued without blocking frames; the next frame lands after both.
+    const rebound=client.request('rebind');lap('rebind');// new near world forgets what it "already sent" so streaming and the horizon reach the fresh renderer
     app.gateKey=undefined;
     const values=app.bodyTuning[parentId]?.slice()??(Array.isArray(client.info.tuning)?client.info.tuning.slice():app.tuningValues.slice());
     if(parentId==='elune'&&!app.bodyTuning[parentId])values[14]=LUNAR_GRAVITY;
-    await client.request('tuning',{values});lap('tuning');app.tuningValues=values;
+    const tuned=client.request('tuning',{values});lap('tuning');app.tuningValues=values;
+    evidence.swapSettled=Promise.all([rebound,tuned]).catch(e=>console.warn('swap settle',e));
     settings.clouds=app.bodyClouds[parentId]??(body.atmosphereEdge>0);app.syncSettings();
     evidence.info=client.info;evidence.bodySwaps=(evidence.bodySwaps||0)+1;
         prof.total=+(performance.now()-prof.start).toFixed(1);(evidence.swapProfiles??=[]).push(prof);
