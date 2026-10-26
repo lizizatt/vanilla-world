@@ -1,23 +1,25 @@
 // Chart-pose adapter for inter-body flight (design/elune.md step D4): the fly camera keeps its chart pose and aim, while motion runs through space-flight.js in inertial space.
-import {bodyOf,toInertial,fromInertial} from './bodies.js';
+import {bodyOf,toInertial,fromInertial,axesAt} from './bodies.js';
+import {planetFrame} from './space.js';
 import {createFlight,stepFlight} from './space-flight.js';
 
 const unit=a=>{const n=Math.hypot(...a)||1;return a.map(v=>v/n);};
 
-/** Inertial direction of a chart-space direction at a chart pose (finite difference through the planet map). */
-export function inertialDir(body,pose,dir,t,eps=1) {
-  const a=toInertial(body,pose,t),b=toInertial(body,[pose[0]+dir[0]*eps,pose[1]+dir[1]*eps,pose[2]+dir[2]*eps],t);
-  return unit(b.map((v,i)=>v-a[i]));
+/** Chart axes (x east, y up, z south) at a chart pose as orthonormal inertial vectors. This is the frame the renderer uses for view.look/right/up (the shader's eye frame), so a chart
+ *  direction means the same physical direction on screen and in flight. (A finite difference through the folded chart would stretch horizontal components by (R+alt)/R and
+ *  point flight away from what the camera shows at altitude.) */
+export function chartAxes(body,pose,t) {
+  const f=planetFrame(pose[0],pose[2],body.centre,body.radius),ax=axesAt(body,t);
+  return [f.east,f.up,f.south].map(v=>[0,1,2].map(i=>ax[0][i]*v[0]+ax[1][i]*v[1]+ax[2][i]*v[2]));
 }
 
-/** Chart axes (x,y,z) of a body at a chart pose, as inertial unit vectors. */
-export const chartAxes=(body,pose,t)=>[[1,0,0],[0,1,0],[0,0,1]].map(d=>inertialDir(body,pose,d,t));
+/** Inertial direction of a chart-space direction at a chart pose. */
+export function inertialDir(body,pose,dir,t) {
+  const a=chartAxes(body,pose,t);
+  return unit([0,1,2].map(i=>a[0][i]*dir[0]+a[1][i]*dir[1]+a[2][i]*dir[2]));
+}
 
-/** Unnormalised Jacobian columns of chart->inertial (the chart is folded, so axis scales differ and directions must be mapped linearly before normalising). */
-const chartJacobian=(body,pose,t,eps=1)=>[[1,0,0],[0,1,0],[0,0,1]].map(d=>{
-  const a=toInertial(body,pose.slice(0,3),t),b=toInertial(body,pose.slice(0,3).map((v,i)=>v+d[i]*eps),t);
-  return b.map((v,i)=>(v-a[i])/eps);
-});
+const chartJacobian=chartAxes;
 
 /** Re-express an aim basis {look,right,up} given in `from`'s chart at `fromPose` in `to`'s chart at `toPose`, so the physical (inertial) attitude is unchanged across a gravity-well swap. */
 export function rechartAim(from,fromPose,to,toPose,aim,t) {
