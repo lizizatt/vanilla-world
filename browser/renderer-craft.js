@@ -1,6 +1,7 @@
 import {craftMatrix,cockpitAnchor} from './world-camera.js';
 import {splitParts,crumple,craftFrame,appendWreckChunk} from './wreck.js';
 import {emitBurst} from './particles.js';
+import {domeShellAsset,domePlacement} from './dome-shell.js';
 
 export function destroyCraft(r,craft) {
   if(!craft)return;
@@ -53,6 +54,18 @@ export function setProps(r,list) {
     craft.instance={id:`prop:${i}`,key:`prop:${i}`,craft:true};
     return {craft,pos:p.pos,yaw:p.yaw||0,scale:p.scale||1,space:p.space||'world'};
   });
+}
+/** The active body's druidic dome as a prop-path drawable (built once per body, rotated slowly for the shimmer); undefined where the body has no site. */
+export function domeDraw(r,bodyId,time) {
+  if(r.dome?.bodyId!==bodyId){
+    if(r.dome?.craft)r.destroyCraft(r.dome.craft);
+    const p=domePlacement(bodyId,0);
+    r.dome={bodyId,radius:p?.radius,craft:p&&r.buildCraft({asset:domeShellAsset(p.radius),textures:[],metadata:{display:0,scale:1,pose:'prop',exhausts:[],
+      posedAttachment0:{space:'model-local',pose:'stand-frame-0',position:[0,0,0]}}},0,`dome:${bodyId}`,20000)};
+    if(r.dome.craft)r.dome.craft.instance={id:'prop:dome',key:`dome:${bodyId}`,craft:true};
+  }
+  const p=r.dome.craft&&domePlacement(bodyId,time);
+  return p&&{craft:r.dome.craft,pos:p.pos,yaw:p.yaw,scale:1};
 }
 export function setCraftOverride(r,model) {
   const next=model?r.buildCraft(model,0,model.key,120000):undefined;

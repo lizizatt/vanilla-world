@@ -45,6 +45,25 @@ export function translateAdt(bytes,{from:[sx,sy],to:[nx,ny],yOffset=0}) {
 }
 const bitCount=n=>{let c=0;for(;n;n&=n-1)c++;return c;};
 
+/** Copy of a (translated) tile at (tx,ty) with every terrain vertex re-heighted by `height(x,z,h)` (chart coordinates of a body whose centre tile is cx,cy).
+ * Used to end the graft at the dome footprint circle and hand over to the procedural moon. */
+export function reshapeAdt(bytes,{tile:[tx,ty],cx,cy,height}) {
+  const out=bytes.slice(),v=new DataView(out.buffer,out.byteOffset,out.byteLength),step=TILE/128;
+  for(const c of adtChunks(out)) {
+    if(c.magic==='MCNK'&&c.size>=MCNK_HEADER) {
+      const ix=v.getUint32(c.start+4,true),iy=v.getUint32(c.start+8,true),base=v.getFloat32(c.start+0x70,true),x0=(tx-cx)*TILE+ix*TILE/16,z0=(ty-cy)*TILE+iy*TILE/16;
+      for(const s of adtChunks(out,c.start+MCNK_HEADER,c.start+c.size)) {
+        if(s.magic!=='MCVT')continue;
+        for(let i=0;i<145;i++) {
+          const row=Math.floor(i/17),k=i%17,inner=k>=9,col=inner?k-9:k,x=x0+(col+(inner?.5:0))*step,z=z0+(row+(inner?.5:0))*step,p=s.start+i*4;
+          v.setFloat32(p,height(x,z,base+v.getFloat32(p,true))-base,true);
+        }
+      }
+    }
+  }
+  return out;
+}
+
 /** Height range of an ADT's terrain (posZ + MCVT), used to pick the graft's yOffset. Returns {min,max,mean}. */
 export function adtHeights(bytes) {
   const v=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);let min=Infinity,max=-Infinity,sum=0,n=0;

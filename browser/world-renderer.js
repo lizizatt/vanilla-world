@@ -8,20 +8,21 @@ import {MINIMAP_SIZE} from './terrain-stream.js';
 import {cameraView,craftMatrix} from './world-camera.js';
 import {partMatrix,wreckFrame,WRECK_SECONDS} from './wreck.js';
 import {maelstromCentre,resolveCloudQuality,SlowFrameGuard,sunDirection} from './clouds.js';
-import {exhaustPoints,emitPlumes,emitDebris,emitHeatSmoke,emitGroundDust,emitWaterFx,overWater,QUALITY,INSTANCE_FLOATS,particleUniform,emitLamps} from './particles.js';
+import {exhaustPoints,emitPlumes,emitDebris,emitHeatSmoke,emitGroundDust,emitWaterFx,overWater,QUALITY,INSTANCE_FLOATS,particleUniform,emitLamps,emitDomeMist} from './particles.js';
+import {domePlacement} from './dome-shell.js';
+import {domeMask} from './elune-sites.js';
 import {beamState} from './beam.js';
 import {horizonDip} from './space.js';
 import {planetFactorsFor,bodiesEnabled} from './bodies.js';
 import {activeBody} from './body-shaders.js';
 import {skyUniform,DAY} from './sky.js';
-import {eluneSkyAt,bubbleSky} from './elune-sky.js';
-import {bubbleMask} from './elune-sites.js';
+import {eluneSkyAt,AIRLESS_SKY} from './elune-sky.js';
 import {SimClock,sanitiseScale,daylightAt,CloudClock} from './sim-clock.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
 import {cameraAxes,AdmissionFade,sceneSelection} from './renderer-helpers.js';
 import {posedAsset,npcMoves,moveMatrix,pose} from './renderer-actors.js';
 import {buffer,texture,drawable,setFlags,setGates,releaseMaterial,release,uploadMaterials,drawTerrain,refreshOcean} from './renderer-terrain.js';
-import {destroyCraft,releaseCraft,buildCraft,startWreck,wreckChunk,endWreck,setProps,setCraftOverride} from './renderer-craft.js';
+import {destroyCraft,releaseCraft,buildCraft,startWreck,wreckChunk,endWreck,setProps,setCraftOverride,domeDraw} from './renderer-craft.js';
 import {reset,configure,event,clearFar,swapPlanetState} from './renderer-events.js';
 import {scenePipeline,prepareBatches,sceneMatrix,drawScene} from './renderer-scene.js';
 import {zoneBlend,setSky,setSkyDome,horizonColour,planetRects,drawPlanet,sharedFrame,drawPatches,drawLights,drawSkyDome,sampleSky,noteLitInstance} from './renderer-sky.js';
@@ -133,7 +134,7 @@ export class WorldRenderer {
     this.timeOfDay=this.timeLock??clock.now();
     const airless=activeBody().id==='elune',moonSky=airless?eluneSkyAt(state[0],state[2],this.timeOfDay):undefined;
     const daylight=this.daylight=moonSky?moonSky.daylight:daylightAt(this.timeOfDay);
-    const sky0=airless?bubbleSky(bubbleMask('elune',state[0],state[2]),daylight):DAY_SKY.map((v,i)=>NIGHT_SKY[i]+(v-NIGHT_SKY[i])*daylight);
+    const sky0=airless?AIRLESS_SKY:DAY_SKY.map((v,i)=>NIGHT_SKY[i]+(v-NIGHT_SKY[i])*daylight);
     const game=airless?undefined:zoneBlend(this.sampleSky(),pf.zone),sky=game?game.fog:sky0;pf.fog=(game?game.horizon:sky).slice(0,3);
     this.gameSky=game;
     const skyFloats=game?[...game.fog,1,...game.sun,0,...game.horizon,0,...game.mid,0]:new Array(16).fill(0);
@@ -221,7 +222,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
     if(wreckFrameNow)this.wreck.parts.forEach((p,i)=>append(p.asset,p.instance,partMatrix(wreckFrameNow.subarray(i*7,i*7+7),p.center,this.wreck.scale,origin),this.craft.textures,this.craft.items));
     else if((!flight||this.showCraftInFlight)&&this.craft&&this.cameraMode!=='cockpit')append(this.craft.asset,this.craft.instance,
       craftMatrix(state,origin,this.craft.metadata.scale),this.craft.textures,this.craft.items);
-    for(const p of this.props||[]){const c=Math.cos(p.yaw),s=Math.sin(p.yaw),k=p.scale;
+    for(const p of [...(this.props||[]),...[domeDraw(this,activeBody().id,time)].filter(Boolean)]){const c=Math.cos(p.yaw),s=Math.sin(p.yaw),k=p.scale;
       append(p.craft.asset,p.craft.instance,p.space==='craft'?craftMatrix([p.pos[0],p.pos[1],p.pos[2],p.yaw,0],origin,k):
         new Float32Array([c*k,0,-s*k,0,0,k,0,0,s*k,0,c*k,0,p.pos[0]-origin[0],p.pos[1],p.pos[2]-origin[1],1]),p.craft.textures,p.craft.items);}
     if(!this.wreck&&!flight&&this.craft?.flame&&this.cameraMode!=='cockpit') {
@@ -287,6 +288,8 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
     }
     if(fx&&quality>0&&!this.cameraBlocked){
       emitLamps(fx,lamps,origin,Math.min(dt,.1),1-daylight);
+      const dome=this.dome?.craft&&domePlacement(activeBody().id);
+      if(dome)emitDomeMist(fx,{eye:this.view.eye,level:domeMask(activeBody().id,this.view.eye[0],this.view.eye[2],30,15,this.view.eye[1]-dome.pos[1]),ground:dome.pos[1],dt:Math.min(dt,.1)});
     fx.update(Math.min(dt,.1));
       const count=fx.fill(this.particleInstances,this.view.eye);
       if(count){

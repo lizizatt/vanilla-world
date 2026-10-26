@@ -4,7 +4,8 @@ import {synthAdt,ADT_TILE as T} from './adt-synth.js';
 import {adtChunks,mcnkAreas,translateAdt,adtHeights} from './graft-adt.js';
 import {graftSource,heightGrid,sampleGrid} from './graft-source.js';
 import {moonSource,MOON_SEED} from './moon-source.js';
-import {SITES,tilesOf,siteRect,siteMask,outside} from './elune-sites.js';
+import {SITES,tilesOf,siteRect,siteMask,siteCentre,domeCentre,domeMask,outside} from './elune-sites.js';
+import {reshapeAdt} from './graft-adt.js';
 import {moonHeightChart} from './moon-terrain.js';
 
 const site=SITES.elune[0];
@@ -61,6 +62,25 @@ test('each read of a cached graft tile is its own buffer, so transferring one ca
   assert.ok(b.byteLength>0);assert.ok((await s.read(path)).byteLength>0);
 });
 
+test('reshapeAdt re-heights every vertex from its chart position', () => {
+  const seen={minX:Infinity,maxX:-Infinity,minZ:Infinity,maxZ:-Infinity},src=fakeTile(36,17);
+  const out=reshapeAdt(src,{tile:[31,16],cx:30,cy:15,height:(x,z)=>{seen.minX=Math.min(seen.minX,x);seen.maxX=Math.max(seen.maxX,x);seen.minZ=Math.min(seen.minZ,z);seen.maxZ=Math.max(seen.maxZ,z);return 5;}});
+  const h=adtHeights(out);assert.equal(h.min,5);assert.equal(h.max,5);
+  assert.ok(Math.abs(seen.minX-T)<1e-3&&Math.abs(seen.maxX-2*T)<T/64&&Math.abs(seen.minZ-T)<1e-3&&Math.abs(seen.maxZ-2*T)<T/64);
+  assert.equal(out.length,src.length);
+});
+
+test('dome: full inside, soft shell, nothing outside or on other bodies; terrain mask shares the footprint', () => {
+  const [mx,mz]=domeCentre(site,30,15),{radius,shell,ease}=site.dome;
+  assert.equal(domeMask('elune',mx,mz),1);assert.equal(domeMask('elune',mx+radius,mz),1);
+  assert.equal(domeMask('elune',mx+radius+shell,mz),0);
+  const mid=domeMask('elune',mx+radius+shell/2,mz);assert.ok(mid>.4&&mid<.6);
+  assert.ok(domeMask('elune',mx,mz,30,15,radius+shell/2)<.6,'it is a sphere: high altitude leaves it');
+  assert.equal(domeMask('azeroth',mx,mz),0);
+  assert.ok(radius+ease<=site.apron&&radius<=siteRect(site)[2]-siteRect(site)[0]);
+  assert.equal(siteMask(site,mx+radius,mz),1);assert.equal(siteMask(site,mx,mz+radius+ease),0);
+});
+
 test('the apron meets the graft edge exactly and rejoins the moon at its outer limit', async () => {
   const s=graftSource(moonSource(),real(),{bodyId:'elune',seed:MOON_SEED}),rect=siteRect(site);
   const g=tilesOf(site).find(t=>t.dx===site.dest.x+3-1&&t.dy===site.dest.y);// north-east graft tile
@@ -72,7 +92,8 @@ test('the apron meets the graft edge exactly and rejoins the moon at its outer l
     if(v.getUint32(c.start+4,true)===cx&&v.getUint32(c.start+8,true)===cy){const z=v.getFloat32(c.start+0x70,true);for(const sc of adtChunks(bytes,c.start+128,c.start+c.size))if(sc.magic==='MCVT')return z+v.getFloat32(sc.start+i*4,true);}n++;}};
   for(const cy of [0,5,15])for(const row of [0,4,8])assert.ok(Math.abs(mcvt(a,0,cy,row*17)-mcvt(b,15,cy,row*17+8))<.01,`edge row ${row} chunk ${cy}`);
   assert.ok(rect[2]>0&&Math.abs(outside(site,rect[2]+site.apron,rect[1])-site.apron)<1e-6);
-  assert.equal(siteMask(site,rect[2]+site.apron,rect[1]),0);assert.equal(siteMask(site,rect[2]-10,rect[1]+10),1);
+  const [mx,mz]=domeCentre(site,30,15);
+  assert.equal(siteMask(site,mx+site.dome.radius+site.dome.ease,mz),0);assert.equal(siteMask(site,mx+site.dome.radius-10,mz),1);
   // beyond the apron the tile is the untouched moon
   const farTile=Math.ceil((rect[2]+site.apron)/T)+30+1;
   assert.deepEqual(await s.read(`world/maps/elune/elune_${farTile}_${site.dest.y}.adt`),await moonSource().read(`world/maps/elune/elune_${farTile}_${site.dest.y}.adt`));

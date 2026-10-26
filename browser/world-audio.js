@@ -36,6 +36,9 @@ export function windLevel(speed,altitude) {
 }
 /** Idle throb (0..1 strength at rest) that fades as the pod speeds up or throttles. */
 export const IDLE_HZ=6.5;
+/** Ambient nature bed inside a druidic dome: a soft band-passed rustle scaled by dome membership (0..1). */
+export const NATURE={gain:.06,centre:1800};
+export const natureGain=level=>NATURE.gain*Math.min(1,Math.max(0,level||0));
 export const idleThrob=(idle,phase)=>idle*(.5+.5*Math.sin(2*Math.PI*IDLE_HZ*phase));
 export class EngineEnvelope {
   constructor(){
@@ -120,8 +123,20 @@ export class WorldAudio {
     const level=on&&this.enabled&&this.context.state==='running'?windLevel(speed,altitude):{gain:0,cutoff:WIND.rumbleCutoff},now=this.context.currentTime;
     w.gain.gain.setTargetAtTime(level.gain,now,.15);w.filter.frequency.setTargetAtTime(level.cutoff,now,.15);
   }
+  // Dome ambience (nature rustle) belongs to the place, not the engine: like wind it joins at the analyser.
+  setNature(level) {
+    if(!this.natureVoice&&level>0&&this.enabled&&this.context&&this.context.state!=='closed') {
+      const buffer=this.context.createBuffer(2,48000,24000);fillEngineBuffer(buffer,0);
+      const source=this.context.createBufferSource(),gain=this.context.createGain(),filter=this.context.createBiquadFilter(),lfo=this.context.createOscillator(),depth=this.context.createGain();
+      source.buffer=buffer;source.loop=true;gain.gain.value=0;filter.type='bandpass';filter.Q.value=.6;filter.frequency.value=NATURE.centre;
+      lfo.frequency.value=.17;depth.gain.value=NATURE.centre*.35;lfo.connect(depth);depth.connect(filter.frequency);lfo.start();
+      source.connect(filter);filter.connect(gain);gain.connect(this.analyser);source.start();this.natureVoice={source,gain};
+    }
+    const n=this.natureVoice;if(!n)return;
+    n.gain.gain.setTargetAtTime(this.enabled&&this.context.state==='running'?natureGain(level):0,this.context.currentTime,.4);
+  }
   mute() {
-    this.activation++;this.setWind(0,0,false);
+    this.activation++;this.setWind(0,0,false);this.setNature(0);
     this.enabled=false;this.active=false;this.setDrift(false);this.setHeat(0,false);
     clearTimeout(this.release);
     const context=this.context;

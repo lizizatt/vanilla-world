@@ -94,3 +94,18 @@ test('Maelstrom eye stays put as the camera orbits (time and cloud tier do not m
   // centre is a pure function of the manifest: no clock or tier input exists
   assert.deepEqual(maelstromCentre(manifest),maelstromCentre(JSON.parse(JSON.stringify(manifest))));
 });
+
+test('storm centre offsets wrap to the nearest turn, so the vortex and funnel stay pinned from any longitude (body-fixed frame)', async () => {
+  const {cloudShader}=await import('./clouds.js');
+  const src=typeof cloudShader==='string'?cloudShader:String(cloudShader);
+  assert.ok(!/pos\.xz-c\.cloud\.xy/.test(src),'raw unwrapped storm offset left in the shader');
+  assert.equal((src.match(/stormOffset\(pos\.xz\)/g)||[]).length,2);
+  assert.ok(src.includes((2*Math.PI*R).toFixed(1)));
+  const [mx,mz]=maelstrom;
+  for(const eye of eyes) {
+    const flat=[wrapX(mx-eye[0]),-eye[1],mz-eye[2]];
+    if(Math.hypot(flat[0],flat[2])>R*1.2)continue;
+    const w=worldAt(eye,bendRel(flat,eye,1)),turn=2*Math.PI*R,d=w[0]-mx,off=d-turn*Math.round(d/turn);
+    assert.ok(Math.hypot(off,w[2]-mz)<2,`eye ${eye.map(Math.round)} wrapped offset ${off}`);
+  }
+});
