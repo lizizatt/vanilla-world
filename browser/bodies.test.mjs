@@ -20,8 +20,8 @@ test('Azeroth through the body API equals the existing functions', () => {
 });
 
 test('Elune ranges scale by sqrt(R), no atmosphere, low gravity', () => {
-  assert.ok(Math.abs(ELUNE.rangeScale-.3450)<.001);
-  assert.ok(Math.abs(ELUNE.ranges.bend[0]-51.7)<.5&&Math.abs(ELUNE.ranges.bend[1]-517.5)<1);
+  assert.ok(Math.abs(ELUNE.rangeScale-.5976)<.001);
+  assert.ok(Math.abs(ELUNE.ranges.bend[0]-52)<.5&&Math.abs(ELUNE.ranges.bend[1]-517.5)<1);
   assert.equal(densityFor(ELUNE,0),0);
   assert.equal(planetFactorsFor(ELUNE,5000).space,1);
   assert.ok(Math.abs(gravityFor(ELUNE,0)/gravityFor(AZEROTH,0)-.25)<1e-12);
@@ -30,14 +30,14 @@ test('Elune ranges scale by sqrt(R), no atmosphere, low gravity', () => {
   assert.ok(Math.abs(horizonDistance(ELUNE,100)-1010)<10);
 });
 
-test('Elune rail: 5-day period, ~262 yd/s, constant distance', () => {
-  assert.ok(Math.abs(orbitSpeed()-261.8)<.5);
+test('Elune rail: 5-day period, ~87 yd/s, constant distance', () => {
+  assert.ok(Math.abs(orbitSpeed()-87.3)<.5);
   const t0=1000,period=5*2880,a=centreAt(ELUNE,t0),b=centreAt(ELUNE,t0+period);
   assert.ok(Math.hypot(...a.map((v,i)=>v-b[i]))<1e-6);
   const q=centreAt(ELUNE,t0+period/4);
-  assert.ok(Math.abs(Math.hypot(...q)-300000)<1e-6);
+  assert.ok(Math.abs(Math.hypot(...q)-100000)<1e-6);
   const speed=Math.hypot(...centreAt(ELUNE,t0+.5).map((v,i)=>v-centreAt(ELUNE,t0-.5)[i]))/(1/2); // per second
-  assert.ok(Math.abs(speed-261.8)<.5);
+  assert.ok(Math.abs(speed-87.3)<.5);
 });
 
 test('tidal lock: local +X faces Azeroth, frame is right-handed and orthonormal', () => {
@@ -65,7 +65,7 @@ test('chart <-> inertial round trip below 1e-6 yd on both bodies', () => {
 });
 
 test('SOI radius and hysteresis', () => {
-  assert.ok(ELUNE_SOI>30000&&ELUNE_SOI<33000);
+  assert.ok(ELUNE_SOI>23000&&ELUNE_SOI<27000);
   const t=0,c=centreAt(ELUNE,t),at=d=>[c[0]+d,c[1],c[2]];
   const out=ELUNE_SOI*SOI_ENTER,back=ELUNE_SOI*SOI_EXIT;
   assert.equal(parentOf(at(out*1.01),t,'azeroth'),'azeroth');

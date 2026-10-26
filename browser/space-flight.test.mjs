@@ -33,8 +33,8 @@ test('walking Azeroth -> Elune takes about 30 s', () => {
   const r=transfer(false);assert.ok(r.secs>22&&r.secs<40,String(r.secs));
 });
 
-test('Shift takes about 10 s', () => {
-  const r=transfer(true);assert.ok(r.secs>7&&r.secs<14,String(r.secs));
+test('Shift takes about 6 s (Elune rail is 100 kyd out)', () => {
+  const r=transfer(true);assert.ok(r.secs>4&&r.secs<9,String(r.secs));
 });
 
 test('the parent well swaps exactly once, without a position pop', () => {

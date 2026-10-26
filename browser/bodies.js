@@ -11,9 +11,9 @@ import {toPlanet,fromPlanet} from './planet-frame.js';
 export const ELUNE_CIRCUMFERENCE=32000;
 export const ELUNE_RADIUS=ELUNE_CIRCUMFERENCE/(2*Math.PI);
 export const ELUNE_GRAVITY_SCALE=.25;
-/** Elune's orbit takes 5 sim days (SimClock units: a day is 2880, see sim-clock DAY_PERIOD); 300 kyd out that is ~262 yd/s. */
+/** Elune's orbit takes 5 sim days (SimClock units: a day is 2880, see sim-clock DAY_PERIOD); 100 kyd out that is ~87 yd/s. */
 export const ELUNE_ORBIT_DAYS=5;
-export const ELUNE_ORBIT=300000;
+export const ELUNE_ORBIT=100000;
 const DAY_UNITS=2880;
 
 const scaleRange=(range,k)=>Object.freeze(range.map(v=>Number((v*k).toFixed(3))));

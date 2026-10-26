@@ -9,7 +9,7 @@ const globePoint=(eye,x,z,h)=>{
   return [n[0]*r,n[1]*r-(PLANET_RADIUS+eye[1]),n[2]*r];
 };
 const landmarks=[...FALLBACK_RECTS.flatMap(([a,b,c,d])=>[[a,b],[c,b],[a,d],[c,d],[(a+c)/2,(b+d)/2]]),[8855,3507]];
-const cameras=[[9314,110875,1342],[34603,110875,-9209],[-40000,60000,20000],[1429,30000,WORLD_CENTRE[1]],[-100000,200000,-20000]];
+const cameras=[[3100,36900,1342],[11500,36900,-3000],[-13000,20000,7000],[1429,10000,WORLD_CENTRE[1]],[-33000,66000,-6000]];
 
 test('bend at full strength places every landmark at the globe sphere point from any camera',()=>{
   for(const eye of cameras)for(const [x,z] of landmarks)for(const h of [0,500]){
@@ -25,8 +25,8 @@ test('bend is the identity at k=0 and leaves the point below the camera on the v
 });
 
 test('land latitude is invariant under east-west camera motion (bent terrain recovers the registry lat/lon)',()=>{
-  for(const z of [-20000,0,WORLD_CENTRE[1],20000])for(let x=-120000;x<=120000;x+=15000)for(const [lx,lz] of landmarks){
-    const eye=[x,57928,z],r=bendRel([lx-x,-57928,lz-z],eye,1),f=planetFrame(x,z),m=Math.hypot(r[0],r[1]+PLANET_RADIUS+eye[1],r[2]),n=[r[0],r[1]+PLANET_RADIUS+eye[1],r[2]].map(v=>v/m);
+  for(const z of [-6000,0,WORLD_CENTRE[1],14000])for(let x=-40000;x<=40000;x+=5000)for(const [lx,lz] of landmarks){
+    const eye=[x,19300,z],r=bendRel([lx-x,-19300,lz-z],eye,1),f=planetFrame(x,z),m=Math.hypot(r[0],r[1]+PLANET_RADIUS+eye[1],r[2]),n=[r[0],r[1]+PLANET_RADIUS+eye[1],r[2]].map(v=>v/m);
     const pv=[0,1,2].map(i=>f.east[i]*n[0]+f.up[i]*n[1]+f.south[i]*n[2]),{lat}=subPoint(lx,lz);
     assert.ok(Math.abs(Math.asin(pv[1])-lat)<1e-6,`eye ${x},${z} landmark ${lx},${lz}`);
   }

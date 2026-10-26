@@ -31,7 +31,7 @@ test('shell roots lie on the shell, and the extent stays inside the cloud band',
 });
 
 test('High tier: a low eye inside the downward billow zone still sees the sheet down to the sea horizon',()=>{
-  const k=.85/42785;
+  const k=.85/PLANET_RADIUS;
   for(let deg=-1;deg>=-12;deg-=.5) {
     const x=shellExtent(1168,Math.sin(deg*Math.PI/180),k,true);
     assert.ok(x.live&&x.s1-x.s0>1000,`cut at ${deg} deg: ${JSON.stringify(x)}`);

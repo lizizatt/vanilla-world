@@ -9,13 +9,13 @@ function rng(seed) {
   return () => {seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};
 }
 const dirOf=(yaw,pitch)=>[Math.cos(pitch)*Math.cos(yaw),Math.sin(pitch),Math.cos(pitch)*Math.sin(yaw)];
-const N=3000,WORLD=100000;
+const N=3000,WORLD=10000;
 function randomRay(r) {
   const pick=r(),eyeY=pick<.3?-500+r()*1500:pick<.6?800+r()*3500:pick<.85?r()*15000:5000+r()*20000;
   let pitch=Math.asin(2*r()-1);
   const k=r();
   if(k<.2)pitch=(r()-.5)*.004;else if(k<.3)pitch=r()<.5?-Math.PI/2:Math.PI/2;
-  return {eye:[(r()*2-1)*WORLD,eyeY,(r()*2-1)*WORLD],yaw:r()*Math.PI*2,pitch,t:r()*5000,time:Math.floor(r()*2880),coverage:r()<.5?undefined:r()*.95,night:r()<.3?r():0};
+  return {eye:[(r()*2-1)*WORLD*3,eyeY,(r()*2-1)*WORLD],yaw:r()*Math.PI*2,pitch,t:r()*5000,time:Math.floor(r()*2880),coverage:r()<.5?undefined:r()*.95,night:r()<.3?r():0};
 }
 const run=(s,high,extra={})=>march({eye:s.eye,dir:dirOf(s.yaw,s.pitch),t:s.t,time:s.time,coverage:s.coverage,night:s.night,high,...extra});
 // Mean over jitters: a coarse march aliases with the jitter by design, so structural gaps are judged on the expectation.
@@ -38,7 +38,7 @@ for(const high of [false,true]) {
     let worst=0,where=null;
     for(let i=0;i<400;i++) {
       const s=randomRay(r);s.eye[1]=ya+(Math.min(yb,CLOUD_ALTITUDE+CLOUD_THICKNESS/2)-ya)*r();s.coverage=.6+r()*.35;
-      if(Math.abs(s.eye[2]+267)>40000)continue; // beyond ~70 deg latitude the flat z axis degenerates (noise is constant past the clamp)
+      if(Math.abs(s.eye[2]+267)>13000)continue; // beyond ~70 deg latitude the flat z axis degenerates (noise is constant past the clamp)
       const yaw=s.yaw;
       let prev=null;
       for(const p of [-.0006,-.0004,.0004,.0006]) {

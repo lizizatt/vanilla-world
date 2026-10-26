@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {PLANET_RADIUS} from './space.js';
 import {selectPatches,patchesAt,patchArea,MAX_PATCHES} from './globe-patches.js';
 
 test('unculled tree tiles the whole sphere exactly (no gaps/overlap)', () => {
@@ -25,7 +26,7 @@ test('far side is horizon-culled, nearby surface is kept', () => {
 });
 
 test('wraps across the antimeridian', () => {
-  const x=1429+Math.PI*42785+30,p=patchesAt(x,-267,200);
+  const x=1429+Math.PI*PLANET_RADIUS+30,p=patchesAt(x,-267,200);
   assert.ok(p.some(q=>q[2]>=2.9||q[3]<=-2.9));
 });
 
