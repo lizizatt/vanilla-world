@@ -26,9 +26,13 @@ export function cockpitAnchor(metadata) {
 
 /** Keeps a free or chase camera above terrain and the sea (rig.cameraFloor is supplied by camera collision; absent until it loads). */
 export function lifted(rig,eye,origin) {
-  const floor=rig.cameraFloor?.(eye[0]+origin[0],eye[1],eye[2]+origin[1]);
+  const floor=floorAt(rig,eye,origin);
   return floor!==undefined&&eye[1]<floor?[eye[0],floor,eye[2]]:eye;
 }
+/** Single lookup of the camera floor (world y) under a camera-relative eye; undefined until collision tiles load. */
+export const floorAt=(rig,eye,origin)=>rig.cameraFloor?.(eye[0]+origin[0],eye[1],eye[2]+origin[1]);
+/** How far to raise an eye at eyeY to reach the floor, never more than cap (0 without a floor or when already above it). */
+export const floorLift=(floor,eyeY,cap=Infinity)=>floor===undefined?0:Math.max(0,Math.min(floor-eyeY,cap));
 
 export function cameraView(rig,state,flight,dt,origin,settings={},lookBack=false) {
   rig.origin=origin;
@@ -97,8 +101,7 @@ export function cameraView(rig,state,flight,dt,origin,settings={},lookBack=false
   rig.chaseY=state[1];rig.chaseGrounded=grounded;
   // Soft floor: only acts while the clipped eye is below the surface, easing the eye up (never touching yaw/pitch input) and capping the lift at half the eye-pivot distance.
   const eye=clip(pivot.map((n,i)=>n+direction[i]*rig.chaseDistance+(i===1?rig.chaseBounce:0)));
-  const floor=rig.cameraFloor?.(eye[0]+origin[0],eye[1],eye[2]+origin[1]);
-  const need=floor===undefined?0:Math.max(0,Math.min(floor-eye[1],Math.max(0,pivot[1]+rig.chaseDistance*.5-eye[1])));
+  const need=floorLift(floorAt(rig,eye,origin),eye[1],Math.max(0,pivot[1]+rig.chaseDistance*.5-eye[1]));
   const settle=reset||seconds===0?1:-Math.expm1(-15*Math.max(0,dt));
   rig.chaseLift=need>(rig.chaseLift||0)?need:(reset?0:(rig.chaseLift||0)+(need-(rig.chaseLift||0))*settle);
   rig.camera=[eye[0],eye[1]+rig.chaseLift,eye[2]];

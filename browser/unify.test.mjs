@@ -54,3 +54,11 @@ test('equirect module matches the space.js wrappers',()=>{
   assert.equal(clampLat(9),LAT_MAX);
   const f=frameAtLatLon(.4,1.1),back=dirLatLon(f.up);assert.ok(Math.abs(back.lat-.4)<1e-12&&Math.abs(back.lon-1.1)<1e-12);
 });
+
+import {floorLift,floorAt,lifted} from './world-camera.js';
+test('camera floor helpers',()=>{
+  const rig={cameraFloor:(x,y,z)=>x+z};
+  assert.equal(floorAt(rig,[1,5,2],[10,20]),33);assert.equal(floorAt({},[0,0,0],[0,0]),undefined);
+  assert.equal(floorLift(undefined,0),0);assert.equal(floorLift(10,4),6);assert.equal(floorLift(10,4,2),2);assert.equal(floorLift(10,12),0);
+  assert.deepEqual(lifted({cameraFloor:()=>7},[1,5,2],[0,0]),[1,7,2]);assert.deepEqual(lifted({cameraFloor:()=>3},[1,5,2],[0,0]),[1,5,2]);
+});
