@@ -1,5 +1,6 @@
 // Authored terrain work is visual-only; callers pump it outside the collision readiness queue.
 import {BudgetedCache} from './memory-budget.js';
+import {farMinimap} from './world-store.js';
 export const TERRAIN_TEXTURE_SIZE=256, MINIMAP_SIZE=32, TERRAIN_CACHE_LIMIT=64;
 export const TERRAIN_MIP_BYTES=349524,TERRAIN_CACHE_BYTES=TERRAIN_CACHE_LIMIT*TERRAIN_MIP_BYTES;
 const mipBytes=mips=>mips.reduce((n,m)=>n+m.byteLength,0);
@@ -41,6 +42,7 @@ export class TerrainStream {
   constructor(source,wasm,emit) {
     this.source=source;this.wasm=wasm;this.emit=emit;
     this.tiles=new Map();this.cache=new BudgetedCache(TERRAIN_CACHE_BYTES);this.errors=new Map();this.missingMinimaps=new Map();this.far=[];this.farDone=new Set();this.failedFar=[];
+    this.farMisses=new Set();this.cachedMinimaps=0;this.farCacheOff=false;
     this.loads=0;this.cacheHits=0;this.minimaps=0;this.busy=false;this.generation=0;
     this.preparing=new Map();
   }
@@ -98,11 +100,37 @@ export class TerrainStream {
     try{return {...JSON.parse(texture.metadata()),rgba:texture.rgba()};}
     finally{texture.free();}
   }
+  /** Emits up to 64 locally cached minimaps at once so the whole far horizon is coloured from the first frames on a repeat visit. Returns whether any were applied. */
+  async drainCachedFar(generation) {
+    if(!this.far.length||!this.source.fingerprint||this.farCacheOff)return false;
+    const batch=[];
+    for(const patch of this.far){
+      if(batch.length>=64)break;
+      const id=`${patch.region}:${patch.x}:${patch.y}`;
+      if(!this.farMisses.has(id)&&!this.farDone.has(id))batch.push([id,patch]);
+    }
+    if(!batch.length)return false;
+    const found=await Promise.all(batch.map(([id])=>farMinimap(this.source.fingerprint,id).catch(()=>{this.farCacheOff=true;})));
+    if(generation!==this.generation)return false;
+    let hit=false;
+    batch.forEach(([id,patch],i)=>{
+      const rgba=found[i];
+      if(!(rgba instanceof Uint8Array)||rgba.length!==MINIMAP_SIZE*MINIMAP_SIZE*4){this.farMisses.add(id);return;}
+      if(this.farDone.has(id))return;
+      this.farDone.add(id);this.far=this.far.filter(p=>p!==patch);
+      this.emit({event:'horizon-material',...patch,rgba},[rgba.buffer]);this.minimaps++;this.cachedMinimaps++;hit=true;
+    });
+    return hit;
+  }
   async pump() {
     if(this.busy)return;
     this.busy=true;
     const generation=this.generation;
     try {
+      if(this.far.length&&this.source.fingerprint&&!this.farCacheOff){
+        if(await this.drainCachedFar(generation))return true;
+        if(generation!==this.generation)return;
+      }
       const tile=[...this.tiles.values()].find(t=>!t.done&&!this.errors.has(`tile:${t.index}`));
       if(tile){
         const path=key(tile.paths[tile.cursor]);
@@ -143,6 +171,7 @@ export class TerrainStream {
             :this.decode(await this.source.read(path,{background:true}));
           if(generation!==this.generation)return;
           const rgba=this.source.readTexture?texture.rgba:resizeRgba(texture.width,texture.height,texture.rgba,MINIMAP_SIZE);
+          if(this.source.fingerprint&&!this.farCacheOff)farMinimap(this.source.fingerprint,`${patch.region}:${patch.x}:${patch.y}`,rgba.slice()).catch(()=>{this.farCacheOff=true;});
           this.emit({event:'horizon-material',...patch,rgba},[rgba.buffer]);this.minimaps++;
         }catch(error){
           if(generation!==this.generation)return;
@@ -156,7 +185,7 @@ export class TerrainStream {
   snapshot() {
     return {pending:[...this.tiles.values()].filter(t=>!t.done).length,cache:this.cache.size,
       bytes:this.cache.bytes,limit:this.cache.budget.limit,evictions:this.cache.budget.evictions,
-      loads:this.loads,cacheHits:this.cacheHits,minimaps:this.minimaps,farPending:this.far.length,
+      loads:this.loads,cacheHits:this.cacheHits,minimaps:this.minimaps,cachedMinimaps:this.cachedMinimaps,farPending:this.far.length,
       errors:[...this.errors.values()],missingMinimaps:[...this.missingMinimaps.values()]};
   }
   setBudget(bytes) {this.cache.setLimit(Math.max(bytes,8*TERRAIN_MIP_BYTES));}
@@ -169,6 +198,6 @@ export class TerrainStream {
   clear() {
     this.preparing.clear();
     this.generation++;this.tiles.clear();this.cache.clear();this.errors.clear();this.missingMinimaps.clear();
-    this.far=[];this.farDone.clear();this.failedFar=[];this.catalog=undefined;
+    this.far=[];this.farDone.clear();this.farMisses.clear();this.failedFar=[];this.catalog=undefined;
   }
 }
