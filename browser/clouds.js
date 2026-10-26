@@ -150,8 +150,13 @@ fn cloudBody(sp:Sph,d:vec2f,pos:vec3f,t:f32,tau:f32,drag:f32,coverage:f32,wall:f
   let top=(n-(1.0-coverage))*(2.2+1.6*wall);
   return vec2f(smoothstep(0.0,.3,top-hf*.9)*smoothstep(0.0,.1,hf+.05),hf);
 }
+// Offset from the storm centre with the longitude wrapped to the nearest turn: worldAt returns lon in (-pi, pi], so on the far side of the globe the raw difference is a whole circumference off.
+fn stormOffset(xz:vec2f)->vec2f {
+  let turn=${(2*Math.PI*PLANET_RADIUS).toFixed(1)};let d=xz-c.cloud.xy;
+  return vec2f(d.x-turn*round(d.x/turn),d.y);
+}
 fn sheetDensity(pos:vec3f,t:f32)->vec3f {
-  let d=pos.xz-c.cloud.xy;let r=length(d);
+  let d=stormOffset(pos.xz);let r=length(d);
   // Noise is sampled at the 3D point on the planet (cloud-flow.js sphereAt), so it stays isotropic toward the poles; flowShift advects that point.
   let sp=sphereAt(pos.xz);
   // North is -z, so atan2(-z,x) grows counter-clockwise on the map.
@@ -207,7 +212,7 @@ fn shellFwd(w:vec3f)->vec3f {
 }
 fn funnelDensity(pos:vec3f,t:f32)->vec2f {
   let h=clamp((pos.y-BASE)/(TOP-BASE),0.0,1.0);
-  let d=pos.xz-c.cloud.xy;let r=length(d);
+  let d=stormOffset(pos.xz);let r=length(d);
   let rel=r/radius(h,pos.y);
   // North is -z, so the swirl turns counter-clockwise on the map like the maelstrom arms.
   let a=atan2(-d.y,d.x)+${F.twist.toFixed(2)}*h-t*${F.spin.toFixed(2)};
