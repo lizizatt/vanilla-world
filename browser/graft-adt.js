@@ -47,9 +47,14 @@ const bitCount=n=>{let c=0;for(;n;n&=n-1)c++;return c;};
 
 /** Copy of a (translated) tile at (tx,ty) with every terrain vertex re-heighted by `height(x,z,h)` (chart coordinates of a body whose centre tile is cx,cy).
  * Used to end the graft at the dome footprint circle and hand over to the procedural moon. */
-export function reshapeAdt(bytes,{tile:[tx,ty],cx,cy,height}) {
+export function reshapeAdt(bytes,{tile:[tx,ty],cx,cy,height,keep}) {
   const out=bytes.slice(),v=new DataView(out.buffer,out.byteOffset,out.byteLength),step=TILE/128;
   for(const c of adtChunks(out)) {
+    // Placements outside `keep` (chart x,z) get an out-of-range name index, which the tile builder skips; sizes and offsets stay put.
+    if(keep&&(c.magic==='MDDF'||c.magic==='MODF')) {
+      const len=c.magic==='MDDF'?36:64;
+      for(let p=c.start;p+len<=c.start+c.size;p+=len)if(!keep(v.getFloat32(p+8,true)-cx*TILE,v.getFloat32(p+16,true)-cy*TILE))v.setUint32(p,0xffffffff,true);
+    }
     if(c.magic==='MCNK'&&c.size>=MCNK_HEADER) {
       const ix=v.getUint32(c.start+4,true),iy=v.getUint32(c.start+8,true),base=v.getFloat32(c.start+0x70,true),x0=(tx-cx)*TILE+ix*TILE/16,z0=(ty-cy)*TILE+iy*TILE/16;
       for(const s of adtChunks(out,c.start+MCNK_HEADER,c.start+c.size)) {

@@ -84,7 +84,7 @@ export function graftSource(base,real,{bodyId,seed}) {
       if(hit>=0)return remember(`g${tx}_${ty}`,async()=>{
         const p=await prepare(site),t=tilesOf(site)[hit],moved=translateAdt(p.bytes[hit],{from:[t.sx,t.sy],to:[tx,ty],yOffset:p.yOffset});
         // Real terrain ends at the dome circle; beyond it the heights ease into the procedural moon.
-        return reshapeAdt(moved,{tile:[tx,ty],cx:CX,cy:CY,height:(x,z,h)=>{const m=siteMask(site,x,z,CX,CY);if(m>=1)return h;const pr=moonHeightChart(seed,x,z);return pr+(h-pr)*m;}});
+        return reshapeAdt(moved,{tile:[tx,ty],cx:CX,cy:CY,keep:(x,z)=>siteMask(site,x,z,CX,CY)>=1,height:(x,z,h)=>{const m=siteMask(site,x,z,CX,CY);if(m>=1)return h;const pr=moonHeightChart(seed,x,z);return pr+(h-pr)*m;}});
       });
       const rect=siteRect(site,CX,CY),x0=(tx-CX)*ADT_TILE,z0=(ty-CY)*ADT_TILE;
       const gap=Math.hypot(Math.max(rect[0]-(x0+ADT_TILE),0,x0-rect[2]),Math.max(rect[1]-(z0+ADT_TILE),0,z0-rect[3]));

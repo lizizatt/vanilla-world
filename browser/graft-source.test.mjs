@@ -108,3 +108,14 @@ test('graft mean altitude equals the moon height at the site centre (self-consis
   const cx=(rect[0]+rect[2])/2,cz=(rect[1]+rect[3])/2;
   assert.equal(typeof moonHeightChart(MOON_SEED,cx,cz),'number');
 });
+
+test('reshapeAdt keep() culls MDDF/MODF placements outside the footprint by invalidating their name index', () => {
+  const T=533.3333333,cx=30,cy=15,tx=31,ty=16;
+  const place=(len,x,z)=>{const b=new Uint8Array(len),v=new DataView(b.buffer);v.setUint32(0,7,true);v.setFloat32(8,x,true);v.setFloat32(16,z,true);return b;};
+  const cat=(...a)=>{const o=new Uint8Array(a.reduce((n,x)=>n+x.length,0));let p=0;for(const x of a){o.set(x,p);p+=x.length;}return o;};
+  const bytes=cat(chunk('MDDF',cat(place(36,tx*T+10,ty*T+10),place(36,tx*T+400,ty*T+400))),chunk('MODF',cat(place(64,tx*T+10,ty*T+10),place(64,tx*T+400,ty*T+400))));
+  const out=reshapeAdt(bytes,{tile:[tx,ty],cx,cy,height:h=>h,keep:(x,z)=>x<T+100&&z<T+100});
+  const ids=[...adtChunks(out)].flatMap(c=>{const len=c.magic==='MDDF'?36:64,v=new DataView(out.buffer,out.byteOffset,out.byteLength);return [0,1].map(i=>v.getUint32(c.start+i*len,true));});
+  assert.deepEqual(ids,[7,0xffffffff,7,0xffffffff]);
+  assert.equal(out.length,bytes.length);
+});
