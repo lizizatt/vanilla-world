@@ -6,6 +6,7 @@ import {sphereAt,vnoise3,bandCoverage,flowShift,flowPhase,FLOW,maskAt,landCovera
 import {CLOUD_ALTITUDE,CLOUD_THICKNESS,CLOUD_HALF_SIZE,MAELSTROM as M,tier} from './cloud-config.js';
 import {sunDirection,shellCurvatureAt,shellBendFromCurvature} from './clouds.js';
 import {PLANET_RADIUS,WORLD_CENTRE,planetFrame} from './space.js';
+import {smoothstep} from './math.js';
 
 export const FADE_START=30000,FOG_RANGE=150000,SPAN_PER_DISTANCE=.3;
 export const MIN_SPAN=tier(false).minSpan;
@@ -13,7 +14,7 @@ export const steps=high=>tier(high).steps;
 const clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
 const mix=(a,b,t)=>a+(b-a)*t;
 const fract=x=>x-Math.floor(x);
-export const smoothstep=(a,b,x)=>{const t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t);};
+export {smoothstep};
 const hash=(x,y)=>fract(Math.sin(x*127.1+y*311.7)*43758.5453);
 function vnoise(x,y) {
   const ix=Math.floor(x),iy=Math.floor(y),fx=x-ix,fy=y-iy,sx=fx*fx*(3-2*fx),sy=fy*fy*(3-2*fy);

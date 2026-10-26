@@ -4,8 +4,9 @@
 // are yards per second; the east/north wind pair is in the local tangent frame (north up on the world map), never lon/lat noise space.
 
 import {PLANET_RADIUS,WORLD_CENTRE,LAT_MAX} from './space.js';
+import {smoothstep} from './math.js';
 const clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
-const smoothstep=(a,b,x)=>{const t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t);};
+
 
 export const FLOW={
   // Peak zonal / meridional surface wind of the belts; westerlies run stronger than the trades.
