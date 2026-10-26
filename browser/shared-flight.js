@@ -54,6 +54,7 @@ export function stepShared(space,flight,aim,input,dt,t,rate=2,home='azeroth') {
   const parent=bodyOf(next.parent);
   const swapped=next.parent!==state.parent;
   // A new chart's longitude must be unwrapped around its own centre; the old chart's x is meaningless there (it would land a whole circumference away from the tiles).
-  const chart=fromInertial(parent,next.pos,t,swapped?parent.centre[0]:flight[0]);
+  // next.pos is carried to the end of the step, so the chart pose is read at the sim time the renderer will draw (t+rate*dt), not at the start.
+  const chart=fromInertial(parent,next.pos,swapped?t:t+rate*dt,swapped?parent.centre[0]:flight[0]);
   return {space:next,parent:next.parent,swapped,pose:chart,aim:swapped?rechartAim(body,pose,parent,chart,aim,t):transportAim(body,pose,chart,aim,t)};
 }

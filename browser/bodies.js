@@ -3,6 +3,7 @@
 // Azeroth's numbers are the existing constants unchanged; nothing here is wired into the renderer yet.
 import {PLANET_RADIUS,WORLD_CENTRE,MOONS} from './space.js';
 import {smoothRange} from './math.js';
+import {simEpoch} from './sim-clock.js';
 import {BEND_RANGE,GLOBE_RANGE,SPACE_RANGE,ZONE_LIGHT_RANGE} from './terrain-transition.js';
 import {SURFACE_GRAVITY,ATMOSPHERE_EDGE,gravityAt,densityAt,circularSpeed} from './planet-physics.js';
 import {toPlanet,fromPlanet} from './planet-frame.js';
@@ -67,7 +68,7 @@ export const centreAt=(body,t)=>{
 };
 /** Rail angle with the whole cycles removed in double precision first, so sin/cos stay exact at any sim time or timeScale. */
 export const railAngle=(body,t)=>{
-  const cycles=(t-720)/(body.orbitDays*DAY_UNITS);
+  const cycles=(t-720+simEpoch.days*DAY_UNITS)/(body.orbitDays*DAY_UNITS);
   return 2*Math.PI*(cycles-Math.floor(cycles))+body.rail.phase;
 };
 export const orbitSpeed=()=>2*Math.PI*ELUNE_ORBIT/(ELUNE_ORBIT_DAYS*DAY_UNITS/2);

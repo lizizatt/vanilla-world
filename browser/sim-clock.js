@@ -11,12 +11,15 @@ export const sanitiseScale=s=>TIME_SCALES.includes(Number(s))?Number(s):1;
 /** Smoothly sun-based daylight 0..1 (1 at noon, 0 at midnight), matching the sky's nightAlpha. */
 export const daylightAt=t=>1-Math.min(1,Math.max(0,Math.cos(t/DAY_PERIOD*Math.PI*2)*2));
 
+/** Whole days the clock has wrapped past. Rail bodies (Elune: 5-day orbit) need it so their phase stays continuous across the daily wrap of now(). */
+export const simEpoch={days:0};
+
 export class SimClock {
-  constructor(time=NOON,scale=1) {this.t=wrapTime(time);this.scale=sanitiseScale(scale);this.dt=0;}
+  constructor(time=NOON,scale=1) {this.t=wrapTime(time);this.scale=sanitiseScale(scale);this.dt=0;simEpoch.days=0;}
   now() {return this.t;}
   set(time) {this.t=wrapTime(time);}
   /** Advance by real dt; this.dt is the sim time units elapsed this frame (0 when paused). */
-  step(dt) {this.dt=simDelta(dt,this.scale);this.t=wrapTime(this.t+this.dt);return this.t;}
+  step(dt) {this.dt=simDelta(dt,this.scale);simEpoch.days+=Math.floor((this.t+this.dt)/DAY_PERIOD);this.t=wrapTime(this.t+this.dt);return this.t;}
 }
 
 /** Cloud/whirlpool animation rate (cloud seconds per real second): linear to 10x, then compressed (the flow map cannot cross-fade 1000x) so 100x/1000x still read as fast but not strobing; 0 when paused. */
