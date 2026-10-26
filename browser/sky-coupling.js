@@ -38,8 +38,7 @@ export const earthshine=t=>.02+.05*litFraction(BODIES.azeroth,BODIES.elune,t);
 /** Ambient floor for a body: Azeroth unchanged (handled by its own day/night curve), Elune black sky plus earthshine. */
 export const ambientFor=(body,t)=>body.id==='azeroth'?null:.03+earthshine(t);
 
-/** Sim-time warp clamp: close to a body the sim scale must not outrun a pod; returns the largest allowed scale of [0,1,10,100,1000]. */
-export function warpClamp(nearestSurfaceYd,scales=[0,1,10,100,1000]) {
-  const cap=nearestSurfaceYd<2e3?1:nearestSurfaceYd<2e4?10:nearestSurfaceYd<1e5?100:1000;
-  return Math.max(...scales.filter(s=>s<=cap));
+/** Sim-time warp limit: fly mode may use any warp anywhere (the camera is carried exactly, see space-flight carryDelta), everything else is 1x. */
+export function warpClamp(nearestSurfaceYd,scales=[0,1,10,100,1000],flying=true) {
+  return Math.max(...scales.filter(s=>flying?true:s<=1));
 }

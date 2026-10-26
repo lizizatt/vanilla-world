@@ -45,9 +45,9 @@ test('earthshine and ambient floors', () => {
   assert.ok(ambientFor(ELUNE,0)>.03);
 });
 
-test('warp clamps near bodies', () => {
-  assert.equal(warpClamp(100),1);assert.equal(warpClamp(5000),10);
-  assert.equal(warpClamp(5e4),100);assert.equal(warpClamp(1e6),1000);
+test('warp is unrestricted in fly mode at any altitude and 1x otherwise', () => {
+  for(const alt of [0,100,5000,5e4,1e6])assert.equal(warpClamp(alt),1000);
+  assert.equal(warpClamp(100,undefined,false),1);
 });
 
 test('Elune synodic day is 1.25 Azeroth days (3600 units = 30 min at 1x)', () => {
