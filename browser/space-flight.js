@@ -65,4 +65,6 @@ export function eyeRelative(state,body,t) {
   return state.pos.map((v,i)=>v-c[i]);
 }
 export const nearestAltitude=(state,t)=>nearestSurface(state.pos,t).altitude;
+/** Camera altitude above every body's surface, keyed by body id. */
+export const bodyAltitudes=(state,t)=>Object.fromEntries(Object.values(BODIES).map(b=>[b.id,Math.max(0,Math.hypot(...eyeRelative(state,b,t))-b.radius)]));
 export {altitudeAbove};
