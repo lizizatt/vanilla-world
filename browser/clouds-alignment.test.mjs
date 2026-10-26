@@ -109,3 +109,15 @@ test('storm centre offsets wrap to the nearest turn, so the vortex and funnel st
     assert.ok(Math.hypot(off,w[2]-mz)<2,`eye ${eye.map(Math.round)} wrapped offset ${off}`);
   }
 });
+
+test('cloud uniform frame (storm centre, east/up/south basis, lon/lat origin) is body-fixed: independent of sim time and cloud clock, and equals the globe planetFrame', async () => {
+  const {cloudUniform}=await import('./clouds.js');
+  const {planetFrame}=await import('./space.js');
+  const mk=eye=>({eye,right:[1,0,0],up:[0,1,0],look:[0,0,-1],aspect:1.7});
+  for(const eye of [[-5452.9987,21105.157,9655.307],[WORLD_CENTRE[0]+R*Math.PI,21105,9655],[WORLD_CENTRE[0]-R*2,60000,-9000]]) {
+    const a=cloudUniform(mk(eye),10,1,manifest,1,null,undefined,1440),b=cloudUniform(mk(eye),3.9e6,.2,manifest,1,null,undefined,300),f=planetFrame(eye[0],eye[2]);
+    assert.deepEqual([...a.slice(16,18)],[...b.slice(16,18)]);
+    assert.deepEqual([...a.slice(48,60)],[...b.slice(48,60)]);
+    assert.deepEqual([...a.slice(48,60)],[...f.east,WORLD_CENTRE[0],...f.up,WORLD_CENTRE[1],...f.south,R].map(Math.fround));
+  }
+});
