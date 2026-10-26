@@ -30,12 +30,13 @@ export function createRegistry(chunks,radius=PLANET_RADIUS) {
     cover:(lat,lon)=>list.map(c=>({chunk:c,weight:feather(c,lat,lon)})).filter(e=>e.weight>0),
     /** Blended surface sample: ocean underlay, each covering chunk composited over it by priority with its seam weight. */
     sample(lat,lon) {
-      let out={...OCEAN,land:0};
-      for(const {chunk,weight} of this.cover(lat,lon)) {
+      let land=0,h=OCEAN.h,rgb=OCEAN.rgb,water=OCEAN.water;
+      for(const chunk of list) {
+        const weight=feather(chunk,lat,lon);if(weight<=0)continue;
         const s=chunk.provider.sample(lat,lon);if(s.skip)continue;
-        out={land:Math.max(out.land,weight),h:out.h+(s.h-out.h)*weight,rgb:out.rgb.map((v,i)=>v+(s.rgb[i]-v)*weight),water:weight>=.5?s.water:out.water};
+        land=Math.max(land,weight);h+=(s.h-h)*weight;rgb=[rgb[0]+(s.rgb[0]-rgb[0])*weight,rgb[1]+(s.rgb[1]-rgb[1])*weight,rgb[2]+(s.rgb[2]-rgb[2])*weight];if(weight>=.5)water=s.water;
       }
-      return out;
+      return {land,h,rgb,water};
     },
     add(c) {list.push({blend:200,priority:0,jitter:0,...c});list.sort((a,b)=>a.priority-b.priority);},
   };
@@ -94,14 +95,14 @@ export function adtProvider(grid) {
 /** Whole-sphere chunk backed by the colour grid, drawn over the procedural continents so authored tiles win. */
 export const adtChunk=grid=>({id:'adt',kind:'adt',priority:10,blend:0,bounds:[-Math.PI/2,Math.PI/2,-Math.PI,Math.PI],provider:adtProvider(grid)});
 /** One baked texel [r,g,b,land] (bytes) for texel (x,y) of a w x h equirect map. */
-export function surfaceTexel(registry,x,y,w,h) {
+export function surfaceTexel(registry,x,y,w,h,out=[0,0,0,0]) {
   const s=registry.sample(Math.PI/2-(y+.5)/h*Math.PI,((x+.5)/w-.5)*2*Math.PI);
-  return [...s.rgb.map(v=>Math.round(v*255)),Math.round(s.land*255)];
+  out[0]=Math.round(s.rgb[0]*255);out[1]=Math.round(s.rgb[1]*255);out[2]=Math.round(s.rgb[2]*255);out[3]=Math.round(s.land*255);return out;
 }
 
 /** Bake the registry into an equirect RGBA8 map (rgb colour, alpha = land weight) the globe shaders sample; row 0 is lat +90. */
 export function bakeSurface(registry,w=1024,h=512) {
-  const out=new Uint8Array(w*h*4);
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++)out.set(surfaceTexel(registry,x,y,w,h),(y*w+x)*4);
+  const out=new Uint8Array(w*h*4),texel=[0,0,0,0];
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++)out.set(surfaceTexel(registry,x,y,w,h,texel),(y*w+x)*4);
   return out;
 }

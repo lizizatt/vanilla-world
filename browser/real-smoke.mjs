@@ -19,6 +19,8 @@ console.log('ready',await page.evaluate(()=>worldEvidence.ready),'errors',await 
 await page.keyboard.press('Escape');await page.locator('[data-tab=options]').click();await page.keyboard.press('Escape');await page.locator('#world').click();
 const shot=async name=>page.screenshot({path:path.join(out,`${tag}-${name}.png`)});
 await page.waitForTimeout(3000);await shot('spawn');
+let cdp,t0;
+if(process.env.PROFILE){cdp=await ctx.newCDPSession(page);await cdp.send('Profiler.enable');await cdp.send('Profiler.setSamplingInterval',{interval:200});await cdp.send('Profiler.start');t0=await page.evaluate(()=>performance.now());}
 for(const [name,step] of JSON.parse(process.env.STEPS||'[]')) {
   if(step.key)await page.keyboard.press(step.key);else await page.evaluate(s=>{window.worldTest.settings({planet:true,...s.settings});if(s.time!==undefined)window.worldTest.timeLock(s.time);window.worldTest.focus(s.pose);},step);
   await page.waitForTimeout(step.wait??6000);await shot(name);
@@ -27,12 +29,21 @@ for(const [name,step] of JSON.parse(process.env.STEPS||'[]')) {
     for(const k of step.seq.down||[])await page.keyboard.down(k);
     for(let i=0;i<step.seq.n;i++){
       const info=await page.evaluate(()=>({c:worldEvidence.camera?.slice(0,3).map(v=>Math.round(v)),s:worldEvidence.bodySwaps||0,hud:document.getElementById('space-hud')?.textContent}));
-      await shot(`${name}-${String(i).padStart(3,'0')}`);console.log(name,i,JSON.stringify(info));
+      if(!step.seq.noshot)await shot(`${name}-${String(i).padStart(3,'0')}`);console.log(name,i,JSON.stringify(info));
       await page.waitForTimeout(step.seq.gap??100);
     }
     for(const k of step.seq.down||[])await page.keyboard.up(k);
   }
   if(step.eval)console.log(name,JSON.stringify(await page.evaluate(step.eval)));
+}
+if(cdp) {
+  const {profile}=await cdp.send('Profiler.stop'),swaps=await page.evaluate(()=>(worldEvidence.swapProfiles||[]).map(p=>p.start));
+  const byId=new Map(profile.nodes.map(n=>[n.id,n])),offset=profile.startTime/1000-t0;let at=profile.startTime/1000;
+  for(const start of swaps) {
+    const self=new Map();at=profile.startTime/1000;
+    profile.samples.forEach((id,i)=>{at+=profile.timeDeltas[i]/1000;const t=at-offset;if(t<start-50||t>start+700)return;const f=byId.get(id).callFrame,key=`${f.functionName||'(anon)'} ${f.url.split('/').pop()}:${f.lineNumber}`;self.set(key,(self.get(key)||0)+profile.timeDeltas[i]/1000);});
+    console.log('PROFILE swap@',Math.round(start),[...self].sort((a,b)=>b[1]-a[1]).slice(0,12).map(([k,v])=>`${v.toFixed(0)}ms ${k}`).join('\n  '));
+  }
 }
 console.log('url',page.url(),'errors',errors);
 await ctx.close();process.exit(errors.length?1:0);

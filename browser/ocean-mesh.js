@@ -6,6 +6,15 @@ import {maelstromCentre,WHIRLPOOL_DIP} from './clouds.js';
 export const OCEAN_CELL=1250;
 export const dipDepth=(r,{radius,depth}=WHIRLPOOL_DIP)=>r>=radius?0:depth*(1-(r/radius)**2)**2;
 
+const meshCache=new Map();
+/** oceanMesh memoised on its inputs (a swap back to a body rebuilds the identical sea fill); keeps the few most recent. */
+export function oceanMeshCached(manifest,cells=96,land=[]) {
+  const key=JSON.stringify([manifest.ocean,manifest.sea_level,manifest.whirlpool,manifest.world_bounds&&maelstromCentre(manifest),cells,land]);
+  let mesh=meshCache.get(key);
+  if(!mesh){mesh=oceanMesh(manifest,cells,land);if(meshCache.size>=4)meshCache.delete(meshCache.keys().next().value);meshCache.set(key,mesh);}
+  return mesh;
+}
+
 /** Ocean triangles (7 floats per vertex: pos, normal, material 2) local to the ocean origin: a flat quad, or four flat
  * quads around a dense displaced square patch when the whirlpool centre lies inside the ocean. */
 export function oceanMesh(manifest,cells=96,land=[]) {

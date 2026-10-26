@@ -2,7 +2,7 @@
 import {BODIES,centreAt,altitudeAbove,nearestSurface,parentOf,bodyOf,toInertial,fromInertial} from './bodies.js';
 
 /** v = max(floor, K * nearest-surface altitude): exponential climb away from a surface and braking on approach. K tuned so Azeroth->Elune takes ~30 s walking, ~10 s with Shift. */
-export const FLY={walkFloor:1200,fastFloor:8000,walkK:.31,fastK:.93,minAltitude:2,blend:3,corotateNear:2,corotateFar:5};
+export const FLY={walkFloor:1200,fastFloor:8000,walkK:.31,fastK:.93,minAltitude:2,blend:3,corotateNear:2,corotateFar:5,swapDwell:.35,swapCooldown:1.5};
 export const flySpeed=(altitude,fast)=>Math.max(fast?FLY.fastFloor:FLY.walkFloor,(fast?FLY.fastK:FLY.walkK)*Math.max(0,altitude));
 
 // Velocity of the frame in yd per real second (per-sim-unit difference times the sim rate; 2 units per real second at 1x): the centre's motion plus, near a body, the rotation of its (tidally locked) surface so a hovering camera stays above the same ground; the co-rotation fades out between corotateNear and corotateFar body radii of altitude.
@@ -23,14 +23,19 @@ export function createFlight(pos,t,parent='azeroth',rate=2) {
 export function stepFlight(state,input,dt,t) {
   const near=nearestSurface(state.pos,t),speed=flySpeed(near.altitude,input.fast)*dt;
   const move=[0,1,2].map(i=>(input.look[i]*(input.forward||0)+input.right[i]*(input.strafe||0)+input.up[i]*(input.lift||0))*speed);
-  const parent=parentOf(state.pos,t,state.parent);
-  let {from,age,carry}=state;
-  if(parent!==state.parent){from=state.carry;age=0;}
+  // A well swap tears down and rebuilds a whole world, so it must be earned: the candidate parent has to hold for a dwell (a moon sweeping past at high time warp never does) and a cooldown applies after each swap.
+  const wanted=parentOf(state.pos,t,state.parent);
+  let {from,age,carry,candidate=state.parent,candidateAge=0,sinceSwap=Infinity}=state;
+  sinceSwap+=dt;
+  if(wanted===state.parent){candidate=wanted;candidateAge=0;}
+  else{if(candidate!==wanted){candidate=wanted;candidateAge=0;}candidateAge+=dt;}
+  const parent=wanted!==state.parent&&candidateAge>=FLY.swapDwell&&sinceSwap>=FLY.swapCooldown?wanted:state.parent;
+  if(parent!==state.parent){from=state.carry;age=0;sinceSwap=0;candidateAge=0;}
   const target=carryOf(bodyOf(parent),t,input.simRate??2,state.pos);
   if(from){age+=dt;const x=Math.min(1,age/FLY.blend),w=x*x*(3-2*x);carry=from.map((v,i)=>v+(target[i]-v)*w);if(age>=FLY.blend)from=null;}
   else carry=target;
   const pos=state.pos.map((v,i)=>v+move[i]+carry[i]*dt);
-  return clampSurface({parent,pos,carry,from,age},t);
+  return clampSurface({parent,pos,carry,from,age,candidate,candidateAge,sinceSwap},t);
 }
 
 /** Keep the camera above every body's surface (no flying through the planet). */

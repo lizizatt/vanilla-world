@@ -21,7 +21,7 @@ import {cameraAxes,AdmissionFade,sceneSelection} from './renderer-helpers.js';
 import {posedAsset,npcMoves,moveMatrix,pose} from './renderer-actors.js';
 import {buffer,texture,drawable,setFlags,setGates,releaseMaterial,release,uploadMaterials,drawTerrain,refreshOcean} from './renderer-terrain.js';
 import {destroyCraft,releaseCraft,buildCraft,startWreck,wreckChunk,endWreck,setProps,setCraftOverride} from './renderer-craft.js';
-import {reset,configure,event,clearFar} from './renderer-events.js';
+import {reset,configure,event,clearFar,swapPlanetState} from './renderer-events.js';
 import {scenePipeline,prepareBatches,sceneMatrix,drawScene} from './renderer-scene.js';
 import {zoneBlend,setSky,setSkyDome,horizonColour,planetRects,drawPlanet,sharedFrame,drawPatches,drawLights,drawSkyDome,sampleSky,noteLitInstance} from './renderer-sky.js';
 import {drawShadow,enableHighClouds,highCloudGroup,maskEntries,drawClouds} from './renderer-clouds.js';
@@ -77,7 +77,8 @@ export class WorldRenderer {
   setCraftOverride(model){return setCraftOverride(this,model);}
   prepareBody(body){return prepareBody(this,body);}
   useBody(body){return useBody(this,body);}
-  reset(){return reset(this);}
+  reset(options){return reset(this,options);}
+  swapPlanetState(from,to){return swapPlanetState(this,from,to);}
   configure(manifest){return configure(this,manifest);}
   event(data){return event(this,data);}
   clearFar(){return clearFar(this);}
@@ -125,7 +126,7 @@ export class WorldRenderer {
     this.view={eye:[this.camera[0]+origin[0],this.camera[1],this.camera[2]+origin[1]],right,up,look,aspect};
     const planetOn=!!flight&&settings.planet!==false,pf=this.planet=this.manifest?.version===4?planetFactorsFor(ELUNE,planetOn?this.view.eye[1]:0,planetOn):planetFactors(planetOn?this.view.eye[1]:0,planetOn);pf.mesh=planetOn&&!!settings.globeMesh;pf.registry=planetOn&&!!settings.globeRegistry;
     const clock=this.clock??=new SimClock(DAY,1);
-    clock.scale=flight?sanitiseScale(settings.timeScale):1;clock.step(dt);
+    clock.scale=flight?Math.min(sanitiseScale(settings.timeScale),this.warpCap??Infinity):1;clock.step(dt);
     const cc=this.cloudClock??=new CloudClock(time);cc.step(dt,clock.scale);pf.flowScale=cc.stretch;pf.flowCycles=cc.cycles;
     this.cloudTime=cc.time;const waterTime=this.cloudTime%7200;
     this.timeOfDay=this.timeLock??clock.now();

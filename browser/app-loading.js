@@ -204,7 +204,7 @@ async function openMoonEngine(app,selection) {
     app.engineCounts[body.id]={events:0,farScenes:0};
     const engine=new WorldClient(data=>{const counts=app.engineCounts[engine.bodyId]??={events:0,farScenes:0};counts.events++;if(data.event==='far-scene')counts.farScenes++;return false;},error=>console.warn(engine.bodyId+' engine',error));
     engine.farOnly=true;engine.bodyId=body.id;app.engines[body.id]=engine;
-    try{await engine.open(body.id);}catch(error){console.warn(body.id+' engine unavailable',error);engine.stop();delete app.engines[body.id];}
+    try{await engine.open(body.id);void app.renderer?.prepareBody?.(body).catch(e=>console.warn(body.id+' pipelines',e));}catch(error){console.warn(body.id+' engine unavailable',error);engine.stop();delete app.engines[body.id];}
   }
 }
 
@@ -215,24 +215,27 @@ async function soiSwap(app,parentId) {
   const engine=app.engines?.[parentId],body=BODIES[parentId],prev=activeBody();
   if(!engine?.worker||!engine.info||!body||app.busy||prev.id===parentId)return false;
   app.busy=true;
+  const prof={to:parentId,phases:{},start:performance.now()};let mark=prof.start;const lap=name=>{const t=performance.now();prof.phases[name]=+(t-mark).toFixed(1);mark=t;};
   try {
-    await app.renderer.prepareBody(body);
+    await app.renderer.prepareBody(body);lap('prepare');
     app.bodyTuning??={};app.bodyTuning[prev.id]=app.tuningValues.slice();app.bodyClouds??={};app.bodyClouds[prev.id]=settings.clouds;
     client.swap(engine);
     delete app.engines[parentId];app.engines[prev.id]=engine;engine.farOnly=true;client.farOnly=false;
     setActiveBody(body);
-    await app.renderer.useBody(body);
-    app.renderer.reset();app.renderer.clipCamera=undefined;app.renderer.cameraFloor=undefined;cameraCollision.reset();
+    await app.renderer.useBody(body);lap('use');
+    app.renderer.swapPlanetState(prev.id,parentId);
+    app.renderer.reset({keepPlanet:true});app.renderer.clipCamera=undefined;app.renderer.cameraFloor=undefined;cameraCollision.reset();
     const manifest=client.info.manifest;
-    app.renderer.configure(manifest);client.sky();client.animate(settings.animateNpcs);mapPanel.configure(manifest);cameraCollision.configure(manifest);
+    app.renderer.configure(manifest);client.sky();client.animate(settings.animateNpcs);mapPanel.configure(manifest);    cameraCollision.configure(manifest);lap('configure');
     void engine.request('rebind',{replay:false}).catch(e=>console.warn('demote rebind',e));// old near world sheds its near residency; its events are only counted now
-    await client.request('rebind');// new near world forgets what it "already sent" so streaming and the horizon reach the fresh renderer
+    await client.request('rebind');lap('rebind');// new near world forgets what it "already sent" so streaming and the horizon reach the fresh renderer
     app.gateKey=undefined;
     const values=app.bodyTuning[parentId]?.slice()??(Array.isArray(client.info.tuning)?client.info.tuning.slice():app.tuningValues.slice());
     if(parentId==='elune'&&!app.bodyTuning[parentId])values[14]=LUNAR_GRAVITY;
-    await client.request('tuning',{values});app.tuningValues=values;
+    await client.request('tuning',{values});lap('tuning');app.tuningValues=values;
     settings.clouds=app.bodyClouds[parentId]??(body.atmosphereEdge>0);app.syncSettings();
     evidence.info=client.info;evidence.bodySwaps=(evidence.bodySwaps||0)+1;
-    return true;
+        prof.total=+(performance.now()-prof.start).toFixed(1);(evidence.swapProfiles??=[]).push(prof);
+        return true;
   } finally {app.busy=false;}
 }
