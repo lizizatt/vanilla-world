@@ -11,8 +11,8 @@ import {maelstromCentre,resolveCloudQuality,SlowFrameGuard,sunDirection} from '.
 import {exhaustPoints,emitPlumes,emitDebris,emitHeatSmoke,emitGroundDust,emitWaterFx,overWater,QUALITY,INSTANCE_FLOATS,particleUniform,emitLamps} from './particles.js';
 import {beamState} from './beam.js';
 import {horizonDip} from './space.js';
-import {planetFactors} from './terrain-transition.js';
-import {planetFactorsFor,ELUNE,bodiesEnabled} from './bodies.js';
+import {planetFactorsFor,bodiesEnabled} from './bodies.js';
+import {activeBody} from './body-shaders.js';
 import {skyUniform,DAY} from './sky.js';
 import {eluneSkyAt,AIRLESS_SKY} from './elune-sky.js';
 import {SimClock,sanitiseScale,daylightAt,CloudClock} from './sim-clock.js';
@@ -123,13 +123,13 @@ export class WorldRenderer {
     this.cameraLook=look;
     const aspect=width/height;
     this.view={eye:[this.camera[0]+origin[0],this.camera[1],this.camera[2]+origin[1]],right,up,look,aspect};
-    const planetOn=!!flight&&settings.planet!==false,pf=this.planet=this.manifest?.version===4?planetFactorsFor(ELUNE,planetOn?this.view.eye[1]:0,planetOn):planetFactors(planetOn?this.view.eye[1]:0,planetOn);pf.mesh=planetOn&&!!settings.globeMesh;pf.registry=planetOn&&!!settings.globeRegistry;
+    const planetOn=!!flight&&settings.planet!==false,pf=this.planet=planetFactorsFor(activeBody(),planetOn?this.view.eye[1]:0,planetOn);pf.mesh=planetOn&&!!settings.globeMesh;pf.registry=planetOn&&!!settings.globeRegistry;
     const clock=this.clock??=new SimClock(DAY,1);
     clock.scale=flight?sanitiseScale(settings.timeScale):1;clock.step(dt);
     const cc=this.cloudClock??=new CloudClock(time);cc.step(dt,clock.scale);pf.flowScale=cc.stretch;pf.flowCycles=cc.cycles;
     this.cloudTime=cc.time;const waterTime=this.cloudTime%7200;
     this.timeOfDay=this.timeLock??clock.now();
-    const airless=this.manifest?.version===4,moonSky=airless?eluneSkyAt(state[0],state[2],this.timeOfDay):undefined;
+    const airless=activeBody().id==='elune',moonSky=airless?eluneSkyAt(state[0],state[2],this.timeOfDay):undefined;
     const daylight=this.daylight=moonSky?moonSky.daylight:daylightAt(this.timeOfDay);
     const sky0=airless?AIRLESS_SKY:DAY_SKY.map((v,i)=>NIGHT_SKY[i]+(v-NIGHT_SKY[i])*daylight);
     const game=airless?undefined:zoneBlend(this.sampleSky(),pf.zone),sky=game?game.fog:sky0;pf.fog=(game?game.horizon:sky).slice(0,3);
