@@ -91,7 +91,7 @@ function frame(now) {
     if(now-app.hudTime>250) {
       const s=client.state,p=s.telemetry,scene=s.scene;
       const held=!!scene?.waitingCollision || !!p[8];
-      app.promptTrack=app.race||app.flight?undefined:nearestFlag(tracksFor(app.tracks,app.choice.vehicle),p);
+      app.promptTrack=app.race||app.flight?undefined:nearestFlag(tracksFor(app.tracks,app.choice.vehicle,activeBody().id),p);
       const again=app.race||app.flight?undefined:app.raceAgain();
       $('race-prompt').hidden=!app.promptTrack&&!again;if(again)$('race-prompt').textContent='Press F to race again';else if(app.promptTrack)$('race-prompt').textContent=`Press F to start race: ${app.promptTrack.name||app.promptTrack.id}`;
       $('speed').textContent=app.flight?'FLY':p[5]<10000?p[5].toFixed(0).padStart(3,'0'):p[5].toExponential(1);

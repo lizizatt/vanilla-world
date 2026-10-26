@@ -15,7 +15,8 @@ export const VEHICLES=Object.freeze({
 });
 
 export const vehicleOf=track=>track?.vehicle??'podracer';
-export const tracksFor=(tracks,vehicle)=>tracks.filter(t=>vehicleOf(t)===vehicle);
+/** Tracks are authored in one body's chart; a track without `body` belongs to Azeroth. Only the active body's tracks are ever drawn, listed or offered. */
+export const tracksFor=(tracks,vehicle,body='azeroth')=>tracks.filter(t=>vehicleOf(t)===vehicle&&(t.body??'azeroth')===body);
 const isVehicle=id=>typeof id==='string'&&Object.hasOwn(VEHICLES,id);
 
 // Runtime skins from the user's own SWE1R folder ('swe1r' source); replaced wholesale, removed with an empty list.
