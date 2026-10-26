@@ -340,3 +340,8 @@ Body pipelines are pre-warmed at engine open (`prepareBody`). Per-body globe sta
 
 Sites live in elune-sites.js (body-generic). The 3x3 Moonglade plateau (Kalimdor x35-37, y16-18, measured by moonglade-census.mjs) is translated by whole tiles to Elune tiles (29..31,10..12) by graft-adt.js (MCNK corner, MCLQ heights skipping 3.4e38 sentinels, MDDF/MODF) with a height offset so the mean matches the moon at the site. graft-source.js serves graft tiles, a 1200 yd procedural apron blended to the graft edge (area 90003), and falls through to real data for textures/models. The Elune engine receives the user's Data folder via the open request. The map Elune button now lands 250 yd over the site (elune-pose.js overSite). Pending: area 493 zone music, breathable bubble, untextured far-bake tint of graft tiles.
 
+
+## Status: graft follow-ups
+- Far-bake colour: grafted tiles alias their source minimap (graftMinimapRows); apron tiles use a solid regolith BLP (REGOLITH_HASH). Zone music (area 493 / Forest set) verified on real data, no code change.
+- Bubble: bubbleMask(bodyId,x,z) (elune-sites.js) is 1 within site.bubble and 0 at twice it; world-renderer blends clear/fog colour via bubbleSky. Sky colour only so far; ambient, sound, veil and the cloud microclimate are still to do.
+

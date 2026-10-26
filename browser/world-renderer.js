@@ -14,7 +14,8 @@ import {horizonDip} from './space.js';
 import {planetFactorsFor,bodiesEnabled} from './bodies.js';
 import {activeBody} from './body-shaders.js';
 import {skyUniform,DAY} from './sky.js';
-import {eluneSkyAt,AIRLESS_SKY} from './elune-sky.js';
+import {eluneSkyAt,bubbleSky} from './elune-sky.js';
+import {bubbleMask} from './elune-sites.js';
 import {SimClock,sanitiseScale,daylightAt,CloudClock} from './sim-clock.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
 import {cameraAxes,AdmissionFade,sceneSelection} from './renderer-helpers.js';
@@ -132,7 +133,7 @@ export class WorldRenderer {
     this.timeOfDay=this.timeLock??clock.now();
     const airless=activeBody().id==='elune',moonSky=airless?eluneSkyAt(state[0],state[2],this.timeOfDay):undefined;
     const daylight=this.daylight=moonSky?moonSky.daylight:daylightAt(this.timeOfDay);
-    const sky0=airless?AIRLESS_SKY:DAY_SKY.map((v,i)=>NIGHT_SKY[i]+(v-NIGHT_SKY[i])*daylight);
+    const sky0=airless?bubbleSky(bubbleMask('elune',state[0],state[2]),daylight):DAY_SKY.map((v,i)=>NIGHT_SKY[i]+(v-NIGHT_SKY[i])*daylight);
     const game=airless?undefined:zoneBlend(this.sampleSky(),pf.zone),sky=game?game.fog:sky0;pf.fog=(game?game.horizon:sky).slice(0,3);
     this.gameSky=game;
     const skyFloats=game?[...game.fog,1,...game.sun,0,...game.horizon,0,...game.mid,0]:new Array(16).fill(0);
