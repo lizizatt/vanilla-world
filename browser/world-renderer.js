@@ -23,7 +23,7 @@ import {cameraAxes,AdmissionFade,sceneSelection} from './renderer-helpers.js';
 import {posedAsset,npcMoves,moveMatrix,pose} from './renderer-actors.js';
 import {buffer,texture,drawable,setFlags,setGates,releaseMaterial,release,uploadMaterials,drawTerrain,refreshOcean} from './renderer-terrain.js';
 import {destroyCraft,releaseCraft,buildCraft,startWreck,wreckChunk,endWreck,setProps,setCraftOverride,domeDraw} from './renderer-craft.js';
-import {reset,configure,event,clearFar,swapPlanetState} from './renderer-events.js';
+import {reset,configure,event,clearFar,swapPlanetState,bodyEvent} from './renderer-events.js';
 import {scenePipeline,prepareBatches,sceneMatrix,drawScene} from './renderer-scene.js';
 import {zoneBlend,setSky,setSkyDome,horizonColour,planetRects,drawPlanet,sharedFrame,drawPatches,drawLights,drawSkyDome,sampleSky,noteLitInstance} from './renderer-sky.js';
 import {drawShadow,enableHighClouds,highCloudGroup,maskEntries,drawClouds} from './renderer-clouds.js';
@@ -81,6 +81,7 @@ export class WorldRenderer {
   useBody(body){return useBody(this,body);}
   reset(options){return reset(this,options);}
   swapPlanetState(from,to){return swapPlanetState(this,from,to);}
+  bodyEvent(body,data){return bodyEvent(this,body,data);}
   configure(manifest){return configure(this,manifest);}
   event(data){return event(this,data);}
   clearFar(){return clearFar(this);}

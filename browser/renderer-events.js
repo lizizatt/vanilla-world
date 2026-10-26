@@ -18,9 +18,25 @@ const PLANET_STATE=['heightGrid','colourGrid','colourDirty','horizonMini','surfa
 export function swapPlanetState(r,from,to) {
   r.bodyStates??=new Map();
   r.bodyStates.set(from,Object.fromEntries(PLANET_STATE.map(k=>[k,r[k]])));
-  Object.assign(r,r.bodyStates.get(to)??{heightGrid:new Float32Array(r.heightGrid.length).fill(-Infinity),colourGrid:createColourGrid(),colourDirty:new Set(),horizonMini:new Map(),
-    surfaceRegistry:undefined,surfaceBytes:undefined,surfaceKey:undefined,nightBake:undefined,litCells:undefined,litQueue:undefined,lightsKey:undefined,landRects:[]});
+  Object.assign(r,r.bodyStates.get(to)??emptyPlanetState(r));
   r.heightDirty=true;r.heightAt=0;r.surfaceDirty=!!r.surfaceBytes;if(r.nightBake)r.nightBake.rows=[0,NIGHT_H-1];
+}
+const emptyPlanetState=r=>({heightGrid:new Float32Array(r.heightGrid.length).fill(-Infinity),colourGrid:createColourGrid(),colourDirty:new Set(),horizonMini:new Map(),
+  surfaceRegistry:undefined,surfaceBytes:undefined,surfaceKey:undefined,nightBake:undefined,litCells:undefined,litQueue:undefined,lightsKey:undefined,landRects:[]});
+/** Parked globe state of a body that is not the active chart, created on first use. */
+export function bodyState(r,id) {
+  r.bodyStates??=new Map();
+  if(!r.bodyStates.has(id))r.bodyStates.set(id,emptyPlanetState(r));
+  return r.bodyStates.get(id);
+}
+/** Feeds a non-active body's resident engine into its parked state: its far horizon relief lands in that body's own height grid (no GPU work), so its globe can be drawn from real data. Returns whether the event was consumed. */
+export function bodyEvent(r,body,data) {
+  if(data.event!=='horizon'||!r.heightGrid)return false;
+  const state=bodyState(r,body.id);
+  trimRimSpikes(data.vertices);
+  splatHeights(state.heightGrid,data.vertices,data.placement,body.centre,body.radius);
+  state.heightFilled=(state.heightFilled??0)+1;
+  return true;
 }
 export function reset(r,{keepPlanet=false}={}) {
   // The globe height/colour grids are chart-lon/lat baked: a body switch must not inherit the previous body's relief (Azeroth peaks became spikes on Elune).

@@ -55,3 +55,19 @@ test('the other body disc samples its own baked registry (discTex, binding 6), o
   assert.doesNotMatch(shaderSetFor(AZEROTH).space,/discTex/);
   assert.equal(wantsDisc(ELUNE),true);assert.equal(wantsDisc(AZEROTH),false);
 });
+
+test('a non-active body horizon event fills its own parked height grid, not the active one', async()=>{
+  const {bodyEvent,swapPlanetState}=await import('./renderer-events.js');
+  const r={heightGrid:new Float32Array(64).fill(-Infinity)};
+  // Real grid size comes from height-bake; use it so the splat lands in range.
+  const {HEIGHT_W,HEIGHT_H}=await import('./height-bake.js');
+  r.heightGrid=new Float32Array(HEIGHT_W*HEIGHT_H).fill(-Infinity);
+  const vertices=new Float32Array([100,321,200,0,0,0,0]);
+  assert.equal(bodyEvent(r,ELUNE,{event:'horizon',vertices,placement:[0,0]}),true);
+  assert.ok(r.bodyStates.get('elune').heightGrid.some(h=>h===321));
+  assert.ok(r.heightGrid.every(h=>h===-Infinity));
+  assert.equal(bodyEvent(r,ELUNE,{event:'tile'}),false);
+  const parked=r.bodyStates.get('elune').heightGrid;
+  swapPlanetState(r,'azeroth','elune');
+  assert.equal(r.heightGrid,parked);
+});
