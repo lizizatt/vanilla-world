@@ -53,17 +53,19 @@ function frame(now) {
         if(r.aim)q=fromBasis(r.aim.right,r.aim.up,r.aim.look);// same physical attitude in the new parent's chart (no orientation reset at the swap)
       } else app.flight=moveFlight(app.flight,keys,dt,aim);if(app.flight.poleFlip)q=turnAround(q);const [ny,np]=toEuler(q,app.flight[3]);app.flightSpeed=dt>0?Math.hypot(app.flight[0]-before[0],app.flight[1]-before[1],app.flight[2]-before[2])/dt:0;
       app.flight[3]=ny;app.flight[4]=np;app.flight.length=5;app.flight.push(...q);
-      if(swap)app.soiSwap(swap).then(ok=>{if(!ok)app.soiHandoff(swap,app.flight);}).catch(error=>{console.error('SOI swap failed',error);app.soiHandoff(swap,app.flight);});
+      if(swap){app.swapHold=true;const release=()=>{app.swapHold=false;};app.soiSwap(swap).then(ok=>{if(!ok)app.soiHandoff(swap,app.flight);}).catch(error=>{console.error('SOI swap failed',error);app.soiHandoff(swap,app.flight);}).finally(release);}
     }
     if(!app.flight)app.space=undefined;
     if(app.race){app.flight=undefined;if(!app.raceMenu.open)app.raceFrame(controls,now/1000);}
     if(app.editor.isOpen)app.flight=app.editor.pose();
     app.syncGates();
-    if(!app.frozenPresentation&&!locked)client.frame(dt,controls.throttle,controls.steer,controls.flags,app.flight?.slice(0,3),settings.distant,app.renderer.view);
+    if(!app.frozenPresentation&&!locked&&!app.swapHold)client.frame(dt,controls.throttle,controls.steer,controls.flags,app.flight?.slice(0,3),settings.distant,app.renderer.view);
     cameraCollision.frame(client.state,app.renderer.sceneRegion ?? client.state.telemetry[10]);
     app.renderer.fxInput={throttle:Math.max(0,controls.throttle),boosting:(controls.flags&2)!==0,heat:app.dial?client.state.telemetry[6]:0,health:[client.state.telemetry[15]??1,client.state.telemetry[16]??1],drifting:(controls.flags&4)!==0};
-    const stats=app.renderer.draw(app.frozenPresentation || app.flight?client.state.telemetry:client.presentation(),app.flight,dt,app.frozenPresentation?0:now/1000,
+    // During a gravity-well swap the renderer still holds the old body's chart; keep presenting the last frame instead of drawing the new pose on it.
+    const stats=app.swapHold&&app.lastStats?app.lastStats:app.renderer.draw(app.frozenPresentation || app.flight?client.state.telemetry:client.presentation(),app.flight,dt,app.frozenPresentation?0:now/1000,
       {...settings,cameraLook:controls.look,cameraOrbit,cameraSteer:right,cameraRecentre:keyDrive&&!app.dragging},keys.has('KeyV')&&!keys.has('AltLeft')&&!keys.has('AltRight'));
+    app.lastStats=stats;
     app.editor.frame();
     updateTimeHud(app);
     if(app.memoryBytes&&now-(app.gpuSent||0)>=1000){app.gpuSent=now;evidence.gpuBytes=gpuBytesOf(stats);evidence.npcs=stats.npcInstances;client.budget(app.memoryBytes,evidence.gpuBytes);}
