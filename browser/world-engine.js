@@ -8,7 +8,7 @@ import {loadCraft} from './craft-stream.js';
 import {loadPopulation} from './npc-pack.js';
 import {WaterStream} from './water-stream.js';
 import {FarChannel} from './far-channel.js';
-import {splitBudget,effectiveBudget,residentTileCap,nearRadius} from './memory-budget.js';
+import {splitBudget,effectiveBudget,residentTileCap,bodyTileCap,nearRadius} from './memory-budget.js';
 import {FAR_LIMITS} from './far-stream.js';
 import {BODIES} from './bodies.js';
 import {viewChanged} from './world-view.js';
@@ -27,6 +27,7 @@ let poseTime,flightFocus,areaTime=-1e9,areaId=0,actors,actorFocus,actorRegion=0,
 export const setActorsOn=on=>{actorsOn=on;if(actors)actors.enabled=on;};
 // Total residency budget in bytes; each stream gets its share (memory-budget.js). Zero keeps the built-in defaults.
 let memoryBudget=0;
+let moonBody=false;
 let rendererBytes=0;
 export function setMemoryBudget(bytes,gpu=0) {
   if(!Number.isFinite(bytes)||bytes<=0)return;
@@ -38,7 +39,7 @@ export function setMemoryBudget(bytes,gpu=0) {
 function applyMemoryBudget() {
   if(!memoryBudget)return;
   const shares=splitBudget(effectiveBudget(memoryBudget,rendererBytes));
-  LIMIT=residentTileCap(memoryBudget);nearRadiusNow=nearRadius(LIMIT);
+  LIMIT=bodyTileCap(memoryBudget,moonBody);nearRadiusNow=nearRadius(LIMIT);
   if(scene)scene.limits.nearTiles=LIMIT;
   scene?.setBudget(shares.scene);terrain?.setBudget(shares.terrain);far?.budget(shares.far);
 }
@@ -716,6 +717,7 @@ export async function openWorld(message) {
       {loadingArt:true,map:message.loadingMap,graft:message.dataFolder});
     report('World and archive workers ready');
     const moon=typeof message.folder==='string'&&!!BODIES[message.folder]?.rail;
+    moonBody=moon;if(moon){LIMIT=bodyTileCap(memoryBudget,true);nearRadiusNow=nearRadius(LIMIT);}
     const wdts=[],wdls=[];
     for(const map of moon?[message.folder[0].toUpperCase()+message.folder.slice(1)]:['Kalimdor','Azeroth']) {
       report(`Reading ${map} topology and terrain`,{stage:'topology',completed:wdts.length+wdls.length,total:moon?2:4});
@@ -731,7 +733,7 @@ export async function openWorld(message) {
       const r=manifest.regions[t.region];
       return [r.placement[0]+(t.x-r.tile_origin[0])*TILE,r.placement[1]+(t.y-r.tile_origin[1])*TILE];
     });
-    scene=new SceneStream(source,wasmTypes);
+    scene=new SceneStream(source,wasmTypes);if(moon)scene.limits.nearTiles=LIMIT;
     actors?.close();actorFocus=undefined;
     actors=new ActorService(source,wasmTypes,(message,transfers)=>postMessage(message,transfers));actors.enabled=actorsOn;
     scene.asyncVisuals=true;

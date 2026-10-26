@@ -136,6 +136,9 @@ const TILE_STEP = 96 * MIB;
 /** Collision/detail terrain tiles kept resident: 8 at the fallback budget, one more per 96 MiB, capped at the wasm limit. */
 export const residentTileCap = (budget) =>
   Math.max(TILE_CAP_MIN, Math.min(TILE_CAP_MAX, TILE_CAP_MIN + Math.floor((budget - BUDGET_FALLBACK) / TILE_STEP)));
+/** A small body has far fewer tiles to cover than Azeroth, so its near engine always keeps enough tiles (radius ~1200 yd) for a whole grafted 3 x 3 site plus its neighbours. */
+export const MOON_TILE_CAP = 16;
+export const bodyTileCap = (budget, moon = false) => (moon ? Math.max(MOON_TILE_CAP, residentTileCap(budget)) : residentTileCap(budget));
 /** Observer radius whose disc covers `tiles` ADT tiles; 8 tiles gives the original 850 yd. */
 export const nearRadius = (tiles, tile = 1600 / 3) => (tiles <= TILE_CAP_MIN ? 850 : Math.round(tile * Math.sqrt(tiles / Math.PI)));
 /** Renderer-side bytes (terrain textures, scene meshes/textures, coast water, minimap) from a draw() stats object. */
