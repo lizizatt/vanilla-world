@@ -47,13 +47,18 @@ const bitCount=n=>{let c=0;for(;n;n&=n-1)c++;return c;};
 
 /** Copy of a (translated) tile at (tx,ty) with every terrain vertex re-heighted by `height(x,z,h)` (chart coordinates of a body whose centre tile is cx,cy).
  * Used to end the graft at the dome footprint circle and hand over to the procedural moon. */
-export function reshapeAdt(bytes,{tile:[tx,ty],cx,cy,height,keep}) {
+export function reshapeAdt(bytes,{tile:[tx,ty],cx,cy,height,keep,lift}) {
   const out=bytes.slice(),v=new DataView(out.buffer,out.byteOffset,out.byteLength),step=TILE/128;
   for(const c of adtChunks(out)) {
-    // Placements outside `keep` (chart x,z) get an out-of-range name index, which the tile builder skips; sizes and offsets stay put.
-    if(keep&&(c.magic==='MDDF'||c.magic==='MODF')) {
+    // Placements outside `keep` (chart x,z) get an out-of-range name index, which the tile builder skips; sizes and offsets stay put. `lift(x,z)` raises the ones that stay (terrain was re-heighted under them).
+    if((keep||lift)&&(c.magic==='MDDF'||c.magic==='MODF')) {
       const len=c.magic==='MDDF'?36:64;
-      for(let p=c.start;p+len<=c.start+c.size;p+=len)if(!keep(v.getFloat32(p+8,true)-cx*TILE,v.getFloat32(p+16,true)-cy*TILE))v.setUint32(p,0xffffffff,true);
+      for(let p=c.start;p+len<=c.start+c.size;p+=len) {
+        const x=v.getFloat32(p+8,true)-cx*TILE,z=v.getFloat32(p+16,true)-cy*TILE;
+        if(keep&&!keep(x,z)){v.setUint32(p,0xffffffff,true);continue;}
+        const dy=lift?lift(x,z):0;
+        if(dy){bump(v,p+12,dy);if(len===64){bump(v,p+36,dy);bump(v,p+48,dy);}}
+      }
     }
     if(c.magic==='MCNK'&&c.size>=MCNK_HEADER) {
       const ix=v.getUint32(c.start+4,true),iy=v.getUint32(c.start+8,true),base=v.getFloat32(c.start+0x70,true),x0=(tx-cx)*TILE+ix*TILE/16,z0=(ty-cy)*TILE+iy*TILE/16;
@@ -69,9 +74,65 @@ export function reshapeAdt(bytes,{tile:[tx,ty],cx,cy,height,keep}) {
   return out;
 }
 
-/** Cut a (translated) graft tile at a boundary: every MCNK whose centre fails `inside(x,z)` (chart yd) is replaced by the same chunk of `procedural` (a synthAdt of one regolith layer), whose
- * layer then points at `groundTexture`, appended to this tile's MTEX. Terrain, ground layers, alpha, liquids and area id all switch together, chunk by chunk, so no graft texture is left outside. */
-export function cutAdt(bytes,procedural,{tile:[tx,ty],cx,cy,inside,groundTexture}) {
+const ALPHA=2048,MAX_LAYERS=4;
+/** Re-texture one MCNK (bytes including its 8-byte header) so the ground texture `groundIndex` covers every texel where `inside(u,v)` (0..1 across the chunk, u east, v south) is false and the
+ * chunk's own layers survive only where it is true. The regolith becomes the new base layer; the old base layer turns into a masked alpha layer, and at most MAX_LAYERS layers are kept
+ * (the topmost original is dropped when a chunk already has four). Header offsets and sizes are rebuilt; the 64x64 4-bit alpha maps are cut per texel, with no blend band. */
+export function maskChunkTextures(raw,groundIndex,inside) {
+  const body=raw.subarray(8),bv=new DataView(body.buffer,body.byteOffset,body.byteLength);
+  if(body.length<MCNK_HEADER+8)return raw;
+  const conv=bv.getUint32(0x14,true)-MCNK_HEADER,pos=f=>bv.getUint32(f,true)-conv;
+  const mly=pos(0x1c);if(!(mly>=MCNK_HEADER)||mly+8>body.length)return raw;
+  const count=bv.getUint32(mly+4,true)/16;if(!(count>=1)||mly+8+count*16>body.length)return raw;
+  const malPos=pos(0x24),hasMal=bv.getUint32(0x24,true)>0&&malPos+8<=body.length&&bv.getUint32(malPos+4,true)>0,malLen=hasMal?bv.getUint32(malPos+4,true):0;
+  const sizeBias=hasMal?bv.getUint32(0x28,true)-malLen:0;
+  const keep=Math.min(count,MAX_LAYERS-1),layers=[],alphas=[];
+  for(let k=0;k<keep;k++) {
+    const p=mly+8+k*16,tex=bv.getUint32(p,true),flags=bv.getUint32(p+4,true),offs=bv.getUint32(p+8,true),eff=bv.getUint32(p+12,true),a=new Uint8Array(64*64).fill(15);
+    if(k>0&&(flags&0x100)&&!(flags&0x200)&&hasMal&&offs+ALPHA<=malLen) {
+      for(let i=0;i<64*64;i++){const byte=body[malPos+8+offs+(i>>1)];a[i]=i&1?byte>>4:byte&15;}
+    }
+    layers.push({tex,flags:flags|0x100,eff});alphas.push(a);
+  }
+  const mask=new Uint8Array(64*64);
+  for(let r=0;r<64;r++)for(let c=0;c<64;c++)mask[r*64+c]=inside((c+.5)/64,(r+.5)/64)?15:0;
+  for(const a of alphas)for(let i=0;i<a.length;i++)a[i]=a[i]&&mask[i]?a[i]:0;
+  alphas[0]=mask;
+  const total=layers.length+1,mlyOut=new Uint8Array(8+total*16),mv=new DataView(mlyOut.buffer);
+  mlyOut.set(body.subarray(mly,mly+4));mv.setUint32(4,total*16,true);
+  mv.setUint32(8,groundIndex,true);
+  layers.forEach((l,k)=>{const p=8+(k+1)*16;mv.setUint32(p,l.tex,true);mv.setUint32(p+4,l.flags,true);mv.setUint32(p+8,k*ALPHA,true);mv.setUint32(p+12,l.eff,true);});
+  const malOut=new Uint8Array(8+layers.length*ALPHA);
+  malOut.set(hasMal?body.subarray(malPos,malPos+4):[0x4c,0x41,0x43,0x4d]);new DataView(malOut.buffer).setUint32(4,layers.length*ALPHA,true);
+  alphas.forEach((a,k)=>{for(let i=0;i<4096;i+=2)malOut[8+k*ALPHA+(i>>1)]=a[i]|(a[i+1]<<4);});
+  const mlyOldLen=8+count*16,edits=[{at:mly,remove:mlyOldLen,put:mlyOut}];
+  let malAt;
+  if(hasMal)edits.push({at:malPos,remove:8+malLen,put:malOut});
+  else {
+    const later=[0x58,0x60].map(f=>bv.getUint32(f,true)).filter(o=>o>0).map(o=>o-conv).filter(p=>p>mly);
+    malAt=later.length?Math.min(...later):body.length;edits.push({at:malAt,remove:0,put:malOut});
+  }
+  edits.sort((a,b)=>a.at-b.at);
+  const shift=old=>old+edits.reduce((n,e)=>n+((e.at<old||(e.at===old&&e.remove===0))?e.put.length-e.remove:0),0);
+  const parts=[];let at=0;
+  for(const e of edits){parts.push(body.subarray(at,e.at),e.put);at=e.at+e.remove;}
+  parts.push(body.subarray(at));
+  const nb=new Uint8Array(parts.reduce((n,a)=>n+a.length,0));let w=0;for(const a of parts){nb.set(a,w);w+=a.length;}
+  const nv=new DataView(nb.buffer);
+  for(const f of [0x14,0x18,0x1c,0x20,0x24,0x2c,0x58,0x60]) {
+    const o=bv.getUint32(f,true);if(o>0)nv.setUint32(f,shift(o-conv)+conv,true);
+  }
+  const newMal=hasMal?shift(malPos):shift(malAt);
+  nv.setUint32(0x24,newMal+conv,true);nv.setUint32(0x28,layers.length*ALPHA+sizeBias,true);
+  nv.setUint32(0x0c,total,true);
+  const out=new Uint8Array(8+nb.length);out.set(raw.subarray(0,8));new DataView(out.buffer).setUint32(4,nb.length,true);out.set(nb,8);
+  return out;
+}
+
+/** Cut a (translated) graft tile at a boundary. Each MCNK is classified by `relation(x0,z0,x1,z1)` (its chart rectangle, yd): 'inside' keeps the graft chunk, 'outside' swaps in the same chunk of
+ * `procedural` (a synthAdt of one regolith layer) whose layer points at `groundTexture` (appended to this tile's MTEX), and 'partial' keeps the graft chunk but re-textures it per texel with
+ * `inside(x,z)` so ground layers end exactly on the boundary. The area id follows the chunk centre. Heights are cut per vertex by reshapeAdt, not here. */
+export function cutAdt(bytes,procedural,{tile:[tx,ty],cx,cy,inside,relation,groundTexture}) {
   const src=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength),procChunks=[];
   for(const c of adtChunks(procedural))if(c.magic==='MCNK')procChunks.push(c);
   const parts=[];let texIndex=0;
@@ -84,10 +145,16 @@ export function cutAdt(bytes,procedural,{tile:[tx,ty],cx,cy,inside,groundTexture
     }
     if(c.magic==='MCNK'&&c.size>=MCNK_HEADER) {
       const ix=src.getUint32(c.start+4,true),iy=src.getUint32(c.start+8,true);
-      if(!inside((tx-cx)*TILE+(ix+.5)*TILE/16,(ty-cy)*TILE+(iy+.5)*TILE/16)) {
+      const x0=(tx-cx)*TILE+ix*TILE/16,z0=(ty-cy)*TILE+iy*TILE/16,rel=relation(x0,z0,x0+TILE/16,z0+TILE/16);
+      if(rel==='outside') {
         const p=procChunks[iy*16+ix],swapped=procedural.slice(p.start-8,p.start+p.size),pv=new DataView(swapped.buffer);
         for(const s of adtChunks(swapped,8+MCNK_HEADER,swapped.length))if(s.magic==='MCLY')pv.setUint32(s.start,texIndex,true);
         parts.push(swapped);continue;
+      }
+      if(rel==='partial') {
+        const cut=maskChunkTextures(raw,texIndex,(u,v)=>inside(x0+u*TILE/16,z0+v*TILE/16)),cv=new DataView(cut.buffer);
+        if(!inside(x0+TILE/32,z0+TILE/32)){const p=procChunks[iy*16+ix];cv.setUint32(8+0x34,new DataView(procedural.buffer,procedural.byteOffset).getUint32(p.start+0x34,true),true);}
+        parts.push(cut);continue;
       }
     }
     parts.push(raw);

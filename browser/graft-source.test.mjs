@@ -4,7 +4,7 @@ import {synthAdt,ADT_TILE as T} from './adt-synth.js';
 import {adtChunks,mcnkAreas,translateAdt,adtHeights} from './graft-adt.js';
 import {graftSource,heightGrid,sampleGrid} from './graft-source.js';
 import {moonSource,MOON_SEED} from './moon-source.js';
-import {SITES,tilesOf,siteRect,siteMask,siteCentre,domeCentre,domeMask,outside} from './elune-sites.js';
+import {SITES,tilesOf,siteRect,siteMask,siteCentre,domeCentre,domeMask,outside,rectVsCircle} from './elune-sites.js';
 import {reshapeAdt} from './graft-adt.js';
 import {moonHeightChart} from './moon-terrain.js';
 
@@ -83,21 +83,27 @@ test('dome: full inside, soft shell, nothing outside or on other bodies; terrain
 
 const mtex=b=>{for(const c of adtChunks(b))if(c.magic==='MTEX')return new TextDecoder().decode(b.subarray(c.start,c.start+c.size)).split('\0').filter(Boolean);};
 const chunkInfo=b=>{const v=new DataView(b.buffer,b.byteOffset,b.byteLength),out=new Map();for(const c of adtChunks(b)){if(c.magic!=='MCNK')continue;
-  let tex=null;for(const sc of adtChunks(b,c.start+128,c.start+c.size))if(sc.magic==='MCLY')tex=v.getUint32(sc.start,true);
-  out.set(v.getUint32(c.start+8,true)*16+v.getUint32(c.start+4,true),{area:v.getUint32(c.start+0x34,true),tex});}return out;};
+  let tex=null,texs=[];for(const sc of adtChunks(b,c.start+128,c.start+c.size))if(sc.magic==='MCLY'){tex=v.getUint32(sc.start,true);for(let p=sc.start;p<sc.start+sc.size;p+=16)texs.push(v.getUint32(p,true));}
+  out.set(v.getUint32(c.start+8,true)*16+v.getUint32(c.start+4,true),{area:v.getUint32(c.start+0x34,true),tex,texs});}return out;};
 
 test('the graft ends exactly at the dome circle: chunk ground, texture and area switch to regolith, nothing outside is Moonglade', async () => {
   const s=graftSource(moonSource(),real(),{bodyId:'elune',seed:MOON_SEED}),[mx,mz]=domeCentre(site,30,15),{radius}=site.dome;
-  let inside=0,outsideChunks=0;
+  let inside=0,outsideChunks=0,partial=0;
   for(const t of tilesOf(site)) {
     const b=await s.read(`world/maps/elune/elune_${t.dx}_${t.dy}.adt`),tex=mtex(b),info=chunkInfo(b);
     for(const [k,c] of info) {
       const x=(t.dx-30)*T+((k%16)+.5)*T/16,z=(t.dy-15)*T+(Math.floor(k/16)+.5)*T/16,inCircle=Math.hypot(x-mx,z-mz)<=radius;
-      if(inCircle){inside++;assert.equal(c.area,493);assert.match(tex[c.tex],/Grass/);}
-      else{outsideChunks++;assert.equal(c.area,90001,'outside the circle is the moon');assert.equal(tex[c.tex],'Tileset\\Elune\\Regolith.blp');}
+      const x0=(t.dx-30)*T+(k%16)*T/16,z0=(t.dy-15)*T+Math.floor(k/16)*T/16,rel=rectVsCircle(site,[x0,z0,x0+T/16,z0+T/16],30,15);
+      assert.equal(c.area,inCircle?493:90001,'area follows the chunk centre');
+      if(rel==='inside'){inside++;assert.match(tex[c.tex],/Grass/);}
+      else if(rel==='outside'){outsideChunks++;assert.equal(tex[c.tex],'Tileset\\Elune\\Regolith.blp');assert.equal(c.texs.length,1);}
+      else {
+        partial++;// straddling chunks keep their layers under a per-texel alpha cut, with regolith as the base
+        assert.equal(tex[c.tex],'Tileset\\Elune\\Regolith.blp');assert.ok(c.texs.length>=2);assert.match(tex[c.texs[1]],/Grass/);
+      }
     }
   }
-  assert.ok(inside>20&&outsideChunks>20,'the circle cuts through the graft block');
+  assert.ok(inside>20&&outsideChunks>20&&partial>10,'the circle cuts through the graft block');
   // a tile entirely outside the circle is the untouched procedural tile
   const rect=siteRect(site),far=tilesOf(site).find(t=>Math.hypot((t.dx-30+.5)*T-mx,(t.dy-15+.5)*T-mz)>radius+T);
   if(far)assert.deepEqual(await s.read(`world/maps/elune/elune_${far.dx}_${far.dy}.adt`),await moonSource().read(`world/maps/elune/elune_${far.dx}_${far.dy}.adt`));
@@ -151,4 +157,53 @@ test('procedural moon textures are regolith, never the demo green checker (plain
     assert.ok(used.size>8,'mottled, not flat');
     for(const i of used){const [r,g,b]=pal(i);assert.ok(r>=g&&g>=b&&r-b<40&&r>60,`shade ${i} not grey-tan: ${r},${g},${b}`);}
   }
+});
+
+const vertexHeights=(b,tx,ty)=>{
+  const v=new DataView(b.buffer,b.byteOffset,b.byteLength),out=[];
+  for(const c of adtChunks(b)) {
+    if(c.magic!=='MCNK')continue;
+    const ix=v.getUint32(c.start+4,true),iy=v.getUint32(c.start+8,true),base=v.getFloat32(c.start+0x70,true),x0=(tx-30)*T+ix*T/16,z0=(ty-15)*T+iy*T/16,step=T/128;
+    for(const s of adtChunks(b,c.start+128,c.start+c.size)) {
+      if(s.magic!=='MCVT')continue;
+      for(let i=0;i<145;i++){const row=Math.floor(i/17),k=i%17,inner=k>=9,col=inner?k-9:k;out.push({x:x0+(col+(inner?.5:0))*step,z:z0+(row+(inner?.5:0))*step,h:base+v.getFloat32(s.start+i*4,true)});}
+    }
+  }
+  return out;
+};
+
+test('heights meet at the dome circle: outside is exactly procedural, just inside matches it within a small tolerance (no per-chunk stair-step)', async () => {
+  const s=graftSource(moonSource(),real(),{bodyId:'elune',seed:MOON_SEED}),[mx,mz]=domeCentre(site,30,15),{radius}=site.dome;
+  let worstOut=0,worstIn=0,nIn=0,nOut=0;
+  for(const t of tilesOf(site)) {
+    for(const p of vertexHeights(await s.read(`world/maps/elune/elune_${t.dx}_${t.dy}.adt`),t.dx,t.dy)) {
+      const d=Math.hypot(p.x-mx,p.z-mz),want=moonHeightChart(MOON_SEED,p.x,p.z);
+      if(d>radius&&d<radius+30){nOut++;worstOut=Math.max(worstOut,Math.abs(p.h-want));}
+      else if(d<=radius&&d>radius-2.2){nIn++;worstIn=Math.max(worstIn,Math.abs(p.h-want));}
+    }
+  }
+  assert.ok(nIn>40&&nOut>200,'samples on both sides of the circle');
+  assert.ok(worstOut<=1/64+1e-3,`outside vertices are procedural (worst ${worstOut})`);
+  assert.ok(worstIn<3,`just inside the circle heights meet the moon (worst ${worstIn})`);
+});
+
+test('maskChunkTextures cuts alpha per texel, makes regolith the base layer and keeps offsets consistent', async () => {
+  const {maskChunkTextures}=await import('./graft-adt.js');
+  const mcly=new Uint8Array(32),lv=new DataView(mcly.buffer);lv.setUint32(0,0,true);lv.setUint32(16,1,true);lv.setUint32(20,0x100,true);lv.setUint32(24,0,true);
+  const mcal=new Uint8Array(2048).fill(0xff),mcvt=new Uint8Array(145*4);
+  const subs=[chunk('MCVT',mcvt),chunk('MCLY',mcly),chunk('MCAL',mcal)],head=new Uint8Array(128),hv=new DataView(head.buffer);
+  let at=136;[0x14,0x1c,0x24].forEach((f,i)=>{hv.setUint32(f,at,true);at+=subs[i].length;});hv.setUint32(0x28,2048,true);
+  const raw=chunk('MCNK',cat([head,...subs])),out=maskChunkTextures(raw,7,u=>u<.5);
+  const ov=new DataView(out.buffer),body=out.subarray(8),bv=new DataView(body.buffer,body.byteOffset,body.byteLength);
+  assert.equal(ov.getUint32(4,true),body.length);
+  const lyAt=bv.getUint32(0x1c,true)-8,layers=bv.getUint32(lyAt+4,true)/16;
+  assert.equal(layers,3);assert.equal(bv.getUint32(lyAt+8,true),7,'regolith is the base layer');
+  assert.equal(bv.getUint32(lyAt+8+16,true),0,'old base layer follows');assert.equal(bv.getUint32(lyAt+8+32,true),1);
+  const alAt=bv.getUint32(0x24,true)-8;assert.equal(String.fromCharCode(body[alAt+3],body[alAt+2],body[alAt+1],body[alAt]),'MCAL');
+  const alpha=(layer,row,col)=>{const o=alAt+8+(layer-1)*2048+(row*64+col>>1),b=body[o];return (row*64+col)&1?b>>4:b&15;};
+  assert.equal(alpha(1,10,3),15);assert.equal(alpha(1,10,40),0);assert.equal(alpha(2,10,3),15);assert.equal(alpha(2,10,40),0);
+  assert.equal(bv.getUint32(0x28,true),2*2048);
+  // a single-layer chunk (no MCAL) gains one
+  const single=maskChunkTextures(chunk('MCNK',cat([head,chunk('MCVT',mcvt),chunk('MCLY',new Uint8Array(16))])),7,u=>u<.5);
+  const sv=new DataView(single.buffer,single.byteOffset+8);assert.equal(sv.getUint32(0x0c,true),2);assert.equal(sv.getUint32(0x28,true),2048);
 });

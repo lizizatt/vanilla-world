@@ -65,9 +65,9 @@ export function moonAdt(seed,tx,ty,{height=(x,z,h)=>h,area=ELUNE_AREA}={}) {
   return synthAdt((lx,lz)=>height(ox+lx,oz+lz,moonHeightChart(seed,ox+lx,oz+lz)),tx,ty,'Tileset\\Elune\\Regolith.blp',area);
 }
 
-/** Regolith albedo (rgb 0..1): lavender-silver highlands, darker blue-grey maria, brighter young crater rims. */
+/** Regolith albedo (rgb 0..1): grey-tan highlands and darker grey maria, matching the ground texture and minimap tan (no purple cast). */
 export function moonAlbedo(seed,x,y,z) {
   const m=moonMare(seed,x,y,z),g=.5+.5*fbm(seed+19,x*25,y*25,z*25,3);
-  const hi=[.62,.6,.68],lo=[.3,.32,.4];
+  const hi=[.65,.61,.53],lo=[.34,.33,.3];
   return hi.map((v,i)=>(v+(lo[i]-v)*m)*(.85+.3*g));
 }
