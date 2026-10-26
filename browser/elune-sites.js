@@ -6,7 +6,7 @@ export const SITES=Object.freeze({
   elune:[Object.freeze({
     id:'moonglade',label:'Moonglade',map:'Kalimdor',area:493,
     source:Object.freeze({x:[35,37],y:[16,18]}),// measured with moonglade-census.mjs: the 3 x 3 plateau holding the town, Lake Elune'ara and the grove
-    dest:Object.freeze({x:29,y:10}),// north-west tile of the grafted block on the body's tile grid (chart centre = tile 30,15)
+    dest:Object.freeze({x:29,y:14}),// north-west tile of the grafted block on the body's tile grid (chart centre = tile 30,15, the sub-Azeroth point since Elune is tidally locked, so Azeroth hangs overhead)
     apron:1200,bubble:700,
   })],
 });
