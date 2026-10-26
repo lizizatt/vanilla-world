@@ -32,3 +32,17 @@ test('Elune chart and Azeroth chart agree on the phase at the swap', () => {
     assert.ok(Math.abs((1+sky.sun[1])/2-litFraction(ELUNE,AZEROTH,t))<.02,`t=${t}`);
   }
 });
+
+test('the other body\'s disc shader variant follows its config: Azeroth seen from Elune is atmospheric, Elune seen from Azeroth is not', async () => {
+  const {atmosphericDisc}=await import('./body-sky.js');
+  const {shaderSetFor}=await import('./body-shaders.js');
+  const {BODIES}=await import('./bodies.js');
+  assert.equal(atmosphericDisc(AZEROTH),true);assert.equal(atmosphericDisc(ELUNE),false);
+  assert.match(shaderSetFor(ELUNE).space,/axx:vec4f/);assert.match(shaderSetFor(ELUNE).space,/cloud\*\.7/);
+  assert.doesNotMatch(shaderSetFor(AZEROTH).space,/axx:vec4f/);
+  const v=viewFrom(ELUNE,1000);assert.equal(v.moons[0].axes.length,3);
+  assert.equal(viewFrom(AZEROTH,1000).moons[0].axes,undefined);
+  for(const a of v.moons[0].axes)assert.ok(Math.abs(Math.hypot(...a)-1)<1e-9);
+  const u=spaceUniform({eye:[0,100,0],look:[0,0,-1],right:[1,0,0],up:[0,1,0],aspect:1},[0,1,0],{space:1,globe:0},[],1000,1,1e6,undefined,v);
+  assert.equal(u[75],1);assert.ok(u.length>=80);void BODIES;
+});

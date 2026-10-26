@@ -95,6 +95,11 @@ export function spaceUniform(view,sun,factors,rects,timeOfDay,near,far,out=new F
     // True inertial sun for the other body's disc; the legacy sun above stays eye-relative for Azeroth's own globe.
     if(body?.sun)out.set([...toEye(body.sun),1],68);
   }
+  const discAxes=moons?.[0]?.axes;
+  if(discAxes){
+    if(out.length<80){const wide=new Float32Array(80);wide.set(out);out=wide;}
+    out.set([...toEye(discAxes[1]),0],64);out.set([...toEye(discAxes[0]),1],72);out.set([...toEye(discAxes[2]),0],76);
+  }
   out.set(factors.fog||[0,0,0],44);out[59]=factors.mesh?1:0;out[63]=factors.registry?1:0;
   return out;
 }
@@ -124,7 +129,23 @@ fn bend(rel:vec3f,eye:vec3f,k:f32)->vec3f {
 }`;
 export const bendShader=bendShaderFor(PLANET_RADIUS,WORLD_CENTRE);
 
-export const spaceShaderFor=(radius,opts={})=>{let src=spaceShaderSource(radius);if(opts.airless)src=airlessShader(src);return opts.moonTex?withMoonTexture(src):src;};
+export const spaceShaderFor=(radius,opts={})=>{let src=spaceShaderSource(radius);if(opts.airless)src=airlessShader(src);if(opts.atmosphericDisc)src=withAtmosphericDisc(src);return opts.moonTex?withMoonTexture(src):src;};
+/** Variant for viewers of an atmospheric body (Azeroth seen from a moon): moon slot 1 is shaded with the registry sea/land colours, cloud wisps and a limb glow instead of grey crater noise. Body axes ride in S.axis (Y), S.axx (X), S.axz (Z). */
+const withAtmosphericDisc=src=>src
+  .replace('tint:array<vec4f,2>};','tint:array<vec4f,2>,axis:vec4f,ms:vec4f,axx:vec4f,axz:vec4f};')
+  .replace('acc=over(acc,s.tint[id-1].rgb*crater*lit,space);',`var col=s.tint[id-1].rgb*crater;var lit2=lit;
+      if(id==1&&s.axx.w>.5){
+        let sunD=select(sun,normalize(s.ms.xyz),s.ms.w>.5);
+        let b=vec3f(dot(n,normalize(s.axx.xyz)),dot(n,normalize(s.axis.xyz)),dot(n,normalize(s.axz.xyz)));
+        let reg=textureSampleLevel(surfaceTex,surfaceSamp,vec2f(atan2(b.z,b.x)/6.2831853+.5,.5-asin(clamp(b.y,-1.0,1.0))/3.1415927),0.0);
+        let land=smoothstep(.4,.6,reg.a);let sea=vec3f(.04,.2,.36);
+        let cloud=smoothstep(.55,.8,fbm(b.xz*7.0+b.y*4.0));
+        var base=mix(sea,reg.rgb*.8+.1,land);base=mix(base,vec3f(.92),cloud*.7);
+        lit2=clamp(dot(n,sunD)*1.6+.05,0.0,1.0);
+        let rim=pow(1.0-max(dot(n,-d),0.0),3.0);
+        col=base+vec3f(.25,.5,1.0)*rim*(.15+lit2)*.8;
+      } else if(id==1) {lit2=lit;}
+      acc=over(acc,col*lit2,space);`);
 /** Airless-body variant: regolith instead of the Azeroth sea/land stylisation, and no atmosphere (limb glow, rim light, haze). */
 const AIRLESS_SURFACE=`fn surface(pv:vec3f,n:vec3f,d:vec3f,sun:vec3f)->vec3f {
   let tex=fbm(pv.xz*85.0+vec2f(pv.y*31.0,pv.y*17.0));let broad=fbm(pv.xz*9.0+vec2f(pv.y*5.0,pv.y*3.0));
