@@ -59,9 +59,9 @@ export const moonHeightChart=(seed,x,z)=>moonHeightDir(seed,...chartDir(x,z));
 
 /** Synthetic ADT bytes for tile (tx 0..59, ty 0..29); tile 30,15 starts at the chart centre. */
 export const ELUNE_AREA=90001;// synthetic AreaTable id, resolved in JS (no DBC row)
-export function moonAdt(seed,tx,ty) {
+export function moonAdt(seed,tx,ty,{height=(x,z,h)=>h,area=ELUNE_AREA}={}) {
   const ox=(tx-MOON_TILES_X/2)*ADT_TILE,oz=(ty-MOON_TILES_Y/2)*ADT_TILE;
-  return synthAdt((lx,lz)=>moonHeightChart(seed,ox+lx,oz+lz),tx,ty,'Tileset\\Elune\\Regolith.blp',ELUNE_AREA);
+  return synthAdt((lx,lz)=>height(ox+lx,oz+lz,moonHeightChart(seed,ox+lx,oz+lz)),tx,ty,'Tileset\\Elune\\Regolith.blp',area);
 }
 
 /** Regolith albedo (rgb 0..1): lavender-silver highlands, darker blue-grey maria, brighter young crater rims. */

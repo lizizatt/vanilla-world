@@ -335,3 +335,8 @@ Bodies are config: a moon is an entry in `bodies.js` with `parent`, `rail` and `
 ## Swap performance
 
 Body pipelines are pre-warmed at engine open (`prepareBody`). Per-body globe state (height/colour grids, surface bake, night bake, land rects) is parked and restored by `swapPlanetState` instead of wiped and rebaked; ocean fills are memoised (`oceanMeshCached`). `stepFlight` requires a candidate parent to hold `FLY.swapDwell` s and honours `FLY.swapCooldown` s, so a moon sweeping past at 1000x never thrashes swaps. Sim warp is capped near bodies via `warpClamp`. Measured (real data, PROFILE=1 real-smoke): swap-in 316 -> 6-20 ms, swap-out 95 -> 51-64 ms, max frame gap in window 236/306 -> ~70 ms.
+
+## Moonglade graft (implemented: terrain + lake + doodads; music/bubble pending)
+
+Sites live in elune-sites.js (body-generic). The 3x3 Moonglade plateau (Kalimdor x35-37, y16-18, measured by moonglade-census.mjs) is translated by whole tiles to Elune tiles (29..31,10..12) by graft-adt.js (MCNK corner, MCLQ heights skipping 3.4e38 sentinels, MDDF/MODF) with a height offset so the mean matches the moon at the site. graft-source.js serves graft tiles, a 1200 yd procedural apron blended to the graft edge (area 90003), and falls through to real data for textures/models. The Elune engine receives the user's Data folder via the open request. The map Elune button now lands 250 yd over the site (elune-pose.js overSite). Pending: area 493 zone music, breathable bubble, untextured far-bake tint of graft tiles.
+

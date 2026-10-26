@@ -5,7 +5,8 @@ import {terrainMips,resizeRgba,MINIMAP_SIZE} from './terrain-stream.js';
 import {prepareDetail} from './camera-collision.js';
 import {loadLoadingArt} from './loading-art.js';
 import {demoSource} from './demo-source.js';
-import {moonSource} from './moon-source.js';
+import {moonSource,MOON_SEED} from './moon-source.js';
+import {graftSource} from './graft-source.js';
 import {errorFields,isRequestId} from './worker-rpc.js';
 
 let source,wasm,busy=false,receipt,active;
@@ -32,8 +33,10 @@ async function pump() {
   try {
     if(job.action==='open') {
       if(source)throw Error('Asset source already open');
-      wasm=await init();source=job.folder==='demo'?demoSource():job.folder==='elune'?moonSource():await openDataSource(job.folder,progress=>
-        postMessage({event:'progress',stage:'archives',text:'Indexing local archives',...progress}));
+      wasm=await init();
+      const progress=p=>postMessage({event:'progress',stage:'archives',text:'Indexing local archives',...p});
+      if(job.folder==='elune'&&job.graft)source=graftSource(moonSource(),await openDataSource(job.graft,progress),{bodyId:'elune',seed:MOON_SEED});
+      else source=job.folder==='demo'?demoSource():job.folder==='elune'?moonSource():await openDataSource(job.folder,progress);
       if(job.loadingArt&&!artStopped)void loadLoadingArt(source,bytes=>{
         const texture=new SceneTexture(bytes);
         try{return {...JSON.parse(texture.metadata()),rgba:texture.rgba()};}
