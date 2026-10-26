@@ -25,7 +25,7 @@ import {buffer,texture,drawable,setFlags,setGates,releaseMaterial,release,upload
 import {destroyCraft,releaseCraft,buildCraft,startWreck,wreckChunk,endWreck,setProps,setCraftOverride,domeDraw} from './renderer-craft.js';
 import {reset,configure,event,clearFar,swapPlanetState,bodyEvent} from './renderer-events.js';
 import {scenePipeline,prepareBatches,sceneMatrix,drawScene} from './renderer-scene.js';
-import {zoneBlend,setSky,setSkyDome,horizonColour,planetRects,drawPlanet,sharedFrame,drawPatches,drawLights,drawSkyDome,sampleSky,noteLitInstance} from './renderer-sky.js';
+import {zoneBlend,setSky,setSkyDome,horizonColour,planetRects,drawPlanet,sharedFrame,drawPatches,drawBodies,drawLights,drawSkyDome,sampleSky,noteLitInstance} from './renderer-sky.js';
 import {drawShadow,enableHighClouds,highCloudGroup,maskEntries,drawClouds} from './renderer-clouds.js';
 import {initialize,prepareBody,useBody} from './renderer-init.js';
 const OCEAN_MESH_CEILING=90000;
@@ -98,6 +98,7 @@ export class WorldRenderer {
   drawPlanet(pass,pf,near){return drawPlanet(this,pass,pf,near);}
   sharedFrame(){return sharedFrame(this);}
   drawPatches(pass){return drawPatches(this,pass);}
+  drawBodies(pass,pf,near){return drawBodies(this,pass,pf,near);}
   drawLights(pass,pf){return drawLights(this,pass,pf);}
   drawSkyDome(pass){return drawSkyDome(this,pass);}
   sampleSky(){return sampleSky(this);}
@@ -247,6 +248,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
       if(game){this.device.queue.writeBuffer(this.skyBuffer,0,skyUniform(this.view,game,this.timeOfDay,horizonDip(this.view.eye[1],pf.bend),pf.space));pass.setPipeline(this.skyPipeline);pass.setBindGroup(0,this.skyGroup);pass.draw(3);this.drawSkyDome(pass);}
       if(pf.globe>0)this.drawPlanet(pass,pf,near);
       if(pf.globe>0&&pf.mesh)this.drawPatches(pass);
+      if(pf.globe>0)this.drawBodies(pass,pf,near);
       this.drawTerrain(pass,terrain);this.drawScene(pass,draws);
       if(pf.globe>0)this.drawLights(pass,pf);
     }

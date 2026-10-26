@@ -71,3 +71,54 @@ test('a non-active body horizon event fills its own parked height grid, not the 
   swapPlanetState(r,'azeroth','elune');
   assert.equal(r.heightGrid,parked);
 });
+
+test('otherView: the other body centre sits straight below the re-based camera, rotations preserve the basis', async()=>{
+  const {otherView}=await import('./body-sky.js');
+  const {centreAt,axesAt}=await import('./bodies.js');
+  for(const [A,B,eye] of [[AZEROTH,ELUNE,[1500,4000,-900]],[ELUNE,AZEROTH,[300,250,200]]]) for(const t of [100,2600,9000]){
+    const view={eye,look:[0,0,-1],right:[1,0,0],up:[0,1,0],aspect:1.5},o=otherView(view,A,B,t);
+    assert.ok(o.altitude>0);
+    const f=planetFrame(eye[0],eye[2],A.centre,A.radius),rA=A.radius+eye[1];
+    const toB=(c,m)=>c[0]*m[0]+c[1]*m[1]+c[2]*m[2];void toB;
+    const cb=centreAt(B,t),ca=centreAt(A,t),ax=axesAt(A,t);
+    const cam=[0,1,2].map(i=>ca[i]+rA*(ax[0][i]*f.up[0]+ax[1][i]*f.up[1]+ax[2][i]*f.up[2]));
+    const toBcentreInertial=[cb[0]-cam[0],cb[1]-cam[1],cb[2]-cam[2]];
+    // B centre expressed in A eye-local, then carried into B's view: must be (0,-(R+alt),0).
+    const eyeLocal=[f.east,f.up,f.south].map(a=>0).map((_,k)=>{const col=[f.east,f.up,f.south][k];const pl=[0,1,2].map(i=>ax[0][i]*col[0]+ax[1][i]*col[1]+ax[2][i]*col[2]);return pl[0]*toBcentreInertial[0]+pl[1]*toBcentreInertial[1]+pl[2]*toBcentreInertial[2];});
+    const c=o.toOther(eyeLocal);
+    assert.ok(Math.abs(c[0])<1&&Math.abs(c[2])<1&&Math.abs(c[1]+B.radius+o.altitude)<1,JSON.stringify([c,B.radius+o.altitude]));
+    const {look,right,up}=o.view;
+    assert.ok(Math.abs(Math.hypot(...look)-1)<1e-9&&Math.abs(look[0]*right[0]+look[1]*right[1]+look[2]*right[2])<1e-9&&Math.abs(Math.hypot(...up)-1)<1e-9);
+    assert.ok(Math.abs(Math.hypot(...o.sun)-1)<1e-9);
+  }
+});
+
+test('multi-body frame: the active globe and the other body both draw in one pass, the other from its own resources, and the stand-in disc is switched off', async()=>{
+  const {drawBodies,sharedFrame,otherBodies}=await import('./renderer-sky.js');
+  const {setActiveBody,activeBody}=await import('./body-shaders.js');
+  const {HEIGHT_W,HEIGHT_H}=await import('./height-bake.js');
+  const prev=activeBody();setActiveBody(ELUNE);
+  try {
+    const writes=[],calls=[];
+    const mk=name=>({spacePipeline:name+'-space',patchPipeline:name+'-patch',spaceGroup:name+'-sg',patchGroup:name+'-pg',spaceBuffer:{name},patchBuffer:{name:name+'p'},surfaceTex:{name},heightTex:{name:name+'h'}});
+    const r={sharedSpace:true,timeOfDay:900,view:{eye:[300,250,200],look:[0,0,-1],right:[1,0,0],up:[0,1,0],aspect:1.5},
+      bodyStates:new Map([['azeroth',{heightGrid:new Float32Array(HEIGHT_W*HEIGHT_H).fill(-Infinity),colourGrid:new Float32Array(0),surfaceBytes:new Uint8Array(1024*512*4)}]]),
+      planetSets:{azeroth:{},elune:{}},otherSets:{azeroth:mk('azeroth')},
+      device:{queue:{writeTexture:(t)=>writes.push(['tex',t.texture.name]),writeBuffer:(b)=>writes.push(['buf',b.name])}}};
+    const pass={setPipeline:p=>calls.push(p),setBindGroup:()=>{},setVertexBuffer:()=>{},draw:(n,i)=>calls.push(['draw',n,i])};
+    assert.deepEqual(otherBodies(r).map(b=>b.id),['azeroth']);
+    drawBodies(r,pass,{mesh:false,registry:true,globe:1},.1);
+    assert.deepEqual(calls.filter(c=>typeof c==='string'),['azeroth-space']);
+    assert.ok(writes.some(w=>w[0]==='buf'&&w[1]==='azeroth'),'own uniform buffer');
+    assert.ok(writes.some(w=>w[0]==='tex'&&w[1]==='azeroth'),'own surface texture');
+    assert.equal(sharedFrame(r).moons[0].radius,0);
+    delete r.otherSets;assert.equal(sharedFrame(r).moons[0].radius,AZEROTH.radius);
+  } finally {setActiveBody(prev);}
+});
+
+test('an Azeroth-only session (no parked bodies) never takes the multi-body path', async()=>{
+  const {otherBodies,sharedFrame}=await import('./renderer-sky.js');
+  assert.deepEqual(otherBodies({sharedSpace:false,bodyStates:new Map(),planetSets:{}}),[]);
+  assert.deepEqual(otherBodies({sharedSpace:true}),[]);
+  assert.equal(sharedFrame({sharedSpace:false,timeOfDay:5}),undefined);
+});
