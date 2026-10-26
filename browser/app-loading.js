@@ -225,6 +225,8 @@ async function soiSwap(app,parentId) {
     app.renderer.reset();app.renderer.clipCamera=undefined;app.renderer.cameraFloor=undefined;cameraCollision.reset();
     const manifest=client.info.manifest;
     app.renderer.configure(manifest);client.sky();client.animate(settings.animateNpcs);mapPanel.configure(manifest);cameraCollision.configure(manifest);
+    void engine.request('rebind',{replay:false}).catch(e=>console.warn('demote rebind',e));// old near world sheds its near residency; its events are only counted now
+    await client.request('rebind');// new near world forgets what it "already sent" so streaming and the horizon reach the fresh renderer
     app.gateKey=undefined;
     const values=app.bodyTuning[parentId]?.slice()??(Array.isArray(client.info.tuning)?client.info.tuning.slice():app.tuningValues.slice());
     if(parentId==='elune'&&!app.bodyTuning[parentId])values[14]=LUNAR_GRAVITY;

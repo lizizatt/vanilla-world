@@ -15,6 +15,18 @@ export function rotate(q,v) {
 export const turnAround=q=>mul(axisAngle([0,1,0],Math.PI),q);
 export const basis=q=>({right:rotate(q,[1,0,0]),up:rotate(q,[0,1,0]),look:rotate(q,[0,0,-1])});
 export const fromEuler=(yaw,pitch)=>unit(mul(axisAngle([0,1,0],yaw),axisAngle([1,0,0],pitch)));
+/** Unit quaternion whose camera basis is (right, up, look): the inverse of `basis`. The inputs are orthonormalised first (Gram-Schmidt from look and up). */
+export function fromBasis(right,up,look) {
+  const n=v=>{const l=Math.hypot(...v)||1;return v.map(a=>a/l);},dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+  const z=n(look.map(a=>-a)),u0=n(up),x=n([u0[1]*z[2]-u0[2]*z[1],u0[2]*z[0]-u0[0]*z[2],u0[0]*z[1]-u0[1]*z[0]]),y=[z[1]*x[2]-z[2]*x[1],z[2]*x[0]-z[0]*x[2],z[0]*x[1]-z[1]*x[0]];
+  const flip=dot(x,right)<0?-1:1,m=[[x[0]*flip,y[0],z[0]],[x[1]*flip,y[1],z[1]],[x[2]*flip,y[2],z[2]]],tr=m[0][0]+m[1][1]+m[2][2];
+  let q;
+  if(tr>0){const s=Math.sqrt(tr+1)*2;q=[(m[2][1]-m[1][2])/s,(m[0][2]-m[2][0])/s,(m[1][0]-m[0][1])/s,s/4];}
+  else if(m[0][0]>m[1][1]&&m[0][0]>m[2][2]){const s=Math.sqrt(1+m[0][0]-m[1][1]-m[2][2])*2;q=[s/4,(m[0][1]+m[1][0])/s,(m[0][2]+m[2][0])/s,(m[2][1]-m[1][2])/s];}
+  else if(m[1][1]>m[2][2]){const s=Math.sqrt(1+m[1][1]-m[0][0]-m[2][2])*2;q=[(m[0][1]+m[1][0])/s,s/4,(m[1][2]+m[2][1])/s,(m[0][2]-m[2][0])/s];}
+  else{const s=Math.sqrt(1+m[2][2]-m[0][0]-m[1][1])*2;q=[(m[0][2]+m[2][0])/s,(m[1][2]+m[2][1])/s,s/4,(m[1][0]-m[0][1])/s];}
+  return unit(q);
+}
 /** Yaw/pitch of the forward direction; at the poles the previous yaw is kept so it never snaps. */
 export function toEuler(q,prevYaw=0) {
   const {look}=basis(q),h=Math.hypot(look[0],look[2]);
