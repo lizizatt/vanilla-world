@@ -116,6 +116,33 @@ test('multi-body frame: the active globe and the other body both draw in one pas
   } finally {setActiveBody(prev);}
 });
 
+test('the other body\'s far renderer includes its clouds: Azeroth seen from Elune draws its cloud shell with its own uniform, mask and sun, at any time scale', async()=>{
+  const {drawBodyClouds}=await import('./renderer-sky.js');
+  const {setActiveBody,activeBody}=await import('./body-shaders.js');
+  const {HEIGHT_W,HEIGHT_H}=await import('./height-bake.js');
+  const prev=activeBody();setActiveBody(ELUNE);
+  const had=[globalThis.GPUTextureUsage,globalThis.GPUBufferUsage];globalThis.GPUTextureUsage={TEXTURE_BINDING:1,COPY_DST:2};globalThis.GPUBufferUsage={UNIFORM:1,COPY_DST:2};
+  try {
+    const bufs=[],calls=[];
+    const device={createTexture:()=>({createView:()=>({})}),createSampler:()=>({}),createBuffer:()=>({}),createBindGroup:()=>({}),queue:{writeTexture:()=>{},writeBuffer:(b,o,d)=>bufs.push(d)}};
+    const manifest={ocean:[0,0,1,1],world_bounds:[[0,0,63,63],[0,0,63,63]],regions:[{placement:[0,0]},{placement:[0,0]}]};
+    const r={sharedSpace:true,timeOfDay:900,device,depth:{createView:()=>({})},cloudPipeline:{getBindGroupLayout:()=>({})},bodyManifests:{azeroth:manifest},
+      view:{eye:[300,250,200],look:[0,0,-1],right:[1,0,0],up:[0,1,0],aspect:1.5},
+      bodyStates:new Map([['azeroth',{heightGrid:new Float32Array(HEIGHT_W*HEIGHT_H)}]]),planetSets:{azeroth:{},elune:{}},otherSets:{azeroth:{}}};
+    const pass={setPipeline:p=>calls.push(p),setBindGroup:()=>{},draw:()=>calls.push('draw')};
+    for(const scale of [1,1000]){
+      r.planet={flowScale:scale,flowCycles:0};calls.length=0;bufs.length=0;
+      drawBodyClouds(r,pass,10,1,.1);
+      assert.equal(calls.filter(c=>c==='draw').length,1,'cloud shell drawn at '+scale+'x');
+      assert.equal(bufs.length,1);
+    }
+    delete r.bodyManifests;calls.length=0;drawBodyClouds(r,pass,10,1,.1);
+    assert.equal(calls.length,0,'no manifest, no clouds');
+    r.bodyManifests={azeroth:manifest};setActiveBody(AZEROTH);calls.length=0;drawBodyClouds(r,pass,10,1,.1);
+    assert.equal(calls.length,0,'Elune has no clouds of its own to draw');
+  } finally {setActiveBody(prev);[globalThis.GPUTextureUsage,globalThis.GPUBufferUsage]=had;}
+});
+
 test('an Azeroth-only session (no parked bodies) never takes the multi-body path', async()=>{
   const {otherBodies,sharedFrame}=await import('./renderer-sky.js');
   assert.deepEqual(otherBodies({sharedSpace:false,bodyStates:new Map(),planetSets:{}}),[]);

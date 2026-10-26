@@ -1,5 +1,5 @@
 import {MINIMAP_SIZE} from './terrain-stream.js';
-import {sunDirection} from './clouds.js';
+import {sunDirection,cloudUniform,CloudMask} from './clouds.js';
 import {eluneSkyAt} from './elune-sky.js';
 import {wantsDisc} from './renderer-init.js';
 import {schematicRects} from './worldmap.js';
@@ -79,6 +79,28 @@ export function drawBodies(r,pass,pf,near) {
       r.device.queue.writeBuffer(set.patchBuffer,0,packPatches(patches));
       pass.setPipeline(set.patchPipeline);pass.setBindGroup(0,set.patchGroup);pass.setVertexBuffer(0,set.patchBuffer);pass.draw(PATCH_GRID*PATCH_GRID*6,patches.length);
     }
+  }
+}
+/** Cloud shell of every other resident body that has one (body.clouds), seen from the camera as if it hovered over that body; one uniform, mask and bind group per body so several can share a pass. */
+export function drawBodyClouds(r,pass,time,daylight,near) {
+  const a=activeBody();
+  for(const body of otherBodies(r)) {
+    const set=r.otherSets?.[body.id],manifest=r.bodyManifests?.[body.id];
+    if(!body.clouds||!set||!manifest?.world_bounds||!r.cloudPipeline||!r.depth)continue;
+    const o=otherView(r.view,a,body,r.timeOfDay);
+    if(!o||Math.asin(Math.min(1,body.radius/(body.radius+o.altitude)))<.002)continue;
+    const space=planetFactorsFor(body,o.altitude,true).space;
+    set.cloudMask??=new CloudMask(r.device);set.cloudMask.update(r.bodyRects?.[body.id]??FALLBACK_RECTS);
+    set.cloudBuffer??=r.device.createBuffer({size:240,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
+    if(set.cloudDepth!==r.depth){
+      set.cloudGroup=r.device.createBindGroup({layout:r.cloudPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:set.cloudBuffer}},
+        {binding:1,resource:r.depth.createView()},{binding:4,resource:set.cloudMask.view},{binding:5,resource:set.cloudMask.sampler}]});
+      set.cloudDepth=r.depth;
+    }
+    const dayHere=Math.min(1,Math.max(0,(o.sun[1]+.1)/.35)),cu=cloudUniform(o.view,time,dayHere,manifest,near,undefined,undefined,r.timeOfDay,{space,flowScale:r.planet?.flowScale,flowCycles:r.planet?.flowCycles,tierMix:0});
+    cu.set([...o.sun,o.sun[1]],32);
+    r.device.queue.writeBuffer(set.cloudBuffer,0,cu);
+    pass.setPipeline(r.cloudPipeline);pass.setBindGroup(0,set.cloudGroup);pass.draw(3);
   }
 }
 export function drawPlanet(r,pass,pf,near) {

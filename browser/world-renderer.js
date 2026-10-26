@@ -25,7 +25,7 @@ import {buffer,texture,drawable,setFlags,setGates,releaseMaterial,release,upload
 import {destroyCraft,releaseCraft,buildCraft,startWreck,wreckChunk,endWreck,setProps,setCraftOverride,domeDraw} from './renderer-craft.js';
 import {reset,configure,event,clearFar,swapPlanetState,bodyEvent} from './renderer-events.js';
 import {scenePipeline,prepareBatches,sceneMatrix,drawScene} from './renderer-scene.js';
-import {zoneBlend,setSky,setSkyDome,horizonColour,planetRects,drawPlanet,sharedFrame,drawPatches,drawBodies,drawLights,drawSkyDome,sampleSky,noteLitInstance} from './renderer-sky.js';
+import {zoneBlend,setSky,setSkyDome,horizonColour,planetRects,drawPlanet,sharedFrame,drawPatches,drawBodies,drawBodyClouds,drawLights,drawSkyDome,sampleSky,noteLitInstance} from './renderer-sky.js';
 import {drawShadow,enableHighClouds,highCloudGroup,maskEntries,drawClouds} from './renderer-clouds.js';
 import {initialize,prepareBody,useBody} from './renderer-init.js';
 const OCEAN_MESH_CEILING=90000;
@@ -99,6 +99,7 @@ export class WorldRenderer {
   sharedFrame(){return sharedFrame(this);}
   drawPatches(pass){return drawPatches(this,pass);}
   drawBodies(pass,pf,near){return drawBodies(this,pass,pf,near);}
+  drawBodyClouds(pass,time,daylight,near){return drawBodyClouds(this,pass,time,daylight,near);}
   drawLights(pass,pf){return drawLights(this,pass,pf);}
   drawSkyDome(pass){return drawSkyDome(this,pass);}
   sampleSky(){return sampleSky(this);}
@@ -263,10 +264,11 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
     this.lastRenderMs=nowMs;
     const highClouds=resolveCloudQuality(settings.cloudQuality,{highFailed:this.cloudHighFailed,slow:this.cloudSlow});
     if(highClouds&&!this.cloudHigh&&!this.cloudHighFailed)this.enableHighClouds();
-    if(!this.cameraBlocked&&settings.clouds!==false) {
+    if(!this.cameraBlocked&&(settings.clouds!==false||settings.farClouds!==false)) {
       // Clouds read the finished scene depth to clip their ray march, so they never need a depth-test bias.
       const cloudPass=encoder.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}]});
-      this.drawClouds(cloudPass,this.cloudTime??time,daylight,near,highClouds);cloudPass.end();
+      if(settings.clouds!==false)this.drawClouds(cloudPass,this.cloudTime??time,daylight,near,highClouds);
+      if(settings.farClouds!==false&&pf.globe>0)this.drawBodyClouds(cloudPass,this.cloudTime??time,daylight,near);cloudPass.end();
     }
     if(!this.cameraBlocked&&propDraws.length) {
       const propPass=encoder.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}],
