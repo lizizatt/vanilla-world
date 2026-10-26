@@ -45,7 +45,15 @@ const mapPanel=new MapPanel({dialog:$('map-panel'),canvas:$('map-canvas'),stage:
   teleport:async icon=>{
     const plan=teleportPlan(icon,activeBody().id);
     // The in-page well swap needs the app idle, so it runs before the operation that places the pose.
-    if(plan.swap&&!(await app.soiSwap(plan.body))){app.report(`Cannot reach ${plan.body} yet.`,true);return;}
+    if(plan.swap) {
+      // The target's resident engine may still be warming (or the app mid-operation): wait for it instead of refusing, and only reload into the body as a last resort.
+      const ready=()=>{const e=app.engines?.[plan.body];return !app.busy&&e?.worker&&e.info;};
+      for(let i=0;i<240&&!ready()&&app.engines?.[plan.body];i++){if(i===0)app.report(`Preparing ${icon.label}...`,true);await new Promise(r=>setTimeout(r,250));}
+      if(!(await app.soiSwap(plan.body))){
+        if(plan.pose&&app.soiHandoff){app.report(`Loading ${icon.label}...`,true);app.soiHandoff(plan.body,plan.pose);return;}
+        app.report(`Cannot reach ${icon.label}.`,true);return;
+      }
+    }
     if(plan.pose){app.flight=plan.pose;app.space=undefined;app.race?.jump();app.renderer.camera=undefined;app.running=true;app.report(`Teleported to ${icon.label}.`,true);return;}
     return app.operation(async()=>{
       app.flight=undefined;client.state=await client.request(icon.reset?'reset':'restore',icon.reset?undefined:{pose:icon.pose});app.race?.jump();
