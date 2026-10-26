@@ -49,8 +49,8 @@ test('moonAdt yields a valid ADT-sized buffer with 256 chunks', () => {
   assert.deepEqual(moonAdt(1,30,15),a);
 });
 
-test('albedo is a plausible lavender-silver regolith', () => {
-  for(let i=0;i<20;i++){const [x,y,z]=chartDir(i*900,i*200-2000),c=moonAlbedo(1,x,y,z);assert.ok(c.every(v=>v>.15&&v<.95));}
+test('albedo is a plausible grey-tan regolith with no purple cast', () => {
+  for(let i=0;i<20;i++){const [x,y,z]=chartDir(i*900,i*200-2000),c=moonAlbedo(1,x,y,z);assert.ok(c.every(v=>v>.15&&v<.95));assert.ok(c[0]>=c[2],'red is not below blue');}
 });
 
 test('every MCNK carries the synthetic Elune area id at +0x34', async () => {
