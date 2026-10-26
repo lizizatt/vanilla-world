@@ -345,3 +345,5 @@ Sites live in elune-sites.js (body-generic). The 3x3 Moonglade plateau (Kalimdor
 - Far-bake colour: grafted tiles alias their source minimap (graftMinimapRows); apron tiles use a solid regolith BLP (REGOLITH_HASH). Zone music (area 493 / Forest set) verified on real data, no code change.
 - Bubble: bubbleMask(bodyId,x,z) (elune-sites.js) is 1 within site.bubble and 0 at twice it; world-renderer blends clear/fog colour via bubbleSky. Sky colour only so far; ambient, sound, veil and the cloud microclimate are still to do.
 
+
+**Status (streaming/placement):** moon engines use a body-aware tile cap (min 16 tiles, near radius ~1.2 kyd; Azeroth unchanged). Moonglade dest is tile 29,14 so the site centre is ~3 deg from the sub-Azeroth point. Swap records irstNearMs (time to first near tile after release) in swapProfiles; arrival is measured, not gated, because frames cannot run while the swap holds usy. Open: graft/apron seam and pre-minimap green apron not visually confirmed.

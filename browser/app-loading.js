@@ -236,6 +236,8 @@ async function soiSwap(app,parentId) {
     settings.clouds=app.bodyClouds[parentId]??(body.atmosphereEdge>0);app.syncSettings();
     evidence.info=client.info;evidence.bodySwaps=(evidence.bodySwaps||0)+1;
         prof.total=+(performance.now()-prof.start).toFixed(1);(evidence.swapProfiles??=[]).push(prof);
-        return true;
+    // Frames cannot run while busy, so first-near-tile latency is measured after release instead of gated.
+    const t0=performance.now(),poll=setInterval(()=>{if(app.renderer.tiles?.size||performance.now()-t0>8000){prof.firstNearMs=+(performance.now()-t0).toFixed(0);clearInterval(poll);}},50);
+    return true;
   } finally {app.busy=false;}
 }
