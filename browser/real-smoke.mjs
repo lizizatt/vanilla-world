@@ -22,7 +22,8 @@ await page.waitForTimeout(3000);await shot('spawn');
 let cdp,t0;
 if(process.env.PROFILE){cdp=await ctx.newCDPSession(page);await cdp.send('Profiler.enable');await cdp.send('Profiler.setSamplingInterval',{interval:200});await cdp.send('Profiler.start');t0=await page.evaluate(()=>performance.now());}
 for(const [name,step] of JSON.parse(process.env.STEPS||'[]')) {
-  if(step.key)await page.keyboard.press(step.key);else await page.evaluate(s=>{window.worldTest.settings({planet:true,...s.settings});if(s.time!==undefined)window.worldTest.timeLock(s.time);window.worldTest.focus(s.pose);},step);
+  if(step.key)await page.keyboard.press(step.key);else if(step.click)await page.locator(step.click).first().click();else await page.evaluate(s=>{window.worldTest.settings({planet:true,...s.settings});if(s.time!==undefined)window.worldTest.timeLock(s.time);window.worldTest.focus(s.pose);},step);
+  if(step.tiles)await page.waitForFunction(n=>window.worldTest.renderer().tiles.size>=n,step.tiles,{timeout:60000}).catch(()=>console.log(name,'tiles timeout'));
   await page.waitForTimeout(step.wait??6000);await shot(name);
   if(step.seq) {
     // Hold keys and capture a frame sequence (per-frame camera + swap count) to catch single-frame flashes around a swap.

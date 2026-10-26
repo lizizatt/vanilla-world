@@ -95,7 +95,8 @@ export function graftSource(base,real,{bodyId,seed}) {
     get archives(){return real.archives;},get stats(){return real.stats;},
     async read(path,options) {
       const key=path.replaceAll('/','\\').toLowerCase(),m=re.exec(key);
-      if(m){const grafted=await tile(+m[1],+m[2]);if(grafted)return grafted;return base.read(path,options);}
+      // The cache outlives each read and callers may transfer the buffer to another thread, so hand out a copy.
+      if(m){const grafted=await tile(+m[1],+m[2]);if(grafted)return grafted.slice();return base.read(path,options);}
       if(key.startsWith(`world\\maps\\${bodyId}\\`))return base.read(path,options);
       if(key===trs)return graftMinimapRows(await real.read(path,options),sites,mapName);
       if(key===`textures\\minimap\\${REGOLITH_HASH}`)return regolithBlp();
