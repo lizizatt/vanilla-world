@@ -331,3 +331,7 @@ Bodies are config: a moon is an entry in `bodies.js` with `parent`, `rail` and `
 - Moon discs and sun glow use the inertial sun (\sunInertial\) for shared-space drawing, so phase is continuous across the swap.
 - Attitude: the quaternion is authoritative in the fly loop (no Euler round trip); \	ransportAim\ parallel-transports it along the path, \echartAim\ carries it across swaps. Open: Elune chart rendering at the exact poles (equirect degeneracy) is not yet re-centred.
 
+
+## Swap performance
+
+Body pipelines are pre-warmed at engine open (`prepareBody`). Per-body globe state (height/colour grids, surface bake, night bake, land rects) is parked and restored by `swapPlanetState` instead of wiped and rebaked; ocean fills are memoised (`oceanMeshCached`). `stepFlight` requires a candidate parent to hold `FLY.swapDwell` s and honours `FLY.swapCooldown` s, so a moon sweeping past at 1000x never thrashes swaps. Sim warp is capped near bodies via `warpClamp`. Measured (real data, PROFILE=1 real-smoke): swap-in 316 -> 6-20 ms, swap-out 95 -> 51-64 ms, max frame gap in window 236/306 -> ~70 ms.

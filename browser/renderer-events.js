@@ -2,7 +2,7 @@ import {sceneReady} from './scene-stream.js';
 import {MINIMAP_SIZE} from './terrain-stream.js';
 import {COAST_GPU_LIMIT} from './water-stream.js';
 import {maelstromCentre} from './clouds.js';
-import {oceanMesh} from './ocean-mesh.js';
+import {oceanMeshCached} from './ocean-mesh.js';
 import {splatHeights} from './height-bake.js';
 import {isLandTile,trimRimSpikes} from './land-rect.js';
 import {PLANET_RADIUS,WORLD_CENTRE} from './space.js';
@@ -10,17 +10,27 @@ import {buildPlanetPipelines} from './renderer-init.js';
 import {ELUNE} from './bodies.js';
 import {activeBody} from './body-shaders.js';
 import {createColourGrid} from './tile-registry.js';
+import {NIGHT_H} from './night-lights.js';
 import {AdmissionFade,terrainEdgeMask,readySceneInstances} from './renderer-helpers.js';
 const OCEAN_FILL=130000;
-export function reset(r) {
+const PLANET_STATE=['heightGrid','colourGrid','colourDirty','horizonMini','surfaceRegistry','surfaceBytes','surfaceKey','nightBake','litCells','litQueue','lightsKey','landRects'];
+/** Parks the departing body's globe state (height/colour grids, baked surface and night lights) and restores the arriving body's, so a repeat swap re-bakes nothing; a first visit starts from empty grids. */
+export function swapPlanetState(r,from,to) {
+  r.bodyStates??=new Map();
+  r.bodyStates.set(from,Object.fromEntries(PLANET_STATE.map(k=>[k,r[k]])));
+  Object.assign(r,r.bodyStates.get(to)??{heightGrid:new Float32Array(r.heightGrid.length).fill(-Infinity),colourGrid:createColourGrid(),colourDirty:new Set(),horizonMini:new Map(),
+    surfaceRegistry:undefined,surfaceBytes:undefined,surfaceKey:undefined,nightBake:undefined,litCells:undefined,litQueue:undefined,lightsKey:undefined,landRects:[]});
+  r.heightDirty=true;r.heightAt=0;r.surfaceDirty=!!r.surfaceBytes;if(r.nightBake)r.nightBake.rows=[0,NIGHT_H-1];
+}
+export function reset(r,{keepPlanet=false}={}) {
   // The globe height/colour grids are chart-lon/lat baked: a body switch must not inherit the previous body's relief (Azeroth peaks became spikes on Elune).
-  if(r.heightGrid){r.heightGrid.fill(-Infinity);r.heightDirty=true;r.heightAt=0;r.colourGrid=createColourGrid();r.colourDirty=new Set();r.horizonMini=new Map();}
+  if(r.heightGrid&&!keepPlanet){r.heightGrid.fill(-Infinity);r.heightDirty=true;r.heightAt=0;r.colourGrid=createColourGrid();r.colourDirty=new Set();r.horizonMini=new Map();}
   r.terrainBundle=undefined;r.terrainBundleBuilds=0;
   r.sceneBundle=undefined;r.sceneBundleBuilds=0;
   r.releaseCraft();
   r.craftError=undefined;
   for(const item of [...r.tiles.values(),...r.seams.values(),...r.horizon,...r.water,...r.flags,...r.gates,...r.coast.values()])r.release(item);
-  r.tiles.clear();r.seams.clear();r.horizon=[];r.water=[];r.flags=[];r.gates=[];r.coast.clear();r.oceanSpec=undefined;r.oceanFill=undefined;r.landRects=[];r.coastBytes=0;
+  r.tiles.clear();r.seams.clear();r.horizon=[];r.water=[];r.flags=[];r.gates=[];r.coast.clear();r.oceanSpec=undefined;r.oceanFill=undefined;if(!keepPlanet)r.landRects=[];r.coastBytes=0;
   for(const index of r.indices.values())index.destroy();r.indices.clear();
   for(const asset of r.assets.values()){asset.vertices.destroy();asset.indices.destroy();}r.assets.clear();
   for(const texture of r.textures.values())texture.destroy();r.textures.clear();
@@ -44,7 +54,7 @@ export function configure(r,manifest) {
   const [x,z]=manifest.ocean;
   // Open ocean beyond the authored rectangle: the same water mesh extended to roughly half the planet circumference.
   const pad=OCEAN_FILL,[,,right,bottom]=manifest.ocean;
-  r.landRects=[];if(manifest.version!==4){r.oceanSpec={manifest:{...manifest,ocean:[x-pad,z-pad,right+pad,bottom+pad],whirlpool:manifest.world_bounds&&maelstromCentre(manifest)},origin:[x-pad,z-pad]};r.oceanFill=r.drawable(oceanMesh(r.oceanSpec.manifest),r.oceanSpec.origin);r.water.push(r.oceanFill);}
+  r.landRects=r.landRects||[];if(manifest.version!==4){r.oceanSpec={manifest:{...manifest,ocean:[x-pad,z-pad,right+pad,bottom+pad],whirlpool:manifest.world_bounds&&maelstromCentre(manifest)},origin:[x-pad,z-pad]};r.oceanFill=r.drawable(oceanMeshCached(r.oceanSpec.manifest,96,r.landRects),r.oceanSpec.origin);r.water.push(r.oceanFill);}
   if(activeBody().id==='elune')void buildPlanetPipelines(r,ELUNE).catch(e=>console.error(e));
   const pending=r.pendingEvents;r.pendingEvents=[];
   for(const data of pending)r.event(data);
@@ -71,7 +81,7 @@ export function event(r,data) {
     r.horizonColour(data.region*4096+data.source[0]+64*data.source[1],{placement:data.placement});r.horizon.push({...r.drawable(data.vertices,data.placement,r.minimapAtlases[data.region]),
     region:data.region,near:data.near,cell:data.source[0]+64*data.source[1]});
     const hb=r.horizon[r.horizon.length-1].bounds;
-    if(hb&&r.oceanSpec&&isLandTile(data.vertices)){r.landRects.push([hb[0][0],hb[0][2],hb[1][0],hb[1][2]]);r.oceanDirty=true;}}
+    if(hb&&r.oceanSpec&&isLandTile(data.vertices)){const rect=[hb[0][0],hb[0][2],hb[1][0],hb[1][2]];if(!r.landRects.some(q=>q[0]===rect[0]&&q[1]===rect[1]&&q[2]===rect[2]&&q[3]===rect[3])){r.landRects.push(rect);r.oceanDirty=true;}}}
   else if(data.event==='horizon-material'){
     if(data.rgba.length!==MINIMAP_SIZE*MINIMAP_SIZE*4||!r.minimapAtlases[data.region]||
       !Number.isInteger(data.x)||!Number.isInteger(data.y)||data.x<0||data.x>=64||data.y<0||data.y>=64)

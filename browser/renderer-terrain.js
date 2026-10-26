@@ -1,6 +1,6 @@
 import {bundleFormats} from './render-passes.js';
 import {TERRAIN_TEXTURE_SIZE} from './terrain-stream.js';
-import {oceanMesh} from './ocean-mesh.js';
+import {oceanMeshCached} from './ocean-mesh.js';
 import {flagMesh,gateMesh} from './race-flags.js';
 
 export function buffer(r,data,usage) {
@@ -109,6 +109,6 @@ export function drawTerrain(r,pass,terrain) {
 export function refreshOcean(r) {
   if(!r.oceanDirty||!r.oceanSpec||performance.now()-(r.oceanAt||0)<1000)return;
   r.oceanDirty=false;r.oceanAt=performance.now();
-  const next=r.drawable(oceanMesh(r.oceanSpec.manifest,96,r.landRects),r.oceanSpec.origin),i=r.water.indexOf(r.oceanFill);
+  const next=r.drawable(oceanMeshCached(r.oceanSpec.manifest,96,r.landRects),r.oceanSpec.origin),i=r.water.indexOf(r.oceanFill);
   r.release(r.oceanFill);if(i>=0)r.water[i]=next;else r.water.push(next);r.oceanFill=next;r.terrainBundle=undefined;
 }

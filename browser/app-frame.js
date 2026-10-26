@@ -2,6 +2,8 @@ import {moveFlight,FLIGHT_PITCH} from './flight.js';
 import {basis,fromEuler,fromBasis,toEuler,stepOrient,turnAround} from './orient.js';
 import {spaceHud} from './space.js';
 import {stepShared} from './shared-flight.js';
+import {nearestAltitude} from './space-flight.js';
+import {warpClamp} from './sky-coupling.js';
 import {spaceReadout} from './space-hud.js';
 import {activeBody} from './body-shaders.js';
 import {istText,daylightAt} from './sim-clock.js';
@@ -19,7 +21,9 @@ Object.assign(app,{frame});
 function frame(now) {
   requestAnimationFrame(frame);
   if(now-app.soundTime>250){app.syncSound();app.soundTime=now;}
-  const dt=app.last?Math.min((now-app.last)/1000,.1):0;app.last=now;
+  const dt=app.last?Math.min((now-app.last)/1000,.1):0;
+  if(app.last&&evidence.frameLog){const log=evidence.frameLog;log.push([+now.toFixed(1),+(now-app.last).toFixed(1)]);if(log.length>2400)log.splice(0,600);}
+  app.last=now;
   if(!app.running || !client.state || app.busy || document.hidden) {
     client.discardFrame();
     if(client.state){audio.update(client.state,{throttle:0,flags:1},0,false);music.update(client.state.area,false);}
@@ -60,6 +64,7 @@ function frame(now) {
     if(app.race){app.flight=undefined;if(!app.raceMenu.open)app.raceFrame(controls,now/1000);}
     if(app.editor.isOpen)app.flight=app.editor.pose();
     app.syncGates();
+    app.renderer.warpCap=app.flight&&app.space&&app.renderer.sharedSpace?warpClamp(nearestAltitude(app.space,app.renderer.timeOfDay??0)):undefined;
     if(!app.frozenPresentation&&!locked&&!app.swapHold)client.frame(dt,controls.throttle,controls.steer,controls.flags,app.flight?.slice(0,3),settings.distant,app.renderer.view);
     cameraCollision.frame(client.state,app.renderer.sceneRegion ?? client.state.telemetry[10]);
     app.renderer.fxInput={throttle:Math.max(0,controls.throttle),boosting:(controls.flags&2)!==0,heat:app.dial?client.state.telemetry[6]:0,health:[client.state.telemetry[15]??1,client.state.telemetry[16]??1],drifting:(controls.flags&4)!==0};
