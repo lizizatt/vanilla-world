@@ -1,5 +1,6 @@
 import {MINIMAP_SIZE} from './terrain-stream.js';
 import {sunDirection} from './clouds.js';
+import {eluneSkyAt} from './elune-sky.js';
 import {schematicRects} from './worldmap.js';
 import {viewFrom} from './body-sky.js';
 import {AZEROTH,ELUNE} from './bodies.js';
@@ -55,7 +56,9 @@ export function drawPlanet(r,pass,pf,near) {
   if(r.nightBake.rows){const [y0,y1]=r.nightBake.rows;r.nightBake.rows=null;
     r.device.queue.writeTexture({texture:r.lightsTex,origin:[0,y0,0]},r.nightBake.out,{offset:y0*NIGHT_W*4,bytesPerRow:NIGHT_W*4},[NIGHT_W,y1-y0+1]);}
   if(r.surfaceDirty){r.device.queue.writeTexture({texture:r.surfaceTex},r.surfaceBytes,{bytesPerRow:4096},[1024,512]);r.surfaceDirty=false;}
-  const uniform=spaceUniform(r.view,sunDirection(r.timeOfDay),pf,rects,r.timeOfDay,near,200000,undefined,r.sharedFrame());
+  // On an Elune chart the sun is the true one in the pod's local frame, matching the moon-slot shading seen from Azeroth.
+  const sun=r.manifest?.version===4?eluneSkyAt(r.view.eye[0],r.view.eye[2],r.timeOfDay).sun:sunDirection(r.timeOfDay);
+  const uniform=spaceUniform(r.view,sun,pf,rects,r.timeOfDay,near,200000,undefined,r.sharedFrame());
   uniform[47]=performance.now()/1000%3600;// wall-clock seconds for light twinkle
   r.device.queue.writeBuffer(r.spaceBuffer,0,uniform);
   pass.setPipeline(r.spacePipeline);pass.setBindGroup(0,r.spaceGroup);pass.draw(3);
