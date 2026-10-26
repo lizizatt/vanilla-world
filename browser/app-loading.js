@@ -204,7 +204,7 @@ async function openMoonEngine(app,selection) {
     app.engineCounts[body.id]={events:0,farScenes:0};
     const engine=new WorldClient(data=>{const counts=app.engineCounts[engine.bodyId]??={events:0,farScenes:0};counts.events++;if(data.event==='far-scene')counts.farScenes++;return false;},error=>console.warn(engine.bodyId+' engine',error));
     engine.farOnly=true;engine.bodyId=body.id;app.engines[body.id]=engine;
-    try{await engine.open(body.id);void app.renderer?.prepareBody?.(body).catch(e=>console.warn(body.id+' pipelines',e));}catch(error){console.warn(body.id+' engine unavailable',error);engine.stop();delete app.engines[body.id];}
+    try{await engine.open(body.id,undefined,selection&&typeof selection!=='string'?{dataFolder:selection}:{});void app.renderer?.prepareBody?.(body).catch(e=>console.warn(body.id+' pipelines',e));}catch(error){console.warn(body.id+' engine unavailable',error);engine.stop();delete app.engines[body.id];}
   }
 }
 

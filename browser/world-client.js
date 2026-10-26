@@ -26,11 +26,11 @@ export class WorldClient {
       catch(error){this.requests.take(id);reject(error);}
     });
   }
-  async open(folder,loadingMap) {
+  async open(folder,loadingMap,extra={}) {
     this.stop();
     const worker=new Worker('./world-worker.js',{type:'module'});
     this.worker=worker;this.bind(worker);
-    const result=await this.request('open',{folder,loadingMap,sceneInstanceDeltas:true,sceneInstanceUpdates:true,postFrameVisuals:true});
+    const result=await this.request('open',{folder,loadingMap,...extra,sceneInstanceDeltas:true,sceneInstanceUpdates:true,postFrameVisuals:true});
     this.info=result.info;this.state=result.state;
     return result;
   }

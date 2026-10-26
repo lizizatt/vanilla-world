@@ -9,7 +9,7 @@ import {LoadingArt} from './loading-art.js';
 import {MusicPlayer} from './world-music.js';
 import {MapPanel} from './map-panel.js';
 import {BODIES} from './bodies.js';
-import {nearBody} from './elune-pose.js';
+import {overSite} from './elune-pose.js';
 import {bootChoice,writeChoice,tracksFor,normalizeChoice,setRuntimeSkins} from './vehicles.js';
 import {initSwe1rRow,onSwe1r} from './swe1r/ui.js';
 import {podSkinList} from './swe1r/skin.js';
@@ -41,7 +41,7 @@ const loadingArt=new LoadingArt($('loading-art'),$('loading-bar-art'),loading);
 const mapPanel=new MapPanel({dialog:$('map-panel'),canvas:$('map-canvas'),stage:$('map-stage'),status:$('map-status'),close:$('map-close')},{
   requestArt:names=>client.worldmap(names),pose:()=>app.flight??client.state?.telemetry,tracks:()=>tracksFor(app.tracks,app.choice.vehicle),
   bodies:()=>app.renderer?.sharedSpace?Object.values(BODIES).filter(b=>b.rail).map(b=>({id:b.id,label:b.label??b.id[0].toUpperCase()+b.id.slice(1)})):[],
-  teleportBody:id=>{app.flight=nearBody(BODIES[id],30000,app.renderer.timeOfDay??0);app.space=undefined;app.race?.jump();app.running=true;app.report(`Flying to ${id}.`,true);},
+  teleportBody:id=>{app.flight=overSite(BODIES[id],250,app.renderer.timeOfDay??0);app.space=undefined;app.race?.jump();app.running=true;app.report(`Flying to ${id}.`,true);},
   teleport:icon=>app.operation(async()=>{
     app.flight=undefined;client.state=await client.request(icon.reset?'reset':'restore',icon.reset?undefined:{pose:icon.pose});app.race?.jump();
     app.renderer.camera=undefined;app.running=true;$('error').hidden=true;app.report(`Teleported to ${icon.label}.`,true);
