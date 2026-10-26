@@ -1,6 +1,7 @@
 import {MINIMAP_SIZE} from './terrain-stream.js';
 import {sunDirection} from './clouds.js';
 import {eluneSkyAt} from './elune-sky.js';
+import {wantsDisc} from './renderer-init.js';
 import {schematicRects} from './worldmap.js';
 import {viewFrom} from './body-sky.js';
 import {AZEROTH,ELUNE} from './bodies.js';
@@ -39,6 +40,8 @@ export function sharedFrame(r) {
 }
 export function drawPlanet(r,pass,pf,near) {
   if(r.planetBody!==activeBody().id)return;
+  const parent=activeBody().parent,parked=parent&&wantsDisc(activeBody())?r.bodyStates?.get(parent)?.surfaceBytes:undefined;
+  if(parked&&r.discTex&&r.discBytes!==parked){r.device.queue.writeTexture({texture:r.discTex},parked,{bytesPerRow:4096},[1024,512]);r.discBytes=parked;}
   const rects=r.planetRects(),key=JSON.stringify(rects);
   if(pf.registry&&r.surfaceKey!==key){
     r.surfaceRegistry=// With real data the minimap colours own the land: procedural fill would paint green over the unseen coast water.

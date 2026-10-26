@@ -9,6 +9,11 @@ import {createColourGrid} from './tile-registry.js';
 import {HEIGHT_W,HEIGHT_H} from './height-bake.js';
 import {shaderSetFor} from './body-shaders.js';
 import {activeBody} from './body-shaders.js';
+import {atmosphericDisc} from './body-sky.js';
+import {BODIES} from './bodies.js';
+/** Bodies that see an atmospheric parent get a texture holding the parent's own baked surface registry (bound as discTex, filled from the parked body state). */
+export const wantsDisc=body=>!!body.parent&&atmosphericDisc(BODIES[body.parent]);
+const discEntries=(r,body)=>{if(!wantsDisc(body))return [];r.discTex??=r.device.createTexture({size:[1024,512],format:'rgba8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});return [{binding:6,resource:r.discTex.createView()}];};
 import {spaceShaderFor} from './space.js';
 import {bakeMoonSurface,MOON_TEX_W,MOON_TEX_H} from './moon-surface.js';
 import {skyShader,skyDomeShader} from './sky.js';
@@ -89,7 +94,7 @@ export async function initialize(r) {
   r.spacePipeline=await r.device.createRenderPipelineAsync({layout:'auto',vertex:{module:spaceModule,entryPoint:'vs'},
     fragment:{module:spaceModule,entryPoint:'fs',targets:[{format:r.format,blend:{color:{srcFactor:'one',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},primitive:{topology:'triangle-list'},
     depthStencil:DEPTH_STATE.space});
-  r.spaceGroup=r.device.createBindGroup({layout:r.spacePipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.spaceBuffer}},{binding:1,resource:r.surfaceTex.createView()},{binding:2,resource:r.surfaceSamp},...(moonSurface?[{binding:5,resource:r.moonTex.createView()}]:[])]});
+  r.spaceGroup=r.device.createBindGroup({layout:r.spacePipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.spaceBuffer}},{binding:1,resource:r.surfaceTex.createView()},{binding:2,resource:r.surfaceSamp},...(moonSurface?[{binding:5,resource:r.moonTex.createView()}]:[]),...discEntries(r,activeBody())]});
   r.lightsPipeline=await r.device.createRenderPipelineAsync({layout:'auto',vertex:{module:spaceModule,entryPoint:'vs'},
     fragment:{module:spaceModule,entryPoint:'lfs',targets:[{format:r.format,blend:{color:{srcFactor:'one',dstFactor:'one'},alpha:{srcFactor:'zero',dstFactor:'one'}}}]},primitive:{topology:'triangle-list'},depthStencil:DEPTH_STATE.sky});
   r.lightsGroup=r.device.createBindGroup({layout:r.lightsPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.spaceBuffer}},{binding:2,resource:r.surfaceSamp},{binding:4,resource:r.lightsTex.createView()}]});
@@ -204,7 +209,7 @@ async function makePlanetSet(r,body) {
     fragment:{module:space,entryPoint:'lfs',targets:[{format:r.format,blend:{color:{srcFactor:'one',dstFactor:'one'},alpha:{srcFactor:'zero',dstFactor:'one'}}}]},primitive:{topology:'triangle-list'},depthStencil:DEPTH_STATE.sky});
   const patchPipeline=await r.device.createRenderPipelineAsync({layout:'auto',vertex:{module:patch,entryPoint:'pvs',buffers:[{arrayStride:32,stepMode:'instance',attributes:[{shaderLocation:0,offset:0,format:'float32x4'},{shaderLocation:1,offset:16,format:'float32x4'}]}]},
     fragment:{module:patch,entryPoint:'pfs',targets:[{format:r.format,blend:add}]},primitive:{topology:'triangle-list'},depthStencil:DEPTH_STATE.patch});
-  return {spacePipeline,lightsPipeline,patchPipeline,spaceGroup:r.device.createBindGroup({layout:spacePipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.spaceBuffer}},{binding:1,resource:r.surfaceTex.createView()},{binding:2,resource:r.surfaceSamp},...(moon?[{binding:5,resource:r.moonTex.createView()}]:[])]}),
+  return {spacePipeline,lightsPipeline,patchPipeline,spaceGroup:r.device.createBindGroup({layout:spacePipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.spaceBuffer}},{binding:1,resource:r.surfaceTex.createView()},{binding:2,resource:r.surfaceSamp},...(moon?[{binding:5,resource:r.moonTex.createView()}]:[]),...discEntries(r,body)]}),
     lightsGroup:r.device.createBindGroup({layout:lightsPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.spaceBuffer}},{binding:2,resource:r.surfaceSamp},{binding:4,resource:r.lightsTex.createView()}]}),
     patchGroup:r.device.createBindGroup({layout:patchPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.spaceBuffer}},{binding:1,resource:r.surfaceTex.createView()},{binding:2,resource:r.surfaceSamp},{binding:3,resource:r.heightTex.createView()}]})};
 }
