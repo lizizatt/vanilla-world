@@ -16,7 +16,7 @@ const OCEAN_FILL=130000;
 const PLANET_STATE=['heightGrid','colourGrid','colourDirty','horizonMini','surfaceRegistry','surfaceBytes','surfaceKey','nightBake','litCells','litQueue','lightsKey','landRects'];
 /** Parks the departing body's globe state (height/colour grids, baked surface and night lights) and restores the arriving body's, so a repeat swap re-bakes nothing; a first visit starts from empty grids. */
 export function swapPlanetState(r,from,to) {
-  r.bodyStates??=new Map();
+  r.bodyStates??=new Map();(r.bodyManifests??={})[from]=r.manifest;
   r.bodyStates.set(from,Object.fromEntries(PLANET_STATE.map(k=>[k,r[k]])));
   Object.assign(r,r.bodyStates.get(to)??emptyPlanetState(r));
   r.heightDirty=true;r.heightAt=0;r.surfaceDirty=!!r.surfaceBytes;if(r.nightBake)r.nightBake.rows=[0,NIGHT_H-1];

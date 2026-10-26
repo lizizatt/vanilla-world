@@ -7,7 +7,7 @@ import {warpClamp} from './sky-coupling.js';
 import {spaceReadout} from './space-hud.js';
 import {activeBody} from './body-shaders.js';
 import {domeLevel} from './dome-shell.js';
-import {istText,daylightAt} from './sim-clock.js';
+import {istText,daylightAt,sanitiseScale} from './sim-clock.js';
 import {gpuBytesOf} from './memory-budget.js';
 import {regimeOf} from './regime.js';
 import {flightMusicArea} from './world-music.js';
@@ -53,7 +53,7 @@ function frame(now) {
       if(app.renderer.sharedSpace){
         const down=k=>Number(keys.has(k));
         if(app.flight!==app.spacePose)app.space=undefined;// pose set from outside (teleport, overview, test focus): restart inertial state there
-        const r=stepShared(app.space,app.flight,aim,{forward:down('KeyW')-down('KeyS'),strafe:down('KeyD')-down('KeyA'),lift:down('KeyE')-down('KeyQ'),fast:keys.has('ShiftLeft')||keys.has('ShiftRight')        },dt,app.renderer.timeOfDay??0,(app.renderer.timeLock!==undefined?0:2*(app.renderer.clock?.scale??1)),activeBody().id);
+        const r=stepShared(app.space,app.flight,aim,{forward:down('KeyW')-down('KeyS'),strafe:down('KeyD')-down('KeyA'),lift:down('KeyE')-down('KeyQ'),fast:keys.has('ShiftLeft')||keys.has('ShiftRight')        },dt,app.renderer.timeOfDay??0,(app.renderer.timeLock!==undefined?0:2*Math.min(sanitiseScale(settings.timeScale),app.renderer.warpCap??Infinity)),activeBody().id);
         app.space=r.space;app.flight=r.pose;app.spacePose=r.pose;
                 if(r.swapped&&r.parent!==activeBody().id)swap=r.parent;
         if(r.aim)q=fromBasis(r.aim.right,r.aim.up,r.aim.look);// same physical attitude in the new parent's chart (no orientation reset at the swap)

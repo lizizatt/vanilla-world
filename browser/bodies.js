@@ -20,7 +20,7 @@ const scaleRange=(range,k)=>Object.freeze(range.map(v=>Number((v*k).toFixed(3)))
 const rangesFor=k=>Object.freeze({bend:scaleRange(BEND_RANGE,k),globe:scaleRange(GLOBE_RANGE,k),space:scaleRange(SPACE_RANGE,k),zone:scaleRange(ZONE_LIGHT_RANGE,k)});
 
 export const AZEROTH=Object.freeze({
-  id:'azeroth',radius:PLANET_RADIUS,centre:WORLD_CENTRE,gravity:SURFACE_GRAVITY,atmosphereEdge:ATMOSPHERE_EDGE,sea:true,
+  id:'azeroth',radius:PLANET_RADIUS,centre:WORLD_CENTRE,gravity:SURFACE_GRAVITY,atmosphereEdge:ATMOSPHERE_EDGE,sea:true,clouds:true,
   circumference:2*Math.PI*PLANET_RADIUS,rangeScale:1,ranges:rangesFor(1),maxLevel:9,
 });
 // Transition ranges scale with sqrt(R) (design 1: linear would start bending below a pod's height).
