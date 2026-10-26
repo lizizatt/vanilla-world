@@ -9,11 +9,11 @@ import {PLANET_RADIUS,WORLD_CENTRE} from './space.js';
 import {buildPlanetPipelines} from './renderer-init.js';
 import {ELUNE} from './bodies.js';
 import {activeBody} from './body-shaders.js';
-import {createColourGrid} from './tile-registry.js';
+import {createColourGrid,splatMinimap} from './tile-registry.js';
 import {NIGHT_H} from './night-lights.js';
 import {AdmissionFade,terrainEdgeMask,readySceneInstances} from './renderer-helpers.js';
 const OCEAN_FILL=130000;
-const PLANET_STATE=['heightGrid','colourGrid','colourDirty','horizonMini','surfaceRegistry','surfaceBytes','surfaceKey','nightBake','litCells','litQueue','lightsKey','landRects'];
+const PLANET_STATE=['heightGrid','colourGrid','colourDirty','horizonMini','surfaceRegistry','surfaceBytes','surfaceKey','nightBake','litCells','litQueue','lightsKey','landRects','farGrid','farMini','farVersion'];
 /** Parks the departing body's globe state (height/colour grids, baked surface and night lights) and restores the arriving body's, so a repeat swap re-bakes nothing; a first visit starts from empty grids. */
 export function swapPlanetState(r,from,to) {
   r.bodyStates??=new Map();(r.bodyManifests??={})[from]=r.manifest;
@@ -22,7 +22,7 @@ export function swapPlanetState(r,from,to) {
   r.heightDirty=true;r.heightAt=0;r.surfaceDirty=!!r.surfaceBytes;if(r.nightBake)r.nightBake.rows=[0,NIGHT_H-1];
 }
 const emptyPlanetState=r=>({heightGrid:new Float32Array(r.heightGrid.length).fill(-Infinity),colourGrid:createColourGrid(),colourDirty:new Set(),horizonMini:new Map(),
-  surfaceRegistry:undefined,surfaceBytes:undefined,surfaceKey:undefined,nightBake:undefined,litCells:undefined,litQueue:undefined,lightsKey:undefined,landRects:[]});
+  surfaceRegistry:undefined,surfaceBytes:undefined,surfaceKey:undefined,nightBake:undefined,litCells:undefined,litQueue:undefined,lightsKey:undefined,landRects:[],farGrid:createColourGrid(),farMini:new Map(),farVersion:0});
 /** Parked globe state of a body that is not the active chart, created on first use. */
 export function bodyState(r,id) {
   r.bodyStates??=new Map();
@@ -30,9 +30,18 @@ export function bodyState(r,id) {
   return r.bodyStates.get(id);
 }
 /** Feeds a non-active body's resident engine into its parked state: its far horizon relief lands in that body's own height grid (no GPU work), so its globe can be drawn from real data. Returns whether the event was consumed. */
+/** Minimap colour for a body's far globe, kept apart from the active globe's own colour grid so it never changes what the active far renderer draws. A tile needs both its WDL placement and its minimap, in either order. */
+export function farColour(s,body,key,part) {
+  if(!s.farGrid)return;
+  const e={...s.farMini.get(key),...part};s.farMini.set(key,e);
+  if(e.placement&&e.rgba){splatMinimap(s.farGrid,e.rgba,MINIMAP_SIZE,e.placement,body.centre,body.radius,new Set(),s.heightGrid);s.farMini.delete(key);s.farVersion=(s.farVersion??0)+1;}
+}
 export function bodyEvent(r,body,data) {
-  if(data.event!=='horizon'||!r.heightGrid)return false;
+  if(!r.heightGrid)return false;
+  if(data.event==='horizon-material'){farColour(bodyState(r,body.id),body,data.region*4096+data.x+64*data.y,{rgba:data.rgba});return true;}
+  if(data.event!=='horizon')return false;
   const state=bodyState(r,body.id);
+  if(data.source)farColour(state,body,data.region*4096+data.source[0]+64*data.source[1],{placement:data.placement});
   trimRimSpikes(data.vertices);
   splatHeights(state.heightGrid,data.vertices,data.placement,body.centre,body.radius);
   state.heightFilled=(state.heightFilled??0)+1;
@@ -40,7 +49,7 @@ export function bodyEvent(r,body,data) {
 }
 export function reset(r,{keepPlanet=false}={}) {
   // The globe height/colour grids are chart-lon/lat baked: a body switch must not inherit the previous body's relief (Azeroth peaks became spikes on Elune).
-  if(r.heightGrid&&!keepPlanet){r.heightGrid.fill(-Infinity);r.heightDirty=true;r.heightAt=0;r.colourGrid=createColourGrid();r.colourDirty=new Set();r.horizonMini=new Map();}
+  if(r.heightGrid&&!keepPlanet){r.heightGrid.fill(-Infinity);r.heightDirty=true;r.heightAt=0;r.colourGrid=createColourGrid();r.colourDirty=new Set();r.horizonMini=new Map();r.farGrid=createColourGrid();r.farMini=new Map();r.farVersion=0;}
   r.terrainBundle=undefined;r.terrainBundleBuilds=0;
   r.sceneBundle=undefined;r.sceneBundleBuilds=0;
   r.releaseCraft();
@@ -94,7 +103,7 @@ export function event(r,data) {
     r.terrainBundle=undefined;
   }
   else if(data.event==='horizon'){trimRimSpikes(data.vertices);const chartBody=activeBody();splatHeights(r.heightGrid,data.vertices,data.placement,chartBody.centre,chartBody.radius);r.heightDirty=true;
-    r.horizonColour(data.region*4096+data.source[0]+64*data.source[1],{placement:data.placement});r.horizon.push({...r.drawable(data.vertices,data.placement,r.minimapAtlases[data.region]),
+    farColour(r,activeBody(),data.region*4096+data.source[0]+64*data.source[1],{placement:data.placement});r.horizonColour(data.region*4096+data.source[0]+64*data.source[1],{placement:data.placement});r.horizon.push({...r.drawable(data.vertices,data.placement,r.minimapAtlases[data.region]),
     region:data.region,near:data.near,cell:data.source[0]+64*data.source[1]});
     const hb=r.horizon[r.horizon.length-1].bounds;
     if(hb&&r.oceanSpec&&isLandTile(data.vertices)){const rect=[hb[0][0],hb[0][2],hb[1][0],hb[1][2]];if(!r.landRects.some(q=>q[0]===rect[0]&&q[1]===rect[1]&&q[2]===rect[2]&&q[3]===rect[3])){r.landRects.push(rect);r.oceanDirty=true;}}}
@@ -102,6 +111,7 @@ export function event(r,data) {
     if(data.rgba.length!==MINIMAP_SIZE*MINIMAP_SIZE*4||!r.minimapAtlases[data.region]||
       !Number.isInteger(data.x)||!Number.isInteger(data.y)||data.x<0||data.x>=64||data.y<0||data.y>=64)
       throw Error('Invalid minimap upload');
+    farColour(r,activeBody(),data.region*4096+data.x+64*data.y,{rgba:data.rgba});
     r.device.queue.writeTexture({texture:r.minimapAtlases[data.region],origin:[data.x*MINIMAP_SIZE,data.y*MINIMAP_SIZE]},
       data.rgba,{bytesPerRow:MINIMAP_SIZE*4},[MINIMAP_SIZE,MINIMAP_SIZE]);
   }

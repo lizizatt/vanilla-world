@@ -82,7 +82,7 @@ export async function initialize(r) {
   r.lightsTex=r.device.createTexture({size:[NIGHT_W,NIGHT_H],format:'rgba8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});
   r.heightTex=r.device.createTexture({size:[HEIGHT_W,HEIGHT_H],format:'r8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});
   r.heightGrid=new Float32Array(HEIGHT_W*HEIGHT_H).fill(-Infinity);r.heightDirty=false;
-  r.colourGrid=createColourGrid();r.colourDirty=new Set();r.horizonMini=new Map();
+  r.colourGrid=createColourGrid();r.colourDirty=new Set();r.horizonMini=new Map();r.farGrid=createColourGrid();r.farMini=new Map();r.farVersion=0;
   r.surfaceSamp=r.device.createSampler({magFilter:'linear',minFilter:'linear',addressModeU:'repeat',addressModeV:'clamp-to-edge'});
   // Shared space (?bodies) on Azeroth: Elune's slot samples a baked procedural moon surface instead of stylised noise.
   const moonSurface=!!r.sharedSpace&&activeBody().id==='azeroth';
