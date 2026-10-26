@@ -48,6 +48,15 @@ export function otherBodies(r) {
   const a=activeBody();
   return Object.values(BODIES).filter(b=>b.id!==a.id&&r.planetSets[b.id]&&r.bodyStates.get(b.id));
 }
+/** Baked surface of a non-active body: its parked bake if it has one, else one built from the minimap colour its own engine has streamed so far (re-baked at most every 2 s as tiles arrive; with real data the minimaps own the land, so the procedural continents are skipped). */
+export function otherSurface(r,body,state,now) {
+  if(state.surfaceBytes&&!state.farVersion)return state.surfaceBytes;
+  if(state.farBytes&&(state.farBakedVersion===state.farVersion||now-(state.farBakedAt||0)<2000))return state.farBytes;
+  const real=!!r.bodyManifests?.[body.id]?.world_bounds,rects=r.bodyRects?.[body.id]??FALLBACK_RECTS;
+  state.farBytes=bakeSurface(createRegistry([...defaultManifest(undefined,rects).map(c=>real?{...c,provider:{sample:()=>({skip:true})}}:c),adtChunk(state.farGrid??state.colourGrid)]));
+  state.farBakedVersion=state.farVersion;state.farBakedAt=now;
+  return state.farBytes;
+}
 /** Draws every other resident body from its own parked far data (height grid, baked surface, patch LOD) as if the camera hovered over it, after the active globe and before terrain. */
 export function drawBodies(r,pass,pf,near) {
   const list=otherBodies(r);
@@ -62,7 +71,7 @@ export function drawBodies(r,pass,pf,near) {
   views.sort((x,y)=>y.o.altitude-x.o.altitude);
   for(const {body,set,o} of views) {
     const state=r.bodyStates.get(body.id),now=performance.now();
-    const bytes=state.surfaceBytes??(state.farBytes??=bakeSurface(createRegistry([...defaultManifest(undefined,FALLBACK_RECTS),adtChunk(state.colourGrid)])));
+    const bytes=otherSurface(r,body,state,now);
     if(set.surfaceBytes!==bytes){r.device.queue.writeTexture({texture:set.surfaceTex},bytes,{bytesPerRow:4096},[1024,512]);set.surfaceBytes=bytes;}
     if(set.heightGrid!==state.heightGrid||(set.heightFilled!==state.heightFilled&&now-(set.heightAt||0)>1000)){
       r.device.queue.writeTexture({texture:set.heightTex},encodeHeights(state.heightGrid),{bytesPerRow:HEIGHT_W},[HEIGHT_W,HEIGHT_H]);
