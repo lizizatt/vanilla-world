@@ -24,6 +24,15 @@ export const siteCentre=(site,cx,cy)=>{const r=siteRect(site,cx,cy);return [(r[0
 export function outside(site,x,z,cx,cy) {
   const r=siteRect(site,cx,cy);return Math.hypot(Math.max(r[0]-x,0,x-r[2]),Math.max(r[1]-z,0,z-r[3]));
 }
+/** Breathable-bubble strength 0..1 at chart (x,z): 1 within `bubble` yd of any site centre, easing to 0 at twice that. */
+export function bubbleMask(bodyId,x,z,cx=30,cy=15) {
+  let m=0;
+  for(const site of sitesOf(bodyId)) {
+    const [sx,sz]=siteCentre(site,cx,cy),t=Math.min(1,Math.max(0,(Math.hypot(x-sx,z-sz)/site.bubble-1)));
+    m=Math.max(m,1-t*t*(3-2*t));
+  }
+  return m;
+}
 /** 1 on the graft, easing to 0 at `apron` yd away. */
 export function siteMask(site,x,z,cx,cy) {
   const t=Math.min(1,outside(site,x,z,cx,cy)/site.apron);return 1-t*t*(3-2*t);

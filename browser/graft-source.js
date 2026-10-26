@@ -5,6 +5,7 @@ import {adtChunks,translateAdt} from './graft-adt.js';
 import {sitesOf,tilesOf,siteRect,siteCentre,siteMask,siteTiles,APRON_AREA} from './elune-sites.js';
 import {ADT_TILE,ADT_CHUNK} from './adt-synth.js';
 import {moonAdt,moonHeightChart,MOON_TILES_X,MOON_TILES_Y} from './moon-terrain.js';
+import {regolithBlp} from './moon-source.js';
 
 const STEP=ADT_CHUNK/8,CX=MOON_TILES_X/2,CY=MOON_TILES_Y/2;
 const srcPath=(site,x,y)=>`World\\Maps\\${site.map}\\${site.map}_${x}_${y}.adt`;
@@ -36,8 +37,35 @@ export function sampleGrid(grid,rect,x,z,lift=0) {
   return a+(b-a)*fx+(c-a)*fz+(a-b-c+e)*fx*fz+lift;
 }
 
+export const REGOLITH_HASH='00000000000000000000000000e1e0e1.blp';
+/** Tiles of the procedural apron ring around a site (not grafted), as [tx,ty]. */
+export function apronTiles(site) {
+  const rect=siteRect(site,CX,CY),own=new Set(tilesOf(site).map(t=>`${t.dx},${t.dy}`)),out=[];
+  for(let ty=0;ty<MOON_TILES_Y;ty++)for(let tx=0;tx<MOON_TILES_X;tx++) {
+    if(own.has(`${tx},${ty}`))continue;
+    const x0=(tx-CX)*ADT_TILE,z0=(ty-CY)*ADT_TILE;
+    if(Math.hypot(Math.max(rect[0]-(x0+ADT_TILE),0,x0-rect[2]),Math.max(rect[1]-(z0+ADT_TILE),0,z0-rect[3]))<site.apron)out.push([tx,ty]);
+  }
+  return out;
+}
+/** The minimap translation table plus one row per grafted tile, aliasing the body's tile to the source tile's real minimap so the horizon and globe carry the real colours; apron tiles get a plain regolith minimap. */
+export function graftMinimapRows(bytes,sites,mapName) {
+  const text=new TextDecoder().decode(bytes),rows=new Map();
+  for(const line of text.split('\n')){const [name,hash]=line.trim().split('\t');if(hash)rows.set(name.toLowerCase(),hash);}
+  let extra='';
+  for(const site of sites) {
+    for(const {sx,sy,dx,dy} of tilesOf(site)) {
+      const hash=rows.get(`${site.map}\\map${sx}_${sy}.blp`.toLowerCase());
+      if(hash)extra+=`${mapName}\\map${dx}_${dy}.blp\t${hash}\n`;
+    }
+    for(const [tx,ty] of apronTiles(site))extra+=`${mapName}\\map${tx}_${ty}.blp\t${REGOLITH_HASH}\n`;
+  }
+  return new TextEncoder().encode(text.replace(/\s*$/,'\n')+extra);
+}
+
 export function graftSource(base,real,{bodyId,seed}) {
   const sites=sitesOf(bodyId),mapName=bodyId[0].toUpperCase()+bodyId.slice(1),re=new RegExp(`^world\\\\maps\\\\${bodyId}\\\\${bodyId}_(\\d+)_(\\d+)\\.adt$`);
+  const trs=`textures\\minimap\\md5translate.trs`;
   const prep=new Map(),cache=new Map();
   const prepare=site=>{
     if(!prep.has(site.id))prep.set(site.id,(async()=>{
@@ -69,6 +97,8 @@ export function graftSource(base,real,{bodyId,seed}) {
       const key=path.replaceAll('/','\\').toLowerCase(),m=re.exec(key);
       if(m){const grafted=await tile(+m[1],+m[2]);if(grafted)return grafted;return base.read(path,options);}
       if(key.startsWith(`world\\maps\\${bodyId}\\`))return base.read(path,options);
+      if(key===trs)return graftMinimapRows(await real.read(path,options),sites,mapName);
+      if(key===`textures\\minimap\\${REGOLITH_HASH}`)return regolithBlp();
       try{return await real.read(path,options);}
       catch(error){if(error?.code!=='NOT_FOUND')throw error;return base.read(path,options);}
     },
