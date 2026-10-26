@@ -3,10 +3,11 @@ import {sunDirection} from './clouds.js';
 import {eluneSkyAt} from './elune-sky.js';
 import {wantsDisc} from './renderer-init.js';
 import {schematicRects} from './worldmap.js';
-import {viewFrom} from './body-sky.js';
-import {AZEROTH,ELUNE} from './bodies.js';
+import {viewFrom,otherView} from './body-sky.js';
+import {AZEROTH,ELUNE,BODIES,planetFactorsFor} from './bodies.js';
 import {activeBody} from './body-shaders.js';
 import {patchesAt,packPatches,PATCH_GRID} from './globe-patches.js';
+import {makeOtherSet} from './renderer-init.js';
 import {createRegistry,defaultManifest,bakeSurface,surfaceTexel,splatMinimap,adtChunk} from './tile-registry.js';
 import {HEIGHT_W,HEIGHT_H,encodeHeights} from './height-bake.js';
 import {PLANET_RADIUS,WORLD_CENTRE,spaceUniform,FALLBACK_RECTS} from './space.js';
@@ -35,14 +36,57 @@ export function horizonColour(r,key,part) {
 export function planetRects(r) {return r.manifest?.world_bounds?schematicRects(r.manifest):FALLBACK_RECTS;}
 /** Shared-space view (design/elune.md D3): Elune is always the moon-slot sphere seen from Azeroth when enabled; v4 charts are Elune looking back at Azeroth. */
 export function sharedFrame(r) {
-  if(activeBody().id==='elune')return viewFrom(ELUNE,r.timeOfDay);
-  return r.sharedSpace?viewFrom(AZEROTH,r.timeOfDay):undefined;
+  const frame=activeBody().id==='elune'?viewFrom(ELUNE,r.timeOfDay):r.sharedSpace?viewFrom(AZEROTH,r.timeOfDay):undefined;
+  // The other body is drawn from its own resident far renderer (drawBodies), so its analytic stand-in disc is switched off.
+  if(frame&&r.otherSets?.[frame.moons[0].other])frame.moons[0]={...frame.moons[0],radius:0};
+  return frame;
+}
+const OTHER_MOONS=[{position:[0,0,0],radius:0,tint:[0,0,0]}];
+/** Bodies other than the camera's chart that have their own pipelines and parked state, farthest first. */
+export function otherBodies(r) {
+  if(!r.sharedSpace||!r.bodyStates||!r.planetSets)return [];
+  const a=activeBody();
+  return Object.values(BODIES).filter(b=>b.id!==a.id&&r.planetSets[b.id]&&r.bodyStates.get(b.id));
+}
+/** Draws every other resident body from its own parked far data (height grid, baked surface, patch LOD) as if the camera hovered over it, after the active globe and before terrain. */
+export function drawBodies(r,pass,pf,near) {
+  const list=otherBodies(r);
+  if(!list.length)return;
+  const a=activeBody(),views=[];
+  for(const body of list) {
+    const set=r.otherSets?.[body.id];
+    if(!set){r.otherPending??={};r.otherPending[body.id]??=makeOtherSet(r,body).then(s=>{(r.otherSets??={})[body.id]=s;}).catch(e=>console.warn(body.id+' far renderer',e));continue;}
+    const o=otherView(r.view,a,body,r.timeOfDay);
+    if(o)views.push({body,set,o});
+  }
+  views.sort((x,y)=>y.o.altitude-x.o.altitude);
+  for(const {body,set,o} of views) {
+    const state=r.bodyStates.get(body.id),now=performance.now();
+    const bytes=state.surfaceBytes??(state.farBytes??=bakeSurface(createRegistry([...defaultManifest(undefined,FALLBACK_RECTS),adtChunk(state.colourGrid)])));
+    if(set.surfaceBytes!==bytes){r.device.queue.writeTexture({texture:set.surfaceTex},bytes,{bytesPerRow:4096},[1024,512]);set.surfaceBytes=bytes;}
+    if(set.heightGrid!==state.heightGrid||(set.heightFilled!==state.heightFilled&&now-(set.heightAt||0)>1000)){
+      r.device.queue.writeTexture({texture:set.heightTex},encodeHeights(state.heightGrid),{bytesPerRow:HEIGHT_W},[HEIGHT_W,HEIGHT_H]);
+      set.heightGrid=state.heightGrid;set.heightFilled=state.heightFilled;set.heightAt=now;
+    }
+    const factors={...planetFactorsFor(body,o.altitude,true),space:0,mesh:pf.mesh,registry:pf.registry,fog:[0,0,0]};
+    if(!(factors.globe>0))continue;
+    const uniform=spaceUniform(o.view,o.sun,factors,r.bodyRects?.[body.id]??FALLBACK_RECTS,r.timeOfDay,near,200000,undefined,{radius:body.radius,centre:body.centre,moons:OTHER_MOONS});
+    uniform[47]=now/1000%3600;
+    r.device.queue.writeBuffer(set.spaceBuffer,0,uniform);
+    pass.setPipeline(set.spacePipeline);pass.setBindGroup(0,set.spaceGroup);pass.draw(3);
+    if(pf.mesh){
+      const eye=o.view.eye,patches=patchesAt(eye[0],eye[2],Math.max(0,eye[1]),body.id==='azeroth'?undefined:{radius:body.radius,centre:body.centre,maxLevel:body.maxLevel});
+      r.device.queue.writeBuffer(set.patchBuffer,0,packPatches(patches));
+      pass.setPipeline(set.patchPipeline);pass.setBindGroup(0,set.patchGroup);pass.setVertexBuffer(0,set.patchBuffer);pass.draw(PATCH_GRID*PATCH_GRID*6,patches.length);
+    }
+  }
 }
 export function drawPlanet(r,pass,pf,near) {
   if(r.planetBody!==activeBody().id)return;
   const parent=activeBody().parent,parked=parent&&wantsDisc(activeBody())?r.bodyStates?.get(parent)?.surfaceBytes:undefined;
   if(parked&&r.discTex&&r.discBytes!==parked){r.device.queue.writeTexture({texture:r.discTex},parked,{bytesPerRow:4096},[1024,512]);r.discBytes=parked;}
   const rects=r.planetRects(),key=JSON.stringify(rects);
+  (r.bodyRects??={})[activeBody().id]=rects;
   if(pf.registry&&r.surfaceKey!==key){
     r.surfaceRegistry=// With real data the minimap colours own the land: procedural fill would paint green over the unseen coast water.
     createRegistry([...defaultManifest(undefined,rects).map(c=>r.manifest?.world_bounds?{...c,provider:{sample:()=>({skip:true})}}:c),adtChunk(r.colourGrid)]);

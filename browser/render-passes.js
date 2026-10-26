@@ -15,6 +15,7 @@ const STATE={
   dome:[false,'always'],
   space:[true,'always'],
   patch:[true,'less-equal'],
+  other:[false,'less-equal'],
 };
 
 export const DEPTH_STATE=Object.freeze(Object.fromEntries(Object.entries(STATE).map(([name,[depthWriteEnabled,depthCompare]])=>

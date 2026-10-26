@@ -186,6 +186,27 @@ export async function useBody(r,body) {
   r.surfaceBody=r.planetBody=body.id;
 }
 
+/** Draw set for a body that is not the camera's chart: its own space/patch pipelines (depth tested, never writing) and private uniform/patch/height/surface resources, so one frame can hold two planets from their own data. */
+export async function makeOtherSet(r,body) {
+  const shader=gpuShader(r),moon=!!r.sharedSpace&&body.id==='azeroth',set=shaderSetFor(body);
+  const space=await shader(moon?spaceShaderFor(body.radius,{moonTex:true}):set.space),patch=await shader(set.patch);
+  if(moon&&!r.moonTex){
+    r.moonTex=r.device.createTexture({size:[MOON_TEX_W,MOON_TEX_H],format:'rgba8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});
+    r.device.queue.writeTexture({texture:r.moonTex},bakeMoonSurface(),{bytesPerRow:MOON_TEX_W*4},[MOON_TEX_W,MOON_TEX_H]);
+  }
+  const add={color:{srcFactor:'one',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}};
+  const spacePipeline=await r.device.createRenderPipelineAsync({layout:'auto',vertex:{module:space,entryPoint:'vs'},
+    fragment:{module:space,entryPoint:'fs',targets:[{format:r.format,blend:add}]},primitive:{topology:'triangle-list'},depthStencil:DEPTH_STATE.other});
+  const patchPipeline=await r.device.createRenderPipelineAsync({layout:'auto',vertex:{module:patch,entryPoint:'pvs',buffers:[{arrayStride:32,stepMode:'instance',attributes:[{shaderLocation:0,offset:0,format:'float32x4'},{shaderLocation:1,offset:16,format:'float32x4'}]}]},
+    fragment:{module:patch,entryPoint:'pfs',targets:[{format:r.format,blend:add}]},primitive:{topology:'triangle-list'},depthStencil:DEPTH_STATE.other});
+  const spaceBuffer=r.device.createBuffer({size:512,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST}),
+    patchBuffer=r.device.createBuffer({size:MAX_PATCHES*32,usage:GPUBufferUsage.VERTEX|GPUBufferUsage.COPY_DST}),
+    surfaceTex=r.device.createTexture({size:[1024,512],format:'rgba8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST}),
+    heightTex=r.device.createTexture({size:[HEIGHT_W,HEIGHT_H],format:'r8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});
+  return {body,spacePipeline,patchPipeline,spaceBuffer,patchBuffer,surfaceTex,heightTex,
+    spaceGroup:r.device.createBindGroup({layout:spacePipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:spaceBuffer}},{binding:1,resource:surfaceTex.createView()},{binding:2,resource:r.surfaceSamp},...(moon?[{binding:5,resource:r.moonTex.createView()}]:[]),...discEntries(r,body)]}),
+    patchGroup:r.device.createBindGroup({layout:patchPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:spaceBuffer}},{binding:1,resource:surfaceTex.createView()},{binding:2,resource:r.surfaceSamp},{binding:3,resource:heightTex.createView()}]})};
+}
 const PLANET_KEYS=['spacePipeline','lightsPipeline','patchPipeline','spaceGroup','lightsGroup','patchGroup'];
 /** Space/lights/patch pipelines for the body the chart is on (design/elune.md D3): same shaders, that body's radius baked in. */
 export async function buildPlanetPipelines(r,body) {
