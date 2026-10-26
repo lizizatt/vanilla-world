@@ -36,8 +36,21 @@ export function sampleGrid(grid,rect,x,z,lift=0) {
   return a+(b-a)*fx+(c-a)*fz+(a-b-c+e)*fx*fz+lift;
 }
 
+/** The minimap translation table plus one row per grafted tile, aliasing the body's tile to the source tile's real minimap so the horizon and globe carry the real colours. */
+export function graftMinimapRows(bytes,sites,mapName) {
+  const text=new TextDecoder().decode(bytes),rows=new Map();
+  for(const line of text.split('\n')){const [name,hash]=line.trim().split('\t');if(hash)rows.set(name.toLowerCase(),hash);}
+  let extra='';
+  for(const site of sites)for(const {sx,sy,dx,dy} of tilesOf(site)) {
+    const hash=rows.get(`${site.map}\\map${sx}_${sy}.blp`.toLowerCase());
+    if(hash)extra+=`${mapName}\\map${dx}_${dy}.blp\t${hash}\n`;
+  }
+  return new TextEncoder().encode(text.replace(/\s*$/,'\n')+extra);
+}
+
 export function graftSource(base,real,{bodyId,seed}) {
   const sites=sitesOf(bodyId),mapName=bodyId[0].toUpperCase()+bodyId.slice(1),re=new RegExp(`^world\\\\maps\\\\${bodyId}\\\\${bodyId}_(\\d+)_(\\d+)\\.adt$`);
+  const trs=`textures\\minimap\\md5translate.trs`;
   const prep=new Map(),cache=new Map();
   const prepare=site=>{
     if(!prep.has(site.id))prep.set(site.id,(async()=>{
@@ -69,6 +82,7 @@ export function graftSource(base,real,{bodyId,seed}) {
       const key=path.replaceAll('/','\\').toLowerCase(),m=re.exec(key);
       if(m){const grafted=await tile(+m[1],+m[2]);if(grafted)return grafted;return base.read(path,options);}
       if(key.startsWith(`world\\maps\\${bodyId}\\`))return base.read(path,options);
+      if(key===trs)return graftMinimapRows(await real.read(path,options),sites,mapName);
       try{return await real.read(path,options);}
       catch(error){if(error?.code!=='NOT_FOUND')throw error;return base.read(path,options);}
     },
