@@ -325,3 +325,9 @@ Bodies are config: a moon is an entry in `bodies.js` with `parent`, `rail` and `
 - Elune uses an airless variant of the planet/patch shader (regolith, no sea, haze or limb glow); Azeroth's shader source is unchanged.
 - Rail bodies are tidally locked: xesAt is closed form (+X faces the parent, +Y orbit normal) and the rail angle drops whole cycles first, so the parent is constant at body-frame +X at any time/timeScale (	idal-lock.test.mjs).
 - Globe height/colour grids are cleared on renderer reset and splatted with the chart body's centre/radius, so Azeroth relief no longer shows as spikes on Elune.
+
+## SOI swap polish and attitude
+- Swap hold: when the parent well changes, \pp.swapHold\ keeps presenting the last frame until \soiSwap\ resolves, so the new body's first frame is the next one shown (no flash of the old chart).
+- Moon discs and sun glow use the inertial sun (\sunInertial\) for shared-space drawing, so phase is continuous across the swap.
+- Attitude: the quaternion is authoritative in the fly loop (no Euler round trip); \	ransportAim\ parallel-transports it along the path, \echartAim\ carries it across swaps. Open: Elune chart rendering at the exact poles (equirect degeneracy) is not yet re-centred.
+
