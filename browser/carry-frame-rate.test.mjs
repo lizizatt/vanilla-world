@@ -23,6 +23,15 @@ test('hovering over Elune stays over the same ground at any frame time and warp 
     assert.ok(hover({scale,dt,alt,seconds:scale>=100?20:60})<.5,`x${scale} dt ${dt} alt ${alt}`);
 });
 
+test('a pose import entry frame must step at the new clock time: a stale first-frame time throws the ship off the ground (regression)', async () => {
+  const start=[ELUNE.centre[0]+500,50,ELUNE.centre[1]+300],aim={look:[0,0,1],right:[1,0,0],up:[0,1,0]};
+  const run=(t0,t1)=>{const a=stepShared(undefined,start,aim,{forward:0,strafe:0,lift:0,fast:false},.016,t0,2,'elune'),b=stepShared(a.space,a.pose,aim,{forward:0,strafe:0,lift:0,fast:false},.016,t1,2,'elune');return Math.hypot(b.pose[0]-start[0],b.pose[2]-start[2]);};
+  assert.ok(run(1503,1503.03)<.5,'consistent clock stays put');
+  assert.ok(run(1440,1503.03)>100,'stale first frame time jumps (why place() syncs renderer.timeOfDay)');
+  const {readFile}=await import('node:fs/promises');
+  assert.match(await readFile(new URL('./app-pose.js',import.meta.url),'utf8'),/clock=new SimClock[^]*?app\.renderer\.timeOfDay=app\.renderer\.clock\.now\(\)/);
+});
+
 test('Elune rail stays continuous when the sim clock wraps at midnight', () => {
   const clock=new SimClock(2879.99,1),before=centreAt(ELUNE,clock.now());
   clock.step(.01);const after=centreAt(ELUNE,clock.now());

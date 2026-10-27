@@ -30,7 +30,7 @@ async function applyUrlPose() {
   let view;try{view=JSON.parse(raw);}catch{return;}
   const place=async()=>{
     Object.assign(settings,view.settings||{});delete settings.night;app.syncSettings();
-    if(view.time!==undefined){app.renderer.clock=new SimClock(view.time,settings.timeScale);simEpoch.days=Number.isFinite(view.days)?view.days:0;app.renderer.timeLock=undefined;}
+    if(view.time!==undefined){app.renderer.clock=new SimClock(view.time,settings.timeScale);simEpoch.days=Number.isFinite(view.days)?view.days:0;app.renderer.timeLock=undefined;app.renderer.timeOfDay=app.renderer.clock.now();}
     if(view.flight)app.flight=view.flight.slice();
     else if(view.drive){client.state=await client.request('restore',{pose:view.drive});app.flight=undefined;app.renderer.camera=undefined;}
     app.running=true;
