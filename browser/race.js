@@ -1,6 +1,7 @@
 // Pure race state machine. Positions are render-space yards [x,y,z]; yaw is radians, forward = (-sin yaw, -cos yaw) like the craft.
 // idle -> lineup -> countdown -> running -> finished | cancelled. No DOM, no clocks: callers pass `now` seconds.
 export const BREAKOFF_MARGIN=500;
+export const GATE_REACH=200; // yd above/below a gate's height that still counts as passing it
 const COUNTDOWN_SECONDS=3;
 // Vehicle classes that can race (free flight has no races); see vehicles.js.
 const RACE_VEHICLES={podracer:1};
@@ -32,7 +33,7 @@ export function breakoffDistance(t) {
 
 // Fraction u in [0,1) along a->b where the segment crosses the gate's vertical plane (forward direction only) inside its
 // width and within `height` yd vertically, else -1. Swept, so any speed or frame gap works.
-export function crossingAt(gate,a,b,height=200) {
+export function crossingAt(gate,a,b,height=GATE_REACH) {
   const fx=-Math.sin(gate.yaw),fz=-Math.cos(gate.yaw),rx=Math.cos(gate.yaw),rz=-Math.sin(gate.yaw);
   const side=p=>(p[0]-gate.pos[0])*fx+(p[2]-gate.pos[2])*fz;
   const sa=side(a),sb=side(b);
@@ -43,8 +44,9 @@ export function crossingAt(gate,a,b,height=200) {
 }
 export const crossesGate=(gate,a,b,height)=>crossingAt(gate,a,b,height)>=0;
 export class Race {
-  constructor(track) {
-    this.track=validateTrack(track);
+  // reach: vertical pass window in yd (bodies.js gateReach: a high low-gravity jump through a gate still counts).
+  constructor(track,reach=GATE_REACH) {
+    this.track=validateTrack(track);this.reach=reach;
     this.breakoff=breakoffDistance(this.track);
     this.state='idle';this.reason=null;
     this.next=0;this.lap=1;this.splits=[];this.time=null;this.last=null;
@@ -80,7 +82,7 @@ export class Race {
       const a=this.last,t0=this.lastT??now;
       let from=a,done=0;
       while(this.state==='running') {
-        const u=crossingAt(this.track.gates[this.gateIndex],from,pos);
+        const u=crossingAt(this.track.gates[this.gateIndex],from,pos,this.reach);
         if(u<0)break;
         const total=done+(1-done)*u,at=t0+(now-t0)*total;
         this.splits.push(at-this.t0);this.next++;event='gate';

@@ -5,6 +5,7 @@ import {clampTrack} from './track-edit.js';
 import {flagPosition} from './race-flags.js';
 import {gateScene,sceneKey,sceneProps,startLine} from './race-gates.js';
 import {tracksFor,vehicleOf} from './vehicles.js';
+import {gateReach} from './bodies.js';
 import {activeBody} from './body-shaders.js';
 import {SFX,STINGER,wipeoutBlast,pickRaceMusic} from './swe1r/sfx.js';
 import {pickVoice,raceEndEvents} from './swe1r/voice-map.js';
@@ -64,14 +65,14 @@ async function settleGates(list,key) {
     const pts=list.flatMap(d=>{const [x,,z]=d.at,h=(d.width||0)/2,c=Math.cos(d.yaw),s=Math.sin(d.yaw);return SETTLE_SPAN.map(k=>[x+c*h*k,z-s*h*k]);});
     const g=await probeSurface(pts);
     if(key!==app.gateKey)return;
-    const fixed=list.map((d,i)=>{const y=Math.min(...g.slice(i*SETTLE_SPAN.length,(i+1)*SETTLE_SPAN.length).map(s=>s[1]))-SETTLE_SINK;return {...d,at:[d.at[0],Number.isFinite(y)?y:d.at[1],d.at[2]]};});
+    const fixed=list.map((d,i)=>{const gs=g.slice(i*SETTLE_SPAN.length,(i+1)*SETTLE_SPAN.length).map(s=>s[1]),low=Math.min(...gs),y=low-SETTLE_SINK;return {...d,at:[d.at[0],Number.isFinite(y)?y:d.at[1],d.at[2]],...(d.kind==='C'&&Number.isFinite(low)?{rise:[Math.min(...gs.slice(4))-low,Math.min(...gs.slice(0,3))-low]}:{})};});
     app.renderer.setProps(sceneProps(fixed,app.gateKit));
   } catch {/* surface probe failed: gates keep their authored height */}
 }
 function syncGates(force) {
   const live=app.editor.isOpen?app.tracks.filter(t=>(t.body??'azeroth')===activeBody().id):tracksFor(app.tracks,app.choice.vehicle,activeBody().id);
   if(!app.editor.isOpen){
-    const list=gateScene(live,app.race,performance.now()/1000),key='w|'+activeBody().id+'|'+sceneKey(list)+'|'+!!app.gateKit;
+    const list=gateScene(live,app.race,performance.now()/1000,gateReach(activeBody().id)),key='w|'+activeBody().id+'|'+sceneKey(list)+'|'+!!app.gateKit;
     if(!force&&key===app.gateKey)return;
     app.gateKey=key;flagKey=undefined;
     app.renderer.setGates([]);app.renderer.setFlags([]);app.renderer.setProps(sceneProps(list,app.gateKit));
@@ -101,7 +102,7 @@ function startRace(track) {
     client.state=await client.request('restore',{pose:[x,y+2,z,track.start.yaw]});
     app.renderer.camera=undefined;app.running=true;$('error').hidden=true;
     const board=validScores(await raceScores(track.id).catch(()=>undefined));app.raceBest=board.runs[0];
-    $('race-board').hidden=true;app.race=new Race(track);lastCount=0;lastLap=1;music.setBattle(true,false);music.loadCue('click');music.loadCue('quest');const t=performance.now()/1000;app.race.start(t);app.race.lined(t);app.promptTrack=undefined;
+    $('race-board').hidden=true;app.race=new Race(track,gateReach(activeBody().id));lastCount=0;lastLap=1;music.setBattle(true,false);music.loadCue('click');music.loadCue('quest');const t=performance.now()/1000;app.race.start(t);app.race.lined(t);app.promptTrack=undefined;
   });
 }
 let lastCount=0;app.voiceMap=undefined;app.voiceReader=undefined;let lastVoice;let lastLap=1;

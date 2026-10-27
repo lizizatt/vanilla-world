@@ -147,3 +147,13 @@ test('unstuck lifts 10 m (yards) straight up, keeping x/z/yaw, with 2x/4x retrie
   assert.deepEqual(a.map((v,i)=>i===1?0:v),[1,0,3,.5]);
   assert.ok(Math.abs(a[1]-2-UNSTUCK_YD)<1e-9&&Math.abs(c[1]-2-4*UNSTUCK_YD)<1e-9&&b[0]===1);
 });
+
+test('a gate pass counts high above the ground when the reach is widened (low gravity), not at the default window', async () => {
+  const {Race,GATE_REACH}=await import('./race.js');const {gateReach}=await import('./bodies.js');
+  assert.equal(gateReach('azeroth'),GATE_REACH);assert.equal(gateReach('elune'),400);
+  const track={id:'hi',start:{pos:[0,0,50],yaw:0},gates:[{pos:[0,10,0],yaw:0,width:70}]};
+  for(const [reach,passes] of [[GATE_REACH,false],[gateReach('elune'),true]]){
+    const r=new Race(track,reach);r.start(0);r.lined(0);r.update([0,300,40],3);r.update([0,300,40],3.1);
+    assert.equal(r.update([0,300,-40],3.2),passes?'finish':null);
+  }
+});
