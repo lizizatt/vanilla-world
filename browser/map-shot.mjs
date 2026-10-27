@@ -1,0 +1,13 @@
+import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {chromium} from 'playwright';
+const {WOW_DATA,PORT='4291'}=process.env;const out=path.resolve('..','runtime','real-smoke');
+const W=+process.env.W||1280,H=+process.env.H||720;
+const ctx=await chromium.launchPersistentContext(fs.mkdtempSync(path.join(os.tmpdir(),'edge-m-')),{channel:'msedge',headless:true,args:['--mute-audio'],viewport:{width:W,height:H},serviceWorkers:'block'});
+const page=ctx.pages()[0]||await ctx.newPage();
+await page.goto(`http://127.0.0.1:${PORT}/?test&flight&planet`);
+await page.waitForFunction(()=>!document.getElementById('select').disabled,null,{timeout:60000});
+await page.locator('#files').setInputFiles(WOW_DATA);
+await page.waitForFunction(()=>worldEvidence.ready||worldEvidence.errors.length,null,{timeout:300000});
+await page.keyboard.press('Escape');if(await page.locator('[data-tab=options]').isVisible()){await page.locator('[data-tab=options]').click();await page.keyboard.press('Escape');}await page.evaluate(()=>document.getElementById('welcome')?.remove());
+await page.waitForTimeout(3000);await page.keyboard.press('m');await page.waitForTimeout(25000);
+console.log(JSON.stringify(await page.evaluate(()=>{const s=document.getElementById('map-stage').getBoundingClientRect(),c=document.getElementById('map-canvas').getBoundingClientRect();return {s:[s.x,s.y,s.width,s.height],c:[c.x,c.y,c.width,c.height],cw:[document.getElementById('map-canvas').width,document.getElementById('map-canvas').height],icons:[...document.querySelectorAll('.map-icon')].map(b=>{const r=b.getBoundingClientRect();return [b.dataset.icon||b.dataset.body,Math.round(r.x+r.width/2),Math.round(r.y+r.height/2)]})}})));
+await page.screenshot({path:path.join(out,process.env.TAG+'.png')});await ctx.close();
