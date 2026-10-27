@@ -53,3 +53,10 @@ test('cached unresolved broad phase preserves exact moving hull and camera predi
   runInContext('sceneState={unresolvedCollision:[]};',context);
   assert.equal(context.near([0,0,0],1).length,0);
 });
+
+test('parked pose must be [x,y,z,yaw]; a track-start {pos,yaw} object is rejected with the offending value',async()=>{
+  const {validateParkedPose}=await import('./world-worker-logic.js');
+  assert.doesNotThrow(()=>validateParkedPose([1,2,3,.5]));
+  assert.throws(()=>validateParkedPose({pos:[1,2,3],yaw:.5}),/Invalid parked pose.*pos/);
+  assert.throws(()=>validateParkedPose([1,2,3,.5,-.3]),/Invalid parked pose/);
+});

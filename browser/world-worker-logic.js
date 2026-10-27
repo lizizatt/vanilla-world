@@ -78,7 +78,7 @@ export function validateSampleTime(time) {
   if(time!==undefined && !Number.isFinite(time))throw new Error('Invalid input sample time');
 }
 export function validateParkedPose(pose) {
-  if(!finitePose(pose))throw new Error('Invalid parked pose');
+  if(!finitePose(pose))throw new Error('Invalid parked pose '+JSON.stringify(pose));
 }
 export function validateTuning(values) {
   if(!Array.isArray(values)||values.length!==17||!values.every(Number.isFinite))throw new Error('Tuning requires exactly 17 finite numbers');
