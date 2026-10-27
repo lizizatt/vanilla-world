@@ -9,7 +9,7 @@ import {LoadingArt} from './loading-art.js';
 import {MusicPlayer} from './world-music.js';
 import {MapPanel} from './map-panel.js';
 import {BODIES} from './bodies.js';
-import {teleportPlan} from './elune-pose.js';
+import {teleportModePlan,seatPose,flyFromDrive} from './teleport-mode.js';
 import {bootChoice,writeChoice,tracksFor,normalizeChoice,setRuntimeSkins} from './vehicles.js';
 import {activeBody} from './body-shaders.js';
 import {initSwe1rRow,onSwe1r} from './swe1r/ui.js';
@@ -39,11 +39,24 @@ const settings={...defaults};
 const gib={on:true,speed:100,overheat:true};const gibMem={};
 const loading=$('loading-screen');
 const loadingArt=new LoadingArt($('loading-art'),$('loading-bar-art'),loading);
+// A podracer teleported to another body is seated on that body's ground: fly over the site until its terrain streams, then offer the pod to the physics at rising heights.
+async function seatPod(plan,icon) {
+  app.report(`Seating pod at ${icon.label}...`,true);
+  app.flight=plan.flight;app.space=undefined;app.race?.jump();app.renderer.camera=undefined;app.running=true;
+  for(let attempt=0;attempt<40;attempt++) {
+    await new Promise(r=>setTimeout(r,500));
+    try {
+      const state=await client.request('restore',{pose:seatPose(plan.seat,Math.floor(attempt/6))});
+      app.flight=undefined;app.space=undefined;client.state=state;app.renderer.camera=undefined;app.running=true;app.report(`Teleported to ${icon.label}.`,true);return;
+    } catch {}
+  }
+  app.report(`Terrain at ${icon.label} did not load; staying in fly mode.`,true);
+}
 const mapPanel=new MapPanel({dialog:$('map-panel'),canvas:$('map-canvas'),stage:$('map-stage'),status:$('map-status'),close:$('map-close')},{
   requestArt:names=>client.worldmap(names),  pose:()=>activeBody().id==='azeroth'?app.flight??client.state?.telemetry:undefined,tracks:()=>tracksFor(app.tracks,app.choice.vehicle,activeBody().id),
   bodies:()=>app.renderer?.sharedSpace?Object.values(BODIES).filter(b=>b.rail).map(b=>({id:b.id,label:b.label??b.id[0].toUpperCase()+b.id.slice(1)})):[],
   teleport:async icon=>{
-    const plan=teleportPlan(icon,activeBody().id);
+    const plan=teleportModePlan(icon,activeBody().id,!app.flight);
     // The in-page well swap needs the app idle, so it runs before the operation that places the pose.
     if(plan.swap) {
       // The target's resident engine may still be warming (or the app mid-operation): wait for it instead of refusing, and only reload into the body as a last resort.
@@ -54,10 +67,11 @@ const mapPanel=new MapPanel({dialog:$('map-panel'),canvas:$('map-canvas'),stage:
         app.report(`Cannot reach ${icon.label}.`,true);return;
       }
     }
+    if(plan.seat){await seatPod(plan,icon);return;}
     if(plan.pose){app.flight=plan.pose;app.space=undefined;app.race?.jump();app.renderer.camera=undefined;app.running=true;app.report(`Teleported to ${icon.label}.`,true);return;}
     return app.operation(async()=>{
       app.flight=undefined;client.state=await client.request(icon.reset?'reset':'restore',icon.reset?undefined:{pose:icon.pose});app.race?.jump();
-      app.renderer.camera=undefined;app.running=true;$('error').hidden=true;app.report(`Teleported to ${icon.label}.`,true);
+      app.renderer.camera=undefined;app.running=true;$('error').hidden=true;if(plan.mode==='fly'&&client.state?.telemetry){app.flight=flyFromDrive(client.state.telemetry,plan.lift);app.space=undefined;}app.report(`Teleported to ${icon.label}.`,true);
     });
   },
 });
