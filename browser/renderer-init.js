@@ -171,7 +171,14 @@ const makeSurfaceSet=async(r,body)=>{
 const SURFACE_KEYS=['pipeline','splatPipeline','sceneModule','pipelines'];
 
 /** Build (but do not activate) a body's pipelines so a later useBody is an instant pointer switch. */
-export async function prepareBody(r,body) {
+export function prepareBody(r,body) {
+  // One build per body: a swap that arrives while the background warm-up is still compiling joins it instead of compiling again.
+  r.preparing??={};
+  return r.preparing[body.id]??=prepareBodyNow(r,body).catch(error=>{delete r.preparing[body.id];throw error;});
+}
+/** True once a body's surface and planet pipelines exist, so a swap into it only switches pointers. */
+export const bodyPrepared=(r,body)=>!!(r?.surfaceSets?.[body]&&r?.planetSets?.[body]);
+async function prepareBodyNow(r,body) {
   r.surfaceSets??={};r.surfaceSets[r.surfaceBody]??=Object.fromEntries(SURFACE_KEYS.map(k=>[k,r[k]]));
   if(!r.surfaceSets[body.id])r.surfaceSets[body.id]=await makeSurfaceSet(r,body);
   r.planetSets??={};r.planetSets[r.planetBody]??=Object.fromEntries(PLANET_KEYS.map(k=>[k,r[k]]));
