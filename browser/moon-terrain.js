@@ -62,7 +62,12 @@ export const moonHeightChart=(seed,x,z)=>moonHeightDir(seed,...chartDir(x,z));
 export const ELUNE_AREA=90001;// synthetic AreaTable id, resolved in JS (no DBC row)
 export function moonAdt(seed,tx,ty,{height=(x,z,h)=>h,area=ELUNE_AREA}={}) {
   const ox=(tx-MOON_TILES_X/2)*ADT_TILE,oz=(ty-MOON_TILES_Y/2)*ADT_TILE;
-  return synthAdt((lx,lz)=>height(ox+lx,oz+lz,moonHeightChart(seed,ox+lx,oz+lz)),tx,ty,'Tileset\\Elune\\Regolith.blp',area);
+  // One height lattice (2.08 yd, plus a one-cell border) serves both vertices and normals, so normals are continuous across tile and chunk borders.
+  const S=ADT_TILE/256,N=259,H=new Float32Array(N*N);
+  for(let j=0;j<N;j++)for(let i=0;i<N;i++){const x=ox+(i-1)*S,z=oz+(j-1)*S;H[j*N+i]=height(x,z,moonHeightChart(seed,x,z));}
+  const cell=(lx,lz)=>(Math.round(lz/S)+1)*N+Math.round(lx/S)+1;
+  const normal=(lx,lz)=>{const k=cell(lx,lz),dx=(H[k+1]-H[k-1])/(2*S),dz=(H[k+N]-H[k-N])/(2*S),m=Math.hypot(dx,dz,1);return [dz/m,dx/m,1/m];};
+  return synthAdt((lx,lz)=>H[cell(lx,lz)],tx,ty,'Tileset\\Elune\\Regolith.blp',area,normal);
 }
 
 /** Regolith albedo (rgb 0..1): neutral grey highlands and darker grey maria, matching the ground texture and per-tile minimap (no colour cast). */

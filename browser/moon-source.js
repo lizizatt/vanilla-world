@@ -65,6 +65,8 @@ export function moonMinimapRows() {
   for(let y=0;y<MOON_TILES_Y;y++)for(let x=0;x<MOON_TILES_X;x++)text+=`${ELUNE_MAP}\\map${x}_${y}.blp\t${moonMinimapHash(x,y)}\n`;
   return new TextEncoder().encode(text);
 }
+// The terrain shaders' fixed light (renderer-shaders.js): the minimap and the per-vertex splat lighting must agree or the splat/minimap handover shows as edge lines.
+const SUN=(()=>{const v=[-.3,1,.4],n=Math.hypot(...v);return v.map(c=>c/n);})(),FLAT_LIT=.4+.6*SUN[1];
 /** Neutral grey 64x64 palettised BLP2 minimap of one procedural tile: the same albedo as the globe bake (grey highlands, darker maria) lit by a fixed hillshade of the real heights, so craters and pits read at distance too. */
 export function moonMinimapBlp(tx,ty,seed=MOON_SEED,size=64) {
   const out=new Uint8Array(148+1024+size*size),v=new DataView(out.buffer);
@@ -74,8 +76,8 @@ export function moonMinimapBlp(tx,ty,seed=MOON_SEED,size=64) {
   const px=ADT_TILE/size,ox=(tx-OX)*ADT_TILE,oz=(ty-OY)*ADT_TILE,hAt=(x,z)=>moonHeightChart(seed,x,z);
   for(let j=0;j<size;j++)for(let i=0;i<size;i++) {
     const x=ox+(i+.5)*px,z=oz+(j+.5)*px,a=moonAlbedo(seed,...chartDir(x,z)),grey=(a[0]+a[1]+a[2])/3;
-    const slope=((hAt(x+px,z+px)-hAt(x-px,z-px))/(2*px))*2.5;
-    const hh=Math.imul((tx*64+i)*374761393+(ty*64+j)*668265263,1274126177),r=((hh^hh>>>15)>>>0)/4294967296,shade=Math.min(1.3,Math.max(.5,1-slope))*(.92+.16*r)*(r>.97?.78:1);
+    const gx=(hAt(x+px,z)-hAt(x-px,z))/(2*px),gz=(hAt(x,z+px)-hAt(x,z-px))/(2*px),m=Math.hypot(gx,gz,1),lit=.4+.6*Math.max(0,(SUN[0]*-gx+SUN[1]+SUN[2]*-gz)/m);
+    const hh=Math.imul((tx*64+i)*374761393+(ty*64+j)*668265263,1274126177),r=((hh^hh>>>15)>>>0)/4294967296,shade=Math.min(1.35,Math.max(.4,lit/FLAT_LIT))*(.92+.16*r)*(r>.97?.78:1);
     out[1172+j*size+i]=Math.max(0,Math.min(255,Math.round(grey*shade*255*1.05)));
   }
   return out;
@@ -86,7 +88,7 @@ export function moonSource(seed=MOON_SEED) {
   const files=new Map([[base+'.wdt',moonWdt()],[base+'.wdl',moonWdl(seed)]]);
   const cache=new Map();
   return {
-    fingerprint:`elune-procedural-v3-${seed}`,archives:[],stats:{},
+    fingerprint:`elune-procedural-v4-${seed}`,archives:[],stats:{},
     /** Callers may transfer the returned buffer to a worker, so every shared (cached) array is handed out as a fresh copy. */
     async read(path) {
       const key=path.replaceAll('/','\\').toLowerCase(),hit=files.get(key);
