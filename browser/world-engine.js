@@ -6,6 +6,7 @@ import {SceneStream,SCENE_LIMITS,transformedBounds,globalCollisionVertices,scene
 import {TerrainStream} from './terrain-stream.js';
 import {loadCraft} from './craft-stream.js';
 import {loadPopulation} from './npc-pack.js';
+import {bodyPopulation} from './graft-npcs.js';
 import {WaterStream} from './water-stream.js';
 import {FarChannel} from './far-channel.js';
 import {splitBudget,effectiveBudget,residentTileCap,bodyTileCap,nearRadius} from './memory-budget.js';
@@ -745,7 +746,8 @@ export async function openWorld(message) {
     const loopback=/^(localhost|127\.0\.0\.1|\[::1\])$/.test(self.location.hostname);
     // Static hosts without a pack (404, or an HTML fallback with 200) simply get no creatures.
     const pack=await loadPopulation({loopback,source,wasm:wasmTypes});
-    if(pack)scene.setPopulation(pack);
+    const population=moon?await bodyPopulation(message.folder,pack,source).catch(()=>undefined):pack;
+    if(population)scene.setPopulation(population);
     // Horizon initialization is synchronous before its first yield; required near work can then overlap publication.
     const horizonReady=buildHorizon(wdls);
     await Promise.all([horizonReady,(async()=>{
