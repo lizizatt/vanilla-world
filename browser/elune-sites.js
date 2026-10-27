@@ -14,6 +14,7 @@ export const SITES=Object.freeze({
     id:'moonglade',label:'Moonglade',map:'Kalimdor',area:493,
     source:Object.freeze({x:[35,37],y:[16,18]}),// measured with moonglade-census.mjs: the 3 x 3 plateau holding the town, Lake Elune'ara and the grove
     dest:Object.freeze({x:29,y:14}),// north-west tile of the grafted block on the body's tile grid (chart centre = tile 30,15, the sub-Azeroth point since Elune is tidally locked, so Azeroth hangs overhead)
+    spawnYaw:2.5,// pod heading at the map-teleport seat: measured with driving-smoke on real data, the grove's trees and banks stop a pod on most headings within ~100-300 yd; 2.5 runs clear out of the dome onto open moon
     dome:circleThrough([[205.845,52.071],[268.196,588.637],[879.646,459.553]],{shell:50}),// druidic dome whose footprint circle passes exactly through the user's track new-track-2 start + 2 gates (chart x,z); shell skin width. The graft ends at this circle (chunk centres) and procedural regolith starts right outside it.
   })],
 });

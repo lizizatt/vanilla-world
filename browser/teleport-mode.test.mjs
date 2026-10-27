@@ -34,3 +34,9 @@ test('app wiring uses the mode plan and per-body gravity',()=>{
   const l=readFileSync(new URL('./app-loading.js',import.meta.url),'utf8');
   assert.match(l,/podGravityFor\(values\[14\],prev\.id,parentId\)/);
 });
+
+test('the Elune seat faces the site spawnYaw (a heading clear of the grove), not a hard-coded 0',async()=>{
+  const {sitesOf}=await import('./elune-sites.js');const yaw=sitesOf('elune')[0].spawnYaw;
+  assert.ok(Number.isFinite(yaw)&&yaw!==0);
+  assert.equal(teleportModePlan({body:'elune'},'azeroth',true).seat[3],yaw);
+});
