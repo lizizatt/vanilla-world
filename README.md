@@ -16,13 +16,21 @@ player's own local files at runtime.
 
 ## Build and run
 
+Prerequisites: Rust 1.98.1 with the `wasm32-unknown-unknown` target, `wasm-bindgen-cli` **0.2.122** (exact version; it must match the crate),
+Node 20+. A fresh clone has no `browser/pkg` (git-ignored); build it first or the shell/dist tests skip and the app cannot start.
+
 ```
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.122 --locked
 cd client && cargo build -p flats-racer-web --target wasm32-unknown-unknown --release
 wasm-bindgen target/wasm32-unknown-unknown/release/flats_racer_web.wasm --target web --out-dir ../browser/pkg
 cd ../browser && npm install && node server.mjs      # http://127.0.0.1:4173
 node --test browser                                  # unit tests (from repo root)
 ```
 
+Then open the page and pick your own WoW 1.12 `Data` folder (optionally also a Star Wars Episode I: Racer `data` folder). Nothing is uploaded.
+Optional local-only files (never committed): `browser/world-map-art.jpg` (painted map override), `browser/vehicles/*.glb`, a private NPC pack.
+See [browser/design/clean-checkout.md](browser/design/clean-checkout.md) for what a clean checkout does and does not have.
 Windows helper: `browser/Build.ps1`. See [browser/README.md](browser/README.md) for details.
 
 ## Removed material

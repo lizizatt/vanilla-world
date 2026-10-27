@@ -151,12 +151,8 @@ export class WorldMapService {
       const read=path=>this.source.read(path,{background:true,shouldDefer:stopped});
       const rows=worldMapAreas(await read('DBFilesClient\\WorldMapArea.dbc'));
       this.emit({event:'worldmap',rows});
-      // The single full-world map (both continents and the Maelstrom) is preferred; per-continent art is the fallback when Data lacks it.
+      // Per-continent art is what the panel can place (imageRects); the single World image has no region bounds, so it is only a last resort.
       const hasRow=n=>rows.some(r=>r.area===0&&r.name.toLowerCase()===n.toLowerCase());
-      const world=WORLD_MAPS.find(n=>hasRow(n));
-      if(world){
-        try {await this.tiles(world,rows,read,stopped);return;} catch(error) {if(error.code==='DEFERRED')throw error;}
-      }
       for(const name of names) {
         if(!NAME.test(name)||!hasRow(name))continue;
         await this.tiles(name,rows,read,stopped);
