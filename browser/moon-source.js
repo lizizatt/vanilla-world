@@ -87,16 +87,17 @@ export function moonSource(seed=MOON_SEED) {
   const cache=new Map();
   return {
     fingerprint:`elune-procedural-v3-${seed}`,archives:[],stats:{},
+    /** Callers may transfer the returned buffer to a worker, so every shared (cached) array is handed out as a fresh copy. */
     async read(path) {
       const key=path.replaceAll('/','\\').toLowerCase(),hit=files.get(key);
-      if(hit)return hit;
+      if(hit)return hit.slice();
       if(key==='textures\\minimap\\md5translate.trs')return moonMinimapRows();
       const mm=MINIMAP_NAME.exec(key);if(mm&&present(parseInt(mm[1],16),parseInt(mm[2],16)))return moonMinimapBlp(parseInt(mm[1],16),parseInt(mm[2],16),seed);
-      if(key.endsWith('.blp'))return key.includes('minimap')?minimap:ground;
+      if(key.endsWith('.blp'))return (key.includes('minimap')?minimap:ground).slice();
       const m=/^world\\maps\\elune\\elune_(\d+)_(\d+)\.adt$/.exec(key);
       if(m&&present(+m[1],+m[2])){
         if(!cache.has(key)){if(cache.size>=64)cache.delete(cache.keys().next().value);cache.set(key,moonAdt(seed,+m[1],+m[2]));}
-        return cache.get(key);
+        return cache.get(key).slice();
       }
       throw Object.assign(new Error(`File not on Elune: ${path}`),{code:'NOT_FOUND'});
     },

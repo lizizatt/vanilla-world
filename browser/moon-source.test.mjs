@@ -14,7 +14,7 @@ test('serves WDT with 60x30 present tiles', async () => {
 test('serves ADTs matching moonAdt, caches, rejects outside the chart', async () => {
   const s=moonSource(),a=await s.read('world/maps/elune/elune_30_15.adt');
   assert.deepEqual(a,moonAdt(MOON_SEED,30,15));
-  assert.equal(await s.read('world/maps/elune/elune_30_15.adt'),a);
+  assert.deepEqual(await s.read('world/maps/elune/elune_30_15.adt'),a);
   for(const p of ['world/maps/elune/elune_60_0.adt','world/maps/elune/elune_0_30.adt','world/maps/azeroth/azeroth_1_1.adt'])
     await assert.rejects(s.read(p),{code:'NOT_FOUND'});
 });
@@ -41,4 +41,11 @@ test('every procedural tile has a far minimap row, and each minimap is neutral g
 });
 test('ground texture palette is neutral grey', () => {
   const g=regolithGroundBlp();for(let i=0;i<32;i++)assert.ok(g[148+i*4]===g[149+i*4]&&g[149+i*4]===g[150+i*4]);
+});
+test('read hands out a private copy each time, so transferring it to a worker cannot detach the cache',async()=>{
+  const s=moonSource();
+  for(const p of ['world\\maps\\elune\\elune.wdt','world\\maps\\elune\\elune_33_17.adt','textures\\ground\\x.blp','textures\\minimap\\x.blp']){
+    const a=await s.read(p);structuredClone(a,{transfer:[a.buffer]});
+    const b=await s.read(p);assert.ok(b.byteLength>0,'second read of '+p+' must not be detached');
+  }
 });
