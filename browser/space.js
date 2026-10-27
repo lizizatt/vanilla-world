@@ -113,7 +113,8 @@ export function bendRel(rel,eye,k=1,radius=PLANET_RADIUS,centre=WORLD_CENTRE) {
   const lat0=clampLat((centre[1]-eye[2])/radius),lat=clampLat(lat0-rel[2]/radius),dl=rel[0]/radius;
   const cl=Math.cos(lat),sp0=Math.sin(lat0),cp0=Math.cos(lat0),cd=cl*Math.cos(dl);
   const n=[cl*Math.sin(dl),cp0*cd+sp0*Math.sin(lat),sp0*cd-cp0*Math.sin(lat)],r=radius+rel[1]+eye[1];
-  return [rel[0]+(n[0]*r-rel[0])*k,rel[1]+(n[1]*r-(radius+eye[1])-rel[1])*k,rel[2]+(n[2]*r-rel[2])*k];
+  const t=Math.min(Math.max((k-.1)/.2,0),1),s=Math.min(Math.max((Math.hypot(rel[0],rel[2])-1.5*radius)/radius,0),1),kk=k+(1-k)*t*t*(3-2*t)*s*s*(3-2*s);
+  return [rel[0]+(n[0]*r-rel[0])*kk,rel[1]+(n[1]*r-(radius+eye[1])-rel[1])*kk,rel[2]+(n[2]*r-rel[2])*kk];
 }
 const wgslF=x=>Number.isInteger(x)?x+'.0':String(x);
 /** WGSL bend() for a body of the given radius and chart centre (design/elune.md M3). The default export is Azeroth, byte-identical to before. */
@@ -125,7 +126,9 @@ fn bend(rel:vec3f,eye:vec3f,k:f32)->vec3f {
   let cl=cos(lat);let sp0=sin(lat0);let cp0=cos(lat0);let cd=cl*cos(dl);
   let n=vec3f(cl*sin(dl),cp0*cd+sp0*sin(lat),sp0*cd-cp0*sin(lat));
   let w=vec3f(0.0,-(R+eye.y),0.0)+n*(R+rel.y+eye.y);
-  return mix(rel,w,k);
+  // Far water/terrain (past ~1.5 R of chart distance, where it would wrap round the globe) is fully curved once the bend is well under way, so no flat plane floats beyond the horizon at partial bend.
+  let kk=k+(1.0-k)*smoothstep(.1,.3,k)*smoothstep(1.5*R,2.5*R,length(rel.xz));
+  return mix(rel,w,kk);
 }`;
 export const bendShader=bendShaderFor(PLANET_RADIUS,WORLD_CENTRE);
 
@@ -148,12 +151,29 @@ const withAtmosphericDisc=src=>src
       } else if(id==1) {lit2=lit;}
       acc=over(acc,col*lit2,space);`);
 /** Airless-body variant: regolith instead of the Azeroth sea/land stylisation, and no atmosphere (limb glow, rim light, haze). */
-const AIRLESS_SURFACE=`fn surface(pv:vec3f,n:vec3f,d:vec3f,sun:vec3f)->vec3f {
-  let tex=fbm(pv.xz*85.0+vec2f(pv.y*31.0,pv.y*17.0));let broad=fbm(pv.xz*9.0+vec2f(pv.y*5.0,pv.y*3.0));
-  let reg=mix(vec3f(.34,.32,.29),vec3f(.58,.55,.5),smoothstep(.3,.7,tex))*(.78+.44*broad);
-  // The zero-weighted registry read keeps the shared bind-group layout (surfaceTex) alive.
-  let keep=textureSampleLevel(surfaceTex,surfaceSamp,vec2f(.5,.5),0.0).a*0.0;
-  return reg*(clamp(dot(n,sun)*1.6+.04,0.0,1.0)+.02)+keep;
+const AIRLESS_SURFACE=`fn pits(p:vec3f,k:f32)->f32 {
+  let q=p*k;let c=floor(q);var m=0.0;
+  for(var x=-1;x<=1;x++){for(var y=-1;y<=1;y++){for(var z=-1;z<=1;z++){
+    let g=c+vec3f(f32(x),f32(y),f32(z));
+    if(h1(g+3.7)<.5){continue;}
+    let ctr=g+vec3f(h1(g+1.1),h1(g+2.2),h1(g+4.4));
+    let d=length(q-ctr)/(.15+.3*h1(g+5.5));
+    m+=-.5*smoothstep(1.0,.2,d)+.25*smoothstep(.25,.0,abs(d-1.05));
+  }}}
+  return m;
+}
+fn surface(pv:vec3f,n:vec3f,d:vec3f,sun:vec3f)->vec3f {
+  // Fine grain and pits fade with altitude: from far away they alias into moire streaks.
+  let alt=s.p.x;let wf=1.0-smoothstep(400.0,5000.0,alt);let wp=1.0-smoothstep(3000.0,14000.0,alt);
+  let tex=mix(.5,fbm(pv.xz*85.0+vec2f(pv.y*31.0,pv.y*17.0)),wf);let broad=fbm(pv.xz*9.0+vec2f(pv.y*5.0,pv.y*3.0));
+  var reg=mix(vec3f(.34,.32,.29),vec3f(.58,.55,.5),smoothstep(.3,.7,tex))*(.78+.44*broad);
+  // The baked body surface (minimap grey, Moonglade green under the dome) owns the colour where it has coverage.
+  let bake=textureSampleLevel(surfaceTex,surfaceSamp,vec2f(atan2(pv.z,pv.x)/6.2831853+.5,.5-asin(clamp(pv.y,-1.0,1.0))/3.1415927),0.0);
+  if(s.tint[1].w>.5){reg=mix(reg,bake.rgb*(.8+.4*tex),smoothstep(.45,.6,bake.a));}
+  reg=reg*clamp(1.0+pits(pv,14.0)*(.4+.6*wf)+pits(pv,40.0)*wp,.45,1.3);
+  // Earthshine: a faint cool fill so the night side is not pure black.
+  let lit=clamp(dot(n,sun)*1.6+.04,0.0,1.0);
+  return reg*(lit+.02)+vec3f(.02,.03,.05)*(1.0-lit)*reg*3.0;
 }
 fn surfaceSea(`;
 const airlessShader=src=>src

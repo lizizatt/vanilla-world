@@ -99,7 +99,9 @@ test('the graft ends exactly at the dome circle: chunk ground, texture and area 
       else if(rel==='outside'){outsideChunks++;assert.equal(tex[c.tex],'Tileset\\Elune\\Regolith.blp');assert.equal(c.texs.length,1);}
       else {
         partial++;// straddling chunks keep their layers under a per-texel alpha cut, with regolith as the base
-        assert.equal(tex[c.tex],'Tileset\\Elune\\Regolith.blp');assert.ok(c.texs.length>=2);assert.match(tex[c.texs[1]],/Grass/);
+        assert.equal(tex[c.tex],'Tileset\\Elune\\Regolith.blp');
+        // a straddling chunk whose centre is outside the circle is the procedural regolith chunk (graft heights kept), so no darker graft chunk staircases onto the plain
+        if(inCircle){assert.ok(c.texs.length>=2);assert.match(tex[c.texs[1]],/Grass/);}else assert.equal(c.texs.length,1);
       }
     }
   }

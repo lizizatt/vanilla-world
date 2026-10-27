@@ -1,5 +1,7 @@
 
-import {SimClock} from './sim-clock.js';
+import {SimClock,simEpoch} from './sim-clock.js';
+import {activeBody} from './body-shaders.js';
+import {poseBody} from './pose-body.js';
 export function installPose(app) {
 const {settings,client}=app;
 Object.assign(app,{applyUrlPose});
@@ -15,7 +17,7 @@ function showLink(link) {
 }
 function exportPose() {
   const t=client.state?.telemetry;
-  const view={v:1,flight:app.flight?app.flight.slice():undefined,drive:!app.flight&&t?Array.from(t.slice(0,4)):undefined,time:app.renderer.timeOfDay,settings:{...settings}};
+  const view={v:1,body:activeBody().id,days:simEpoch.days,flight:app.flight?app.flight.slice():undefined,drive:!app.flight&&t?Array.from(t.slice(0,4)):undefined,time:app.renderer.timeOfDay,settings:{...settings}};
   const link=`${location.origin}${location.pathname}?pose=${encodeURIComponent(JSON.stringify(view))}`;
   window.lastPoseLink=link;
   const done=ok=>{if(ok)toast('Pose link copied to clipboard');else showLink(link);};
@@ -26,12 +28,24 @@ function exportPose() {
 async function applyUrlPose() {
   const raw=new URLSearchParams(location.search).get('pose');if(!raw)return;
   let view;try{view=JSON.parse(raw);}catch{return;}
-  Object.assign(settings,view.settings||{});delete settings.night;app.syncSettings();
-  if(view.time!==undefined){app.renderer.clock=new SimClock(view.time,settings.timeScale);app.renderer.timeLock=undefined;}
-  if(view.flight)app.flight=view.flight.slice();
-  else if(view.drive){client.state=await client.request('restore',{pose:view.drive});app.flight=undefined;app.renderer.camera=undefined;}
-  app.running=true;
-}
-window.exportPose=exportPose;
+  const place=async()=>{
+    Object.assign(settings,view.settings||{});delete settings.night;app.syncSettings();
+    if(view.time!==undefined){app.renderer.clock=new SimClock(view.time,settings.timeScale);simEpoch.days=Number.isFinite(view.days)?view.days:0;app.renderer.timeLock=undefined;app.renderer.timeOfDay=app.renderer.clock.now();}
+    if(view.flight)app.flight=view.flight.slice();
+    else if(view.drive){client.state=await client.request('restore',{pose:view.drive});app.flight=undefined;app.renderer.camera=undefined;}
+    app.running=true;
+  };
+  const target=poseBody(view);
+  if(target===activeBody().id||!app.soiSwap){await place();return;}
+  // The in-page swap needs the app idle and the target engine warm; the flight pose is in the target body's chart, so it is placed only after the swap settled.
+  void (async()=>{
+    const t0=performance.now();
+    while(performance.now()-t0<120000&&(app.busy||!app.engines?.[target]?.info||!app.renderer?.planetSets?.[target]))await new Promise(r=>setTimeout(r,250));
+    const ok=await app.soiSwap(target).catch(()=>false);
+    if(ok)await app.evidence?.swapSettled;
+    await new Promise(r=>setTimeout(r,500));
+    await place();
+  })();
+}window.exportPose=exportPose;
 window.addEventListener('keydown',event=>{if(!event.repeat&&app.running&&(event.code==='F8'||(event.code==='KeyY'&&event.ctrlKey&&event.altKey))){event.preventDefault();event.stopPropagation();exportPose();}},true);
 }

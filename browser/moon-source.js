@@ -1,6 +1,6 @@
 // Elune asset source (design/elune.md M2): serves a generated WDT/WDL/ADT set for the map "Elune" from moon-terrain, like demo-source does for the demo world. No game data.
 import {chunk,join,ver} from './demo-source.js';
-import {moonAdt,moonHeightChart,MOON_TILES_X,MOON_TILES_Y} from './moon-terrain.js';
+import {moonAdt,moonHeightChart,moonAlbedo,chartDir,MOON_TILES_X,MOON_TILES_Y} from './moon-terrain.js';
 import {ADT_TILE} from './adt-synth.js';
 
 export const ELUNE_MAP='Elune';
@@ -29,7 +29,7 @@ export function moonWdl(seed=MOON_SEED) {
 }
 
 /** Solid regolith-coloured 64x64 palettised BLP2, used as the minimap of procedural moon tiles that sit beside real ones. */
-export function regolithBlp(size=64,rgb=[165,152,112]) {
+export function regolithBlp(size=64,rgb=[128,128,128]) {
   const out=new Uint8Array(148+1024+size*size),v=new DataView(out.buffer);
   out.set([0x42,0x4c,0x50,0x32]);v.setUint32(4,1,true);out[8]=1;v.setUint32(12,size,true);v.setUint32(16,size,true);
   v.setUint32(20,148+1024,true);v.setUint32(84,size*size,true);
@@ -42,7 +42,7 @@ export function regolithGroundBlp(size=64) {
   const out=new Uint8Array(148+1024+size*size),v=new DataView(out.buffer),shades=32;
   out.set([0x42,0x4c,0x50,0x32]);v.setUint32(4,1,true);out[8]=1;v.setUint32(12,size,true);v.setUint32(16,size,true);
   v.setUint32(20,148+1024,true);v.setUint32(84,size*size,true);
-  const lo=[88,84,80],hi=[170,162,150];
+  const lo=[84,84,84],hi=[168,168,168];
   for(let i=0;i<shades;i++){const t=i/(shades-1);out.set([0,1,2].map(k=>Math.round(lo[2-k]+(hi[2-k]-lo[2-k])*t)).concat(255),148+i*4);}
   const hash=(x,y)=>{let h=Math.imul(x*374761393+y*668265263,1274126177);h^=h>>>13;h=Math.imul(h,1103515245);return ((h^h>>>16)>>>0)/4294967296;};
   const cell=8,n=size/cell,lat=(x,y)=>hash((x+n)%n,(y+n)%n),smooth=t=>t*t*(3-2*t);
@@ -56,20 +56,48 @@ export function regolithGroundBlp(size=64) {
   return out;
 }
 
+/** Name of a procedural tile's baked minimap in the translation table (32 hex digits: tile x, y, then e2; graft minimaps use e1). */
+export const moonMinimapHash=(tx,ty)=>`${'0'.repeat(22)}${tx.toString(16).padStart(4,'0')}${ty.toString(16).padStart(4,'0')}e2.blp`;
+const MINIMAP_NAME=/^textures\\minimap\\0{22}([0-9a-f]{4})([0-9a-f]{4})e2\.blp$/;
+/** Translation rows (`elune\mapX_Y.blp<TAB>hash`) for every procedural tile, so the far horizon has real colour on all of them. */
+export function moonMinimapRows() {
+  let text='';
+  for(let y=0;y<MOON_TILES_Y;y++)for(let x=0;x<MOON_TILES_X;x++)text+=`${ELUNE_MAP}\\map${x}_${y}.blp\t${moonMinimapHash(x,y)}\n`;
+  return new TextEncoder().encode(text);
+}
+/** Neutral grey 64x64 palettised BLP2 minimap of one procedural tile: the same albedo as the globe bake (grey highlands, darker maria) lit by a fixed hillshade of the real heights, so craters and pits read at distance too. */
+export function moonMinimapBlp(tx,ty,seed=MOON_SEED,size=64) {
+  const out=new Uint8Array(148+1024+size*size),v=new DataView(out.buffer);
+  out.set([0x42,0x4c,0x50,0x32]);v.setUint32(4,1,true);out[8]=1;v.setUint32(12,size,true);v.setUint32(16,size,true);
+  v.setUint32(20,148+1024,true);v.setUint32(84,size*size,true);
+  for(let i=0;i<256;i++)out.set([i,i,i,255],148+i*4);
+  const px=ADT_TILE/size,ox=(tx-OX)*ADT_TILE,oz=(ty-OY)*ADT_TILE,hAt=(x,z)=>moonHeightChart(seed,x,z);
+  for(let j=0;j<size;j++)for(let i=0;i<size;i++) {
+    const x=ox+(i+.5)*px,z=oz+(j+.5)*px,a=moonAlbedo(seed,...chartDir(x,z)),grey=(a[0]+a[1]+a[2])/3;
+    const slope=((hAt(x+px,z+px)-hAt(x-px,z-px))/(2*px))*2.5;
+    const hh=Math.imul((tx*64+i)*374761393+(ty*64+j)*668265263,1274126177),r=((hh^hh>>>15)>>>0)/4294967296,shade=Math.min(1.3,Math.max(.5,1-slope))*(.92+.16*r)*(r>.97?.78:1);
+    out[1172+j*size+i]=Math.max(0,Math.min(255,Math.round(grey*shade*255*1.05)));
+  }
+  return out;
+}
+
 export function moonSource(seed=MOON_SEED) {
   const base=`world\\maps\\${ELUNE_MAP}\\${ELUNE_MAP}`.toLowerCase(),ground=regolithGroundBlp(),minimap=regolithBlp();
   const files=new Map([[base+'.wdt',moonWdt()],[base+'.wdl',moonWdl(seed)]]);
   const cache=new Map();
   return {
-    fingerprint:`elune-procedural-v2-${seed}`,archives:[],stats:{},
+    fingerprint:`elune-procedural-v3-${seed}`,archives:[],stats:{},
+    /** Callers may transfer the returned buffer to a worker, so every shared (cached) array is handed out as a fresh copy. */
     async read(path) {
       const key=path.replaceAll('/','\\').toLowerCase(),hit=files.get(key);
-      if(hit)return hit;
-      if(key.endsWith('.blp'))return key.includes('minimap')?minimap:ground;
+      if(hit)return hit.slice();
+      if(key==='textures\\minimap\\md5translate.trs')return moonMinimapRows();
+      const mm=MINIMAP_NAME.exec(key);if(mm&&present(parseInt(mm[1],16),parseInt(mm[2],16)))return moonMinimapBlp(parseInt(mm[1],16),parseInt(mm[2],16),seed);
+      if(key.endsWith('.blp'))return (key.includes('minimap')?minimap:ground).slice();
       const m=/^world\\maps\\elune\\elune_(\d+)_(\d+)\.adt$/.exec(key);
       if(m&&present(+m[1],+m[2])){
         if(!cache.has(key)){if(cache.size>=64)cache.delete(cache.keys().next().value);cache.set(key,moonAdt(seed,+m[1],+m[2]));}
-        return cache.get(key);
+        return cache.get(key).slice();
       }
       throw Object.assign(new Error(`File not on Elune: ${path}`),{code:'NOT_FOUND'});
     },

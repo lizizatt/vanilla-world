@@ -4,6 +4,8 @@ import {domeShellAsset,domePlacement,domeLevel} from './dome-shell.js';
 import {SITES,domeCentre,siteRect,siteMask,domeMask} from './elune-sites.js';
 import {ParticlePool,emitDomeMist,KINDS} from './particles.js';
 import {natureGain,NATURE} from './world-audio.js';
+import {moonHeightChart} from './moon-terrain.js';
+import {MOON_SEED} from './moon-source.js';
 
 const site=SITES.elune[0],[cx,cz]=domeCentre(site,30,15);
 
@@ -12,7 +14,7 @@ test('shell mesh is a valid hemisphere: stride 12, in range indices, rim brighte
   assert.ok(Number.isInteger(n)&&a.indices.every(i=>i<n));
   assert.ok(a.indices.length<20000,'fits the craft budget');
   let top=0,rim=0;
-  for(let i=0;i<n;i++){const y=a.vertices[i*12+1],al=a.vertices[i*12+11];assert.ok(y>=-1e-3&&Math.hypot(a.vertices[i*12],y,a.vertices[i*12+2])<=r+1e-3);if(y>r*.99)top=Math.max(top,al);if(y<r*.05)rim=Math.max(rim,al);}
+  for(let i=0;i<n;i++){const y=a.vertices[i*12+1],al=a.vertices[i*12+11];assert.ok(y>=-49&&Math.hypot(a.vertices[i*12],y,a.vertices[i*12+2])<=r+1e-3);if(y>r*.99)top=Math.max(top,al);if(y<r*.05)rim=Math.max(rim,al);}
   assert.ok(rim>top*5,'soft Fresnel rim');assert.ok(rim<.5,'stays faint');
   assert.equal(a.batches[0].blend,'add');assert.ok(a.batches[0].noDepthWrite);
 });
@@ -50,4 +52,12 @@ test('dome footprint circle passes exactly through the user track points (start 
 test('nature ambience scales with dome membership and is faint', () => {
   assert.equal(natureGain(0),0);assert.equal(natureGain(1),NATURE.gain);assert.equal(natureGain(2),NATURE.gain);assert.ok(natureGain(.5)<natureGain(1));assert.ok(NATURE.gain<.1);
   assert.equal(domeMask('elune',cx,cz,30,15),1);
+});
+
+test('shell skirt reaches below the lowest rim ground so no gap shows under the glass, without growing past the footprint circle', () => {
+  const r=site.dome.radius,p=domePlacement('elune'),a=domeShellAsset(r),n=a.vertices.length/12;
+  let lowest=0,widest=0,rimA=0,skirtA=0;
+  for(let i=0;i<n;i++){const y=a.vertices[i*12+1],al=a.vertices[i*12+11];lowest=Math.min(lowest,y);widest=Math.max(widest,Math.hypot(a.vertices[i*12],a.vertices[i*12+2]));if(y>-1e-6&&y<r*.01)rimA=Math.max(rimA,al);if(y<-1)skirtA=Math.max(skirtA,al);}
+  let worst=0;for(let k=0;k<720;k++){const t=k/720*Math.PI*2;worst=Math.min(worst,moonHeightChart(MOON_SEED,p.pos[0]+Math.cos(t)*r,p.pos[2]+Math.sin(t)*r)-p.pos[1]);}
+  assert.ok(lowest<=worst-5,'skirt covers the lowest rim ground');assert.ok(widest<=r+1e-3);assert.ok(skirtA<=rimA*1.01,'skirt not brighter than the rim');
 });

@@ -50,17 +50,17 @@ fn valleyHaze(p:vec3f)->f32 {
 fn fogTint()->vec3f {return select(mix(vec3f(.08,.15,.20),vec3f(.008,.016,.045),nightK()),u.sky[0].rgb,gameSky());}
 `;
 /** Per-point night (0 day .. 1 night) on the bent globe from the sun in u.pad[1]; matches the globe shader's terminator. Needs the terrain/splat U layout. */
-export const localNightShadingFor=radius=>{const PLANET_RADIUS=wgslNumber(radius);return `
+export const localNightShadingFor=(radius,sunLocal=false)=>{const PLANET_RADIUS=wgslNumber(radius);return `
 fn localNight(p:vec3f)->f32 {
-  let g=1.0-u.forward.w;let k=clamp(u.pad[0].x*${PLANET_RADIUS},0.0,1.0);
+  let g=1.0-u.forward.w;let k=select(clamp(u.pad[0].x*${PLANET_RADIUS},0.0,1.0),1.0,${sunLocal}&&dot(u.pad[1].xyz,u.pad[1].xyz)>.5);
   if(k<=0.0){return g;}
-  let rel=bend(p-u.eye.xyz,u.eye.xyz,u.pad[0].x);let n=normalize(rel-vec3f(0.0,-(${PLANET_RADIUS}+u.eye.y),0.0));
-  return mix(g,1.0-smoothstep(-.12,.25,dot(n,u.pad[1].xyz)),k);
+  let rel=bend(p-u.eye.xyz,vec3f(u.eye.x,u.eye.y,u.pad[0].z),u.pad[0].x);let n=normalize(rel-vec3f(0.0,-(${PLANET_RADIUS}+u.eye.y),0.0));
+  return mix(g,1.0-smoothstep(-.12,${sunLocal?".7":".25"},dot(n,u.pad[1].xyz)),k);
 }
 // Atmosphere rim the globe shader adds at the limb; added to bent terrain/water too so chunked and globe surfaces agree from orbit.
 fn limbGlow(p:vec3f)->vec3f {
   let k=u.pad[0].y*clamp(u.eye.y/3000.0,0.0,1.0);if(k<=0.0){return vec3f(0.0);}
-    let rel=bend(p-u.eye.xyz,u.eye.xyz,u.pad[0].x);let n=normalize(rel-vec3f(0.0,-(${PLANET_RADIUS}+u.eye.y),0.0));
+    let rel=bend(p-u.eye.xyz,vec3f(u.eye.x,u.eye.y,u.pad[0].z),u.pad[0].x);let n=normalize(rel-vec3f(0.0,-(${PLANET_RADIUS}+u.eye.y),0.0));
   let lit=clamp(dot(n,u.pad[1].xyz)*1.6+.15,0.0,1.0);
   return vec3f(.25,.5,1.0)*pow(1.0-max(dot(n,-normalize(rel)),0.0),3.0)*(.15+lit)*.8*k;
 }`;};
@@ -83,7 +83,7 @@ fn waterColor(p:vec3f,ramp:f32,rampWidth:f32,dx:vec2f,dy:vec2f)->vec3f {
   var up=vec3f(0.0,1.0,0.0);var view=normalize(u.eye.xyz-p);
   // On the bent globe the surface normal and view ray follow the sphere; the flat-plane ones banded the far ocean into stripes from orbit.
   let wbk=waterBendK();let bk=smoothstep(0.85,1.0,wbk);
-  if(bk>0.0){let rel=bend(p-u.eye.xyz,u.eye.xyz,wbk);up=normalize(mix(up,normalize(rel-vec3f(0.0,-(${PLANET_RADIUS}+u.eye.y),0.0)),bk));view=normalize(mix(view,-normalize(rel),bk));}
+  if(bk>0.0){let rel=bend(p-u.eye.xyz,bendEye(),wbk);up=normalize(mix(up,normalize(rel-vec3f(0.0,-(${PLANET_RADIUS}+u.eye.y),0.0)),bk));view=normalize(mix(view,-normalize(rel),bk));}
   let distance=length(u.eye.xyz-p);
   let detail=1.0-smoothstep(160.0,1500.0,distance);
   // Bowl: the real mesh dip (ocean-mesh.js profile) gives the slope, boosted so the walls read as lit/shaded from afar.

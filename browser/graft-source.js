@@ -5,7 +5,7 @@ import {adtChunks,translateAdt,reshapeAdt,cutAdt,maskMinimap} from './graft-adt.
 import {sitesOf,tilesOf,siteRect,siteCentre,siteMask,siteTiles,rectVsCircle,domeCentre} from './elune-sites.js';
 import {ADT_TILE,ADT_CHUNK} from './adt-synth.js';
 import {moonAdt,moonHeightChart,MOON_TILES_X,MOON_TILES_Y} from './moon-terrain.js';
-import {regolithBlp} from './moon-source.js';
+import {regolithBlp,moonMinimapBlp} from './moon-source.js';
 import {RIM_BAND,GRAFT_INFO} from './graft-npcs.js';
 
 const STEP=ADT_CHUNK/8,CX=MOON_TILES_X/2,CY=MOON_TILES_Y/2;
@@ -44,15 +44,16 @@ const tileRect=(dx,dy)=>[(dx-CX)*ADT_TILE,(dy-CY)*ADT_TILE,(dx-CX+1)*ADT_TILE,(d
 /** Name of the minimap of a grafted tile that the dome circle cuts through: the real minimap with everything outside the circle turned to regolith (served by graftSource). */
 export const maskedHash=(dx,dy)=>`${'0'.repeat(22)}${dx.toString(16).padStart(4,'0')}${dy.toString(16).padStart(4,'0')}e1.blp`;
 /** The minimap translation table plus one row per grafted tile: inside the dome circle it aliases the source tile's real minimap, outside it plain regolith, and where the circle cuts the tile a masked copy, so no Moonglade colour reaches the horizon or globe beyond the circle. */
-export function graftMinimapRows(bytes,sites,mapName) {
+export function graftMinimapRows(bytes,sites,mapName,baseRows) {
   const text=new TextDecoder().decode(bytes),rows=new Map();
   for(const line of text.split('\n')){const [name,hash]=line.trim().split('\t');if(hash)rows.set(name.toLowerCase(),hash);}
-  let extra='';
+  let extra=baseRows?new TextDecoder().decode(baseRows).replace(/\s*$/,'\n'):'';
   for(const site of sites) {
     for(const {sx,sy,dx,dy} of tilesOf(site)) {
       const hash=rows.get(`${site.map}\\map${sx}_${sy}.blp`.toLowerCase());
       if(!hash)continue;
       const rel=rectVsCircle(site,tileRect(dx,dy),CX,CY);
+      if(rel==='outside'&&baseRows)continue;
       extra+=`${mapName}\\map${dx}_${dy}.blp\t${rel==='inside'?hash:rel==='outside'?REGOLITH_HASH:maskedHash(dx,dy)}\n`;
     }
   }
@@ -70,7 +71,7 @@ export function rimShape(site,prepared,seed) {
   };
   return {
     height:(x,z,h)=>{const d=Math.hypot(x-sx,z-sz);return d>R?proc(x,z):d<=R-RIM_BAND?h:h+correction(x,z,d);},
-    lift:(x,z)=>{const d=Math.hypot(x-sx,z-sz);return d<=R-RIM_BAND||d>R?0:correction(x,z,d);},
+    lift:(x,z)=>{const d=Math.hypot(x-sx,z-sz);return d<=R-RIM_BAND||d>R?0:correction(x,z,d);},flat:(x,z)=>ease(Math.hypot(x-sx,z-sz)),
   };
 }
 export function graftSource(base,real,{bodyId,seed}) {
@@ -95,7 +96,7 @@ export function graftSource(base,real,{bodyId,seed}) {
       return remember(`g${tx}_${ty}`,async()=>{
         const p=await prepare(site),t=tilesOf(site)[hit],moved=translateAdt(p.bytes[hit],{from:[t.sx,t.sy],to:[tx,ty],yOffset:p.yOffset});
         const edge=rimShape(site,p,seed),inside=(x,z)=>siteMask(site,x,z,CX,CY)>=1;
-        const kept=reshapeAdt(moved,{tile:[tx,ty],cx:CX,cy:CY,keep:inside,lift:edge.lift,height:edge.height});
+        const kept=reshapeAdt(moved,{tile:[tx,ty],cx:CX,cy:CY,keep:inside,lift:edge.lift,flat:edge.flat,height:edge.height});
         return cutAdt(kept,moonAdt(seed,tx,ty),{tile:[tx,ty],cx:CX,cy:CY,inside,relation:(x0,z0,x1,z1)=>rectVsCircle(site,[x0,z0,x1,z1],CX,CY),groundTexture:GROUND});
       });
     }
@@ -110,7 +111,8 @@ export function graftSource(base,real,{bodyId,seed}) {
       const t=tilesOf(site).find(q=>q.dx===dx&&q.dy===dy),hash=t&&await sourceHash(site,t.sx,t.sy);
       if(!hash)continue;
       const x0=(dx-CX)*ADT_TILE,z0=(dy-CY)*ADT_TILE;
-      return maskMinimap(await real.read(`textures\\minimap\\${hash}`),(u,v)=>siteMask(site,x0+u*ADT_TILE,z0+v*ADT_TILE,CX,CY)>=1);
+      const moon=moonMinimapBlp(dx,dy),grey=(u,v)=>{const g=moon[1172+Math.min(63,v*64|0)*64+Math.min(63,u*64|0)];return [g,g,g];};
+      return maskMinimap(await real.read(`textures\\minimap\\${hash}`),(u,v)=>siteMask(site,x0+u*ADT_TILE,z0+v*ADT_TILE,CX,CY)>=1,undefined,grey);
     }
   }
   return {
@@ -122,7 +124,7 @@ export function graftSource(base,real,{bodyId,seed}) {
       if(m){const grafted=await tile(+m[1],+m[2]);if(grafted)return grafted.slice();return base.read(path,options);}
       if(key===GRAFT_INFO){const out={};for(const site of sites)out[site.id]=(await prepare(site)).yOffset;return new TextEncoder().encode(JSON.stringify(out));}
       if(key.startsWith(`world\\maps\\${bodyId}\\`))return base.read(path,options);
-      if(key===trs)return graftMinimapRows(await real.read(path,options),sites,mapName);
+      if(key===trs)return graftMinimapRows(await real.read(path,options),sites,mapName,await base.read(path,options));
       if(key===`textures\\minimap\\${REGOLITH_HASH}`)return regolithBlp();
       const mm=MASKED.exec(key);
       if(mm){const out=await maskedMinimap(parseInt(mm[1],16),parseInt(mm[2],16));if(out)return out;}

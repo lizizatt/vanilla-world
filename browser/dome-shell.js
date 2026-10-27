@@ -7,17 +7,19 @@ import {moonHeightChart} from './moon-terrain.js';
 
 const TEAL=[.35,.95,.75],GOLD=[1,.85,.45];
 
-export function domeShellAsset(radius,{rings=12,segs=48,rim=.2,base=.012}={}) {
+// The shell continues skirt yd below the horizon plane (nearly vertical there) so it still meets the terrain where the rim ground is lower than the dome centre; the ground hides the rest.
+export function domeShellAsset(radius,{rings=12,segs=48,rim=.2,base=.012,skirt=48,skirtRings=3}={}) {
   const vertices=[],indices=[];
-  for(let i=0;i<=rings;i++) {
-    const phi=i/rings*Math.PI/2,y=Math.cos(phi)*radius,rr=Math.sin(phi)*radius,fres=Math.pow(1-Math.cos(phi),3);// phi from zenith to horizon
+  const rows=rings+skirtRings,drop=Math.asin(Math.min(1,skirt/radius));
+  for(let i=0;i<=rows;i++) {
+    const phi=i<=rings?i/rings*Math.PI/2:Math.PI/2+(i-rings)/skirtRings*drop,y=Math.cos(phi)*radius,rr=Math.sin(phi)*radius,fres=Math.pow(1-Math.max(0,Math.cos(phi)),3);// phi from zenith to horizon
     for(let j=0;j<=segs;j++) {
       const lon=j/segs*Math.PI*2,band=.5+.5*Math.sin(lon*6),k=Math.min(1,.35+.65*band),a=base+rim*fres*(.6+.4*band);
       const col=TEAL.map((t,c)=>t+(GOLD[c]-t)*(1-k));
-      vertices.push(Math.cos(lon)*rr,y,Math.sin(lon)*rr,-Math.cos(lon)*rr/radius,-y/radius,-Math.sin(lon)*rr/radius,j/segs,i/rings,col[0],col[1],col[2],a);
+      vertices.push(Math.cos(lon)*rr,y,Math.sin(lon)*rr,-Math.cos(lon)*rr/radius,-y/radius,-Math.sin(lon)*rr/radius,j/segs,i/rows,col[0],col[1],col[2],a);
     }
   }
-  for(let i=0;i<rings;i++)for(let j=0;j<segs;j++) {const a=i*(segs+1)+j,b=a+segs+1;indices.push(a,b,a+1,a+1,b,b+1);}
+  for(let i=0;i<rows;i++)for(let j=0;j<segs;j++) {const a=i*(segs+1)+j,b=a+segs+1;indices.push(a,b,a+1,a+1,b,b+1);}
   return {vertices:new Float32Array(vertices),indices:new Uint32Array(indices),
     batches:[{firstIndex:0,indexCount:indices.length,texture:null,blend:'add',doubleSided:true,noDepthWrite:true,emissive:1}]};
 }
