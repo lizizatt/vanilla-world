@@ -274,8 +274,8 @@ try{
   }else{
     await page.evaluate(async yaw=>{
       const p=worldEvidence.state.telemetry;
-      await worldTest.request('restore',{pose:[...p.slice(0,3),yaw]});
-    },Number(process.env.YAW??0));// default spawn heading faces a solid shore after ~83 m
+      await worldTest.request('restore',{pose:[...p.slice(0,3),yaw??p[3]]});
+    },process.env.YAW!==undefined?Number(process.env.YAW):process.env.TELEPORT_BODY?undefined:0);// default spawn heading faces a solid shore after ~83 m
   }
   if(await page.locator('#drive').evaluate(e=>!e.hidden)){await page.locator('#drive').evaluate(e=>e.click());await page.locator('#world').focus();}
   else if(process.env.TELEPORT_BODY)await page.locator('#world').focus();

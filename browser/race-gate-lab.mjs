@@ -1,4 +1,5 @@
 // Shared launcher for the race-gate preview scripts: muted Edge, WoW Data folder, optional SWE1R folder, Steamwheedle start pose.
+// LAB_NO_RESTORE=1 leaves the craft at the world spawn (free-camera poses/audits need tiles resident near it, not at the track start).
 // Needs WOW_DATA (+ SWE1R_DATA for the local-asset versions) and a server on PORT (default 4183).
 import fs from 'node:fs';
 import os from 'node:os';
@@ -29,8 +30,8 @@ export async function openLab({ swe1r = true, width = 1280, height = 720, clouds
   if (await page.locator('[data-tab=options]').isVisible()) { await page.locator('[data-tab=options]').click(); await page.keyboard.press('Escape'); }
   await page.evaluate(() => document.getElementById('welcome')?.remove());
   await page.locator('#world').click();
-  await page.evaluate(([p, y, clouds]) => { worldTest.settings({ shadows: false, clouds, night: false, music: false });
-    worldTest.selectVehicle({ vehicle: 'podracer', skin: 'rocket' }); worldTest.restore([p[0], p[1] + 2, p[2], y]); }, [track.start.pos, track.start.yaw, clouds]).catch(() => {});
+  await page.evaluate(([p, y, clouds, noRestore]) => { worldTest.settings({ shadows: false, clouds, night: false, music: false });
+    worldTest.selectVehicle({ vehicle: 'podracer', skin: 'rocket' }); if (!noRestore) worldTest.restore([p[0], p[1] + 2, p[2], y]); }, [track.start.pos, track.start.yaw, clouds, !!process.env.LAB_NO_RESTORE]).catch(() => {});
   return { ctx, page, errors };
 }
 
