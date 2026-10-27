@@ -37,3 +37,9 @@ test('landmarks do not consume distant-tile slots and survive tile churn',()=>{
   s.removeDistantTile('1:1:1');
   assert(s.distantTiles.has('1:landmark'));
 });
+
+test('moon engines never get Azeroth skyline landmarks',async()=>{
+  const {readFileSync}=await import('node:fs');
+  assert.match(readFileSync(new URL('./world-engine.js',import.meta.url),'utf8'),/manifest\.landmarks=!moon/);
+  assert.match(readFileSync(new URL('./far-worker.js',import.meta.url),'utf8'),/data\.manifest\.landmarks!==false/);
+});

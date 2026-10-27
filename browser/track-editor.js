@@ -7,7 +7,7 @@ const NEAREST_RANGE=5000,ALT_MIN=60,ALT_MAX=3000;
 const fwd=g=>[-Math.sin(g.yaw),-Math.cos(g.yaw)],side=g=>[Math.cos(g.yaw),-Math.sin(g.yaw)];
 const clone=o=>JSON.parse(JSON.stringify(o));
 
-export function createTrackEditor({view,tracks,save,remove:removeTrack,shipped=()=>[],probe=async()=>[],test,closed}) {
+export function createTrackEditor({view,tracks,body=()=>'azeroth',save,remove:removeTrack,shipped=()=>[],probe=async()=>[],test,closed}) {
   const root=$('track-editor'),cv=$('te-canvas'),g2=cv.getContext('2d');
   const ed={isOpen:false,draft:undefined,selected:-1,tool:'select'};
   let cam,drag,drawn=-1,sel=-2,savedState;
@@ -50,14 +50,14 @@ export function createTrackEditor({view,tracks,save,remove:removeTrack,shipped=(
     if(dirty()&&!confirm('Discard unsaved changes to this track?')){fill();return;}
     const found=tracks().find(t=>t.id===id);
     if(found)load(new TrackDraft(clone(found)));
-    else load(TrackDraft.blank(ed.from.slice(),0));
+    else load(TrackDraft.blank(ed.from.slice(),0,body()));
     fill();status(found?`Loaded "${found.name||id}".`:'New track.');
   }
   ed.open=from=>{
     ed.from=from;
     const list=tracks(),near=list.map(t=>[Math.hypot(t.start.pos[0]-from[0],t.start.pos[2]-from[2]),t]).sort((a,b)=>a[0]-b[0])[0];
     const keep=dirty();
-    if(!keep){if(near&&near[0]<NEAREST_RANGE)load(new TrackDraft(clone(near[1])));else load(TrackDraft.blank(from.slice(),0));}
+    if(!keep){if(near&&near[0]<NEAREST_RANGE)load(new TrackDraft(clone(near[1])));else load(TrackDraft.blank(from.slice(),0,body()));}
     fill();
     ed.isOpen=true;root.hidden=false;ed.tool='select';cv.focus();status(keep?'Restored your unsaved edits.':'Editing. G add · V select · S start · Del delete · Ctrl+Z undo · Wheel zoom · right-drag pan');
     refresh(true);
@@ -143,7 +143,7 @@ export function createTrackEditor({view,tracks,save,remove:removeTrack,shipped=(
     if(!confirm(revert?`Revert "${ed.draft.name}" to the shipped version?`:`Delete "${ed.draft.name}" from this browser?`))return;
     try{await removeTrack(id);}catch(error){status(`Failed: ${error.message}`,true);return;}
     const left=tracks().find(t=>t.id===id);
-    if(left)load(new TrackDraft(clone(left)));else load(TrackDraft.blank(ed.from.slice(),0));
+    if(left)load(new TrackDraft(clone(left)));else load(TrackDraft.blank(ed.from.slice(),0,body()));
     fill();status(revert?'Reverted.':'Deleted.');
   });
   $('te-save').addEventListener('click',async()=>{

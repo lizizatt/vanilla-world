@@ -11,6 +11,11 @@ import {toPlanet,fromPlanet} from './planet-frame.js';
 export const ELUNE_CIRCUMFERENCE=32000;
 export const ELUNE_RADIUS=ELUNE_CIRCUMFERENCE/(2*Math.PI);
 export const ELUNE_GRAVITY_SCALE=.25;
+/** Pod/rocket physics multiplies the player's configured Gravity tuning by this per body (the orbital gravity above is separate). */
+export const POD_GRAVITY_SCALE=Object.freeze({azeroth:1,elune:.5});
+export const podGravityScale=id=>POD_GRAVITY_SCALE[id]??1;
+/** Gravity tuning value after moving from one body to another: the configured constant is kept, only the body factor changes. */
+export const podGravityFor=(value,from,to)=>value/podGravityScale(from)*podGravityScale(to);
 /** Elune's orbit takes 5 sim days (SimClock units: a day is 2880, see sim-clock DAY_PERIOD); 100 kyd out that is ~87 yd/s. */
 export const ELUNE_ORBIT_DAYS=5;
 export const ELUNE_ORBIT=100000;

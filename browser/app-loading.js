@@ -9,11 +9,11 @@ import {loadGateKit} from './race-gates.js';
 import {getSwe1r} from './swe1r/ui.js';
 import {classifyPickError} from './swe1r/attach.js';
 import {loadPodModel} from './swe1r/skin.js';
-import {ELUNE_GRAVITY_SCALE,BODIES,bodiesEnabled} from './bodies.js';
+import {BODIES,bodiesEnabled,podGravityFor} from './bodies.js';
 import {activeBody,setActiveBody} from './body-shaders.js';
 import {weightedSplit} from './engine-pair.js';
 import {bodyAltitudes} from './space-flight.js';
-const LUNAR_GRAVITY=48*ELUNE_GRAVITY_SCALE;
+
 import {WorldClient} from './world-client.js';
 export function installLoading(app) {
 const {canvas,cameraCollision,evidence,defaults,settings,loading,loadingArt,mapPanel,music,client}=app;
@@ -96,7 +96,7 @@ app.gateKit=undefined;void loadGateKit((a,p)=>client.request(a,p),()=>getSwe1r()
       await client.request('tuning',{values:tune.values});
       app.tuningValues=tune.values.slice();settings.cameraSeconds=tune.cameraSeconds;
     }
-    if(selection==='elune'){settings.clouds=false;app.syncSettings();const values=app.tuningValues.slice();values[14]=LUNAR_GRAVITY;await client.request('tuning',{values});app.tuningValues=values;}
+    if(selection==='elune'){settings.clouds=false;app.syncSettings();const values=app.tuningValues.slice();values[14]=podGravityFor(values[14],'azeroth','elune');await client.request('tuning',{values});app.tuningValues=values;}
     const restored=await restore(save);
     if(tune&&!restored)client.state=await client.request('reset');
     const gateStart=performance.now();
@@ -242,8 +242,7 @@ async function soiSwap(app,parentId) {
     // The worker handles messages in order, so rebind then tuning are queued without blocking frames; the next frame lands after both.
     const rebound=client.request('rebind');lap('rebind');// new near world forgets what it "already sent" so streaming and the horizon reach the fresh renderer
     app.gateKey=undefined;
-    const values=app.bodyTuning[parentId]?.slice()??(Array.isArray(client.info.tuning)?client.info.tuning.slice():app.tuningValues.slice());
-    if(parentId==='elune'&&!app.bodyTuning[parentId])values[14]=LUNAR_GRAVITY;
+    const values=app.tuningValues.slice();values[14]=podGravityFor(values[14],prev.id,parentId);
     const tuned=client.request('tuning',{values});lap('tuning');app.tuningValues=values;
     evidence.swapSettled=Promise.all([rebound,tuned]).catch(e=>console.warn('swap settle',e));
     settings.clouds=app.bodyClouds[parentId]??(body.atmosphereEdge>0);app.syncSettings();
