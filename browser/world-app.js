@@ -47,7 +47,7 @@ const mapPanel=new MapPanel({dialog:$('map-panel'),canvas:$('map-canvas'),stage:
     // The in-page well swap needs the app idle, so it runs before the operation that places the pose.
     if(plan.swap) {
       // The target's resident engine may still be warming (or the app mid-operation): wait for it instead of refusing, and only reload into the body as a last resort.
-      const ready=()=>{const e=app.engines?.[plan.body];return !app.busy&&e?.worker&&e.info;};
+      const ready=()=>{const e=app.engines?.[plan.body];return !app.busy&&e?.worker&&e.info&&app.renderer?.bodyPrepared?.(plan.body);};
       for(let i=0;i<240&&!ready()&&app.engines?.[plan.body];i++){if(i===0)app.report(`Preparing ${icon.label}...`,true);await new Promise(r=>setTimeout(r,250));}
       if(!(await app.soiSwap(plan.body))){
         if(plan.pose&&app.soiHandoff){app.report(`Loading ${icon.label}...`,true);app.soiHandoff(plan.body,plan.pose);return;}
