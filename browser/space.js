@@ -148,12 +148,29 @@ const withAtmosphericDisc=src=>src
       } else if(id==1) {lit2=lit;}
       acc=over(acc,col*lit2,space);`);
 /** Airless-body variant: regolith instead of the Azeroth sea/land stylisation, and no atmosphere (limb glow, rim light, haze). */
-const AIRLESS_SURFACE=`fn surface(pv:vec3f,n:vec3f,d:vec3f,sun:vec3f)->vec3f {
-  let tex=fbm(pv.xz*85.0+vec2f(pv.y*31.0,pv.y*17.0));let broad=fbm(pv.xz*9.0+vec2f(pv.y*5.0,pv.y*3.0));
-  let reg=mix(vec3f(.34,.32,.29),vec3f(.58,.55,.5),smoothstep(.3,.7,tex))*(.78+.44*broad);
-  // The zero-weighted registry read keeps the shared bind-group layout (surfaceTex) alive.
-  let keep=textureSampleLevel(surfaceTex,surfaceSamp,vec2f(.5,.5),0.0).a*0.0;
-  return reg*(clamp(dot(n,sun)*1.6+.04,0.0,1.0)+.02)+keep;
+const AIRLESS_SURFACE=`fn pits(p:vec3f,k:f32)->f32 {
+  let q=p*k;let c=floor(q);var m=0.0;
+  for(var x=-1;x<=1;x++){for(var y=-1;y<=1;y++){for(var z=-1;z<=1;z++){
+    let g=c+vec3f(f32(x),f32(y),f32(z));
+    if(h1(g+3.7)<.5){continue;}
+    let ctr=g+vec3f(h1(g+1.1),h1(g+2.2),h1(g+4.4));
+    let d=length(q-ctr)/(.15+.3*h1(g+5.5));
+    m+=-.5*smoothstep(1.0,.2,d)+.25*smoothstep(.25,.0,abs(d-1.05));
+  }}}
+  return m;
+}
+fn surface(pv:vec3f,n:vec3f,d:vec3f,sun:vec3f)->vec3f {
+  // Fine grain and pits fade with altitude: from far away they alias into moire streaks.
+  let alt=s.p.x;let wf=1.0-smoothstep(400.0,5000.0,alt);let wp=1.0-smoothstep(3000.0,14000.0,alt);
+  let tex=mix(.5,fbm(pv.xz*85.0+vec2f(pv.y*31.0,pv.y*17.0)),wf);let broad=fbm(pv.xz*9.0+vec2f(pv.y*5.0,pv.y*3.0));
+  var reg=mix(vec3f(.34,.32,.29),vec3f(.58,.55,.5),smoothstep(.3,.7,tex))*(.78+.44*broad);
+  // The baked body surface (minimap grey, Moonglade green under the dome) owns the colour where it has coverage.
+  let bake=textureSampleLevel(surfaceTex,surfaceSamp,vec2f(atan2(pv.z,pv.x)/6.2831853+.5,.5-asin(clamp(pv.y,-1.0,1.0))/3.1415927),0.0);
+  if(s.tint[1].w>.5){reg=mix(reg,bake.rgb*(.8+.4*tex),smoothstep(.45,.6,bake.a));}
+  reg=reg*clamp(1.0+pits(pv,14.0)*(.4+.6*wf)+pits(pv,40.0)*wp,.45,1.3);
+  // Earthshine: a faint cool fill so the night side is not pure black.
+  let lit=clamp(dot(n,sun)*1.6+.04,0.0,1.0);
+  return reg*(lit+.02)+vec3f(.02,.03,.05)*(1.0-lit)*reg*3.0;
 }
 fn surfaceSea(`;
 const airlessShader=src=>src
