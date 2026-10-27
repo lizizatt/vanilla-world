@@ -4,7 +4,7 @@ import {eluneSkyAt} from './elune-sky.js';
 import {wantsDisc} from './renderer-init.js';
 import {schematicRects} from './worldmap.js';
 import {viewFrom,otherView} from './body-sky.js';
-import {AZEROTH,ELUNE,BODIES,planetFactorsFor} from './bodies.js';
+import {AZEROTH,ELUNE,BODIES,planetFactorsFor,farDrawLevel} from './bodies.js';
 import {activeBody} from './body-shaders.js';
 import {patchesAt,packPatches,PATCH_GRID} from './globe-patches.js';
 import {makeOtherSet} from './renderer-init.js';
@@ -78,12 +78,13 @@ export function drawBodies(r,pass,pf,near) {
       set.heightGrid=state.heightGrid;set.heightFilled=state.heightFilled;set.heightAt=now;
     }
     const factors={...planetFactorsFor(body,o.altitude,true),space:0,mesh:pf.mesh,registry:pf.registry,fog:[0,0,0]};
-    if(!(factors.globe>0))continue;
+    const level=farDrawLevel(body,o.altitude);
+    if(!(factors.globe>0)||level==='skip')continue;
     const uniform=spaceUniform(o.view,o.sun,factors,r.bodyRects?.[body.id]??FALLBACK_RECTS,r.timeOfDay,near,200000,undefined,{radius:body.radius,centre:body.centre,moons:OTHER_MOONS});
     uniform[47]=now/1000%3600;
     r.device.queue.writeBuffer(set.spaceBuffer,0,uniform);
     pass.setPipeline(set.spacePipeline);pass.setBindGroup(0,set.spaceGroup);pass.draw(3);
-    if(pf.mesh){
+    if(pf.mesh&&level==='full'){
       const eye=o.view.eye,patches=patchesAt(eye[0],eye[2],Math.max(0,eye[1]),body.id==='azeroth'?undefined:{radius:body.radius,centre:body.centre,maxLevel:body.maxLevel});
       r.device.queue.writeBuffer(set.patchBuffer,0,packPatches(patches));
       pass.setPipeline(set.patchPipeline);pass.setBindGroup(0,set.patchGroup);pass.setVertexBuffer(0,set.patchBuffer);pass.draw(PATCH_GRID*PATCH_GRID*6,patches.length);

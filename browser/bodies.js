@@ -55,6 +55,11 @@ export const gravityFor=(body,altitude)=>gravityAt(altitude,body.radius,body.gra
 export const densityFor=(body,altitude)=>densityAt(altitude,body.atmosphereEdge);
 export const circularSpeedFor=(body,altitude)=>circularSpeed(altitude,body.radius,body.gravity);
 /** Distance to the horizon from an eye height above a sphere. */
+/** Angular radius (rad) of a body seen from an altitude above its surface. */
+export const angularRadius=(body,altitude)=>Math.asin(Math.min(1,body.radius/(body.radius+Math.max(0,altitude))));
+/** Far-only draw cost by apparent size: sub-pixel bodies are skipped, small ones keep the sphere shader but not the patch mesh. */
+export const FAR_DRAW=Object.freeze({minRadius:.0008,patchRadius:.01});
+export const farDrawLevel=(body,altitude)=>{const a=angularRadius(body,altitude);return a<FAR_DRAW.minRadius?'skip':a<FAR_DRAW.patchRadius?'sphere':'full';};
 export const horizonDistance=(body,height)=>Math.sqrt(2*body.radius*Math.max(0,height)+height*height);
 
 // Rails (analytic, circular). Elune reuses the existing moon rail shape with the physical period.
