@@ -52,7 +52,7 @@ export function otherBodies(r) {
 export function otherSurface(r,body,state,now) {
   if(state.surfaceBytes&&!state.farVersion)return state.surfaceBytes;
   if(state.farBytes&&(state.farBakedVersion===state.farVersion||now-(state.farBakedAt||0)<2000))return state.farBytes;
-  const real=!!r.bodyManifests?.[body.id]?.world_bounds,rects=r.bodyRects?.[body.id]??FALLBACK_RECTS;
+  const real=!!r.bodyManifests?.[body.id]?.world_bounds||!body.sea,rects=r.bodyRects?.[body.id]??FALLBACK_RECTS;
   state.farBytes=bakeSurface(createRegistry([...defaultManifest(undefined,rects).map(c=>real?{...c,provider:{sample:()=>({skip:true})}}:c),adtChunk(state.farGrid??state.colourGrid)]));
   state.farBakedVersion=state.farVersion;state.farBakedAt=now;
   return state.farBytes;
@@ -120,7 +120,7 @@ export function drawPlanet(r,pass,pf,near) {
   (r.bodyRects??={})[activeBody().id]=rects;
   if(pf.registry&&r.surfaceKey!==key){
     r.surfaceRegistry=// With real data the minimap colours own the land: procedural fill would paint green over the unseen coast water.
-    createRegistry([...defaultManifest(undefined,rects).map(c=>r.manifest?.world_bounds?{...c,provider:{sample:()=>({skip:true})}}:c),adtChunk(r.colourGrid)]);
+    createRegistry([...defaultManifest(undefined,rects).map(c=>r.manifest?.world_bounds||!activeBody().sea?{...c,provider:{sample:()=>({skip:true})}}:c),adtChunk(r.colourGrid)]);
     r.surfaceBytes=bakeSurface(r.surfaceRegistry);r.colourDirty.clear();r.surfaceDirty=true;r.surfaceKey=key;
   }
   if(pf.registry&&r.colourDirty.size&&performance.now()-(r.colourAt||0)>1000){
