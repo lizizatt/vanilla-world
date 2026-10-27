@@ -727,7 +727,7 @@ export async function openWorld(message) {
       wdls.push(await source.read(`World\\Maps\\${map}\\${map}.wdl`));
     }
     const json=moon?pkg.moon_manifest(wdts[0],wdls[0]):world_manifest(wdts[0],wdls[0],wdts[1],wdls[1]);
-    manifest=JSON.parse(json);
+    manifest=JSON.parse(json); manifest.landmarks=!moon;// skyline landmarks (landmarks.js) belong to Azeroth's maps only
     world=new Voyage(json);
     if(manifest.world_bounds){const [x,z]=maelstromCentre(manifest);world.set_whirlpool(x,z,WHIRLPOOL_DIP.radius,WHIRLPOOL_DIP.depth);}
     placements=manifest.tiles.map(t=>{
