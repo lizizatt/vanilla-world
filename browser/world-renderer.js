@@ -267,7 +267,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
     if(!this.cameraBlocked&&(settings.clouds!==false||settings.farClouds!==false)) {
       // Clouds read the finished scene depth to clip their ray march, so they never need a depth-test bias.
       const cloudPass=encoder.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}]});
-      if(settings.clouds!==false)this.drawClouds(cloudPass,this.cloudTime??time,daylight,near,highClouds);
+      if(settings.clouds!==false&&activeBody().clouds&&this.manifest?.world_bounds)this.drawClouds(cloudPass,this.cloudTime??time,daylight,near,highClouds);
       if(settings.farClouds!==false&&pf.globe>0)this.drawBodyClouds(cloudPass,this.cloudTime??time,daylight,near);cloudPass.end();
     }
     if(!this.cameraBlocked&&propDraws.length) {

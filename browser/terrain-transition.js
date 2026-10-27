@@ -24,6 +24,12 @@ export const CLOUD_RADIUS_RANGE=BEND_RANGE;
 export const CLOUD_RADIUS_GROUND_SCALE=12;
 export const cloudShellRadius=(altitude,planetRadius)=>planetRadius/(1/CLOUD_RADIUS_GROUND_SCALE+(1-1/CLOUD_RADIUS_GROUND_SCALE)*smooth(CLOUD_RADIUS_RANGE[0],CLOUD_RADIUS_RANGE[1],altitude));
 
+// The ground cloud layer sits at 11% of R on the shrunken planet, which reads as a detached shell from space. Above the weather it settles
+// (smoothstep over CLOUD_LAYER_RANGE, eye altitude) to a layer at 3.5% of R, so the planet view and every far body view hug the surface.
+export const CLOUD_LAYER_RANGE=Object.freeze([3000,9000]);
+export const CLOUD_FAR_ALTITUDE_FRACTION=.035;
+export const cloudAltitudeAt=(eyeAltitude,planetRadius)=>{const far=Math.min(CLOUD_ALTITUDE,CLOUD_FAR_ALTITUDE_FRACTION*planetRadius);return CLOUD_ALTITUDE+(far-CLOUD_ALTITUDE)*smooth(CLOUD_LAYER_RANGE[0],CLOUD_LAYER_RANGE[1],eyeAltitude);};
+
 /** Fade factors for an altitude: bend (terrain curvature), globe (sphere alpha), space (black sky, stars), zone (per-zone lighting). Clouds have no ramp of their own: the curved layer is always drawn. */
 export function planetFactors(altitude,enabled=true) {
   if(!enabled||!(altitude>0))return {bend:0,globe:0,space:0,zone:1};
