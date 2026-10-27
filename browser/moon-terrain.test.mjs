@@ -58,3 +58,21 @@ test('every MCNK carries the synthetic Elune area id at +0x34', async () => {
   let p=0,seen=0;while(p<a.length){const n=v.getUint32(p+4,true);if(String.fromCharCode(a[p+3],a[p+2],a[p+1],a[p])==='MCNK'){assert.equal(v.getUint32(p+8+0x34,true),ELUNE_AREA);seen++;}p+=8+n;}
   assert.equal(seen,256);
 });
+
+test('moon ADT normals follow the height field and match across a tile border',async()=>{
+  const {moonAdt,moonHeightChart}=await import('./moon-terrain.js');
+  const {MOON_SEED}=await import('./moon-source.js');
+  const mcnr=(adt,cx,cy)=>{ // first MCNR payload of chunk (cx,cy): scan MCNK headers
+    let p=0;const v=new DataView(adt.buffer,adt.byteOffset,adt.byteLength);let n=0;
+    while(p<adt.length){const magic=String.fromCharCode(adt[p+3],adt[p+2],adt[p+1],adt[p]),len=v.getUint32(p+4,true);
+      if(magic==='MCNK'){if(n===cy*16+cx){let q=p+8+128;while(q<p+8+len){const m=String.fromCharCode(adt[q+3],adt[q+2],adt[q+1],adt[q]),l=v.getUint32(q+4,true);if(m==='MCNR')return new Int8Array(adt.buffer,adt.byteOffset+q+8,l);q+=8+l;}}n++;}
+      p+=8+len;}
+  };
+  const a=moonAdt(MOON_SEED,30,15),b=moonAdt(MOON_SEED,31,15);
+  const right=mcnr(a,15,0),left=mcnr(b,0,0);
+  // chunk 15's last outer column (index 8 of row 0) and the next tile's chunk 0 first outer column are the same world point
+  for(const row of [0,1,2]){const ia=row*17*3+8*3,ib=row*17*3;for(let k=0;k<3;k++)assert.ok(Math.abs(right[ia+k]-left[ib+k])<=2,'border normal '+row+' '+k+': '+right[ia+k]+' vs '+left[ib+k]);}
+  const up=right[2];assert.ok(up>0&&up<=127);
+  let tilted=0;for(let c=0;c<16;c++){const r=mcnr(a,c,5);for(let i=0;i<145;i++)if(r[i*3+2]<120)tilted++;}
+  assert.ok(tilted>0,'craters/slopes must tilt some normals');
+});
