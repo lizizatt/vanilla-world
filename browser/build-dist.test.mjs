@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { existsSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { dirname, join, posix } from 'node:path';
@@ -7,7 +8,8 @@ import { appFiles, vehicleFiles } from './build-dist.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-test('hosted file list is app-only and covers every static import', async () => {
+const needsPkg = { skip: existsSync(new URL('./pkg/flats_racer_web_bg.wasm', import.meta.url)) ? false : 'run browser\\Build.ps1 first (no wasm pkg on a clean checkout)' };
+test('hosted file list is app-only and covers every static import', needsPkg, async () => {
   const files = await appFiles();
   assert.ok(files.includes('index.html') && files.includes('sw.js') && files.includes('pkg/flats_racer_web_bg.wasm'));
   assert.ok(!files.some(f => /test|smoke|server|runtime|local\/|\.py$|\.md$/.test(f)), 'no tests, server, private or docs');
@@ -21,7 +23,7 @@ test('hosted file list is app-only and covers every static import', async () => 
   }
 });
 
-test('vehicle models are hosted by name pattern only', async () => {
+test('vehicle models are hosted by name pattern only', needsPkg, async () => {
   assert.ok((await vehicleFiles()).every(f => /^vehicles\/[a-z0-9-]+\.glb$/.test(f)));
   assert.ok(!(await appFiles()).some(f => f.endsWith('.glb')), 'optional models stay out of the precache list');
 });

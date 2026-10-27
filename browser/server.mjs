@@ -4,7 +4,7 @@ import { shellManifest, stampServiceWorker } from './shell-manifest.mjs';
 
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.json':'application/json', '.svg':'image/svg+xml', '.glb':'model/gltf-binary', '.jpg':'image/jpeg' };
 // Served files = the generated shell manifest (import graph, re-read per second so new files need no restart) plus optional local-only assets.
-const optional = /^\/(?:vehicles\/[a-z0-9-]+\.glb|local\/npc-spawns\.json|local\/world-map\.jpg|npc-pack\.json)$/;
+const optional = /^\/(?:vehicles\/[a-z0-9-]+\.glb|local\/npc-spawns\.json|local\/world-map\.jpg|npc-pack\.json|world-map-art\.jpg)$/;
 let cached = { at: 0, manifest: null, set: new Set() };
 async function shell() {
   if (Date.now() - cached.at > 1000) {

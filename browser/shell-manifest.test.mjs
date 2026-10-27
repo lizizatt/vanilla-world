@@ -1,9 +1,11 @@
 import test from 'node:test';
+import { existsSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { shellManifest, stampServiceWorker, FORBIDDEN, PLACEHOLDER } from './shell-manifest.mjs';
 
-test('manifest is generated from the import graph and is app-only', async () => {
+const needsPkg = { skip: existsSync(new URL('./pkg/flats_racer_web_bg.wasm', import.meta.url)) ? false : 'run browser\\Build.ps1 first (no wasm pkg on a clean checkout)' };
+test('manifest is generated from the import graph and is app-only', needsPkg, async () => {
   const { files, hash } = await shellManifest();
   assert.match(hash, /^[0-9a-f]{12}$/);
   assert.deepEqual(files, [...files].sort());
@@ -13,7 +15,7 @@ test('manifest is generated from the import graph and is app-only', async () => 
   assert.ok(!files.includes('npc-pack.json'), 'optional population packs are not shell files');
 });
 
-test('stamped service worker carries the manifest and a content-derived cache name', async () => {
+test('stamped service worker carries the manifest and a content-derived cache name', needsPkg, async () => {
   const manifest = await shellManifest();
   const source = await readFile(new URL('./sw.js', import.meta.url), 'utf8');
   assert.ok(source.includes(PLACEHOLDER), 'sw.js keeps its placeholder');
@@ -23,3 +25,9 @@ test('stamped service worker carries the manifest and a content-derived cache na
   assert.notEqual(stamped, stampServiceWorker(source, { ...manifest, hash: 'other' }), 'a hash change changes sw.js bytes so browsers reinstall');
   assert.throws(() => stampServiceWorker('const x=1;', manifest));
 });
+
+test('the git-ignored painted map is never a required shell file', async () => {
+  const { files } = await shellManifest({ allowMissing: true });
+  assert.ok(!files.includes('world-map-art.jpg'));
+});
+
