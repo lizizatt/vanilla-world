@@ -82,7 +82,7 @@ fn waterColor(p:vec3f,ramp:f32,rampWidth:f32,dx:vec2f,dy:vec2f)->vec3f {
   let b=textureSampleGrad(waterNormals,waveSampler,world.yx/32.0+u.settings.y*vec2f(-.009,.014),dx.yx/32.0,dy.yx/32.0);
   var up=vec3f(0.0,1.0,0.0);var view=normalize(u.eye.xyz-p);
   // On the bent globe the surface normal and view ray follow the sphere; the flat-plane ones banded the far ocean into stripes from orbit.
-  let wbk=waterBendK();let bk=clamp(wbk*${PLANET_RADIUS},0.0,1.0);
+  let wbk=waterBendK();let bk=smoothstep(0.85,1.0,wbk);
   if(bk>0.0){let rel=bend(p-u.eye.xyz,u.eye.xyz,wbk);up=normalize(mix(up,normalize(rel-vec3f(0.0,-(${PLANET_RADIUS}+u.eye.y),0.0)),bk));view=normalize(mix(view,-normalize(rel),bk));}
   let distance=length(u.eye.xyz-p);
   let detail=1.0-smoothstep(160.0,1500.0,distance);
