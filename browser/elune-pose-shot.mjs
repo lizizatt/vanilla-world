@@ -12,7 +12,7 @@ const poses=JSON.parse(fs.readFileSync(process.env.POSES,'utf8'));
 for(const [name,pose] of Object.entries(poses)) {
   const ctx=await chromium.launchPersistentContext(fs.mkdtempSync(path.join(os.tmpdir(),'edge-ep-')),{channel:'msedge',headless:true,args:['--mute-audio'],viewport:{width:1280,height:720},serviceWorkers:'block'});
   const page=ctx.pages()[0]||await ctx.newPage();
-  page.on('console',m=>{const t=m.text();if(/swap|pose|error/i.test(t))console.log('C',t.slice(0,160));});
+  page.on('console',m=>{const t=m.text();if(/swap|pose|error|wgsl|shader|pipeline|valid/i.test(t))console.log('C',t.slice(0,600));});
   await page.goto(`http://127.0.0.1:${PORT}/?test&flight&planet&pose=${encodeURIComponent(pose)}`);
   await page.waitForFunction(()=>!document.getElementById('select').disabled,null,{timeout:60000});
   await page.locator('#files').setInputFiles(WOW_DATA);

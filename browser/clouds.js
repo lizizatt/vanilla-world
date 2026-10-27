@@ -153,14 +153,21 @@ fn cloudBody(sp:Sph,d:vec2f,pos:vec3f,t:f32,tau:f32,drag:f32,coverage:f32,wall:f
   return vec2f(smoothstep(0.0,.3,top-hf*.9)*smoothstep(0.0,.1,hf+.05),hf);
 }
 // Offset from the storm centre with the longitude wrapped to the nearest turn: worldAt returns lon in (-pi, pi], so on the far side of the globe the raw difference is a whole circumference off.
+// Far / other-body views (sunCol.w>0): the great-circle offset in the storm's tangent plane (azimuthal equidistant) from the already computed sphere point. The chart difference jumps by a whole turn on the meridian opposite the storm, which tore the arms, vortex and flow shift there; this is continuous everywhere but the antipodal point.
+fn stormOffsetSphere(p:Sph)->vec2f {
+  let s=sphereAt(c.cloud.xy);
+  let cg=clamp(dot(p.up,s.up),-1.0,1.0);
+  let v=p.up-s.up*cg;let h=vec2f(dot(v,s.e),dot(v,s.n));let l=length(h);
+  let dir=select(vec2f(1.0,0.0),h/max(l,1e-9),l>1e-6);
+  return vec2f(dir.x,-dir.y)*(acos(cg)*${PLANET_RADIUS}.0);
+}
 fn stormOffset(xz:vec2f)->vec2f {
   let turn=${(2*Math.PI*PLANET_RADIUS).toFixed(1)};let d=xz-c.cloud.xy;
   return vec2f(d.x-turn*round(d.x/turn),d.y);
 }
 fn sheetDensity(pos:vec3f,t:f32)->vec3f {
-  let d=stormOffset(pos.xz);let r=length(d);
+  let sp=sphereAt(pos.xz);var d=stormOffset(pos.xz);if(c.sunCol.w>0.0){d=stormOffsetSphere(sp);}let r=length(d);
   // Noise is sampled at the 3D point on the planet (cloud-flow.js sphereAt), so it stays isotropic toward the poles; flowShift advects that point.
-  let sp=sphereAt(pos.xz);
   // North is -z, so atan2(-z,x) grows counter-clockwise on the map.
   let a=atan2(-d.y,d.x);
   let arm=smoothstep(.2,.8,.5+.5*cos(${M.arms.toFixed(1)}*(a+${M.pitch}*log(max(r,1.0)/1000.0)-t*${M.spin})));
