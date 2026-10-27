@@ -162,7 +162,7 @@ export class WorldRenderer {
     const writeUniform=item=>{
       if(uniformCount>=16384)throw Error('World draw uniform budget exceeded');
       const base=uniformCount++*64;
-      item.offset=base*4;u.set(view,base);u.set(skyFloats,base+40);u[base+28]=u[base+60]=pf.bend;u[base+29]=u[base+61]=pf.space;u.set(sunDir,base+32);return base;
+      item.offset=base*4;u.set(view,base);u.set(skyFloats,base+40);u[base+28]=u[base+60]=pf.bend;u[base+30]=u[base+62]=this.view.eye[2];u[base+29]=u[base+61]=pf.space;u.set(sunDir,base+32);return base;
     };
     for(const item of terrain){
       const base=writeUniform(item),body=item===this.body;
