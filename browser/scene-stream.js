@@ -1,6 +1,7 @@
 // Static authored geometry only. All matrices are column-major, model -> source WoW world.
 import {boundsVisible} from './world-view.js';
 import {BUDGET_TARGET,MIB} from './memory-budget.js';
+import {LANDMARK_RADIUS} from './landmarks.js';
 export function sceneReady(instance,assets,textures) {
   const asset=assets.get(instance.key);
   return !!asset&&asset.batches.every(b=>!b.texture||textures.has(b.texture));
@@ -305,13 +306,20 @@ export class SceneStream {
     this.setDistantPlacements(key,this.parsePlacements(bytes));
   }
   setDistantPlacements(key,placements) {
-    if (!this.distantTiles.has(key) && this.distantTiles.size >= this.limits.distantTiles) throw new Error('Remove old metadata before exceeding the distant-tile budget');
+    if (!this.distantTiles.has(key) && this.distantTiles.size-[...this.distantTiles.keys()].filter(k=>k.endsWith(':landmark')).length >= this.limits.distantTiles) throw new Error('Remove old metadata before exceeding the distant-tile budget');
     this.distantTiles.set(key,placements);
     this.placementLists.delete(this.distantTiles);
     this.revision++;
   }
   removeDistantTile(key) {
     if(this.distantTiles.delete(key)){this.placementLists.delete(this.distantTiles);this.revision++;}
+  }
+  /** Always-resident skyline placements (landmarks.js), outside the distant-tile count; they sort first so a resident tile's copy of the same doodad is the one deduplicated. */
+  setLandmarks(map,metadata) {
+    const entries=[...this.distantTiles].filter(([key])=>key!==`${map}:landmark`);
+    this.distantTiles.clear();this.distantTiles.set(`${map}:landmark`,this.parsePlacements(undefined,JSON.stringify(metadata)));
+    for(const [key,value] of entries)this.distantTiles.set(key,value);
+    this.placementLists.delete(this.distantTiles);this.revision++;
   }
   placementList(tiles,map) {
     let list=this.placementLists.get(tiles);
@@ -429,7 +437,7 @@ export class SceneStream {
         entries.set(id,instance);
       }
       instance.bounds=bounds;instance.boundsKnown=boundsKnown;instance.score=score;instance.distant=distant;
-      instance.collidable=collidable;
+      instance.collidable=collidable;instance.landmark=!!p.landmark;
       if(this.visualOnly)instance.viewRank=boundsKnown&&!boundsVisible(bounds,this.view)?1:0;
       instance.collisionScore=undefined;
       if(distant)farCandidates.push(instance);
@@ -452,7 +460,7 @@ export class SceneStream {
       }
       if(mode==='collision'&&kind!=='wmo'&&!collisionCandidate(bounds,asset,matrix))return;
       const score = boundsDistance(bounds, position);
-      const radius = distant ? this.limits.distantRadius : this.limits.radius;
+      const radius = p.landmark ? LANDMARK_RADIUS : distant ? this.limits.distantRadius : this.limits.radius;
       if ((kind !== 'wmo' || asset || p.bounds) && score > radius
         && (distant || !supportColumn || collisionDistance(bounds) > collisionRadius)) return;
       if(kind==='wmo')
@@ -561,7 +569,7 @@ export class SceneStream {
     }
     const retained=this.visualOnly?new Set(this.instances.map(i=>i.id)):undefined;
     const prominence=i=>i.prominence*(retained?.has(i.id)?1.12:1);
-    const visualOrder=(a,b)=>(a.viewRank||0)-(b.viewRank||0) || Number(b.score<128)-Number(a.score<128)
+    const visualOrder=(a,b)=>Number(!!b.landmark)-Number(!!a.landmark) || (a.viewRank||0)-(b.viewRank||0) || Number(b.score<128)-Number(a.score<128)
       || (a.score<128?a.score-b.score:retained?prominence(b)-prominence(a):b.prominence-a.prominence)
       || a.score-b.score || a.id.localeCompare(b.id);
     const near = selectionPrefix(nearCandidates,this.limits.instances,visualOrder);

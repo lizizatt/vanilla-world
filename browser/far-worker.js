@@ -33,7 +33,7 @@ onmessage=({data})=>{
           read={id:++serial,epoch:stream.epoch,shouldDefer,resolve,reject};
           send({event:'far-read',id:read.id,epoch:read.epoch,path});
         });
-      }},wasmTypes,data.manifest,send,()=>wasm.memory.buffer.byteLength);
+      }},wasmTypes,data.manifest,send,()=>wasm.memory.buffer.byteLength,true);
     } else if(data.action==='focus') {
       stream.focus(data);send({event:'far-focus-ack'});schedule();
     } else if(data.action==='near') {
