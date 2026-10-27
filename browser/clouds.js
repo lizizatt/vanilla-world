@@ -23,6 +23,8 @@ export function sunDirection(timeOfDay) {
 
 // The cloud layer is always the curved shell at true planet radius (no flat path), at every altitude down to the ground.
 // kappa = 1 / R is the curvature of the cloud shells (1 / yd); space blends the fade/fog distance origin to the shell entry.
+/** Seen from space the 520 yd sheet is viewed nadir, so its sparse low-layer puffs barely register: raise coverage and optical depth with the space factor (0 near the ground, so the near-world look is unchanged). */
+export const FAR_COVER=.2,FAR_ABSORB=4;
 export const SHELL_CURVATURE=1/PLANET_RADIUS;
 /** Curvature used for the shells at an eye altitude: flatter near the ground, the true 1/R from altitude (see cloudShellRadius). */
 export const shellCurvatureAt=altitude=>1/cloudShellRadius(altitude,PLANET_RADIUS);
@@ -169,7 +171,7 @@ fn sheetDensity(pos:vec3f,t:f32)->vec3f {
   let lm=maskAt(sp.lat,sp.lon);let drag=1.0-${MASK.drag}*lm.x;
   let landCov=${MASK.lift}*max(lm.y,0.0)*lm.x+${MASK.coast}*max(lm.z,0.0)-${MASK.dry*.5}*lm.x;
   let base=.4+(bandCoverage(sp.lat)+landCov+exp(-r/${FLOW.vortex.armReach.toFixed(1)})*(arm-.5)*${FLOW.vortex.armCover})*(1.0-storm);
-  let coverage=clamp(mix(base,mix(.1,.95,arm),storm)+.6*wall,0.0,.95)*eye;
+  let coverage=clamp(mix(base,mix(.1,.95,arm),storm)+.6*wall+${FAR_COVER}*c.bend.y,0.0,.95)*eye;
   // Two-phase flow map: each phase samples the noise displaced by the wind for its age, crossfaded near the resets; a single phase most of the time.
   let fp=flowPhase(c.bend.w,c.bend.z);
   var bh:vec2f;
@@ -307,7 +309,7 @@ const NF=${FUNNEL_STEPS};
       let tail=select(1.0,1.0-cutK*smoothstep(.55,1.0,(ts-s0)/Ls),capped);
       let dd=ts-s0*c.bend.y;
       let w=(1.0-smoothstep(30000.0,c.cloud.w,dd))*.96*sEdge*tail;
-      let absorb=(1.0-exp(-s.x*ss*.008))*w;
+      let absorb=(1.0-exp(-s.x*ss*.008*(1.0+${FAR_ABSORB}*c.bend.y)))*w;
       ${high?HIGH_TAP:'let shade=1.0;'}
       let lit=mix(.62,1.0,hf)*mix(.75,1.0,s.y)*(.7+.3*trans)*shade;
       let sunY=dot(upAt(rel),c.sun.xyz);
