@@ -38,7 +38,7 @@ test('WMO water flags survive batch preparation without introducing texture depe
 });
 
 test('water follows the bent globe: normal and view use the sphere, supplied per shader by waterBendK',()=>{
-  assert(waterShading.includes('waterBendK()'));assert(waterShading.includes('normalize(up+vec3f(slope.x'));
+  assert(waterShading.includes('waterBendK()'));assert(waterShading.includes('smoothstep(0.85,1.0,wbk)')&&!waterShading.includes('wbk*'),'sphere fresnel only at full bend (k is a 0..1 blend, not curvature): low/ground views keep the flat look');assert(waterShading.includes('normalize(up+vec3f(slope.x'));
   assert(!/reflection\.y/.test(waterShading),'sky reflection must use the sphere up, not world y');
   const shaders=readFileSync(new URL('./renderer-shaders.js',import.meta.url),'utf8');
   assert(shaders.includes('fn waterBendK()->f32 {return u.pad[0].x;}')&&shaders.includes('fn waterBendK()->f32 {return u.bend.x;}'));
