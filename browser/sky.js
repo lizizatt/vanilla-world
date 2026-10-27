@@ -147,7 +147,7 @@ struct S {look:vec4f,right:vec4f,up:vec4f,k:vec4f};
 @group(0) @binding(0) var<uniform> s:S;
 @group(0) @binding(1) var image:texture_2d<f32>;
 @group(0) @binding(2) var imageSampler:sampler;
-struct V {@builtin(position) clip:vec4f,@location(0) uv:vec2f,@location(1) color:vec4f,@location(2) fade:f32};
+struct V {@builtin(position) clip:vec4f,@location(0) uv:vec2f,@location(1) color:vec4f,@location(2) fade:f32,@location(3) dir:vec3f};
 @vertex fn vs(@location(0) p:vec3f,@location(1) n:vec3f,@location(2) uv:vec2f,@location(3) color:vec4f)->V {
   let axis=normalize(vec3f(0.0,.64,-.77));
   let c=cos(s.k.x);let sn=sin(s.k.x);
@@ -155,11 +155,20 @@ struct V {@builtin(position) clip:vec4f,@location(0) uv:vec2f,@location(1) color
   d=d*c+cross(axis,d)*sn+axis*dot(axis,d)*(1.0-c);
   var v:V;let w=dot(d,s.look.xyz);
   v.clip=vec4f(dot(d,s.right.xyz)/(0.55*s.look.w),dot(d,s.up.xyz)/0.55,w*.9999,w);
-  v.uv=uv;v.color=color;v.fade=smoothstep(-.02,.12,d.y/length(d));return v;
+  v.dir=d;v.uv=uv;v.color=color;v.fade=smoothstep(-.02,.12,d.y/length(d));return v;
+}
+// Moon discs (same orbits as skyShader) are opaque, so the stars behind them are masked out.
+fn moonCover(d:vec3f,az:f32,el:f32,radius:f32)->f32 {
+  let m=vec3f(cos(el)*sin(az),sin(el),cos(el)*cos(az));
+  let r=normalize(cross(vec3f(0,1,0),m));let u=cross(m,r);
+  let x=dot(d,r)/radius;let y=dot(d,u)/radius;
+  return select(0.0,1.0,x*x+y*y<1.0&&dot(d,m)>0.0)*smoothstep(0.0,.08,m.y);
 }
 @fragment fn fs(v:V)->@location(0) vec4f {
   let t=textureSample(image,imageSampler,v.uv)*v.color;
-  return vec4f(t.rgb,t.a*s.k.y*v.fade);
+  let d=normalize(v.dir);let q=s.k.x;
+  let cover=max(moonCover(d,q*.9+1.0,asin(clamp(.15+.8*cos(q),-.5,.95)),.045),moonCover(d,q*.7+3.5,asin(clamp(.2+.7*cos(q+1.3),-.5,.95)),.026));
+  return vec4f(t.rgb,t.a*s.k.y*v.fade*(1.0-cover));
 }`;
 
 export const nightAngle=time=>time/HALF_MINUTES*Math.PI*2;
