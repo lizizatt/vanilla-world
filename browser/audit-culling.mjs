@@ -19,18 +19,20 @@ const analyse=(b64)=>page.evaluate(async b=>{
   return {dark:dark/n,small:[...small]};},b64);
 const classes=[['ground',()=>[spawn[0]+(rnd()-.5)*4000,spawn[2]+(rnd()-.5)*4000]],
   ['maelstrom',()=>[maelstrom[0]+(rnd()-.5)*5000,maelstrom[1]+(rnd()-.5)*5000]],
-  ['openSea',()=>[spawn[0]+60000*(rnd()<.5?-1:1)*rnd(),spawn[2]+(rnd()-.5)*20000]],
+  ['openSea',()=>[spawn[0]+PLANET_RADIUS*1.4*(rnd()<.5?-1:1)*rnd(),spawn[2]+(rnd()-.5)*PLANET_RADIUS*.5]],
   ['pole',()=>[spawn[0]+(rnd()-.5)*PLANET_RADIUS*6,-(rnd()<.5?-1:1)*PLANET_RADIUS*1.45+-267]]];
-const alts=[50,200,500,2000,5000,20000,100000];
+// altitudes in fractions of R (the old list was tuned for R=42,781: 20 kyd was 0.47 R)
+const alts=[50,200,500,2000,5000,20000,100000].map((a,i)=>i<2?a:Math.round(a*PLANET_RADIUS/42781));
+const VOID_ALT=Math.round(20000*PLANET_RADIUS/42781);
 const results=[];
 for(let i=0;i<count;i++){
   const [cls,pos]=classes[i%classes.length],[x,z]=pos(),alt=alts[Math.floor(rnd()*alts.length)],pitch=-(.3+rnd()*1.2),yaw=rnd()*6.28;
   const shot=async dx=>{await page.evaluate(([x,z,a,p,y])=>{worldTest.settings({planet:true,clouds:false});worldTest.timeLock(1440);worldTest.focus([x,a,z,y,p]);},[x+dx,z,alt,pitch,yaw]);
-    await page.waitForTimeout(alt>10000?2500:4000);return page.screenshot();};
+    await page.waitForTimeout(alt>.23*PLANET_RADIUS?2500:4000);return page.screenshot();};
   const a=await shot(0),ra=await analyse(a.toString('base64')),b=await shot(2),rb=await analyse(b.toString('base64'));
   const pop=ra.small.reduce((s,v,k)=>s+Math.abs(v-rb.small[k]),0)/ra.small.length;
   // Looking down below 20 kyd the frame should be ground/sea; near-black means void or culled geometry.
-  const issues=[];if(alt<20000&&ra.dark>.02)issues.push('void '+ra.dark.toFixed(3));if(pop>30)issues.push('pop '+pop.toFixed(1));
+  const issues=[];if(alt<VOID_ALT&&ra.dark>.02)issues.push('void '+ra.dark.toFixed(3));if(pop>30)issues.push('pop '+pop.toFixed(1));
   const r={i,cls,x:Math.round(x),z:Math.round(z),alt,pitch:+pitch.toFixed(2),yaw:+yaw.toFixed(2),dark:+ra.dark.toFixed(3),pop:+pop.toFixed(1),issues};
   results.push(r);console.log(JSON.stringify(r));
   if(issues.length)await (await import('node:fs/promises')).writeFile(path.join(out,`audit-${i}-${cls}.png`),a);

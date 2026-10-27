@@ -12,7 +12,8 @@ import {activeBody} from './body-shaders.js';
 import {createColourGrid,splatMinimap} from './tile-registry.js';
 import {NIGHT_H} from './night-lights.js';
 import {AdmissionFade,terrainEdgeMask,readySceneInstances} from './renderer-helpers.js';
-const OCEAN_FILL=130000;
+// Ocean mesh padding: about half the planet circumference per side (3.04 R), so the fill never wraps over itself.
+const OCEAN_FILL=Math.round(PLANET_RADIUS*3.04);
 const PLANET_STATE=['heightGrid','colourGrid','colourDirty','horizonMini','surfaceRegistry','surfaceBytes','surfaceKey','nightBake','litCells','litQueue','lightsKey','landRects','farGrid','farMini','farVersion'];
 /** Parks the departing body's globe state (height/colour grids, baked surface and night lights) and restores the arriving body's, so a repeat swap re-bakes nothing; a first visit starts from empty grids. */
 export function swapPlanetState(r,from,to) {
