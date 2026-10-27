@@ -106,7 +106,7 @@ export function drawBodyClouds(r,pass,time,daylight,near) {
         {binding:1,resource:r.depth.createView()},{binding:4,resource:set.cloudMask.view},{binding:5,resource:set.cloudMask.sampler}]});
       set.cloudDepth=r.depth;
     }
-    const dayHere=Math.min(1,Math.max(0,(o.sun[1]+.1)/.35)),cu=cloudUniform(o.view,time,dayHere,manifest,near,undefined,undefined,r.timeOfDay,{space,flowScale:r.planet?.flowScale,flowCycles:r.planet?.flowCycles,tierMix:0});
+    const dayHere=Math.min(1,Math.max(0,(o.sun[1]+.1)/.35)),cu=cloudUniform(o.view,time,dayHere,manifest,near,undefined,undefined,r.timeOfDay,{space,farBoost:space,flowScale:r.planet?.flowScale,flowCycles:r.planet?.flowCycles,tierMix:0});
     cu.set([...o.sun,o.sun[1]],32);
     r.device.queue.writeBuffer(set.cloudBuffer,0,cu);
     pass.setPipeline(r.cloudPipeline);pass.setBindGroup(0,set.cloudGroup);pass.draw(3);
