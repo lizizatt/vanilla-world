@@ -30,7 +30,7 @@ export async function openLab({ swe1r = true, width = 1280, height = 720, clouds
   await page.evaluate(() => document.getElementById('welcome')?.remove());
   await page.locator('#world').click();
   await page.evaluate(([p, y, clouds]) => { worldTest.settings({ shadows: false, clouds, night: false, music: false });
-    worldTest.selectVehicle({ vehicle: 'podracer', skin: 'rocket' }); worldTest.restore({ pos: p, yaw: y }); }, [track.start.pos, track.start.yaw, clouds]).catch(() => {});
+    worldTest.selectVehicle({ vehicle: 'podracer', skin: 'rocket' }); worldTest.restore([p[0], p[1] + 2, p[2], y]); }, [track.start.pos, track.start.yaw, clouds]).catch(() => {});
   return { ctx, page, errors };
 }
 

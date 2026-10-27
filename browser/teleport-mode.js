@@ -1,6 +1,7 @@
 // Vehicle-mode-preserving teleports: a podracer stays a podracer and the fly camera stays the fly camera, on any body.
 import {teleportPlan,siteChartPose} from './elune-pose.js';
 import {BODIES} from './bodies.js';
+import {sitesOf} from './elune-sites.js';
 
 /** Yards above the site's procedural ground the pod is first offered to the physics (it drops onto the real surface; the graft may sit higher). */
 export const SEAT_LADDER=Object.freeze([12,40,120,400]);
@@ -20,7 +21,7 @@ export function teleportModePlan(icon,activeId,driving,altitude=250) {
   }
   const site=siteChartPose(BODIES[icon.body],altitude);
   if(!driving)return {...base,mode:'fly',flight:site};
-  return {...base,mode:'drive',flight:site,seat:[site[0],site[1]-altitude,site[2],0]};
+  return {...base,mode:'drive',flight:site,seat:[site[0],site[1]-altitude,site[2],sitesOf(icon.body)[0]?.spawnYaw??0]};
 }
 
 /** Drive pose (restore request) for the n-th attempt at seating on a ground of unknown height. */
