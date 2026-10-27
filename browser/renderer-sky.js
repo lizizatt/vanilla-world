@@ -136,7 +136,7 @@ export function drawPlanet(r,pass,pf,near) {
     r.device.queue.writeTexture({texture:r.lightsTex,origin:[0,y0,0]},r.nightBake.out,{offset:y0*NIGHT_W*4,bytesPerRow:NIGHT_W*4},[NIGHT_W,y1-y0+1]);}
   if(r.surfaceDirty){r.device.queue.writeTexture({texture:r.surfaceTex},r.surfaceBytes,{bytesPerRow:4096},[1024,512]);r.surfaceDirty=false;}
   // On an Elune chart the sun is the true one in the pod's local frame, matching the moon-slot shading seen from Azeroth.
-  const sun=activeBody().id==='elune'?eluneSkyAt(r.view.eye[0],r.view.eye[2],r.timeOfDay).sun:sunDirection(r.timeOfDay);
+  const sun=r.sunLocal??sunDirection(r.timeOfDay);
   const uniform=spaceUniform(r.view,sun,pf,rects,r.timeOfDay,near,200000,undefined,r.sharedFrame());
   uniform[47]=performance.now()/1000%3600;// wall-clock seconds for light twinkle
   r.device.queue.writeBuffer(r.spaceBuffer,0,uniform);
@@ -159,10 +159,10 @@ export function drawPatches(r,pass) {
   pass.setPipeline(r.patchPipeline);pass.setBindGroup(0,r.patchGroup);pass.setVertexBuffer(0,r.patchBuffer);pass.draw(PATCH_GRID*PATCH_GRID*6,patches.length);
 }
 export function drawSkyDome(r,pass) {
-  const alpha=nightAlpha(r.timeOfDay);
+  const alpha=nightAlpha(r.localTime??r.timeOfDay);
   if(!r.skyDome||alpha<.01)return;
   const k=new Float32Array(16),v=r.view;
-  k.set(v.look,0);k[3]=v.aspect;k.set(v.right,4);k.set(v.up,8);k[12]=nightAngle(r.timeOfDay);k[13]=alpha;
+  k.set(v.look,0);k[3]=v.aspect;k.set(v.right,4);k.set(v.up,8);k[12]=nightAngle(r.localTime??r.timeOfDay);k[13]=alpha;
   r.device.queue.writeBuffer(r.domeBuffer,0,k);
   pass.setPipeline(r.domePipeline);pass.setVertexBuffer(0,r.skyDome.vertices);pass.setIndexBuffer(r.skyDome.indices,'uint32');
   for(const b of r.skyDome.batches){pass.setBindGroup(0,b.group);pass.drawIndexed(b.count,1,b.first);}
@@ -178,7 +178,7 @@ export function sampleSky(r) {
   const region=r.manifest?.regions[r.sceneRegion],map={Azeroth:0,Kalimdor:1}[region?.map];
   if(!r.skyCatalog||map===undefined)return undefined;
   const [x,z]=mapPosition(region,r.view.eye[0],r.view.eye[2]);
-  return r.skyCatalog.sample(map,x,z,r.timeOfDay);
+  return r.skyCatalog.sample(map,x,z,r.localTime??r.timeOfDay);
 }
 /** Records a lit (emissive) model instance at render-space [x,z]; one spot per 160-yd cell, size grows with how many lit models share it. */
 export function noteLitInstance(r,x,z) {
