@@ -1,11 +1,11 @@
 {
-  "note": "Azeroth golden poses in post-shrink units (R=14260). Render with race-space-pose.mjs (POSE env). Images are local-only baselines (WoW art, never committed). Pins taken at ecd97dde. "time" is the clock at the chart origin; lighting is position-based since the local-sun change, so hi/low use 1257 (= old 1624 minus the 367 half-minute longitude offset at x=12865) to keep their look; orbit/mael/farA were not re-timed.",
+  "note": "Azeroth golden poses in post-shrink units (R=14260). Render with race-space-pose.mjs (POSE env). Images are local-only baselines (WoW art, never committed). Pins taken at ecd97dde. \"time\" is the clock at the chart origin; lighting is position-based since the local-sun change, so hi/low use 1257 (= old 1624 minus the 367 half-minute longitude offset at x=12865) to keep their look; orbit/mael/farA re-timed at 556e382e (old time minus local offset 328/136/-1434).",
   "settings": { "timeScale": 0, "clouds": true, "planet": true, "globeMesh": true, "globeRegistry": true, "sound": false, "music": false },
   "poses": {
-    "orbit": { "flight": [9314, 36958, 1342, -1.2, -1.56, 0.137, 0.693, 0.6935, -0.14], "time": 1500 },
+    "orbit": { "flight": [9314, 36958, 1342, -1.2, -1.56, 0.137, 0.693, 0.6935, -0.14], "time": 1172 },
     "hi":    { "flight": [12865, 6667, 5715, -1.83, -0.9, -0.025, -0.79, -0.03, 0.609], "time": 1257 },
     "low":   { "flight": [12865, 243.8, 5715, -1.83, -0.082, -0.025, -0.79, -0.03, 0.609], "time": 1257 },
-    "mael":  { "flight": [23423, 15277, 38582, -0.61, -1.38, -0.55, -0.348, -0.334, 0.682], "time": 1813 },
-    "farA":  { "flight": [-45340.3, 19309, 19825.2, 0.9536, -1.529, -0.1412, -0.684, -0.7053, 0.1207], "time": 1547 }
+    "mael":  { "flight": [23423, 15277, 38582, -0.61, -1.38, -0.55, -0.348, -0.334, 0.682], "time": 1677 },
+    "farA":  { "flight": [-45340.3, 19309, 19825.2, 0.9536, -1.529, -0.1412, -0.684, -0.7053, 0.1207], "time": 101 }
   }
 }
