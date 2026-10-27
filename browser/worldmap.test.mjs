@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {worldMapAreas,imageRects,schematicRects,mapFrame,toMap,fromMap,mapIcons,regionOffset,CLOUD_TOP_DROP,iconMapPosition,worldImageRect as wirImg} from './worldmap.js';
+import {worldMapAreas,imageRects,schematicRects,mapFrame,toMap,fromMap,mapIcons,regionOffset,CLOUD_TOP_DROP,worldArt,MAELSTROM_ART,ELUNE_ART} from './worldmap.js';
 import {CLOUD_ALTITUDE,CLOUD_THICKNESS} from './cloud-config.js';
 
 function dbc(rows) {
@@ -41,29 +41,24 @@ test('frame mapping round-trips and icons hold spawn and maelstrom',()=>{
 });
 import {WORLD_MAPS as WM} from './worldmap.js';
 test('single world map names are preferred candidates',()=>{assert.ok(WM.includes('World'));});
-
-import {worldImageRect as wir} from './worldmap.js';
-import {FALLBACK_RECTS,WORLD_CENTRE,MAELSTROM_Z} from './space.js';
-test('world image rect covers both continents and keeps the Maelstrom at the image anchor',()=>{
-  const rects=FALLBACK_RECTS,c=[WORLD_CENTRE[0],MAELSTROM_Z],r=wir(rects,c);
-  assert.ok(r[0]<rects[0][0]+2000&&r[2]>rects[1][2]-2000&&r[1]<rects[1][1]&&r[3]>rects[0][3]);
-  const u=(c[0]-r[0])/(r[2]-r[0]),v=(c[1]-r[1])/(r[3]-r[1]);
-  assert.ok(Math.abs(u-.5)<.06&&Math.abs(v-.51)<.1,`${u} ${v}`);
+import {maelstromCentre as mc} from './clouds.js';
+const ART_M={spawn:[0,5,0],sea_level:0,world_bounds:[[0,0,51,56],[24,20,45,62]],ocean:[5333.33,-7466.667,13525.33,22400],horizons:[],regions:[{id:'k',map:'Kalimdor',tile_origin:[0,0],tile_count:[64,64],placement:[-21866.667,-7466.667]},{id:'e',map:'Azeroth',tile_origin:[0,0],tile_count:[64,64],placement:[725.333,-16000]}]};
+const KO=[-4800,9600],EO=[17792,1066.67];
+// WoW (x north, y west) to render, per continent, then through the fitted chart; px = where the place is painted in world-map-art.jpg (800x533)
+const PLACES=[['Orgrimmar',KO,1330,-4420,[230,239]],['Darnassus',KO,9950,2150,[124,90]],['Thunder Bluff',KO,-1280,128,[157,284]],['Gadgetzan',KO,-7150,-3790,[220,386]],['Ratchet',KO,-960,-3830,[221,279]],['Moonglade',KO,7500,-2500,[199,132]],['Stormwind',EO,-8985,497,[582,333]],['Undercity',EO,1890,240,[586,147]],['Booty Bay',EO,-14400,440,[583,425]],['Ironforge',EO,-5000,-880,[603,265]]];
+test('map chart: known places land on their painted spot (residuals within 20px, mean under 8)',()=>{
+  const f=worldArt(ART_M,mc(ART_M)),res=PLACES.map(([n,o,wx,wy,[px,py]])=>{const p=f(o[0]-wy,o[1]-wx);return [n,Math.hypot(p[0]-px,p[1]-py)];});
+  for(const [n,r] of res)assert.ok(r<20,`${n} off by ${r.toFixed(1)}px`);
+  assert.ok(res.reduce((s,r)=>s+r[1],0)/res.length<8);
 });
-test('world image rect keeps the image aspect ratio (800x533)',()=>{
-  const r=wir(FALLBACK_RECTS,[WORLD_CENTRE[0],MAELSTROM_Z]);
-  assert.ok(Math.abs((r[2]-r[0])/(r[3]-r[1])-800/533)<1e-6);
+test('map chart: Maelstrom centre is the painted eye, and the sea stays monotone (never folds)',()=>{
+  const c=mc(ART_M),f=worldArt(ART_M,c),m=f(...c);
+  assert.ok(Math.hypot(m[0]-MAELSTROM_ART[0],m[1]-MAELSTROM_ART[1])<2);
+  for(const z of [c[1]-6000,c[1],c[1]+6000]){let last=-Infinity;for(let x=-5000;x<=17000;x+=200){const u=f(x,z)[0];assert.ok(u>last,`fold at ${x},${z}`);last=u;}}
+  for(const x of [3000,c[0],14000]){let last=-Infinity;for(let z=-6000;z<=21000;z+=200){const v=f(x,z)[1];assert.ok(v>last,`fold at ${x},${z}`);last=v;}}
 });
-
-test('city icons land on their city in the world art (pixel tolerance) and airport follows the EK offset',()=>{
-  const m={spawn:[0,5,0],sea_level:0,world_bounds:[[0,0,51,56],[24,20,45,62]],horizons:[],regions:[{id:'k',map:'Kalimdor',tile_origin:[0,0],tile_count:[64,64],placement:[-21866.667,-7466.667]},{id:'e',map:'Azeroth',tile_origin:[0,0],tile_count:[64,64],placement:[725.333,-16000]}]};
-  const img=wirImg(FALLBACK_RECTS,[WORLD_CENTRE[0],MAELSTROM_Z]),icons=mapIcons(m,[WORLD_CENTRE[0],MAELSTROM_Z]);
-  const want={orgrimmar:[272,196],darnassus:[132,80],stormwind:[560,335],undercity:[558,150]};
-  for(const [id,[px,py]] of Object.entries(want)){
-    const p=iconMapPosition(icons.find(i=>i.id===id),img),x=(p[0]-img[0])/(img[2]-img[0])*800,y=(p[1]-img[1])/(img[3]-img[1])*533;
-    assert.ok(Math.abs(x-px)<12&&Math.abs(y-py)<12,`${id} at ${x|0},${y|0}`);
-  }
-  assert.deepEqual(icons.find(i=>i.id==='airport').position.map(Math.round),[19486,5703]);
+test('map chart: needs both continents and the ocean, Elune icon sits on the painted moon',()=>{
+  assert.equal(worldArt({regions:[ART_M.regions[0]]},[0,0]),undefined);
+  assert.equal(worldArt({...ART_M,ocean:undefined},[0,0]),undefined);
+  assert.ok(Math.hypot(ELUNE_ART[0]-450,ELUNE_ART[1]-92)<=64);
 });
-import {WORLD_ART as ART,WORLD_IMAGE as IMG} from './worldmap.js';
-test('Data world art crop keeps the local jpg aspect so icon art pixels align',()=>{assert.ok(Math.abs(ART[2]/ART[3]-IMG.width/IMG.height)<0.01);});
