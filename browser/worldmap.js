@@ -6,6 +6,8 @@ import {CLOUD_ALTITUDE,CLOUD_THICKNESS,CLOUD_TOWER} from './cloud-config.js';
 const TILE=256,COLUMNS=4,ROWS=3,SCALE=1600/3;
 const NAME=/^[A-Za-z]{3,24}$/;
 export const WORLD_MAPS=['World','Cosmic'];
+/** The Data world map is a 1002x668 picture (same art and aspect as the local 800x533 jpg) inside the 1024x768 stitched tile canvas: source rect x,y,w,h. */
+export const WORLD_ART=[0,0,1002,668];
 
 export function worldMapAreas(bytes) {
   if(!(bytes instanceof Uint8Array)||bytes.length<20||bytes.length>1024*1024||

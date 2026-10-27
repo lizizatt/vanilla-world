@@ -65,3 +65,5 @@ test('city icons land on their city in the world art (pixel tolerance) and airpo
   }
   assert.deepEqual(icons.find(i=>i.id==='airport').position.map(Math.round),[19486,5703]);
 });
+import {WORLD_ART as ART,WORLD_IMAGE as IMG} from './worldmap.js';
+test('Data world art crop keeps the local jpg aspect so icon art pixels align',()=>{assert.ok(Math.abs(ART[2]/ART[3]-IMG.width/IMG.height)<0.01);});
