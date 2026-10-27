@@ -109,20 +109,21 @@ export function gantry({ at, yaw, width = 30, phase = 3, real }) {
 }
 
 // C: checkpoint gate. state 'next' amber, 'passed' dim.
-export function checkpoint({ at, yaw, width = 24, state = 'next', pulse = 1, real }) {
+// rise: [left,right] yd each post's ground stands above `at` (a post on a slope rests on its own ground); sky: beam length in yd.
+export function checkpoint({ at, yaw, width = 24, state = 'next', pulse = 1, real, rise = [0, 0], sky = 140 }) {
   const m = new Mesh(real?.tex), h = width / 2, hot = state === 'next', c = hot ? COL.amber : COL.dim, a = hot ? .3 * pulse : .2;
-  const out = [];
-  if (!real) for (const s of [-1, 1]) { m.box('opaque', [-.4, s * h - .4, 0], [.8, .8, 10], COL.pole); m.box('add', [-1.1, s * h - 1.1, 10], [2.2, 2.2, 2.2], [...c.slice(0, 3), 1]); }
+  const out = [], up = s => Math.max(0, rise[s < 0 ? 0 : 1] || 0);
+  if (!real) for (const s of [-1, 1]) { const u = up(s); m.box('opaque', [-.4, s * h - .4, 0], [.8, .8, 10 + u], COL.pole); m.box('add', [-1.1, s * h - 1.1, 10 + u], [2.2, 2.2, 2.2], [...c.slice(0, 3), 1]); }
   const beams = new Mesh();
-  for (const s of [-1, 1]) { const g = new Mesh().column('add', hot ? 1.6 : .8, 10.5, 140, [...c.slice(0, 3), a], [...c.slice(0, 3), 0], 6); for (const q of g.g['add|']) beams.quad('add', q.p.map(([x, y, z]) => [x, y + s * h, z]), q.c); }
+  for (const s of [-1, 1]) { const g = new Mesh().column('add', hot ? 1.6 : .8, 10.5 + up(s), sky, [...c.slice(0, 3), a], [...c.slice(0, 3), 0], 6); for (const q of g.g['add|']) beams.quad('add', q.p.map(([x, y, z]) => [x, y + s * h, z]), q.c); }
   const beamTex = new Mesh(real?.tex);
-  beamTex.quad('add', [[0, -h, 0], [0, h, 0], [0, h, 9], [0, -h, 9]], [[...c.slice(0, 3), .02], [...c.slice(0, 3), .02], [...c.slice(0, 3), .22 * (hot ? pulse : .5)], [...c.slice(0, 3), .22 * (hot ? pulse : .5)]], 'zap');
-  if (real) for (const s of [-1, 1]) m.box('opaque', [-1, s * h - 1, 0], [2, 2, 1.3], COL.white, 'metal');
+  beamTex.quad('add', [[0, -h, up(-1)], [0, h, up(1)], [0, h, 9 + up(1)], [0, -h, 9 + up(-1)]], [[...c.slice(0, 3), .02], [...c.slice(0, 3), .02], [...c.slice(0, 3), .22 * (hot ? pulse : .5)], [...c.slice(0, 3), .22 * (hot ? pulse : .5)]], 'zap');
+  if (real) for (const s of [-1, 1]) m.box('opaque', [-1, s * h - 1, up(s)], [2, 2, 1.3], COL.white, 'metal');
   const body = new Mesh(real?.tex); for (const g of [m.g, beams.g, beamTex.g]) for (const [k, q] of Object.entries(g)) (body.g[k] ||= []).push(...q);
   out.push(faded(mk(body, at, yaw)));
   if (real) for (const s of [-1, 1]) {
-    out.push(faded(model(at, yaw, [0, s * h, 0], real.pole, .95)));
-    out.push(model(at, yaw, [0, s * h, 9.3], real.brazier, 1.5));
+    out.push(faded(model(at, yaw, [0, s * h, up(s)], real.pole, .95)));
+    out.push(model(at, yaw, [0, s * h, 9.3 + up(s)], real.brazier, 1.5));
   }
   return out;
 }

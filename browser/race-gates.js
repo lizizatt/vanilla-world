@@ -2,6 +2,7 @@
 // the optional local-asset kit. Gates stay non-colliding scenery; trigger planes live in race.js and are unchanged.
 import {gantry,checkpoint,beacon} from './race-gate-preview.js';
 import {flagPosition} from './race-flags.js';
+import {GATE_REACH} from './race.js';
 
 export const START_AHEAD=14; // yd the gantry stands ahead of the lined-up craft
 const GANTRY_WIDTH=30;
@@ -26,7 +27,7 @@ export function startLine(track) {
 }
 // Descriptors for every gate prop. Labels show at each track start in free-roam and are hidden for the track being raced (the gantry marks it).
 // While running: the next gate is amber (or the chequered finish gantry on the last one) and the one just passed is dim; later gates stay hidden.
-export function gateScene(tracks,race,now=0) {
+export function gateScene(tracks,race,now=0,reach=GATE_REACH) {
   const out=[],active=race&&ACTIVE[race.state]?race:undefined;
   for(const t of tracks)if(t.id!==active?.track.id)out.push({kind:'L',id:'L:'+t.id,at:flagPosition(t),yaw:t.start.yaw});
   if(!active)return out;
@@ -36,8 +37,8 @@ export function gateScene(tracks,race,now=0) {
   if(!dup)out.push({kind:'A',id:'A:start',at:startAt,yaw:startYaw,phase:lightPhase(active,now)});
   if(active.state==='running'){
     if(fin)out.push({kind:'A',id:'A:finish',at:last.pos,yaw:last.yaw,width:Math.min(last.width,60),phase:3});
-    else out.push({kind:'C',id:'C:next',at:last.pos,yaw:last.yaw,width:last.width,state:'next'});
-    if(active.next>0){const g=track.gates[(active.gateIndex+n-1)%n];out.push({kind:'C',id:'C:passed',at:g.pos,yaw:g.yaw,width:g.width,state:'passed'});}
+    else out.push({kind:'C',id:'C:next',at:last.pos,yaw:last.yaw,width:last.width,state:'next',sky:reach});
+    if(active.next>0){const g=track.gates[(active.gateIndex+n-1)%n];out.push({kind:'C',id:'C:passed',at:g.pos,yaw:g.yaw,width:g.width,state:'passed',sky:reach});}
   }
   return out;
 }
