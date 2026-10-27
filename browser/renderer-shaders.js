@@ -3,7 +3,7 @@ import {shaderSetFor,activeBody} from './body-shaders.js';
 
 /** terrain/splat/scene shaders with a body's radius and bend baked in; Azeroth's set is the byte-identical default below. */
 export const surfaceShadersFor=body=>{
-const groundBase=body.atmosphereEdge>0?".63,.59,.40":".45,.45,.45";const shade=body.atmosphereEdge>0?"":"let neutral=1.0-smoothstep(.02,.06,max(mapColor.r,max(mapColor.g,mapColor.b))-min(mapColor.r,min(mapColor.g,mapColor.b)));color*=mix(1.0,clamp(mapColor.r*1.9,.55,1.35),neutral*mapColor.a);";const bendShader=shaderSetFor(body).bend,localNightShading=localNightShadingFor(body.radius);
+const groundBase=body.atmosphereEdge>0?".63,.59,.40":".45,.45,.45";const shade=body.atmosphereEdge>0?"":"let neutral=1.0-smoothstep(.02,.06,max(mapColor.r,max(mapColor.g,mapColor.b))-min(mapColor.r,min(mapColor.g,mapColor.b)));color*=mix(1.0,clamp(mapColor.r*1.9,.55,1.35),neutral*mapColor.a);";const bendShader=shaderSetFor(body).bend,localNightShading=localNightShadingFor(body.radius,body.atmosphereEdge<=0);
 
 const terrainShader=`
 struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,body:vec4f,settings:vec4f,tile:vec4f,pad:array<vec4f,3>,sky:array<vec4f,4>};
