@@ -365,3 +365,9 @@ The SOI swap no longer blocks on `rebind`/`tuning` (worker-ordered, queued witho
 
 ## Azeroth shrink (R=14,260)
 CONTINENT_DEG=120 puts the continents at about lat +60..-60 (R=14,260, WORLD_CENTRE z 7,489, Maelstrom 16 deg). BEND/GLOBE/SPACE altitude ranges scale by 0.577 (terrain-transition.js ALTITUDE_SCALE); Elune's rail is 100 kyd (5 day period, ~87 yd/s), MOONS[1] 160 kyd, Elune SOI about 25 kyd. Elune's own ranges are effectively unchanged (0.598 x the scaled constants).
+
+## Podracing on Elune (status)
+- Pod gravity is per body (odies.js `POD_GRAVITY_SCALE`, Elune 0.5x the configured constant), re-derived at each SOI swap.
+- Map teleport preserves vehicle mode (	eleport-mode.js): a podracer is re-seated on the target body's ground, fly stays fly.
+- Track editor is body-aware: drafts carry `body`; the editor lists and flags only the active body's tracks. Track storage is id-keyed, so ids stay unique across bodies.
+

@@ -30,7 +30,7 @@ for(const [name,step] of JSON.parse(process.env.STEPS||'[]')) {
     // Hold keys and capture a frame sequence (per-frame camera + swap count) to catch single-frame flashes around a swap.
     for(const k of step.seq.down||[])await page.keyboard.down(k);
     for(let i=0;i<step.seq.n;i++){
-      const info=await page.evaluate(()=>({c:worldEvidence.camera?.slice(0,3).map(v=>Math.round(v)),s:worldEvidence.bodySwaps||0,hud:document.getElementById('space-hud')?.textContent}));
+      const info=await page.evaluate(()=>({c:worldEvidence.camera?.slice(0,3).map(v=>Math.round(v)),s:worldEvidence.bodySwaps||0,fly:!!window.worldTest.flightState().flight,hud:document.getElementById('space-hud')?.textContent}));
       if(!step.seq.noshot)await shot(`${name}-${String(i).padStart(3,'0')}`);console.log(name,i,JSON.stringify(info));
       await page.waitForTimeout(step.seq.gap??100);
     }
