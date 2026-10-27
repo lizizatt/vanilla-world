@@ -71,7 +71,7 @@ export function rimShape(site,prepared,seed) {
   };
   return {
     height:(x,z,h)=>{const d=Math.hypot(x-sx,z-sz);return d>R?proc(x,z):d<=R-RIM_BAND?h:h+correction(x,z,d);},
-    lift:(x,z)=>{const d=Math.hypot(x-sx,z-sz);return d<=R-RIM_BAND||d>R?0:correction(x,z,d);},
+    lift:(x,z)=>{const d=Math.hypot(x-sx,z-sz);return d<=R-RIM_BAND||d>R?0:correction(x,z,d);},flat:(x,z)=>ease(Math.hypot(x-sx,z-sz)),
   };
 }
 export function graftSource(base,real,{bodyId,seed}) {
@@ -96,7 +96,7 @@ export function graftSource(base,real,{bodyId,seed}) {
       return remember(`g${tx}_${ty}`,async()=>{
         const p=await prepare(site),t=tilesOf(site)[hit],moved=translateAdt(p.bytes[hit],{from:[t.sx,t.sy],to:[tx,ty],yOffset:p.yOffset});
         const edge=rimShape(site,p,seed),inside=(x,z)=>siteMask(site,x,z,CX,CY)>=1;
-        const kept=reshapeAdt(moved,{tile:[tx,ty],cx:CX,cy:CY,keep:inside,lift:edge.lift,height:edge.height});
+        const kept=reshapeAdt(moved,{tile:[tx,ty],cx:CX,cy:CY,keep:inside,lift:edge.lift,flat:edge.flat,height:edge.height});
         return cutAdt(kept,moonAdt(seed,tx,ty),{tile:[tx,ty],cx:CX,cy:CY,inside,relation:(x0,z0,x1,z1)=>rectVsCircle(site,[x0,z0,x1,z1],CX,CY),groundTexture:GROUND});
       });
     }

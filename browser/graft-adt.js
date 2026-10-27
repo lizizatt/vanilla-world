@@ -47,7 +47,7 @@ const bitCount=n=>{let c=0;for(;n;n&=n-1)c++;return c;};
 
 /** Copy of a (translated) tile at (tx,ty) with every terrain vertex re-heighted by `height(x,z,h)` (chart coordinates of a body whose centre tile is cx,cy).
  * Used to end the graft at the dome footprint circle and hand over to the procedural moon. */
-export function reshapeAdt(bytes,{tile:[tx,ty],cx,cy,height,keep,lift}) {
+export function reshapeAdt(bytes,{tile:[tx,ty],cx,cy,height,keep,lift,flat}) {
   const out=bytes.slice(),v=new DataView(out.buffer,out.byteOffset,out.byteLength),step=TILE/128;
   for(const c of adtChunks(out)) {
     // Placements outside `keep` (chart x,z) get an out-of-range name index, which the tile builder skips; sizes and offsets stay put. `lift(x,z)` raises the ones that stay (terrain was re-heighted under them).
@@ -62,12 +62,19 @@ export function reshapeAdt(bytes,{tile:[tx,ty],cx,cy,height,keep,lift}) {
     }
     if(c.magic==='MCNK'&&c.size>=MCNK_HEADER) {
       const ix=v.getUint32(c.start+4,true),iy=v.getUint32(c.start+8,true),base=v.getFloat32(c.start+0x70,true),x0=(tx-cx)*TILE+ix*TILE/16,z0=(ty-cy)*TILE+iy*TILE/16;
+      const outside=new Float32Array(145);
       for(const s of adtChunks(out,c.start+MCNK_HEADER,c.start+c.size)) {
         if(s.magic!=='MCVT')continue;
         for(let i=0;i<145;i++) {
           const row=Math.floor(i/17),k=i%17,inner=k>=9,col=inner?k-9:k,x=x0+(col+(inner?.5:0))*step,z=z0+(row+(inner?.5:0))*step,p=s.start+i*4;
           v.setFloat32(p,height(x,z,base+v.getFloat32(p,true))-base,true);
+          outside[i]=flat?flat(x,z):keep&&!keep(x,z)?1:0;
         }
+      }
+      // Vertices past the circle are procedural moon: blend them (and the eased rim band) toward the procedural tile's straight-up normal, not the stale Moonglade slope that shades sawtooth patches.
+      for(const s of adtChunks(out,c.start+MCNK_HEADER,c.start+c.size)) {
+        if(s.magic!=='MCNR')continue;
+        for(let i=0;i<145&&s.start+i*3+2<s.start+s.size;i++)if(outside[i]>0){const p=s.start+i*3,w=outside[i],nx=(out[p]<<24>>24)*(1-w),nz=(out[p+1]<<24>>24)*(1-w),ny=(out[p+2]<<24>>24)*(1-w)+127*w,l=Math.hypot(nx,nz,ny)||1;out[p]=Math.round(nx/l*127)&255;out[p+1]=Math.round(nz/l*127)&255;out[p+2]=Math.round(ny/l*127)&255;}
       }
     }
   }
@@ -151,8 +158,14 @@ export function cutAdt(bytes,procedural,{tile:[tx,ty],cx,cy,inside,relation,grou
         for(const s of adtChunks(swapped,8+MCNK_HEADER,swapped.length))if(s.magic==='MCLY')pv.setUint32(s.start,texIndex,true);
         parts.push(swapped);continue;
       }
+      if(rel==='partial'&&!inside(x0+TILE/32,z0+TILE/32)) { const p=procChunks[iy*16+ix],swapped=procedural.slice(p.start-8,p.start+p.size),pv=new DataView(swapped.buffer); const gv=new DataView(raw.buffer,raw.byteOffset);pv.setFloat32(8+0x70,gv.getFloat32(8+0x70,true),true); const gr=Object.fromEntries([...adtChunks(raw,8+MCNK_HEADER,raw.length)].map(s=>[s.magic,s])),ps=adtChunks(swapped,8+MCNK_HEADER,swapped.length); for(const s of ps){if(s.magic==='MCLY')pv.setUint32(s.start,texIndex,true);if((s.magic==='MCVT'||s.magic==='MCNR')&&gr[s.magic])swapped.set(raw.subarray(gr[s.magic].start,gr[s.magic].start+Math.min(s.size,gr[s.magic].size)),s.start);} parts.push(swapped);continue;}
       if(rel==='partial') {
         const cut=maskChunkTextures(raw,texIndex,(u,v)=>inside(x0+u*TILE/16,z0+v*TILE/16)),cv=new DataView(cut.buffer);
+        // The graft's baked MCSH shadow (tree and cliff shade) must end at the circle too, or its chunk-sized staircase shows as dark sawtooth patches on the regolith.
+        for(const s of adtChunks(cut,8+MCNK_HEADER,cut.length)) {
+          if(s.magic!=='MCSH'||s.size<512)continue;
+          for(let r=0;r<64;r++)for(let c=0;c<64;c++)if(!inside(x0+(c+.5)/64*TILE/16,z0+(r+.5)/64*TILE/16))cut[s.start+r*8+(c>>3)]&=~(1<<(c&7));
+        }
         if(!inside(x0+TILE/32,z0+TILE/32)){const p=procChunks[iy*16+ix];cv.setUint32(8+0x34,new DataView(procedural.buffer,procedural.byteOffset).getUint32(p.start+0x34,true),true);}
         parts.push(cut);continue;
       }
