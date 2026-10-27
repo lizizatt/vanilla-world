@@ -40,7 +40,7 @@ async function applyUrlPose() {
   // The in-page swap needs the app idle and the target engine warm; the flight pose is in the target body's chart, so it is placed only after the swap settled.
   void (async()=>{
     const t0=performance.now();
-    while(performance.now()-t0<120000&&(app.busy||!app.engines?.[target]?.info))await new Promise(r=>setTimeout(r,250));
+    while(performance.now()-t0<120000&&(app.busy||!app.engines?.[target]?.info||!app.renderer?.planetSets?.[target]))await new Promise(r=>setTimeout(r,250));
     const ok=await app.soiSwap(target).catch(()=>false);
     if(ok)await app.evidence?.swapSettled;
     await new Promise(r=>setTimeout(r,500));
