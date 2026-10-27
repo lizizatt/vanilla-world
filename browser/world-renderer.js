@@ -205,7 +205,7 @@ const lamps=[],draws=[],selection=this.cameraBlocked?{selected:[],omitted:0}:
           }
           const base=writeUniform(item);
           u[base+16]=aspect;u[base+17]=time;u[base+18]=batch.water?1:0;u[base+19]=near;u.set(m,base+20);
-          u[base+36]=batch.alphaCutoff||0;u[base+37]=batch.emissive?1:batch.sidn?2+(batch.sidn[0]>>4<<8|batch.sidn[1]>>4<<4|batch.sidn[2]>>4):0;u[base+38]=instance.distant?1:0;
+          u[base+36]=batch.alphaCutoff||0;u[base+37]=batch.emissive?1:batch.sidn?2+(batch.sidn[0]>>4<<8|batch.sidn[1]>>4<<4|batch.sidn[2]>>4):0;u[base+38]=instance.distant&&!instance.landmark?1:0;
           u[base+39]=distance<128?1:coverage;
 if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,base+60);
           draws.push({asset,batch,item,distant:instance.distant,craft:instance.craft,pipeline:batch.pipeline,distance});

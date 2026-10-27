@@ -1,6 +1,7 @@
 import {SceneStream,SCENE_LIMITS,SCENE_CEILING} from './scene-stream.js';
 import {ByteBudget} from './memory-budget.js';
 import {validateView,viewChanged} from './world-view.js';
+import {landmarkPlacements} from './landmarks.js';
 
 export const FAR_LIMITS=Object.freeze({assets:96,textures:96,bytes:32*1024*1024,instances:256,jobs:1});
 const TILE=1600/3;
@@ -9,7 +10,8 @@ const visualKey=key=>`far:${key}`;
 
 // This cache is visual-only. No far-worker result can declare a collision ready.
 export class FarStream {
-  constructor(source,wasm,manifest,send,memory=()=>0) {
+  constructor(source,wasm,manifest,send,memory=()=>0,landmarks=false) {
+    this.landmarkRows=landmarks;
     this.source=source;this.manifest=manifest;this.send=send;this.memory=memory;
     this.scene=new SceneStream(source,wasm,FAR_LIMITS);this.scene.visualOnly=true;
     this.scene.discovered=new Map();
@@ -23,16 +25,21 @@ export class FarStream {
       return [r.placement[0]+(t.x-r.tile_origin[0])*TILE,r.placement[1]+(t.y-r.tile_origin[1])*TILE];
     });
   }
+  landmarks(region) {
+    const map=region===0?1:0,rows=landmarkPlacements(map);
+    if(this.landmarkRows&&rows.length)this.scene.setLandmarks(map,rows);
+  }
   focus({epoch,region,position,enabled,view}) {
     if(!Number.isSafeInteger(epoch)||![0,1].includes(region)||!Array.isArray(position)||
       position.length!==3||!position.every(Number.isFinite)||typeof enabled!=='boolean')
       throw Error('Invalid distant worker focus');
     if(view!==undefined)validateView(view);
     if(this.region!==undefined && region!==this.region) {
-      this.scene.clear();this.resident.clear();this.tileBytes.clear();if(this.tileBudget)this.tileBudget.used=0;this.blocked.clear();this.failures.clear();this.reset=true;
+      this.scene.clear();this.resident.clear();this.tileBytes.clear();if(this.tileBudget)this.tileBudget.used=0;this.blocked.clear();this.failures.clear();this.reset=true;this.landmarks(region);
     } else if(epoch!==this.epoch) {
       this.scene.generation++;
     }
+    if(this.region===undefined)this.landmarks(region);
     if(epoch!==this.epoch)this.reset=true;
     this.epoch=epoch;this.region=region;this.position=position;this.enabled=enabled;
     const r=this.manifest.regions[region],toSource=v=>[-v[2],-v[0],v[1]];
@@ -157,7 +164,7 @@ export class FarStream {
     const instances=state.instances.filter(i=>{
       const old=this.sentInstances.get(i.id);
       return this.reset||!old||old.key!==i.key||old.matrix!==i.matrix||old.kind!==i.kind;
-    }).map(({id,key,matrix,kind})=>({id,key:visualKey(key),matrix,kind,distant:true}));
+    }).map(({id,key,matrix,kind,landmark})=>({id,key:visualKey(key),matrix,kind,distant:true,landmark:landmark||undefined}));
     this.send({event:'far-scene',epoch:this.epoch,token,region:this.region,reset:!!this.reset,
       instances,instanceOrder:state.instances.map(i=>i.id),
       assets,textures,removedAssets,removedTextures,stats:this.snapshot(state)},transfers);
