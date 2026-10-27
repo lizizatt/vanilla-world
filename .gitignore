@@ -26,3 +26,6 @@
 !.env.example
 /target-browser/
 /dist/
+
+# User-painted world map, built on WoW map art: local only.
+/browser/world-map-art.jpg
