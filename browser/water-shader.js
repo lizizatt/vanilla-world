@@ -65,6 +65,7 @@ fn limbGlow(p:vec3f)->vec3f {
   return vec3f(.25,.5,1.0)*pow(1.0-max(dot(n,-normalize(rel)),0.0),3.0)*(.15+lit)*.8*k;
 }`;};
 export const localNightShading=localNightShadingFor(activeBody().radius);
+const PLANET_RADIUS=wgslNumber(activeBody().radius);
 export const waterShading=`
 @group(0) @binding(3) var waterNormals:texture_2d<f32>;
 @group(0) @binding(4) var waveSampler:sampler;
@@ -79,16 +80,19 @@ fn waterColor(p:vec3f,ramp:f32,rampWidth:f32,dx:vec2f,dy:vec2f)->vec3f {
   }
   let a=textureSampleGrad(waterNormals,waveSampler,world/64.0+u.settings.y*vec2f(.012,.008),dx/64.0,dy/64.0);
   let b=textureSampleGrad(waterNormals,waveSampler,world.yx/32.0+u.settings.y*vec2f(-.009,.014),dx.yx/32.0,dy.yx/32.0);
-  let view=normalize(u.eye.xyz-p);
+  var up=vec3f(0.0,1.0,0.0);var view=normalize(u.eye.xyz-p);
+  // On the bent globe the surface normal and view ray follow the sphere; the flat-plane ones banded the far ocean into stripes from orbit.
+  let wbk=waterBendK();let bk=clamp(wbk*${PLANET_RADIUS},0.0,1.0);
+  if(bk>0.0){let rel=bend(p-u.eye.xyz,u.eye.xyz,wbk);up=normalize(mix(up,normalize(rel-vec3f(0.0,-(${PLANET_RADIUS}+u.eye.y),0.0)),bk));view=normalize(mix(view,-normalize(rel),bk));}
   let distance=length(u.eye.xyz-p);
   let detail=1.0-smoothstep(160.0,1500.0,distance);
   // Bowl: the real mesh dip (ocean-mesh.js profile) gives the slope, boosted so the walls read as lit/shaded from afar.
   let dq=max(1.0-(wr/DIP_R)*(wr/DIP_R),0.0);let bowl=dq*dq;let pit=u.sky[3].w*step(wr,DIP_R);
   var slope=(a.rg+b.gr-vec2f(1.0))*.9*detail-wd/max(wr,1.0)*${W.tilt.toFixed(2)}*wk-wd*4.0*DIP_D*dq/(DIP_R*DIP_R)*${W.wallBoost.toFixed(1)}*pit;
-  let normal=normalize(vec3f(slope.x,1.0,slope.y));
+  let normal=normalize(up+vec3f(slope.x,0.0,slope.y));
   let reflection=reflect(-view,normal);
-  let sky=select(mix(vec3f(.16,.29,.38),vec3f(.40,.61,.72),smoothstep(0.0,1.0,reflection.y))*mix(vec3f(1.0),vec3f(.06,.09,.2),nightK()),
-    mix(u.sky[2].rgb,u.sky[3].rgb,smoothstep(0.0,.6,reflection.y)),gameSky());
+  let sky=select(mix(vec3f(.16,.29,.38),vec3f(.40,.61,.72),smoothstep(0.0,1.0,dot(reflection,up)))*mix(vec3f(1.0),vec3f(.06,.09,.2),nightK()),
+    mix(u.sky[2].rgb,u.sky[3].rgb,smoothstep(0.0,.6,dot(reflection,up))),gameSky());
   let fresnel=.02+.98*pow(1.0-clamp(dot(normal,view),0.0,1.0),5.0);
   let depth=mix(clamp(ramp,0.0,1.0),1.0,smoothstep(350.0,700.0,distance));
   let body=mix(vec3f(.09,.43,.39),vec3f(.025,.18,.29),1.0-exp(-depth*4.5));

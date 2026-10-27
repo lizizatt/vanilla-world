@@ -10,7 +10,7 @@ const sha=s=>createHash('sha1').update(s).digest('hex').slice(0,12);
 test('Azeroth shaders are byte-identical to the current radius-baked strings', () => {
   assert.equal(sha(bendShader),'cf0807e77aee');
   assert.equal(sha(spaceShader),'ac9818c942e5');
-  assert.equal(sha(patchShader),'09deadd0e1b7');
+  assert.equal(sha(patchShader),'c2ad8d38f9b7');
   assert.equal(bendShader,bendShaderFor(PLANET_RADIUS,WORLD_CENTRE));
   assert.equal(patchShader,patchShaderFor(PLANET_RADIUS));
 });

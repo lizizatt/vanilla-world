@@ -331,7 +331,7 @@ fn patchPos(p:vec4f,ij:vec2u)->vec3f {
 @fragment fn pfs(v:PV)->FO {
   let n=normalize(v.n);let d=normalize(v.w);
   // From far away the far hemisphere's patches rasterise inside the disc with the near hit's depth; they would repaint the limb with night-side colour.
-  if(s.p.x>20000.0&&dot(n,d)>0.0){discard;}
+  if(s.p.x>R*.4675&&dot(n,d)>0.0){discard;}
   // Shade with the displaced face normal: the radial normal made cliffs seen at the limb glow rim-cyan.
   var ng=cross(dpdx(v.w),dpdy(v.w));ng=select(n,normalize(ng),dot(ng,ng)>1e-6);ng=select(-ng,ng,dot(ng,n)>=0.0);
   // Open sea (no relief) keeps the smooth radial normal; chord facets of the 16x16 grid otherwise show as blocky specular glint.
