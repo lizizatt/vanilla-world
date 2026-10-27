@@ -90,3 +90,12 @@ test('loading another track resets history so undo cannot resurrect old gates',(
   d.load({id:'b',name:'B',start:{pos:[5,0,5],yaw:0},gates:[]});
   assert.equal(d.undo(),false);assert.equal(d.gates.length,0);
 });
+
+test('drafts keep their body: moon tracks stay on the moon, Azeroth tracks stay unstamped',()=>{
+  const moon=TrackDraft.blank([1,2,3],0,'elune');moon.addGate([1,2,-40]);
+  assert.equal(moon.toTrack().body,'elune');
+  assert.equal(new TrackDraft(JSON.parse(JSON.stringify(moon.toTrack()))).toTrack().body,'elune');
+  assert.notEqual(moon.state(),TrackDraft.blank([1,2,3],0).state());
+  const az=TrackDraft.blank([1,2,3],0);az.addGate([1,2,-40]);
+  assert.equal('body' in az.toTrack(),false);
+});

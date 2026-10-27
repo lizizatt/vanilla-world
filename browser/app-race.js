@@ -35,7 +35,7 @@ async function withOverrides(found) {
   return list;
 }
 app.editor=createTrackEditor({
-  view:()=>app.renderer?.view,tracks:()=>app.tracks,shipped:()=>app.shipped.map(t=>t.id),probe:probeSurface,
+  view:()=>app.renderer?.view,tracks:()=>app.tracks.filter(t=>(t.body??'azeroth')===activeBody().id),body:()=>activeBody().id,shipped:()=>app.shipped.map(t=>t.id),probe:probeSurface,
   save:async track=>{
     await trackOverride(track.id,track);
     const ids=new Set((await trackOverride('~index'))||[]);ids.add(track.id);await trackOverride('~index',[...ids]);
@@ -69,7 +69,7 @@ async function settleGates(list,key) {
   } catch {/* surface probe failed: gates keep their authored height */}
 }
 function syncGates(force) {
-  const live=app.editor.isOpen?app.tracks:tracksFor(app.tracks,app.choice.vehicle,activeBody().id);
+  const live=app.editor.isOpen?app.tracks.filter(t=>(t.body??'azeroth')===activeBody().id):tracksFor(app.tracks,app.choice.vehicle,activeBody().id);
   if(!app.editor.isOpen){
     const list=gateScene(live,app.race,performance.now()/1000),key='w|'+activeBody().id+'|'+sceneKey(list)+'|'+!!app.gateKit;
     if(!force&&key===app.gateKey)return;
