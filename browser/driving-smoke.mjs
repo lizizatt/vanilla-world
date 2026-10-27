@@ -240,6 +240,14 @@ try{
   await page.locator('#files').setInputFiles(process.env.WOW_DATA);
   await page.waitForFunction(()=>worldEvidence.ready || worldEvidence.errors.length,{},{timeout:180000});
   assert.deepEqual(await page.evaluate(()=>worldEvidence.errors),[]);
+  if(process.env.TELEPORT_BODY){// the app's own map-panel body teleport (in-page well swap), then drive on that body
+    const body=process.env.TELEPORT_BODY;
+    await page.waitForTimeout(20000);// the target engine warms in the background
+    await page.keyboard.press('KeyM');
+    await page.locator(`.map-body[data-body=${body}]`).click();
+    await page.waitForFunction(async b=>(await import('./body-shaders.js')).activeBody().id===b,body,{timeout:120000});
+    await page.waitForTimeout(8000);
+  }
   assert(await page.evaluate(()=>!!worldEvidence.state.drivingClock),'Worker timing instrumentation was not installed');
   if(tuning)await page.evaluate(values=>worldTest.request('tuning',{values}),tuning);
   const source=process.env.SOURCE_POSE?.split(',').map(Number);
@@ -270,6 +278,7 @@ try{
     },Number(process.env.YAW??0));// default spawn heading faces a solid shore after ~83 m
   }
   if(await page.locator('#drive').evaluate(e=>!e.hidden)){await page.locator('#drive').evaluate(e=>e.click());await page.locator('#world').focus();}
+  else if(process.env.TELEPORT_BODY)await page.locator('#world').focus();
   else await page.locator('#world').click();
   const clock=await page.evaluate(()=>({...worldEvidence.state.drivingClock}));
   try{await page.waitForFunction(before=>{
