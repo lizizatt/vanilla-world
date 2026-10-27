@@ -60,10 +60,10 @@ export function density(pos,t,high,centre=[0,0],coverageOverride,mask) {
  * `o`: {eye:[x,y,z], dir:[x,y,z] (unit), t, high, time (Light.dbc half-minutes), centre, coverage, sceneDist, jitter (0..1), night (0..1)}.
  */
 export function march(o) {
-  const {eye,dir,t=0,high=false,time=1440,centre=[0,0],coverage,sceneDist=1e9,jitter=.5,night=0}=o;
+  const {eye,dir,t=0,high=false,time=1440,centre=[0,0],coverage,sceneDist=1e9,jitter=.5,night=0,sun:sunOver}=o;
   const ex=extent(eye[1],dir[1],sceneDist,high);
   if(!ex.ns)return {alpha:0,rgb:[0,0,0],extent:ex};
-  const sun=sunDirection(time),ns=ex.ns,ss=(ex.s1-ex.s0)/steps(high);
+  const sun=sunOver??sunDirection(time),ns=ex.ns,ss=(ex.s1-ex.s0)/steps(high);
   const grade=[1-.8*night,1-.73*night,1-.5*night],fog=[.08*(1-night),.15*(1-night),.2*(1-night)];
   let trans=1;const light=[0,0,0];
   for(let i=0;i<ns;i++) {

@@ -17,6 +17,7 @@ import {planetFactorsFor,bodiesEnabled} from './bodies.js';
 import {activeBody} from './body-shaders.js';
 import {skyUniform,DAY} from './sky.js';
 import {eluneSkyAt,AIRLESS_SKY} from './elune-sky.js';
+import {localSunAt,solarTime} from './local-sun.js';
 import {SimClock,sanitiseScale,daylightAt,CloudClock} from './sim-clock.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
 import {cameraAxes,AdmissionFade,sceneSelection} from './renderer-helpers.js';
@@ -137,7 +138,10 @@ export class WorldRenderer {
     this.cloudTime=cc.time;const waterTime=this.cloudTime%7200;
     this.timeOfDay=this.timeLock??clock.now();
     const airless=activeBody().id==='elune',moonSky=airless?eluneSkyAt(state[0],state[2],this.timeOfDay):undefined;
-    const daylight=this.daylight=moonSky?moonSky.daylight:daylightAt(this.timeOfDay);
+    // Atmospheric bodies light from where the camera stands: the local sun and the clock reading that sun corresponds to drive every day/night and Light.dbc lookup.
+    this.sunLocal=moonSky?moonSky.sun:localSunAt(activeBody(),this.view.eye[0],this.view.eye[2],this.timeOfDay);
+    this.localTime=moonSky?this.timeOfDay:solarTime(this.sunLocal);
+    const daylight=this.daylight=moonSky?moonSky.daylight:daylightAt(this.localTime);
     const sky0=airless?AIRLESS_SKY:DAY_SKY.map((v,i)=>NIGHT_SKY[i]+(v-NIGHT_SKY[i])*daylight);
     const game=airless?undefined:zoneBlend(this.sampleSky(),pf.zone),sky=game?game.fog:sky0;pf.fog=(game?game.horizon:sky).slice(0,3);
     this.gameSky=game;
@@ -159,7 +163,7 @@ export class WorldRenderer {
     this.fadeTime=Math.max(this.fadeTime||0,time);
     const fadeTime=this.fadeTime;
     let uniformCount=0;
-    const u=this.uniformData,sunDir=moonSky?moonSky.sun:sunDirection(this.timeOfDay);
+    const u=this.uniformData,sunDir=this.sunLocal;
     const writeUniform=item=>{
       if(uniformCount>=16384)throw Error('World draw uniform budget exceeded');
       const base=uniformCount++*64;
@@ -247,7 +251,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
       depthStencilAttachment:depthAttachment('main',this.depth.createView()),
     });
     if(!this.cameraBlocked){
-      if(game){this.device.queue.writeBuffer(this.skyBuffer,0,skyUniform(this.view,game,this.timeOfDay,horizonDip(this.view.eye[1],pf.bend),pf.space));pass.setPipeline(this.skyPipeline);pass.setBindGroup(0,this.skyGroup);pass.draw(3);this.drawSkyDome(pass);}
+      if(game){this.device.queue.writeBuffer(this.skyBuffer,0,skyUniform(this.view,game,this.localTime,horizonDip(this.view.eye[1],pf.bend),pf.space));pass.setPipeline(this.skyPipeline);pass.setBindGroup(0,this.skyGroup);pass.draw(3);this.drawSkyDome(pass);}
       if(pf.globe>0)this.drawPlanet(pass,pf,near);
       if(pf.globe>0&&pf.mesh)this.drawPatches(pass);
       if(pf.globe>0)this.drawBodies(pass,pf,near);
