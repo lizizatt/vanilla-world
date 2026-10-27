@@ -6,6 +6,7 @@ import {sitesOf,tilesOf,siteRect,siteCentre,siteMask,siteTiles,rectVsCircle,dome
 import {ADT_TILE,ADT_CHUNK} from './adt-synth.js';
 import {moonAdt,moonHeightChart,MOON_TILES_X,MOON_TILES_Y} from './moon-terrain.js';
 import {regolithBlp} from './moon-source.js';
+import {RIM_BAND,GRAFT_INFO} from './graft-npcs.js';
 
 const STEP=ADT_CHUNK/8,CX=MOON_TILES_X/2,CY=MOON_TILES_Y/2;
 const GROUND='Tileset\\Elune\\Regolith.blp',MASKED=/^textures\\minimap\\0{22}([0-9a-f]{4})([0-9a-f]{4})e1\.blp$/;
@@ -59,7 +60,7 @@ export function graftMinimapRows(bytes,sites,mapName) {
 }
 /** Vertex heights across the dome circle, on the tile's own vertex lattice: outside the circle every vertex is the procedural moon height, inside it is the graft height eased over the last RIM_BAND yd
  * by the procedural-minus-graft difference at the rim point on the same bearing, so the two height fields meet at the circle (no cliff, no per-chunk stair-step). `lift` is the same correction for placements. */
-export const RIM_BAND=40;
+export {RIM_BAND};
 export function rimShape(site,prepared,seed) {
   const [sx,sz]=domeCentre(site,CX,CY),R=site.dome.radius;
   const proc=(x,z)=>Math.round(moonHeightChart(seed,x,z)*64)/64,graft=(x,z)=>sampleGrid(prepared.grid,prepared.rect,x,z,prepared.yOffset);
@@ -119,6 +120,7 @@ export function graftSource(base,real,{bodyId,seed}) {
       const key=path.replaceAll('/','\\').toLowerCase(),m=re.exec(key);
       // The cache outlives each read and callers may transfer the buffer to another thread, so hand out a copy.
       if(m){const grafted=await tile(+m[1],+m[2]);if(grafted)return grafted.slice();return base.read(path,options);}
+      if(key===GRAFT_INFO){const out={};for(const site of sites)out[site.id]=(await prepare(site)).yOffset;return new TextEncoder().encode(JSON.stringify(out));}
       if(key.startsWith(`world\\maps\\${bodyId}\\`))return base.read(path,options);
       if(key===trs)return graftMinimapRows(await real.read(path,options),sites,mapName);
       if(key===`textures\\minimap\\${REGOLITH_HASH}`)return regolithBlp();
