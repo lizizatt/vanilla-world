@@ -6,8 +6,6 @@ import {CLOUD_ALTITUDE,CLOUD_THICKNESS,CLOUD_TOWER} from './cloud-config.js';
 const TILE=256,COLUMNS=4,ROWS=3,SCALE=1600/3;
 const NAME=/^[A-Za-z]{3,24}$/;
 export const WORLD_MAPS=['World','Cosmic'];
-/** The Data world map is a 1002x668 picture (same art and aspect as the local 800x533 jpg) inside the 1024x768 stitched tile canvas: source rect x,y,w,h. */
-export const WORLD_ART=[0,0,1002,668];
 
 export function worldMapAreas(bytes) {
   if(!(bytes instanceof Uint8Array)||bytes.length<20||bytes.length>1024*1024||
@@ -64,10 +62,10 @@ export const fromMap=(frame,u,v)=>[frame.x0+u*frame.width,frame.z0+v*frame.heigh
 
 /** City gate spawns in WoW world coordinates (x north, y west): map, [x,y,z], direction into the city as [dx,dy]. Render x=-y+offset, z=-x+offset, forward=(-sin yaw,-cos yaw). */
 const GATES=[
-  {id:'stormwind',label:'Stormwind gate',map:'Azeroth',wow:[-8985,497,102],into:[.8,.6],art:[560,335]},
-  {id:'orgrimmar',label:'Orgrimmar gate',map:'Kalimdor',wow:[1330,-4420,35],into:[1,0],art:[272,196]},
-  {id:'undercity',label:'Undercity gate',map:'Azeroth',wow:[1890,240,70],into:[-1,0],art:[558,150]},
-  {id:'darnassus',label:'Darnassus gate',map:'Kalimdor',wow:[9950,2150,1330],into:[0,1],art:[132,80]},
+  {id:'stormwind',label:'Stormwind gate',map:'Azeroth',wow:[-8985,497,102],into:[.8,.6]},
+  {id:'orgrimmar',label:'Orgrimmar gate',map:'Kalimdor',wow:[1330,-4420,35],into:[1,0]},
+  {id:'undercity',label:'Undercity gate',map:'Azeroth',wow:[1890,240,70],into:[-1,0]},
+  {id:'darnassus',label:'Darnassus gate',map:'Kalimdor',wow:[9950,2150,1330],into:[0,1]},
 ];
 /** Ironforge airport from WoW coords through the Eastern Kingdoms region offset, so it follows layout shifts. */
 function airportPos(manifest) {
@@ -80,7 +78,7 @@ function gateIcons(manifest) {
     const region=manifest.regions?.find(r=>r.map===g.map);
     if(!region)return [];
     const [kx,kz]=regionOffset(region),[x,y,z]=g.wow,pos=[-y+kx,-x+kz];
-    return [{id:g.id,label:g.label,position:pos,art:g.art,pose:[pos[0],z,pos[1],Math.atan2(g.into[1],g.into[0])]}];
+    return [{id:g.id,label:g.label,position:pos,pose:[pos[0],z,pos[1],Math.atan2(g.into[1],g.into[0])]}];
   });
 }
 
@@ -98,6 +96,27 @@ export function mapIcons(manifest,maelstrom) {
   ];
 }
 
+/** The bundled world map painting (800x533, user-made art in browser/world-map-art.jpg): Kalimdor left, Eastern Kingdoms right, the Maelstrom between them, Elune painted as the moon. */
+export const WORLD_ART_URL='./world-map-art.jpg',WORLD_ART_SIZE=[800,533],MAELSTROM_ART=[400,273],ELUNE_ART=[450,92];
+/** Per-continent affine into the painting, fitted by matching each continent's WDL land outline to its painted outline (least squares on blurred masks, which carries the stylised art's slightly different scale per axis). `at` is where the region's own origin lands, so it follows layout shifts. */
+const ART_FIT={Kalimdor:{at:[-116.49,-33.48],scale:[.016136,.017307]},Azeroth:{at:[324.83,-112.31],scale:[.015499,.017078]}};
+const SPAN=16000;
+/** Render position to painting pixels, or undefined when the manifest lacks the two continents. Continents use their own fit; the ocean between them blends the two by distance across the gap, with the Maelstrom pinned to its painted eye (the correction fades out smoothly along z so the sea never folds). */
+export function worldArt(manifest,maelstrom) {
+  const k=manifest?.regions?.find(r=>r.map==='Kalimdor'),e=manifest?.regions?.find(r=>r.map==='Azeroth');
+  if(!k||!e||!manifest.ocean||!maelstrom)return undefined;
+  const gap=[manifest.ocean[0],manifest.ocean[2]];
+  const blend=(x,z)=>{
+    const at=(f,r)=>[f.at[0]+f.scale[0]*(x-r.placement[0]),f.at[1]+f.scale[1]*(z-r.placement[1])];
+    const w=Math.max(0,Math.min(1,(x-gap[0])/(gap[1]-gap[0]))),a=at(ART_FIT.Kalimdor,k),b=at(ART_FIT.Azeroth,e);
+    return [a[0]+(b[0]-a[0])*w,a[1]+(b[1]-a[1])*w,w];
+  };
+  const bell=w=>4*w*(1-w),m=blend(...maelstrom),pull=[MAELSTROM_ART[0]-m[0],MAELSTROM_ART[1]-m[1]],norm=bell(m[2]);
+  return (x,z)=>{
+    const p=blend(x,z),d=Math.abs(z-maelstrom[1]),f=d<SPAN?bell(p[2])/norm*Math.cos(Math.PI/2*d/SPAN)**2:0;
+    return [p[0]+pull[0]*f,p[1]+pull[1]*f];
+  };
+}
 export function drawMap(canvas,frame,rects,images,schematic) {
   const context=canvas.getContext('2d'),w=canvas.width,h=canvas.height;
   context.clearRect(0,0,w,h);
@@ -159,24 +178,4 @@ export class WorldMapService {
     if(stopped())return;
     this.emit({event:'worldmap-tiles',name,tiles},transfers);
   }
-}
-
-// The combined world map (local art, 800x533): pixel anchors of Kalimdor and Eastern Kingdoms extents and the Maelstrom eye, fitted to our layout per axis (least squares), since the art is stylised.
-export const WORLD_IMAGE={width:800,height:533,kalimdor:[100,100,300,460],eastern:[535,45,720,445],maelstrom:[400,270]};
-export function worldImageRect(rects,centre,image=WORLD_IMAGE) {
-  const fit=pairs=>{
-    const n=pairs.length,sx=pairs.reduce((s,p)=>s+p[0],0),sy=pairs.reduce((s,p)=>s+p[1],0),sxx=pairs.reduce((s,p)=>s+p[0]*p[0],0),sxy=pairs.reduce((s,p)=>s+p[0]*p[1],0);
-    const a=(n*sxy-sx*sy)/(n*sxx-sx*sx);return [a,(sy-a*sx)/n];
-  };
-  const [k,e]=rects,[kp,ep]=[image.kalimdor,image.eastern];
-  const px=[[k[0],kp[0]],[k[2],kp[2]],[e[0],ep[0]],[e[2],ep[2]],[centre[0],image.maelstrom[0]]],pz=[[k[1],kp[1]],[k[3],kp[3]],[e[1],ep[1]],[e[3],ep[3]],[centre[1],image.maelstrom[1]]];
-  // One scale for both axes keeps the image's aspect ratio; only the offsets are fitted per axis.
-  const a=Math.sqrt(fit(px)[0]*fit(pz)[0]),offset=pairs=>pairs.reduce((s,p)=>s+p[1]-a*p[0],0)/pairs.length;
-  const ax=a,az=a,bx=offset(px),bz=offset(pz);
-  return [-bx/ax,-bz/az,(image.width-bx)/ax,(image.height-bz)/az];
-}
-/** Where an icon is drawn on the world-art map: its city's pixel in the art if known, else its real position; art pixels map through the image rect. */
-export function iconMapPosition(icon,img,image=WORLD_IMAGE) {
-  if(!icon.art||!img)return icon.position;
-  return [img[0]+icon.art[0]/image.width*(img[2]-img[0]),img[1]+icon.art[1]/image.height*(img[3]-img[1])];
 }

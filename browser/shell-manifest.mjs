@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 
 // Files no static analysis can see (loaded through the wasm-bindgen glue). Add runtime-only URLs here.
-export const RUNTIME_ASSETS = ['pkg/flats_racer_web.js', 'pkg/flats_racer_web_bg.wasm'];
+export const RUNTIME_ASSETS = ['pkg/flats_racer_web.js', 'pkg/flats_racer_web_bg.wasm', 'world-map-art.jpg'];
 
 // Fetched optionally at runtime and published separately (see build-dist.mjs and server.mjs), never part of the shell.
 export const OPTIONAL_RUNTIME = new Set(['npc-pack.json', 'local/npc-spawns.json']);
