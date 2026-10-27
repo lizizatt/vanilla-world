@@ -3,7 +3,7 @@ import {shaderSetFor,activeBody} from './body-shaders.js';
 
 /** terrain/splat/scene shaders with a body's radius and bend baked in; Azeroth's set is the byte-identical default below. */
 export const surfaceShadersFor=body=>{
-const bendShader=shaderSetFor(body).bend,localNightShading=localNightShadingFor(body.radius);
+const groundBase=body.atmosphereEdge>0?".63,.59,.40":".45,.45,.45";const shade=body.atmosphereEdge>0?"":"let neutral=1.0-smoothstep(.02,.06,max(mapColor.r,max(mapColor.g,mapColor.b))-min(mapColor.r,min(mapColor.g,mapColor.b)));color*=mix(1.0,clamp(mapColor.r*1.9,.55,1.35),neutral*mapColor.a);";const bendShader=shaderSetFor(body).bend,localNightShading=localNightShadingFor(body.radius);
 
 const terrainShader=`
 struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,body:vec4f,settings:vec4f,tile:vec4f,pad:array<vec4f,3>,sky:array<vec4f,4>};
@@ -30,7 +30,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   nightOver=localNight(v.p);
   let dx=dpdx(v.p.xz);let dy=dpdy(v.p.xz);let rampWidth=fwidth(v.n.x);
   let light=.35+.65*max(dot(normalize(v.n),normalize(vec3f(-.3,1.0,.4))),0.0);
-  var color=vec3f(.63,.59,.40)*light;
+  var color=vec3f(${groundBase})*light;
   let cell=vec2f(u.tile.w%64.0,floor(u.tile.w/64.0));
   let mapUv=(cell+clamp(v.uv,vec2f(.5/32.0),vec2f(1.0-.5/32.0)))/64.0;
   let mapColor=textureSample(minimap,mapSampler,mapUv);
@@ -86,8 +86,9 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) uv:vec
   if((edges&2u)!=0u){edgeDistance=min(edgeDistance,(1.0-v.tileUv.x)*(1600.0/3.0));}
   if((edges&4u)!=0u){edgeDistance=min(edgeDistance,v.tileUv.y*(1600.0/3.0));}
   if((edges&8u)!=0u){edgeDistance=min(edgeDistance,(1.0-v.tileUv.y)*(1600.0/3.0));}
+  ${shade}
   color=mix(color,mapColor.rgb,(1.0-smoothstep(0.0,100.0/3.0,edgeDistance))*mapColor.a);
-  let base=mix(vec3f(.63,.59,.40)*v.light,mapColor.rgb,mapColor.a);
+  let base=mix(vec3f(${groundBase})*v.light,mapColor.rgb,mapColor.a);
   color=grade(mix(base,color,u.settings.z));
   let fog=max(clamp(length(v.p-u.eye.xyz)/150000.0,0.0,.93),valleyHaze(v.p))*(1.0-u.pad[0].y);
   return vec4f(mix(color,fogTint(),fog)+limbGlow(v.p),1);
