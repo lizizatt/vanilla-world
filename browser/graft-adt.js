@@ -164,17 +164,17 @@ export function cutAdt(bytes,procedural,{tile:[tx,ty],cx,cy,inside,relation,grou
 }
 
 /** Mask a DXT1 minimap BLP2 (all mip levels) to a boundary: each 4x4 block whose centre fails `inside(u,v)` (0..1 across the tile, v south) becomes flat `rgb`. Other encodings pass through unchanged. */
-export function maskMinimap(blp,inside,rgb=[165,152,112]) {
+export function maskMinimap(blp,inside,rgb=[140,140,140],fill) {
   const v0=new DataView(blp.buffer,blp.byteOffset,blp.byteLength);
   if(blp.length<148||blp[8]!==2||blp[9]!==0)return blp;
-  const out=blp.slice(),ov=new DataView(out.buffer),w0=v0.getUint32(12,true),h0=v0.getUint32(16,true),flat=((rgb[0]>>3)<<11)|((rgb[1]>>2)<<5)|(rgb[2]>>3);
+  const out=blp.slice(),ov=new DataView(out.buffer),w0=v0.getUint32(12,true),h0=v0.getUint32(16,true),c565=c=>((c[0]>>3)<<11)|((c[1]>>2)<<5)|(c[2]>>3),flat=c565(rgb);
   for(let m=0;m<16;m++) {
     const at=v0.getUint32(20+m*4,true),size=v0.getUint32(84+m*4,true);if(!at||!size)continue;
     const w=Math.max(1,w0>>m),h=Math.max(1,h0>>m),bw=Math.max(1,w>>2),bh=Math.max(1,h>>2);
     for(let by=0;by<bh;by++)for(let bx=0;bx<bw;bx++) {
       const p=at+(by*bw+bx)*8;if(p+8>out.length)continue;
-      if(inside(Math.min(1,(bx*4+2)/w),Math.min(1,(by*4+2)/h)))continue;
-      ov.setUint16(p,flat,true);ov.setUint16(p+2,flat,true);ov.setUint32(p+4,0,true);
+      const u=Math.min(1,(bx*4+2)/w),vv=Math.min(1,(by*4+2)/h);if(inside(u,vv))continue;const f=fill?c565(fill(u,vv)):flat;
+      ov.setUint16(p,f,true);ov.setUint16(p+2,f,true);ov.setUint32(p+4,0,true);
     }
   }
   return out;
