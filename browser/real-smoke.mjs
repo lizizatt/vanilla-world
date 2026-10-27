@@ -16,7 +16,7 @@ await page.waitForFunction(()=>!document.getElementById('select').disabled,null,
 await page.locator('#files').setInputFiles(WOW_DATA);
 await page.waitForFunction(()=>worldEvidence.ready||worldEvidence.errors.length,null,{timeout:300000});
 console.log('ready',await page.evaluate(()=>worldEvidence.ready),'errors',await page.evaluate(()=>worldEvidence.errors));
-await page.keyboard.press('Escape');await page.locator('[data-tab=options]').click();await page.keyboard.press('Escape');await page.locator('#world').click();
+await page.keyboard.press('Escape');if(await page.locator('[data-tab=options]').isVisible()){await page.locator('[data-tab=options]').click();await page.keyboard.press('Escape');}await page.evaluate(()=>document.getElementById('welcome')?.remove());await page.locator('#world').click();
 const shot=async name=>page.screenshot({path:path.join(out,`${tag}-${name}.png`)});
 await page.waitForTimeout(3000);await shot('spawn');
 await page.evaluate(()=>{window.__maxGap=0;let last=performance.now();const tick=t=>{window.__maxGap=Math.max(window.__maxGap,t-last);last=t;requestAnimationFrame(tick);};requestAnimationFrame(tick);});

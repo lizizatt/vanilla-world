@@ -9,7 +9,10 @@ export const CLOUD_THICKNESS=520;
 export const CLOUD_TOWER={up:2400,down:160};
 export const CLOUD_HALF_SIZE=250000;
 // Tunables in yards / radians per second. Arms rotate counter-clockwise as seen on the world map (north up).
-export const MAELSTROM={eyeRadius:2200,wallRadius:5200,radius:24000,arms:3,pitch:.7,spin:.012,drift:.006};
+// The storm was authored for the 42,781 yd planet; it scales with the planet (whirlpool dip stays, it is physics).
+export const STORM_SCALE=.4;
+const S=STORM_SCALE;
+export const MAELSTROM={eyeRadius:2200*S,wallRadius:5200*S,radius:24000*S,arms:3,pitch:.7,spin:.012,drift:.006};
 // World-map registration: the eye sits 43% of the way from Kalimdor's east coast to the Eastern Kingdoms' west coast,
 // and at 35% / 40% of the way down each continent's tile rows, averaged because the two continents are offset provisionally.
 export const MAELSTROM_MAP={across:.43,kalimdorDown:.35,easternDown:.4};
@@ -20,7 +23,7 @@ export const WHIRLPOOL_DIP={radius:1800,depth:380};
 
 // Funnel: a tapered, rotating column rising far above the sheet at the maelstrom centre (yards). Tunable.
 // The column continues below the sheet down to sea level, flaring into a mist skirt (skirtRadius) at the whirlpool.
-export const FUNNEL={top:7500,seaLevel:-WHIRLPOOL_DIP.depth,skirtRadius:1700,baseRadius:500,baseDensity:.12,sparseHeight:2200,topRadius:3200,flare:1.5,spin:.5,twist:5,fadeStart:90000,fadeEnd:170000};
+export const FUNNEL={top:7500*S,seaLevel:-WHIRLPOOL_DIP.depth,skirtRadius:1700*S,baseRadius:500*S,baseDensity:.12,sparseHeight:2200*S,topRadius:3200*S,flare:1.5,spin:.5,twist:5,fadeStart:90000,fadeEnd:170000};
 
 // Funnel march steps are the same on every tier.
 export const FUNNEL_STEPS=14;

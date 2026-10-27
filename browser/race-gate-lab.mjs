@@ -25,7 +25,9 @@ export async function openLab({ swe1r = true, width = 1280, height = 720, clouds
   }
   await page.locator('#files').setInputFiles(WOW_DATA);
   await page.waitForFunction(() => worldEvidence.ready || worldEvidence.errors.length, null, { timeout: 180000 });
-  await page.keyboard.press('Escape'); await page.locator('[data-tab=options]').click(); await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  if (await page.locator('[data-tab=options]').isVisible()) { await page.locator('[data-tab=options]').click(); await page.keyboard.press('Escape'); }
+  await page.evaluate(() => document.getElementById('welcome')?.remove());
   await page.locator('#world').click();
   await page.evaluate(([p, y, clouds]) => { worldTest.settings({ shadows: false, clouds, night: false, music: false });
     worldTest.selectVehicle({ vehicle: 'podracer', skin: 'rocket' }); worldTest.restore({ pos: p, yaw: y }); }, [track.start.pos, track.start.yaw, clouds]).catch(() => {});
