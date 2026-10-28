@@ -12,6 +12,7 @@ import {exhaustPoints,emitPlumes,emitDebris,emitHeatSmoke,emitGroundDust,emitWat
 import {domePlacement} from './dome-shell.js';
 import {domeMask} from './elune-sites.js';
 import {beamState} from './beam.js';
+import {advanceIntake,writeIntakeMatrix} from './swe1r/intakes.js';
 import {horizonDip} from './space.js';
 import {planetFactorsFor,bodiesEnabled} from './bodies.js';
 import {activeBody} from './body-shaders.js';
@@ -200,7 +201,7 @@ const lamps=[],draws=[],selection=this.cameraBlocked?{selected:[],omitted:0}:
             item=items.get(key);
             if(!item || item.texture!==texture || item.asset!==asset) {
               const sampler=this.device.createSampler({minFilter:'linear',magFilter:'linear',
-                addressModeU:batch.wrapX?'repeat':'clamp-to-edge',addressModeV:batch.wrapY?'repeat':'clamp-to-edge'});
+                addressModeU:batch.addressU??(batch.wrapX?'repeat':'clamp-to-edge'),addressModeV:batch.addressV??(batch.wrapY?'repeat':'clamp-to-edge')});
               item={id:instance.id,key:instance.key,asset,texture,group:this.device.createBindGroup({layout:this.sceneLayout,entries:[
                 {binding:0,resource:{buffer:this.frameUniforms,size:256}},{binding:1,resource:texture.createView()},{binding:2,resource:sampler},
                 {binding:3,resource:this.waterNormals.createView()},{binding:4,resource:this.waveSampler}]} )};
@@ -210,6 +211,7 @@ const lamps=[],draws=[],selection=this.cameraBlocked?{selected:[],omitted:0}:
           }
           const base=writeUniform(item);
           u[base+16]=aspect;u[base+17]=time;u[base+18]=batch.water?1:0;u[base+19]=near;u.set(m,base+20);
+          if(batch.intake&&instance===this.craft?.instance)writeIntakeMatrix(u,base+20,m,batch.intake,this.intakeAngle||0);
           u[base+36]=batch.alphaCutoff||0;u[base+37]=batch.emissive?1:batch.sidn?2+(batch.sidn[0]>>4<<8|batch.sidn[1]>>4<<4|batch.sidn[2]>>4):0;u[base+38]=instance.distant&&!instance.landmark?1:0;
           u[base+39]=distance<128?1:coverage;
 if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,base+60);
@@ -225,6 +227,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
       }
     }
     const wreckAge=this.wreck?performance.now()/1000-this.wreck.t0:0;
+    this.intakeAngle=advanceIntake(this.intakeAngle||0,time===0?0:dt,this.fxInput?.throttle,state[5]);
     if(this.wreck&&wreckAge>WRECK_SECONDS)this.endWreck();
     const wreckFrameNow=this.wreck&&wreckFrame(this.wreck,wreckAge);
     if(wreckFrameNow)this.wreck.parts.forEach((p,i)=>append(p.asset,p.instance,partMatrix(wreckFrameNow.subarray(i*7,i*7+7),p.center,this.wreck.scale,origin),this.craft.textures,this.craft.items));

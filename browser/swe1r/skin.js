@@ -38,6 +38,10 @@ export function toCraft(asset, bounds, fwd = FORWARD) {
     v[i] = fwd * y; v[i + 1] = -fwd * x; v[i + 2] = z;
     v[i + 3] = fwd * ny; v[i + 4] = -fwd * nx;
   }
+  for(const batch of asset.batches)if(batch.intake){
+    const [x,y,z]=batch.intake;
+    batch.intake=[fwd*y,-fwd*x,z-z0];
+  }
   return asset;
 }
 

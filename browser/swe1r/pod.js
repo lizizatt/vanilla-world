@@ -3,6 +3,7 @@
 // opcodes and vertex layout follow the public N64 F3DEX2 documentation (G_VTX 0x01, G_TRI1 0x05, G_TRI2 0x06, G_QUAD 0x07, G_ENDDL 0xDF).
 import { parseModel, applyMat } from './model.js';
 import { decodePixels, readPalette, FMT } from './image.js';
+import { INTAKE_TEXTURES, intakeIslands, textureAddress } from './intakes.js';
 
 // Mesh texture binding: MeshMaterial { flags, offX, offY, ptr MaterialTexture, ptr Material }; MaterialTexture { format@0xc,
 // width@0x10, height@0x12, textureIndex@0x38 (top byte 0x0A flags, low 24 bits index) }.
@@ -12,7 +13,9 @@ export function meshTexture(body, mesh) {
   if (!mm || mm + 16 > body.length) return null;
   const mt = dv.getUint32(mm + 8);
   if (!mt || mt + 0x3c > body.length) return null;
-  return { format: dv.getUint16(mt + 0xc), width: dv.getInt16(mt + 0x10), height: dv.getInt16(mt + 0x12), index: dv.getUint32(mt + 0x38) & 0xffffff, flags: dv.getUint32(mm) };
+  const child=dv.getUint32(mt+0x1c);
+  return { format: dv.getUint16(mt + 0xc), width: dv.getInt16(mt + 0x10), height: dv.getInt16(mt + 0x12), index: dv.getUint32(mt + 0x38) & 0xffffff, flags: dv.getUint32(mm),
+    ...textureAddress(child&&child+16<=body.length?body[child+3]:0) };
 }
 
 export function decodeTriangles(body, mesh) {
@@ -64,27 +67,34 @@ export function buildPod(body, mask, opts = {}) {
     if (tex && !textures.has(`swe1r\\${t.index}`) && textures.size >= (opts.maxTextures ?? 64)) tex = null; // renderer's craft payload limit; the rest stay untextured
     const key = tex ? `swe1r\\${t.index}` : null;
     if (tex && !textures.has(key)) textures.set(key, { key, width: tex.width, height: tex.height, rgba: tex.rgba });
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push({ mesh, t: tex ? { w: tex.width, h: tex.height } : null });
+    const tris=decodeTriangles(body,mesh).map(tri=>({tri,P:tri.map(v=>applyMat(mesh.matrix,v.x,v.y,v.z))}));
+    const parts=tex&&INTAKE_TEXTURES.has(t.index)?intakeIslands(tris):[{tris,pivot:null}];
+    for(let i=0;i<parts.length;i++){
+      const {tris,pivot}=parts[i],address=textureAddress(0);
+      if(t){address.addressU=t.addressU;address.addressV=t.addressV;}
+      const groupKey=`${key}|${address.addressU}|${address.addressV}|${pivot?`${mesh.off}:${i}`:''}`;
+      if(!groups.has(groupKey))groups.set(groupKey,{key,address,pivot,list:[]});
+      groups.get(groupKey).list.push({tris,textured:!!tex});
+    }
   }
-  for (const [key, list] of groups) {
+  for (const {key,address,pivot,list} of groups.values()) {
     const first = indices.length;
-    for (const { mesh, t } of list) {
-      for (const tri of decodeTriangles(body, mesh)) {
-        const P = tri.map(v => applyMat(mesh.matrix, v.x, v.y, v.z));
+    for (const { tris, textured } of list) {
+      for (const {tri,P} of tris) {
         const e1 = P[1].map((c, i) => c - P[0][i]), e2 = P[2].map((c, i) => c - P[0][i]);
         let n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
         const nl = Math.hypot(...n) || 1; n = n.map(c => c / nl);
         tri.forEach((v, k) => {
           const [x, y, z] = P[k];
           indices.push(vertices.length / 12);
-          vertices.push(x, y, z, n[0], n[1], n[2], t ? v.u / UV_RANGE : 0, t ? v.v / UV_RANGE : 0, v.r, v.g, v.b, v.a);
+          vertices.push(x, y, z, n[0], n[1], n[2], textured ? v.u / UV_RANGE : 0, textured ? v.v / UV_RANGE : 0, v.r, v.g, v.b, v.a);
           for (let a = 0; a < 3; a++) { lo[a] = Math.min(lo[a], P[k][a]); hi[a] = Math.max(hi[a], P[k][a]); }
         });
       }
     }
     const beam = key === `swe1r\\${BEAM_TEXTURE}`;
-    if (indices.length > first) batches.push({ firstIndex: first, indexCount: indices.length - first, texture: key, ...alphaMode(textures.get(key)), doubleSided: true, wrapX: true, wrapY: true, emissive: 0, ...(beam && { beam: true, blend: 'add', emissive: 1 }) });
+    if (indices.length > first) batches.push({ firstIndex: first, indexCount: indices.length - first, texture: key, ...alphaMode(textures.get(key)), doubleSided: true, ...address, wrapX: true, wrapY: true, emissive: 0,
+      ...(pivot&&{intake:pivot}), ...(beam && { beam: true, blend: 'add', emissive: 1 }) });
   }
   return { asset: { vertices: new Float32Array(vertices), indices: new Uint32Array(indices), batches }, textures: [...textures.values()], bounds: { lo, hi }, meshCount: meshes.length };
 }

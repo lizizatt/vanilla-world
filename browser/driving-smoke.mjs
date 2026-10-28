@@ -238,9 +238,27 @@ if(process.env.COAST_WATER==='0')await context.route('**/water-stream.js',async 
   await page.goto(process.env.WORLD_URL || 'http://127.0.0.1:4185/?test');
   assert.deepEqual([...hooks.wanted].filter(h=>!hooks.applied.has(h)),[],'Missing worker profiling hooks');
   await page.waitForFunction(()=>!document.getElementById('select').disabled);
+  if(process.env.POD_SKIN){
+    assert(process.env.SWE1R_DATA,'POD_SKIN requires SWE1R_DATA');
+    await page.locator('#swe1r-files').setInputFiles(process.env.SWE1R_DATA);
+    await page.waitForFunction(()=>document.getElementById('swe1r-status').dataset.ok==='1',null,{timeout:60000});
+  }
   await page.locator('#files').setInputFiles(process.env.WOW_DATA);
   await page.waitForFunction(()=>worldEvidence.ready || worldEvidence.errors.length,{},{timeout:180000});
   assert.deepEqual(await page.evaluate(()=>worldEvidence.errors),[]);
+  if(process.env.POD_SKIN){
+    await page.evaluate(skin=>{
+      if(!worldTest.selectVehicle({vehicle:'podracer',skin}))throw Error('Pod selection refused');
+      worldTest.settings({cockpit:false});
+    },process.env.POD_SKIN);
+    await page.waitForFunction(()=>worldTest.renderer().craft?.metadata.pose==='swe1r',null,{timeout:30000});
+    if(process.env.POD_BASELINE!=='1'){
+      assert.ok(await page.evaluate(()=>worldTest.renderer().craft.asset.batches.some(b=>b.intake)),
+        'Performance gate must render an animated intake, not a fallback craft');
+      const angle=await page.evaluate(()=>worldTest.renderer().intakeAngle);
+      await page.waitForFunction(a=>worldTest.renderer().intakeAngle!==a,angle,{timeout:5000});
+    }
+  }
   if(process.env.MAP_OPEN==='1'){await page.keyboard.press('KeyM');await page.waitForTimeout(3000);}
   if(process.env.TELEPORT_BODY){// the app's own map-panel body teleport (in-page well swap), then drive on that body
     const body=process.env.TELEPORT_BODY;
