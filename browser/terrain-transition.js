@@ -5,17 +5,9 @@ import {smoothstep as smooth} from './math.js';
 // Azeroth was R=42,781 when these were tuned; they scale with sqrt(R/42,781) (ALTITUDE_SCALE) for the current radius.
 export const ALTITUDE_SCALE=0.577;
 const scaled=r=>Object.freeze(r.map(v=>Math.round(v*ALTITUDE_SCALE)));
-// Base ranges (sqrt(R) scaled): other bodies derive theirs from these. Azeroth overrides them below so its world stays flat through the weather.
-export const BASE_BEND_RANGE=scaled([150,1500]);
-export const BASE_GLOBE_RANGE=scaled([0,60]);
-export const BASE_SPACE_RANGE=scaled([2000,9000]);
-/** Top of the highest cloud layer (yd): the Azeroth flat-to-round bend starts here, so below and within clouds the world is flat. */
-export const CLOUD_TOP=CLOUD_ALTITUDE+CLOUD_THICKNESS*.5;
-export const CLOUD_BASE=CLOUD_ALTITUDE-CLOUD_THICKNESS*.5;
-// The bend starts at the cloud base and finishes where the sky has gone black (SPACE_RANGE end); the globe fades in over the second half.
-export const SPACE_RANGE=Object.freeze([2500,6500]);
-export const BEND_RANGE=Object.freeze([Math.floor(CLOUD_BASE/10)*10,SPACE_RANGE[1]]);
-export const GLOBE_RANGE=Object.freeze([2400,6500]);
+export const BEND_RANGE=scaled([150,1500]);
+export const GLOBE_RANGE=scaled([0,60]);
+export const SPACE_RANGE=scaled([2000,9000]);
 // Per-zone lighting (Light.dbc tint) fades to the global sun look, reaching zero at the base of the lowest cloud layer.
 export const ZONE_LIGHT_RANGE=Object.freeze([300,CLOUD_ALTITUDE-CLOUD_THICKNESS*.5]);
 

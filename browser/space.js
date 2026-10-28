@@ -2,7 +2,7 @@
 // Camera/render only; physics stays flat. The globe is analytic (one fullscreen ray-sphere pass), the near terrain bends onto it.
 // Sizing: Kalimdor is the largest populated continent, about 29,870 yd north-south, and is meant to span 40 degrees of latitude.
 import {HEIGHT_RANGE,HEIGHT_MIN} from './height-bake.js';
-import {BEND_RANGE,BASE_BEND_RANGE,wgslRamp} from './terrain-transition.js';
+import {BEND_RANGE,wgslRamp} from './terrain-transition.js';
 import {nightLightsWgsl} from './night-lights-wgsl.js';
 import {wrapAngle,wrapTurn} from './math.js';
 import {LAT_MAX,clampLat,latLonOf,flatOf,frameAtLatLon} from './equirect.js';
@@ -113,7 +113,7 @@ export function bendRel(rel,eye,k=1,radius=PLANET_RADIUS,centre=WORLD_CENTRE) {
   const lat0=clampLat((centre[1]-eye[2])/radius),lat=clampLat(lat0-rel[2]/radius),dl=rel[0]/radius;
   const cl=Math.cos(lat),sp0=Math.sin(lat0),cp0=Math.cos(lat0),cd=cl*Math.cos(dl);
   const n=[cl*Math.sin(dl),cp0*cd+sp0*Math.sin(lat),sp0*cd-cp0*Math.sin(lat)],r=radius+rel[1]+eye[1];
-  const t=Math.min(Math.max((k-.1)/.2,0),1),s=Math.max(Math.min(Math.max((Math.hypot(rel[0],rel[2])-1.5*radius)/radius,0),1),Math.min(Math.max((Math.hypot(rel[0],rel[2])/Math.sqrt(2*radius*Math.max(eye[1],1))-.5)/.7,0),1)),kk=k+(1-k)*t*t*(3-2*t)*s*s*(3-2*s);
+  const t=Math.min(Math.max((k-.1)/.2,0),1),s=Math.min(Math.max((Math.hypot(rel[0],rel[2])-1.5*radius)/radius,0),1),kk=k+(1-k)*t*t*(3-2*t)*s*s*(3-2*s);
   return [rel[0]+(n[0]*r-rel[0])*kk,rel[1]+(n[1]*r-(radius+eye[1])-rel[1])*kk,rel[2]+(n[2]*r-rel[2])*kk];
 }
 const wgslF=x=>Number.isInteger(x)?x+'.0':String(x);
@@ -127,7 +127,7 @@ fn bend(rel:vec3f,eye:vec3f,k:f32)->vec3f {
   let n=vec3f(cl*sin(dl),cp0*cd+sp0*sin(lat),sp0*cd-cp0*sin(lat));
   let w=vec3f(0.0,-(R+eye.y),0.0)+n*(R+rel.y+eye.y);
   // Far water/terrain (past ~1.5 R of chart distance, where it would wrap round the globe) is fully curved once the bend is well under way, so no flat plane floats beyond the horizon at partial bend.
-  let kk=k+(1.0-k)*smoothstep(.1,.3,k)*max(smoothstep(1.5*R,2.5*R,length(rel.xz)),smoothstep(.5,1.2,length(rel.xz)/sqrt(2.0*R*max(eye.y,1.0))));
+  let kk=k+(1.0-k)*smoothstep(.1,.3,k)*smoothstep(1.5*R,2.5*R,length(rel.xz));
   return mix(rel,w,kk);
 }`;
 export const bendShader=bendShaderFor(PLANET_RADIUS,WORLD_CENTRE);
@@ -257,7 +257,7 @@ fn surface(pv:vec3f,n:vec3f,d:vec3f,sun:vec3f)->vec3f {
   return col*(floorC+lit)+vec3f(.5,.6,.7)*spec*lit+vec3f(.25,.5,1.0)*rim*(.15+lit)*.8*clamp(s.p.x/3000.0,0.0,1.0);
 }
 // Same haze law as the terrain/water shaders (distance/150000, gone once the bend takes over); fog colour rides in the unused fourth rect slot.
-fn fogGlobe(c:vec3f,t:f32,n:vec3f,d:vec3f)->vec3f {let low=1.0-${wgslRamp(radius===PLANET_RADIUS?BEND_RANGE:BASE_BEND_RANGE)}s.p.x);let f=pow(1.0-abs(dot(normalize(n),normalize(d))),3.0);let k=max(clamp(t/150000.0,0.0,.93),.85*f)*low;return mix(c,s.rect[3].xyz,k);}
+fn fogGlobe(c:vec3f,t:f32,n:vec3f,d:vec3f)->vec3f {let low=1.0-${wgslRamp(BEND_RANGE)}s.p.x);let f=pow(1.0-abs(dot(normalize(n),normalize(d))),3.0);let k=max(clamp(t/150000.0,0.0,.93),.85*f)*low;return mix(c,s.rect[3].xyz,k);}
 struct FO {@location(0) color:vec4f,@builtin(frag_depth) depth:f32};
 @fragment fn fs(v:V)->FO {
   let d=normalize(s.look.xyz+s.right.xyz*v.ndc.x*.55*s.look.w+s.up.xyz*v.ndc.y*.55);

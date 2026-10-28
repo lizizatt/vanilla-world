@@ -43,7 +43,7 @@ test('every layer takes the Maelstrom centre from maelstromCentre()', () => {
 const wrapX=dx=>{const turn=2*Math.PI*R;return ((dx+turn/2)%turn+turn)%turn-turn/2;};
 // Orbit ring: eyes on a ring of longitudes/latitudes at several altitudes, looking at landmarks placed by the terrain's own bend mapping.
 const eyes=[];
-for(const lat of [-60,-20,0,20,45,70])for(const lonDeg of [-120,-60,0,40,120,170])for(const alt of [7000,20000,60000,150000])eyes.push([WORLD_CENTRE[0]+R*lonDeg*Math.PI/180,alt,WORLD_CENTRE[1]-R*lat*Math.PI/180]);
+for(const lat of [-60,-20,0,20,45,70])for(const lonDeg of [-120,-60,0,40,120,170])for(const alt of [5000,20000,60000,150000])eyes.push([WORLD_CENTRE[0]+R*lonDeg*Math.PI/180,alt,WORLD_CENTRE[1]-R*lat*Math.PI/180]);
 const maelstrom=maelstromCentre(manifest);
 const landmarks=[maelstrom,[(FALLBACK_RECTS[0][0]+FALLBACK_RECTS[0][2])/2,(FALLBACK_RECTS[0][1]+FALLBACK_RECTS[0][3])/2],[(FALLBACK_RECTS[1][0]+FALLBACK_RECTS[1][2])/2,(FALLBACK_RECTS[1][1]+FALLBACK_RECTS[1][3])/2],[FALLBACK_RECTS[0][0],FALLBACK_RECTS[0][1]],[FALLBACK_RECTS[1][2],FALLBACK_RECTS[1][3]]];
 
@@ -69,12 +69,12 @@ test('cloud height above the globe is the true radial altitude (shell concentric
 
 test('near the ground the cloud mapping blends to the flat terrain frame (landmark offset bounded and 0 at both ends)', () => {
   const lat=12;
-  for(const alt of [20,100,150,400,800,1200,1500,1800,3000,4000,4800]) {
+  for(const alt of [20,100,150,400,800,1200,1500,3000]) {
     const bend=planetFactors(alt).bend,eye=[WORLD_CENTRE[0]+3000,alt,WORLD_CENTRE[1]-R*lat*Math.PI/180];
     for(const d of [[10000,0],[0,-10000],[-7000,7000],[13000,-13000]]) {
       const flat=[d[0],0,d[1]],rel=bendRel(flat,eye,bend),w=worldAt(eye,rel),err=Math.hypot(w[0]-eye[0]-d[0],w[2]-eye[2]-d[1]);
       // exact at bend 0 (flat) and 1 (globe); in between the shell uses its own effective radius, so measured worst about 11% of range at 56 km, 800 yd
-      const tol=bend>=1?2:bend<=0?.016*Math.hypot(...d):.25*Math.hypot(...d);
+      const tol=bend>=1?2:bend<=0?.006*Math.hypot(...d):.12*Math.hypot(...d);
       assert.ok(err<tol,`alt ${alt} bend ${bend.toFixed(3)} d ${d} err ${err.toFixed(0)}`);
     }
   }

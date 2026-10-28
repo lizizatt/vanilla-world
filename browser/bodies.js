@@ -4,7 +4,7 @@
 import {PLANET_RADIUS,WORLD_CENTRE,MOONS} from './space.js';
 import {smoothRange} from './math.js';
 import {simEpoch} from './sim-clock.js';
-import {BEND_RANGE,GLOBE_RANGE,SPACE_RANGE,BASE_BEND_RANGE,BASE_GLOBE_RANGE,BASE_SPACE_RANGE,ZONE_LIGHT_RANGE} from './terrain-transition.js';
+import {BEND_RANGE,GLOBE_RANGE,SPACE_RANGE,ZONE_LIGHT_RANGE} from './terrain-transition.js';
 import {SURFACE_GRAVITY,ATMOSPHERE_EDGE,gravityAt,densityAt,circularSpeed} from './planet-physics.js';
 import {toPlanet,fromPlanet} from './planet-frame.js';
 
@@ -24,11 +24,11 @@ export const ELUNE_ORBIT=100000;
 const DAY_UNITS=2880;
 
 const scaleRange=(range,k)=>Object.freeze(range.map(v=>Number((v*k).toFixed(3))));
-const rangesFor=k=>Object.freeze({bend:scaleRange(BASE_BEND_RANGE,k),globe:scaleRange(BASE_GLOBE_RANGE,k),space:scaleRange(BASE_SPACE_RANGE,k),zone:scaleRange(ZONE_LIGHT_RANGE,k)});
+const rangesFor=k=>Object.freeze({bend:scaleRange(BEND_RANGE,k),globe:scaleRange(GLOBE_RANGE,k),space:scaleRange(SPACE_RANGE,k),zone:scaleRange(ZONE_LIGHT_RANGE,k)});
 
 export const AZEROTH=Object.freeze({
   id:'azeroth',radius:PLANET_RADIUS,centre:WORLD_CENTRE,gravity:SURFACE_GRAVITY,atmosphereEdge:ATMOSPHERE_EDGE,sea:true,clouds:true,
-  circumference:2*Math.PI*PLANET_RADIUS,rangeScale:1,ranges:Object.freeze({...rangesFor(1),bend:BEND_RANGE,globe:GLOBE_RANGE,space:SPACE_RANGE}),maxLevel:9,
+  circumference:2*Math.PI*PLANET_RADIUS,rangeScale:1,ranges:rangesFor(1),maxLevel:9,
 });
 // Transition ranges scale with sqrt(R) (design 1: linear would start bending below a pod's height).
 const ELUNE_RANGE_SCALE=Math.sqrt(ELUNE_RADIUS/PLANET_RADIUS);
