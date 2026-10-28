@@ -67,7 +67,7 @@ export class WorldClient {
       if(data.error)request.reject(new Error(data.error));else request.resolve(data.result);
     };
   }
-  frame(dt,throttle,steer,flags,focus,distant=true,view,pitch=0) {
+  frame(dt,throttle,steer,flags,focus,distant=true,view,pitch=0,simTime,podEnabled) {
     if(!!focus!==this.poseFlying){this.discardFrame();this.poseFlying=!!focus;}
     const hop=!!(flags&8)&&!focus;
     if(hop&&!this.hopHeld)this.pendingHop=++this.hopSequence;
@@ -76,6 +76,8 @@ export class WorldClient {
     this.pendingFrame={throttle,steer,pitch:focus?0:pitch,flags,focus,distant,sampleTime:performance.now()};
     if(this.farOnly&&focus)this.pendingFrame.farOnly=true;
     if(view!==undefined)this.pendingFrame.view=view;
+    if(simTime!==undefined)this.pendingFrame.simTime=simTime;
+    if(podEnabled!==undefined)this.pendingFrame.podEnabled=podEnabled;
     this.flushFrame();
   }
   discardFrame() {

@@ -24,6 +24,7 @@ import {installInput} from './app-input.js';
 import {installGarage} from './app-garage.js';
 import {installRace} from './app-race.js';
 import {installFrame} from './app-frame.js';
+import {installLaunch} from './app-launch.js';
 import {createWorldTest} from './app-hooks.js';
 const app={};
 const $=id=>document.getElementById(id);const canvas=$('world');const keys=new Set();
@@ -115,6 +116,7 @@ installPose(app);
 installInput(app);
 installGarage(app);
 installRace(app);
+installLaunch(app);
 installFrame(app);
 async function start() {
   try {

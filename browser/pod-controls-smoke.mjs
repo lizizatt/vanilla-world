@@ -27,7 +27,7 @@ const report=[];
 const pad=({pitch=0,steer=0,rt=0,lt=0,boost=false,drift=false,hop=false,look=0}={})=>{
   const buttons=Array.from({length:17},()=>({pressed:false,value:0}));
   for(const [index,value] of [[7,rt],[6,lt],[0,+boost],[2,+drift],[5,+hop]])buttons[index]={pressed:value>.5,value};
-  return {connected:true,mapping:'standard',index:0,axes:[steer,-pitch,look,0],buttons};
+  return {connected:true,mapping:'standard',index:0,axes:[steer,pitch,look,0],buttons};
 };
 try{
   await mkdir(out,{recursive:true});
@@ -99,9 +99,9 @@ try{
     await page.waitForFunction(()=>worldEvidence.cockpit.active&&worldEvidence.state.telemetry[17]>.34&&worldTest.renderer().view.look[1]>.33);
     await page.screenshot({path:fileURLToPath(new URL(`${body}-cockpit.png`,out))});
     await reset();await page.evaluate(()=>worldTest.settings({cockpit:false}));
-    await page.keyboard.down('ArrowUp');
+    await page.keyboard.down('ArrowDown');
     await page.waitForFunction(()=>worldEvidence.input.pitch===1&&worldEvidence.input.device==='keyboard');
-    await page.keyboard.up('ArrowUp');
+    await page.keyboard.up('ArrowDown');
     await reset();
     // Same clear raceway heading as performance-smoke.mjs; the spawn heading faces a nearby obstacle.
     await page.evaluate(p=>worldTest.restore(p),[...spawn.slice(0,3),0]);

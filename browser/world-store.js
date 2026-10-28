@@ -38,6 +38,7 @@ export const worldSave=(sourceId,record)=>stored(`${LAYOUT_VERSION}:${sourceId}`
 export const worldTuning=(sourceId,record)=>stored(`tuning:${LAYOUT_VERSION}:${sourceId}`,record);
 export const raceScores=(trackId,record)=>stored(`race:1:${trackId}`,record);
 export const trackOverride=(id,record)=>stored(`track:1:${id}`,record);
+export const launchObjects=(source,body,record)=>stored(`launch:1:${source}:${body}`,record);
 export const worldLiquids=(sourceId,tile,record)=>stored(`liquids:2:${sourceId}:${tile}`,record);
 /** Locally derived far-horizon minimap colour (32x32 RGBA per tile), keyed by data fingerprint; never committed or shipped. */
 export const farMinimap=(sourceId,tile,record)=>stored(`minimap:1:${sourceId}:${tile}`,record);

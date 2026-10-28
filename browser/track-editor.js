@@ -81,6 +81,11 @@ export function createTrackEditor({view,tracks,body=()=>'azeroth',save,remove:re
     const x=e.offsetX,y=e.offsetY;
     if(e.button!==0){drag={kind:'pan'};return;}
     const world=toWorld(x,y),d=ed.draft;
+    if(ed.tool==='launch'&&world){
+      const kind=$('te-launch-kind').value,yaw=Number($('te-launch-yaw').value)*Math.PI/180;
+      void ed.launch.place(world,yaw,kind==='powerup'?'powerup':'ramp',Number(kind)).then(()=>status('Launch object saved locally.')).catch(error=>status(error.message,true));
+      return;
+    }
     if(ed.tool==='add'&&world){d.addGate(world);ed.selected=d.gates.length-1;drag={kind:'gate',i:ed.selected,lift:CLEAR_DEFAULT};return;}
     if(ed.tool==='start'&&world){d.setStart(world);drag={kind:'start'};return;}
     const h=hit(x,y);
@@ -123,6 +128,9 @@ export function createTrackEditor({view,tracks,body=()=>'azeroth',save,remove:re
   $('te-delete').addEventListener('click',()=>{remove();cv.focus();});
   $('te-undo').addEventListener('click',()=>{undo();cv.focus();});
   $('te-close').addEventListener('click',ed.close);
+  $('te-launch-add').addEventListener('click',()=>{setTool('launch');status('Click the map to place the selected launch object.');cv.focus();});
+  $('te-launch-turn').addEventListener('click',()=>void ed.launch.rotate($('te-launch-list').value,Number($('te-launch-yaw').value)*Math.PI/180).catch(error=>status(error.message,true)));
+  $('te-launch-remove').addEventListener('click',()=>void ed.launch.remove($('te-launch-list').value).catch(error=>status(error.message,true)));
   $('te-track').addEventListener('change',e=>choose(e.target.value));
 
   const meta=()=>ed.draft.setMeta({name:$('te-name').value,mode:$('te-mode').value,vehicle:$('te-vehicle').value,laps:+$('te-laps').value||1});
@@ -185,6 +193,18 @@ export function createTrackEditor({view,tracks,body=()=>'azeroth',save,remove:re
     if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h;}
     refresh();
     g2.clearRect(0,0,w,h);
+    const objects=ed.launch?.list()||[],objectKey=JSON.stringify(objects);
+    if($('te-launch-list').dataset.key!==objectKey){
+      const selected=$('te-launch-list').value;
+      $('te-launch-list').replaceChildren(...objects.map(o=>new Option(o.kind==='ramp'?`${o.angle} degree ramp (${o.pos[0].toFixed(0)}, ${o.pos[2].toFixed(0)})`:'Powered boost pickup',o.id)));
+      if(objects.some(o=>o.id===selected))$('te-launch-list').value=selected;
+      $('te-launch-list').dataset.key=objectKey;
+    }
+    for(const o of objects){
+      const p=toScreen(o.pos);if(!p)continue;
+      g2.fillStyle=o.kind==='ramp'?'#65d8ff':'#8cffb0';g2.beginPath();g2.arc(p[0],p[1],8,0,Math.PI*2);g2.fill();
+      g2.font='12px sans-serif';g2.fillText(o.kind==='ramp'?`${o.angle}°`:'+15s',p[0]+12,p[1]);
+    }
     const d=ed.draft,pts=d.gates.map(gt=>toScreen(gt.pos));
     g2.lineWidth=2;g2.setLineDash([8,6]);g2.strokeStyle='rgba(255,214,102,.9)';g2.beginPath();
     const route=[d.start.pos,...d.gates.map(gt=>gt.pos),...(d.mode==='lap'&&d.gates.length?[d.start.pos]:[])].map(toScreen);

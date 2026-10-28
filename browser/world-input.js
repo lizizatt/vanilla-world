@@ -6,6 +6,7 @@ const axis=(value,deadzone)=>Number.isFinite(value) && Math.abs(value)>deadzone
 const button=(pad,index)=>pad.buttons[index]?.pressed || (pad.buttons[index]?.value || 0)>.5;
 const value=(pad,index)=>axis(pad.buttons[index]?.value, .08);
 const podAxis=value=>{const n=axis(value,.15);return .75*n+.25*n*n*n;};
+export const POD_PITCH_SIGN=-1;
 
 /** The canonical Intent every device maps to: throttle/steer/pitch in [-1,1], bit flags (1 handbrake, 2 boost, 4 drift, 8 jump),
  *  look axes in [-1,1], zoom step and one-shot edge actions. */
@@ -25,7 +26,7 @@ export class WorldInput {
     let selected,edges=[];
     for(const pad of connected) {
       const analog=[podracer?podAxis(pad.axes[0]):axis(pad.axes[0],.18),value(pad,7),value(pad,6),
-        axis(pad.axes[2],.18),-axis(pad.axes[3],.18),podracer?-podAxis(pad.axes[1]):0];
+        axis(pad.axes[2],.18),-axis(pad.axes[3],.18),podracer?POD_PITCH_SIGN*-podAxis(pad.axes[1]):0];
       const pressed=pad.buttons.map((_,i)=>!!button(pad,i)),before=this.previous.get(pad.index);
       const rising=pressed.map((p,i)=>p && !before?.pressed[i]);
       const activity=rising.some(Boolean) || analog.some((v,i)=>v!==0 && Math.abs(v-(before?.analog[i]||0))>.04);
@@ -46,7 +47,7 @@ export class WorldInput {
     }
     const down=k=>Number(keys.has(k)),legacy=profile==='legacy';
     return {...idle,...actions,throttle:down('KeyW')-down('KeyS'),steer:down('KeyA')-down('KeyD'),
-      pitch:podracer?down('ArrowUp')-down('ArrowDown'):0,
+      pitch:podracer?(POD_PITCH_SIGN*(down('ArrowUp')-down('ArrowDown'))||0):0,
       flags:(down('KeyX')||(legacy && down('Space')))|((down('ShiftLeft')||down('ShiftRight'))<<1)
         |((down('KeyC')||(!legacy && down('Space')))<<2)
         |(down('KeyJ')<<3),

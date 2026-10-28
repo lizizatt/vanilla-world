@@ -84,7 +84,7 @@ app.gateKit=undefined;void loadGateKit((a,p)=>client.request(a,p),()=>getSwe1r()
     cameraCollision.configure(result.info.manifest);
     app.tuningValues=Array.isArray(result.info.tuning)?result.info.tuning.slice():TUNING_FIELDS.map(f=>f[1]);
     opened=true;
-    void openMoonEngine(app,selection);
+    app.prepareEngines=openMoonEngine(app,selection);
     if(remember)await rememberDataFolder(selection);
     evidence.info=result.info;evidence.source='local Data archives';
     $('welcome').hidden=true;enabled(true);app.running=true;

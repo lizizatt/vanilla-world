@@ -79,6 +79,7 @@ export class WorldRenderer {
   wreckChunk(chunk){return wreckChunk(this,chunk);}
   endWreck(){return endWreck(this);}
   setProps(list){return setProps(this,list);}
+  setLaunchProps(list){return setProps(this,list,'launchProps');}
   setCraftOverride(model){return setCraftOverride(this,model);}
   prepareBody(body){return prepareBody(this,body);}
   bodyPrepared(id){return bodyPrepared(this,id);}
@@ -135,10 +136,11 @@ export class WorldRenderer {
     this.view={eye:[this.camera[0]+origin[0],this.camera[1],this.camera[2]+origin[1]],right,up,look,aspect};
     const planetOn=(!!flight||BEND_ALWAYS)&&settings.planet!==false,pf=this.planet=planetFactorsFor(activeBody(),planetOn?this.view.eye[1]:0,planetOn);pf.mesh=planetOn&&!!settings.globeMesh;pf.registry=planetOn&&!!settings.globeRegistry;
     const clock=this.clock??=new SimClock(DAY,1);
-    clock.scale=flight?Math.min(sanitiseScale(settings.timeScale),this.warpCap??Infinity):1;clock.step(dt);
+    clock.scale=flight?Math.min(sanitiseScale(settings.timeScale),this.warpCap??Infinity):1;
+    if(this.podTime!==undefined)clock.set(this.podTime);else clock.step(dt);
     const cc=this.cloudClock??=new CloudClock(time);cc.step(dt,clock.scale);pf.flowScale=cc.stretch;pf.flowCycles=cc.cycles;
     this.cloudTime=cc.time;const waterTime=this.cloudTime%7200;
-    this.timeOfDay=this.timeLock??clock.now();
+    this.timeOfDay=this.podTime??this.timeLock??clock.now();
     const airless=activeBody().id==='elune',moonSky=airless?eluneSkyAt(state[0],state[2],this.timeOfDay):undefined;
     // Atmospheric bodies light from where the camera stands: the local sun and the clock reading that sun corresponds to drive every day/night and Light.dbc lookup.
     this.sunLocal=moonSky?moonSky.sun:localSunAt(activeBody(),this.view.eye[0],this.view.eye[2],this.timeOfDay);
@@ -234,7 +236,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
     if(wreckFrameNow)this.wreck.parts.forEach((p,i)=>append(p.asset,p.instance,partMatrix(wreckFrameNow.subarray(i*7,i*7+7),p.center,this.wreck.scale,origin),this.craft.textures,this.craft.items));
     else if((!flight||this.showCraftInFlight)&&this.craft&&this.cameraMode!=='cockpit')append(this.craft.asset,this.craft.instance,
       craftMatrix(state,origin,this.craft.metadata.scale),this.craft.textures,this.craft.items);
-    for(const p of [...(this.props||[]),...[domeDraw(this,activeBody().id,time)].filter(Boolean)]){const c=Math.cos(p.yaw),s=Math.sin(p.yaw),k=p.scale;
+    for(const p of [...(this.props||[]),...(this.launchProps||[]),...[domeDraw(this,activeBody().id,time)].filter(Boolean)]){const c=Math.cos(p.yaw),s=Math.sin(p.yaw),k=p.scale;
       append(p.craft.asset,p.craft.instance,p.space==='craft'?craftMatrix([p.pos[0],p.pos[1],p.pos[2],p.yaw,0],origin,k):
         new Float32Array([c*k,0,-s*k,0,0,k,0,0,s*k,0,c*k,0,p.pos[0]-origin[0],p.pos[1],p.pos[2]-origin[1],1]),p.craft.textures,p.craft.items);}
     if(!this.wreck&&!flight&&this.craft?.flame&&this.cameraMode!=='cockpit') {

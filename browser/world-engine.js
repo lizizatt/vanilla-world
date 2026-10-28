@@ -5,6 +5,8 @@ import {openAssetSource} from './asset-channel.js';
 import {SceneStream,SCENE_LIMITS,transformedBounds,globalCollisionVertices,sceneReady} from './scene-stream.js';
 import {TerrainStream} from './terrain-stream.js';
 import {loadCraft} from './craft-stream.js';
+import {PodRuntime} from './pod-driver.js';
+export const pod=new PodRuntime();
 import {loadPopulation} from './npc-pack.js';
 import {bodyPopulation} from './graft-npcs.js';
 import {WaterStream} from './water-stream.js';
@@ -402,9 +404,10 @@ function updateScene(focus,publish=true,restoring) {
   if(scenePumpError)throw scenePumpError;
   const region=focusRegion(focus);
   sceneRegion=region;
-  const body=restoring||world.telemetry(),r=manifest.regions[region],signed=body[14] ?? body[5];
-  const sweep=restoring?0:world.frame_sweep_distance(),radius=4+sweep;
-  const verticalRadius=4+(restoring?0:world.frame_vertical_sweep_distance());
+  const body=restoring||pod.telemetry(world),r=manifest.regions[region],signed=body[14] ?? body[5];
+  const travel=pod.journey?Math.hypot(...(pod.journey.velocity||[pod.journey.speed,0,0]))*.1+2:0;
+  const sweep=restoring?0:Math.max(travel,world.frame_sweep_distance()),radius=4+sweep;
+  const verticalRadius=4+(restoring?0:Math.max(travel,world.frame_vertical_sweep_distance()));
   const coverage=Math.hypot(Math.max(32,radius),Math.max(32,verticalRadius));
   if(!Number.isFinite(radius) || !Number.isFinite(verticalRadius) || radius<4 || verticalRadius<4 ||
     coverage>SCENE_LIMITS.radius)
@@ -677,7 +680,7 @@ export function snapshot() {
   const terrainState=terrain.snapshot();
   const clock=performance.now();
   if(clock-areaTime>500){areaTime=clock;areaId=flightFocus&&world.area_at?world.area_at(flightFocus[0],flightFocus[1]):world.area();}
-  return {telemetry:Array.from(world.telemetry()),area:areaId,poseTime,hopConsumed,resident:Array.from(resident),nearTerrain:{total:lastNearby.length,resident:lastNearby.filter(i=>resident.has(i)).length},required:Array.from(world.required_tiles()),
+  return {telemetry:pod.telemetry(world),pod:pod.snapshot(world),area:areaId,poseTime,hopConsumed,resident:Array.from(resident),nearTerrain:{total:lastNearby.length,resident:lastNearby.filter(i=>resident.has(i)).length},required:Array.from(world.required_tiles()),
     failures:Array.from(failures.values()),loads,evictions,peak,limit:LIMIT,horizon,source:source.stats,
     scene:sceneState?{instances:sceneState.instances.length,assets:sceneState.cachedAssets,bytes:sceneState.cachedBytes,
       pending:sceneState.pending,errors:sceneState.errors,population:sceneState.populationStatus,
@@ -696,6 +699,7 @@ export function snapshot() {
     distant:far.snapshot(),actors:actors?.snapshot()};
 }
 export async function openWorld(message) {
+    pod.reset();pod.setObjects([]);
     sceneInstanceDeltas=message.sceneInstanceDeltas===true;
     sceneInstanceUpdates=message.sceneInstanceUpdates===true;
     postFrameVisuals=message.postFrameVisuals===true;
@@ -764,8 +768,9 @@ export function requireWorld() {
 }
 export async function runFrame(message) {
     {
+    if(pod.journey&&pod.journey.parent!==(moonBody?'elune':'azeroth'))return;
     const started=performance.now();
-    const p=world.telemetry(),focus=message.focus || Array.from(p.slice(0,3));flightFocus=message.focus?[message.focus[0],message.focus[2]]:undefined;
+    const p=pod.telemetry(world),focus=message.focus || Array.from(p.slice(0,3));flightFocus=message.focus?[message.focus[0],message.focus[2]]:undefined;
     if(!Array.isArray(focus)||focus.length!==3||!focus.every(v=>Number.isFinite(v)&&Math.abs(v)<1e12))throw new Error('Invalid world focus');
     prepareDistant(focus,message.distant!==false,!!message.focus,message.view);
     const frameLoads=loads;
@@ -781,11 +786,12 @@ export async function runFrame(message) {
         accumulator+=Math.min(Math.max(message.dt,0),.1);
         while(accumulator>=1/120){
           const tickFlags=message.flags|((message.hop||0)>hopConsumed?8:0);
-          world.tick(message.throttle,message.steer,tickFlags,message.pitch??0);
+          if(pod.journey||message.podEnabled!==false&&(pod.objects.length||pod.remaining))pod.tick(world,{...message,flags:tickFlags},moonBody?'elune':'azeroth',message.simTime??720);
+          else world.tick(message.throttle,message.steer,tickFlags,message.pitch??0);
           if(message.hop)hopConsumed=Math.max(hopConsumed,message.hop);
           advanced=true;accumulator-=1/120;
         }
-        const hold=world.telemetry()[8];
+        const hold=pod.telemetry(world)[8];
         measureHold(hold===1?'terrain':hold===3?'solid':hold===2?'unsupported':'clear',elapsed);
       }
     } else {accumulator=0;lastHoldTime=0;lastHold='clear';}
@@ -795,7 +801,7 @@ export async function runFrame(message) {
     else if(advanced || poseTime===undefined || objectWait.length)poseTime=message.sampleTime-accumulator*1000;
     timings.physicsMs+=performance.now()-physicsStart;
     const cameraStart=performance.now();
-    updateCameraUnknown(world.telemetry(),focusRegion(focus));
+    updateCameraUnknown(pod.telemetry(world),focusRegion(focus));
     timings.cameraUnknownMs+=performance.now()-cameraStart;
     if(!postFrameVisuals)startOptionalWork(message);
     const elapsed=performance.now()-started;timings.frames++;timings.totalMs+=elapsed;timings.maxMs=Math.max(timings.maxMs,elapsed);
@@ -804,11 +810,12 @@ export async function runFrame(message) {
 }
 export async function restoreWorld(message) {
   await restorePose(message.pose);
+  pod.reset();
   if(message.repair)world.repair();
 }
 export async function resetWorld() {
   await stream([manifest.spawn[0],manifest.spawn[2]],false,true);
-  world.initialize_spawn();accumulator=0;poseTime=undefined;
+  world.initialize_spawn();pod.reset();accumulator=0;poseTime=undefined;
 }
 export async function retryWorld() {
   scenePumpError=undefined;sceneSubmissionPending=true;

@@ -46,12 +46,12 @@ export function endWreck(r) {
   w.vertices.destroy();for(const p of w.parts)p.asset.indices.destroy();
 }
 // Preview tooling (race-gate-preview.js): static scenery drawn through the craft path; not used by gameplay.
-export function setProps(r,list) {
-  for(const p of r.props||[])r.destroyCraft(p.craft);
-  r.props=list.map((p,i)=>{
+export function setProps(r,list,slot='props') {
+  for(const p of r[slot]||[])r.destroyCraft(p.craft);
+  r[slot]=list.map((p,i)=>{
     const craft=r.buildCraft({asset:p.asset,textures:p.textures,metadata:{display:0,scale:p.scale||1,pose:'prop',exhausts:[],
       posedAttachment0:{space:'model-local',pose:'stand-frame-0',position:[0,0,0]}}},0,`prop:${i}`,2000000);
-    craft.instance={id:`prop:${i}`,key:`prop:${i}`,craft:true};
+    craft.instance={id:`prop:${slot}:${i}`,key:`prop:${slot}:${i}`,craft:true};
     return {craft,pos:p.pos,yaw:p.yaw||0,scale:p.scale||1,space:p.space||'world'};
   });
 }

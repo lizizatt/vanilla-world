@@ -1,4 +1,20 @@
 #[test]
+fn launch_sweeps_hold_unknown_high_ground_and_stop_at_resident_roofs_and_sea() {
+    use super::*;
+    let mut world=Voyage::from_manifest(fixture(0.0)).unwrap();
+    assert_eq!(world.pod_sweep(&[200.0,20000.0,64.0],&[201.0,20001.0,64.0]).unwrap(),1);
+    assert_eq!(world.pod_sweep(&[700.0,20.0,64.0],&[700.0,-2.0,64.0]).unwrap(),2);
+    world.scene_bounds=vec![[690.0,16.0,60.0,710.0,17.0,68.0]];
+    assert_eq!(world.pod_sweep(&[700.0,22.0,64.0],&[700.0,13.0,64.0]).unwrap(),3);
+    assert_eq!(world.pod_sweep(&[700.0,22.0,64.0],&[700.0,25.0,64.0]).unwrap(),0);
+    world.pod_engine_state(&[0.9,0.8,0.7]).unwrap();
+    for _ in 0..1800 {world.pod_engine_step(1.0,2,1.0).unwrap();}
+    assert_eq!(world.state.heat,0.9);assert_eq!(world.state.health,[0.8,0.7]);
+    world.pod_engine_step(1.0,2,0.0).unwrap();
+    assert!(world.state.heat>0.9);assert!(world.state.health[0]<0.8);
+}
+
+#[test]
 fn pitched_thrust_keeps_vertical_readiness_conservative_and_ground_contact_solid() {
     use super::*;
     for pitch in [-1.0, 1.0] {
@@ -1457,7 +1473,7 @@ fn durability_overheat_wears_engines_and_impacts_hurt_by_speed() {
     // Overheating: 5 s at full heat takes about 0.75 of health split 60/40 across the engines.
     world.state.heat = 1.0;
     for _ in 0..600 {
-        world.durability_step(0);
+        world.durability_step(0,0.0);
     }
     let h = world.state.health;
     assert!(
@@ -1466,31 +1482,31 @@ fn durability_overheat_wears_engines_and_impacts_hurt_by_speed() {
     );
     // Cooling below the damage band swaps which engine runs hotter next time.
     world.state.heat = 0.5;
-    world.durability_step(0);
+    world.durability_step(0,0.0);
     world.state.heat = 1.0;
-    world.durability_step(0);
+    world.durability_step(0,0.0);
     assert!(world.dur.hot_side == 1);
     // Impacts: damage follows the speed before the contact edge, alternating engines; holding contact deals no more.
     world.state.health = [1.0; 2];
     world.state.heat = 0.0;
     world.state.velocity = [60.0, 0.0, 0.0];
-    world.durability_step(0);
+    world.durability_step(0,0.0);
     world.hold = 3;
     world.state.velocity = [0.0; 3];
-    world.durability_step(0);
-    world.durability_step(3);
+    world.durability_step(0,0.0);
+    world.durability_step(3,0.0);
     world.hold = 0;
     assert!((world.state.health[0] - 0.5).abs() < 1e-5 && world.state.health[1] == 1.0);
     world.state.velocity = [10.0, 0.0, 0.0];
-    world.durability_step(0);
+    world.durability_step(0,0.0);
     world.hold = 3;
-    world.durability_step(0);
+    world.durability_step(0,0.0);
     assert_eq!(world.state.health, [0.5, 1.0], "a slow bump is free");
     world.hold = 0;
     world.state.velocity = [100.0, 0.0, 0.0];
-    world.durability_step(0);
+    world.durability_step(0,0.0);
     world.hold = 3;
-    world.durability_step(0);
+    world.durability_step(0,0.0);
     assert_eq!(
         world.state.health,
         [0.0, 1.0],
@@ -1499,7 +1515,7 @@ fn durability_overheat_wears_engines_and_impacts_hurt_by_speed() {
     // Off: no damage; restore keeps health, reset repairs.
     world.dur.on = false;
     world.state.heat = 1.0;
-    world.durability_step(0);
+    world.durability_step(0,0.0);
     assert_eq!(world.state.health, [0.0, 1.0]);
     world.reset();
     assert_eq!(world.state.health, [1.0, 1.0]);

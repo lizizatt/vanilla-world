@@ -92,11 +92,11 @@ test('pod controls use standard face buttons, shaped left-stick pitch and analog
   assert.equal(sample().pitch,0);assert.equal(input.device,'keyboard');
   p.axes[0]=.575;p.axes[1]=-.575;p.buttons[7].value=.54;
   let state=sample();
-  assert(Math.abs(state.steer+.40625)<1e-10);assert(Math.abs(state.pitch-.40625)<1e-10);
+  assert(Math.abs(state.steer+.40625)<1e-10);assert(Math.abs(state.pitch+.40625)<1e-10);
   assert(Math.abs(state.throttle-.5)<1e-10);
   p.axes[0]=1;p.axes[1]=-1;p.buttons[6].value=1;p.buttons[7].value=0;
   p.buttons[0].pressed=true;p.buttons[2].pressed=true;
-  state=sample();assert.equal(state.throttle,-1);assert.equal(state.pitch,1);assert.equal(state.steer,-1);
+  state=sample();assert.equal(state.throttle,-1);assert.equal(state.pitch,-1);assert.equal(state.steer,-1);
   assert.equal(state.flags,6,'Bottom face boosts, left face drifts; neither hops');
   p.buttons[0].pressed=false;p.buttons[2].pressed=false;p.buttons[5].pressed=true;
   assert.equal(sample().flags,8,'RB/R1 retains controller hop');
@@ -107,11 +107,11 @@ test('pod arrows pitch while other modes retain camera orbit and keyboard profil
   for(const profile of ['native','legacy']){
     const input=new WorldInput(),keys=new Set(['ArrowUp','ArrowLeft','KeyW','ShiftLeft']);
     const pod=input.sample(keys,[],true,profile,true,true);
-    assert.equal(pod.pitch,1);assert.deepEqual(pod.look,[-1,0]);assert.equal(pod.throttle,1);assert.equal(pod.flags,2);
+    assert.equal(pod.pitch,-1);assert.deepEqual(pod.look,[-1,0]);assert.equal(pod.throttle,1);assert.equal(pod.flags,2);
     const other=input.sample(keys,[],true,profile,true,false);
     assert.equal(other.pitch,0);assert.deepEqual(other.look,[-1,1]);
-    keys.add('ArrowDown');assert.equal(input.sample(keys,[],true,profile,true,true).pitch,0);
-    keys.delete('ArrowUp');assert.equal(input.sample(keys,[],true,profile,true,true).pitch,-1);
+    keys.add('ArrowDown');assert.equal(Math.abs(input.sample(keys,[],true,profile,true,true).pitch),0);
+    keys.delete('ArrowUp');assert.equal(input.sample(keys,[],true,profile,true,true).pitch,1);
   }
   const p=pad();p.buttons[0].pressed=true;p.axes[1]=-1;
   const other=new WorldInput().sample(new Set(),[p],true);

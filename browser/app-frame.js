@@ -5,7 +5,7 @@ import {nearestAltitude} from './space-flight.js';
 import {warpClamp} from './sky-coupling.js';
 import {activeBody} from './body-shaders.js';
 import {domeLevel} from './dome-shell.js';
-import {istText,daylightAt,sanitiseScale} from './sim-clock.js';
+import {istText,daylightAt,sanitiseScale,simEpoch,DAY_PERIOD} from './sim-clock.js';
 import {gpuBytesOf} from './memory-budget.js';
 import {flightMusicArea} from './world-music.js';
 import {nearestFlag} from './race-flags.js';
@@ -32,6 +32,7 @@ function frame(now) {
     const accepts=document.activeElement===canvas && focused && !editing;
     const controls={...input.sample(keys,app.testPads || Array.from(navigator.getGamepads?.() || []),accepts,settings.controls,!focused||!editing,
       !app.flight&&app.choice.vehicle==='podracer')};
+    if(app.launchFrame())return;
     if(controls.reset)$('reset').click();
     if(controls.flight&&!app.race)$(app.flight?'drive':'fly').click();
     if(controls.help&&!editing)app.openRaceMenu();
@@ -64,7 +65,7 @@ function frame(now) {
     if(app.editor.isOpen)app.flight=app.editor.pose();
     app.syncGates();
     app.renderer.warpCap=app.flight&&app.space&&app.renderer.sharedSpace?warpClamp(nearestAltitude(app.space,app.renderer.timeOfDay??0)):undefined;
-    if(!app.frozenPresentation&&!locked&&!app.swapHold)client.frame(dt,controls.throttle,controls.steer,controls.flags,app.flight?.slice(0,3),settings.distant,app.renderer.view,controls.pitch);
+    if(!app.frozenPresentation&&!locked&&!app.swapHold)client.frame(dt,controls.throttle,controls.steer,controls.flags,app.flight?.slice(0,3),settings.distant,app.renderer.view,controls.pitch,(app.renderer.timeOfDay??720)+simEpoch.days*DAY_PERIOD,app.choice.vehicle==='podracer');
     cameraCollision.frame(client.state,app.renderer.sceneRegion ?? client.state.telemetry[10]);
     app.renderer.fxInput={throttle:Math.max(0,controls.throttle),boosting:(controls.flags&2)!==0,heat:app.dial?client.state.telemetry[6]:0,health:[client.state.telemetry[15]??1,client.state.telemetry[16]??1],drifting:(controls.flags&4)!==0};
     // During a gravity-well swap the renderer still holds the old body's chart; keep presenting the last frame instead of drawing the new pose on it.
@@ -103,6 +104,7 @@ function frame(now) {
       $('cockpit').setAttribute('aria-pressed',String(settings.cockpit&&!app.flight));
       $('motion').textContent=app.flight?'':scene?.waitingCollision||p[8]===1?'Loading nearby ground'
         :p[8]===2?'Unsupported surface':p[8]===3?'Obstacle or steep ground':'';
+      if(s.pod?.remaining>0)$('motion').textContent+=` Powered boost: ${s.pod.remaining.toFixed(1)} s of use`;
       if(app.raceMenu.open&&!app.raceMenu.querySelector('[data-page=diagnostics]').hidden) {
       $('input-device').textContent=input.device==='controller'?'Controller':'Keyboard';
       $('camera-status').textContent=app.flight?'Flight camera is collision-free':settings.cockpit

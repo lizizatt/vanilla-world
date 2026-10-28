@@ -369,7 +369,7 @@ The spawn height comes from the ADT, not a guessed sea-level floor.
 | Mode | Controls |
 |---|---|
 | Pod drive | W thrust, S reverse, A/D steer, Up/Down arrows pitch, X brake, J hop, Shift boost, Space/C drift, F cockpit, V look behind, F9 reset |
-| Pod standard controller | Left stick X steers, Y pitches (up = nose up); RT (7) accelerates minus LT (6) reverse thrust; bottom face (0, PS X / Xbox A) boosts; left face (2, square / Xbox X) drifts; RB/R1 (5) hops; right stick looks/clicks cockpit; D-pad chase zoom; Y/triangle resets; Start drive/fly |
+| Pod standard controller | Left stick X steers, Y pitches (pull down = nose up); RT (7) accelerates minus LT (6) reverse thrust; bottom face (0, PS X / Xbox A) boosts; left face (2, square / Xbox X) drifts; RB/R1 (5) hops; right stick looks/clicks cockpit; D-pad chase zoom; Y/triangle resets; Start drive/fly |
 | Chase camera | **Left-drag** orbits the camera independently of heading and it stays where left (no snap-back; it recentres only while you drive with keys/pad). **Right-drag** steers: the camera keeps its heading and the craft turns toward it. **Both buttons** steer and thrust forward. Left/Right arrows orbit in pod drive, wheel zooms |
 | Free flight | W/S forward/back, A/D strafe, Q/E altitude, arrows look, Shift fast |
 | World overview | Frames both complete coarse continents |
@@ -388,6 +388,9 @@ The pod mapping is class-based, including the Data Rocket skin; free flight and
 other vehicle classes keep their controls. Left-stick axes have an axial 0.15
 deadzone and a mild cubic response; triggers retain their 0.08 deadzone and analog
 scaling. Holding LT at rest backs up; simultaneous triggers subtract.
+Pod pitch input is inverted for both devices: ArrowDown / stick down raises the
+nose; ArrowUp / stick up lowers it. One input-level `POD_PITCH_SIGN` controls both;
+physics and free-flight/camera conventions are unchanged.
 
 Pitch targets ±20 degrees and eases at 8/s in the authoritative fixed-step physics
 (including digital keyboard presses), returning level on release. Forward, reverse
@@ -429,8 +432,26 @@ atmosphere edge (1711 yd) and cloud base (1316.8 yd) are already below Hyjal's
 1971 yd summit. Full space rendering starts at 5193 yd on Azeroth; Elune's SOI
 exit is about 20110 yd above its surface. A 60 s unlimited boost after the extreme
 Elune ramp reaches 27263.5 yd in the numerical model, but requires surviving
-overheat; pod drive has no automatic orbital/SOI handoff. Free flight retains its
-existing handoff. No escape behavior or default tuning was invented here.
+overheat. Ordinary pod motion retains that local law. Pickup-powered ramp
+departures now support ballistic SOI handoff as described below; free flight is unchanged.
+
+**Placeable launches:** press T for the track editor's launch panel. Place a
+15/25/45/90-degree curved ramp or a pickup granting **15 seconds of actual boost
+use**, then rotate/delete saved objects independently of the track. Placements
+persist per body/installation. Reset/restore/reopen clears charge and respawns
+pickups, but keeps placed objects. ArrowDown / stick down raises the nose.
+With charge, launch attitude remains stabilized until the charge is exhausted,
+then eases to normal +/-20-degree input. Boost adds 100 yd/s² beyond ordinary
+airborne engine thrust; coast is ballistic, not free-camera movement.
+
+Load local Azeroth Data before traveling to Elune, so both resident worlds are
+available. A 90-degree launch just outside the base reaches Azeroth on a full
+15-boost-second burn, including real body handoff and return to normal ground
+physics. The other ramp angles can escape Elune but miss Azeroth; no angle
+cutoffs were added. Ordinary, uncharged ramps retain constant-gravity local
+physics and cannot enter orbital mode. No ordinary defaults or altitude ceiling
+were changed. See [the launch design and measured results](design/pod-launch.md)
+for exact launch assumptions, numbers, persistence semantics and limitations.
 
 Run `node browser\pod-controls-smoke.mjs` with read-only `WOW_DATA` and `SWE1R_DATA`
 paths. It owns an ephemeral loopback server and the machine heavy-job lock, checks

@@ -404,14 +404,14 @@ impl Voyage {
 
     /// Overheating wears the engines (the hotter side alternates per episode, 60/40) and a rising obstacle contact (hold 3)
     /// damages one engine (alternating) by the speed just before it.
-    fn durability_step(&mut self, hold_before: u8) {
+    fn durability_step(&mut self, hold_before: u8, powered: f32) {
         let d = &mut self.dur;
         let speed = self.state.velocity[0].hypot(self.state.velocity[2]);
         if !d.on {
             d.pre_speed = speed;
             return;
         }
-        let rate = flats_racer_physics::heat_damage_rate(self.state.heat) * FIXED_DT;
+        let rate = flats_racer_physics::heat_damage_rate(self.state.heat) * FIXED_DT * (1.0-powered);
         let hot = rate > 0.0;
         if d.hot && !hot {
             d.hot_side ^= 1;
@@ -498,7 +498,7 @@ impl Voyage {
     fn travel_bound(&self, duration: f64) -> f64 {
         let speed = f64::from(self.state.velocity[0]).hypot(f64::from(self.state.velocity[2]));
         let thrust = (f64::from(self.tuning.acceleration)
-            + f64::from(self.tuning.boost_acceleration))
+            + f64::from(self.tuning.boost_acceleration) + f64::from(flats_racer_physics::POWERED_THRUST))
             * f64::from(self.tuning.air_control).max(1.0);
         (speed + thrust * duration).min(f64::from(self.tuning.boost_max_speed)) * duration
     }
@@ -702,7 +702,7 @@ impl Voyage {
         let speed = (f64::from(self.state.velocity[1]).abs() + 2.0)
             .max(rise_rate + f64::from(self.tuning.hop_speed))
             .max(floor_rate);
-        let vertical_thrust = (f64::from(self.tuning.acceleration) + f64::from(self.tuning.boost_acceleration))
+        let vertical_thrust = (f64::from(self.tuning.acceleration) + f64::from(self.tuning.boost_acceleration) + f64::from(flats_racer_physics::POWERED_THRUST))
             * f64::from(self.tuning.air_control).max(1.0)
             * f64::from(flats_racer_physics::PITCH_LIMIT).sin();
         let acceleration = (f64::from(self.tuning.spring) * f64::from(self.tuning.hover_height))
@@ -1052,20 +1052,24 @@ impl Voyage {
         self.resident.remove(&index);
     }
 
-    pub fn tick(&mut self, throttle: f32, steer: f32, flags: u32, pitch: Option<f32>) -> Result<(), JsValue> {
+    pub fn tick(&mut self, throttle: f32, steer: f32, flags: u32, pitch: Option<f32>, powered: Option<f32>) -> Result<(), JsValue> {
         let before = self.hold;
         let result = self
             .advance(Input {
                 throttle,
                 steer,
                 pitch: pitch.unwrap_or(0.0),
+                powered: powered.unwrap_or(0.0),
                 brake: flags & 1 != 0,
                 boost: flags & 2 != 0,
                 drift: flags & 4 != 0,
                 jump: flags & 8 != 0,
             })
             .map_err(|e| JsValue::from_str(&e));
-        self.durability_step(before);
+        if result.is_ok() {
+            let protection=if flags & 2 != 0 && flags & 1 == 0 && throttle>0.0 {powered.unwrap_or(0.0)} else {0.0};
+            self.durability_step(before,protection);
+        }
         result
     }
 
@@ -1220,6 +1224,64 @@ impl Voyage {
             f64::from(s.solid),
             f64::from(s.region),
         ]
+    }
+
+    pub fn pod_velocity(&self) -> Vec<f32> {
+        self.state.velocity.to_vec()
+    }
+
+    /// Advance the same heat and durability rules for accepted externally integrated ticks.
+    pub fn pod_engine_step(&mut self, throttle: f32, flags: u32, powered: f32) -> Result<(), JsValue> {
+        if !throttle.is_finite() || !(0.0..=1.0).contains(&powered) {
+            return Err(JsValue::from_str("Invalid pod engine input"));
+        }
+        if flags & 2 != 0 && flags & 1 == 0 && throttle > 0.0 {
+            self.state.heat = (self.state.heat + flats_racer_physics::HEAT_RISE_PER_SEC * FIXED_DT * (1.0-powered)).min(1.0);
+        } else if flags & 2 == 0 {
+            self.state.heat = (self.state.heat - flats_racer_physics::HEAT_COOL_PER_SEC * FIXED_DT).max(0.0);
+        }
+        self.durability_step(self.hold,powered);
+        Ok(())
+    }
+
+    pub fn pod_engine_state(&mut self, values: &[f32]) -> Result<(), JsValue> {
+        if values.len()!=3 || values.iter().any(|v| !(0.0..=1.0).contains(v)) {
+            return Err(JsValue::from_str("Invalid pod engine state"));
+        }
+        self.state.heat=values[0];
+        self.state.health=[values[1],values[2]];
+        Ok(())
+    }
+
+    /// Sweep externally integrated launch motion against resident scenery and ground.
+    pub fn pod_sweep(&self, from: &[f64], to: &[f64]) -> Result<u32, JsValue> {
+        if from.len() != 3 || to.len() != 3 || from.iter().chain(to).any(|n| !n.is_finite()) {
+            return Err(JsValue::from_str("Invalid pod sweep"));
+        }
+        let a = [from[0], from[1], from[2]];
+        let b = [to[0], to[1], to[2]];
+        if self.scene_mesh.swept(a, b) || self.scene_bounds.iter().any(|bounds| swept_box(a, b, *bounds)) {
+            return Ok(3);
+        }
+        let count = ((b[0]-a[0]).hypot(b[2]-a[2]) / SUPPORT_TRAVEL).ceil().max(1.0);
+        if count > 768.0 { return Err(JsValue::from_str("Pod sweep exceeds collision work budget")); }
+        for i in 0..=count as u32 {
+            let t = f64::from(i) / count;
+            let p = [a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t];
+            let surface = self.sample_at([p[0],p[2]],p[1] as f32);
+            if surface.availability == 1 { return Ok(1); }
+            if surface.support().is_some_and(|h| p[1] < f64::from(h+FLOOR_CLEARANCE)) { return Ok(2); }
+        }
+        Ok(0)
+    }
+
+    pub fn pod_land(&mut self, pose: &[f64], velocity: &[f32]) -> Result<(), JsValue> {
+        if velocity.len()!=3 || velocity.iter().any(|n| !n.is_finite()) {
+            return Err(JsValue::from_str("Invalid landing velocity"));
+        }
+        self.restore_pose(pose).map_err(|e| JsValue::from_str(&e))?;
+        self.state.velocity.copy_from_slice(velocity);
+        Ok(())
     }
 
     pub fn restore(&mut self, pose: &[f64]) -> Result<(), JsValue> {
