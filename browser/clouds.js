@@ -260,9 +260,12 @@ const NF=${FUNNEL_STEPS};
   let O=shellRoots(c.eye.y,dir.y,yb);let I=shellRoots(c.eye.y,dir.y,ya+DOWN*(1.0-smoothstep(0.0,.12,dir.y)));
   let G=shellRoots(c.eye.y,dir.y,0.0);let gHit=c.eye.y>0.0&&G.x>0.0&&G.x<=G.y;
   s0=max(O.x,0.0);sFull=select(O.y,min(O.y,G.x),gHit);live=O.x<=O.y;
+  // A ray that leaves through the base and re-enters farther out crosses two cloud pieces (near sheet, far horizon bank): both are marched, sharing the step budget, so nothing is skipped between them.
+  var b0=0.0;var b1=0.0;
   if(I.x<=I.y){
     if(I.x>s0){
-      if(I.y<sFull&&sFull-I.y>.25*(min(sFull,I.x)-s0)){s0=I.y;}else{sFull=min(sFull,I.x);}
+      if(I.y<sFull&&I.y>I.x){b0=I.y;b1=sFull;}
+      sFull=min(sFull,I.x);
     }else if(I.y>s0){s0=I.y;}
   }
   live=live&&sFull>s0;
@@ -271,7 +274,9 @@ const NF=${FUNNEL_STEPS};
   let sCap=s0+max(${tier(high).minSpan.toFixed(1)},.3*s0);s1=min(sFull,sCap);
   if(sceneDist<1e8){sEdge=smoothstep(0.0,350.0,sceneDist-s0);s1=min(s1,sceneDist);}
   capped=sFull>sCap&&s1==sCap;let cutK=smoothstep(0.0,.5,(sFull-sCap)/max(sCap-s0,1.0));
-  if(live&&s1>s0&&sEdge>0.0&&s0<1e8){ns=NS;}
+  var nA=0;
+  if(live&&s1>s0&&sEdge>0.0&&s0<1e8){ns=NS;nA=NS;}
+  if(ns>0&&b1>b0&&sceneDist>b0){ns=NS;nA=clamp(i32(round(f32(NS)*(s1-s0)/max((s1-s0)+(b1-b0),1.0))),NS/4,NS*3/4);b1=min(b1,sceneDist);} else {b1=b0;}
   // Funnel cylinder-and-height extent.
   var f0=0.0;var f1=1e9;var nf=NF;var fEdge=1.0;
   let oc=shellFwd(vec3f(c.cloud.x,0.0,c.cloud.y));let o=-oc.xz;let dxz=dir.xz;
@@ -296,7 +301,7 @@ const NF=${FUNNEL_STEPS};
   if(sceneDist<1e8){fEdge=smoothstep(0.0,300.0,sceneDist-f0);f1=min(f1,sceneDist);}
   if(f1<=f0||fEdge<=0.0){nf=0;}
   if(ns==0&&nf==0){discard;}
-  let Ls=s1-s0;let ss=Ls/f32(NS);let fstep=(f1-f0)/f32(NF);
+  let Ls=s1-s0;let ss=Ls/f32(max(nA,1));let ssB=(b1-b0)/f32(max(NS-nA,1));let fstep=(f1-f0)/f32(NF);
   // Interleaved-gradient jitter alone leaves a visible diagonal hatch on grazing rays; a white-noise term turns it into grain.
   let sJit=fract(52.9829189*fract(dot(v.clip.xy,vec2f(.06711056,.00583715)))+hash(v.clip.xy+vec2f(3.7,9.1)));
   let fJit=.3*hash(v.clip.xy);
@@ -306,17 +311,17 @@ const NF=${FUNNEL_STEPS};
   var i=0;var j=0;
   for(var n=0;n<NS+NF;n++){
     if(i>=ns&&j>=nf){break;}
-    let ts=s0+ss*(f32(i)+sJit);let tf=f0+fstep*(f32(j)+fJit);
+    let ts=select(b0+ssB*(f32(i-nA)+sJit),s0+ss*(f32(i)+sJit),i<nA);let tf=f0+fstep*(f32(j)+fJit);
     if(i<ns&&(j>=nf||ts<=tf)){
       i++;
       let rel=dir*ts;let pos=worldAt(rel);
       let s=sheetDensity(pos,t);
       if(s.x<=.001){continue;}
       let hf=s.z;
-      let tail=select(1.0,1.0-cutK*smoothstep(.55,1.0,(ts-s0)/Ls),capped);
+      let tail=select(1.0,1.0-cutK*smoothstep(.55,1.0,(ts-s0)/Ls),capped&&i<=nA);
       let dd=ts-s0*c.bend.y;
       let w=(1.0-smoothstep(30000.0,c.cloud.w,dd))*.96*sEdge*tail;
-      let absorb=(1.0-exp(-s.x*ss*.008*(1.0+${FAR_ABSORB}*c.sunCol.w)))*w;
+      let absorb=(1.0-exp(-s.x*select(ssB,ss,i<=nA)*.008*(1.0+${FAR_ABSORB}*c.sunCol.w)))*w;
       ${high?HIGH_TAP:'let shade=1.0;'}
       let lit=mix(.62,1.0,hf)*mix(.75,1.0,s.y)*(.7+.3*trans)*shade;
       let sunY=dot(upAt(rel),c.sun.xyz);
