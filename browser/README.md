@@ -368,9 +368,9 @@ The spawn height comes from the ADT, not a guessed sea-level floor.
 
 | Mode | Controls |
 |---|---|
-| Drive | W thrust, S reverse, A/D steer, X brake, J hop, Shift boost, Space/C drift, F cockpit, V look behind, F9 reset |
-| Standard controller | Left stick steer, RT thrust minus LT reverse, RB boost, LB drift, A hop, right stick look/click cockpit, D-pad chase zoom, Y reset, Start drive/fly |
-| Chase camera | **Left-drag** orbits the camera independently of heading and it stays where left (no snap-back; it recentres only while you drive with keys/pad). **Right-drag** steers: the camera keeps its heading and the craft turns toward it. **Both buttons** steer and thrust forward. Arrow keys orbit, wheel zooms |
+| Pod drive | W thrust, S reverse, A/D steer, Up/Down arrows pitch, X brake, J hop, Shift boost, Space/C drift, F cockpit, V look behind, F9 reset |
+| Pod standard controller | Left stick X steers, Y pitches (up = nose up); RT (7) accelerates minus LT (6) reverse thrust; bottom face (0, PS X / Xbox A) boosts; left face (2, square / Xbox X) drifts; RB/R1 (5) hops; right stick looks/clicks cockpit; D-pad chase zoom; Y/triangle resets; Start drive/fly |
+| Chase camera | **Left-drag** orbits the camera independently of heading and it stays where left (no snap-back; it recentres only while you drive with keys/pad). **Right-drag** steers: the camera keeps its heading and the craft turns toward it. **Both buttons** steer and thrust forward. Left/Right arrows orbit in pod drive, wheel zooms |
 | Free flight | W/S forward/back, A/D strafe, Q/E altitude, arrows look, Shift fast |
 | World overview | Frames both complete coarse continents |
 | Return to vehicle | Returns to the parked hovercraft; does not teleport it to the flight camera |
@@ -383,6 +383,63 @@ Display switches do not disable collision.
 **Controls & settings** keeps the existing **Space key** choice: drift (default) or
 brake (legacy saves; drift stays on C); J always hops, Ctrl is no longer a drift key (Ctrl+W closes the tab). **S reverses and X brakes in both profiles**,
 matching the controller's signed throttle without applying brake to reverse.
+
+The pod mapping is class-based, including the Data Rocket skin; free flight and
+other vehicle classes keep their controls. Left-stick axes have an axial 0.15
+deadzone and a mild cubic response; triggers retain their 0.08 deadzone and analog
+scaling. Holding LT at rest backs up; simultaneous triggers subtract.
+
+Pitch targets ±20 degrees and eases at 8/s in the authoritative fixed-step physics
+(including digital keyboard presses), returning level on release. Forward, reverse
+and boosted engine thrust follow that pitched axis; reverse reverses its vertical
+component too. Gravity, support rays, hover springs and contact resolution remain
+world-vertical. Bank remains cosmetic. The speed cap and drift grip remain
+**horizontal**; neither deletes jump/fall momentum. X/legacy Space remain the
+existing non-engine handbrake. Pitch is telemetry slot 17, appended after engine
+health; the confirmed-pose renderer interpolates it, with no separate main-thread
+physics predictor. Craft, cockpit and exhaust transforms share this attitude.
+Reset/load returns the parked pod level. Vertical collision readiness includes
+pitched acceleration before the worker advances.
+
+**Climb math, unchanged defaults:** browser thrust is 50 + 30 boosted yd/s²;
+airborne authority is 0.9. At 20°, upward engine acceleration is 24.625 yd/s²
+boosted or 15.391 without boost. Azeroth gravity is 48; Elune is 24 (0.5x).
+Thus unsupported Azeroth boost still accelerates downward by 23.375 yd/s²;
+Elune boost accelerates upward by 0.625. There is no artificial altitude ceiling.
+The existing bar measures **heat, not finite boost energy**: cold-to-full is 7.5 s,
+boost remains available afterward, and default durability wrecks continuously
+overheated engines at approximately 13.8 s. Disabling durability/overheat changes
+that safety assumption; this change does not add a cutoff or retune it.
+
+Deterministic 120 Hz trajectories (`voyage/tests.rs`, 60 s observation) measure:
+
+| Launch assumption | Azeroth apex Y | Elune apex Y |
+|---|---:|---:|
+| 7 yd/s hop from Y=3; release boost when heat fills | 4.019 | 80.999 |
+| 300 yd/s horizontal, 400 yd-long 35% ramp from sea level, hop at lip; release boost when heat fills | 407.648 | 1539.839 |
+| Same, extreme but collision-admitted 140% ramp | 3966.619 | 13940.477 |
+
+Ramp tests traverse actual triangle support/collision; they assume an already-built
+300 yd/s approach, not a launch from rest. They are fixtures, not a claim that those
+ramps exist in the authored maps. The ramp consumes 1.342 s of the heat window.
+Horizontal speed does not cap terrain-generated vertical launch momentum, so
+these are **not universal altitude bounds**: a sufficiently high/steep ramp can
+cross Azeroth's atmosphere band despite the downward acceleration. The rendering
+atmosphere edge (1711 yd) and cloud base (1316.8 yd) are already below Hyjal's
+1971 yd summit. Full space rendering starts at 5193 yd on Azeroth; Elune's SOI
+exit is about 20110 yd above its surface. A 60 s unlimited boost after the extreme
+Elune ramp reaches 27263.5 yd in the numerical model, but requires surviving
+overheat; pod drive has no automatic orbital/SOI handoff. Free flight retains its
+existing handoff. No escape behavior or default tuning was invented here.
+
+Run `node browser\pod-controls-smoke.mjs` with read-only `WOW_DATA` and `SWE1R_DATA`
+paths. It owns an ephemeral loopback server and the machine heavy-job lock, checks
+synthetic standard gamepad input through the real worker/Wasm on the Data Rocket
+and an Elune SWE1R pod, and asserts moving-frame p99 within 33.33 ms. The local
+reference run measured 7.1 ms p99 on both bodies; the gate now requires 30 s of
+actual movement during a 40 s forward/reverse run on each body. Max tail spikes are
+reported but not gated. Ignored results/screenshots are in
+`browser\test-results\pod-controls`.
 A short hop tap survives an in-flight worker request or a zero-step frame.
 Its discrete edge is acknowledged after one fixed-step attempt, not held until
 landing; pause, reset, source and flight transitions discard unsent edges.
@@ -1873,4 +1930,3 @@ Rising in fly mode shows Azeroth as a sphere and then space. Camera/render only;
 - Fly speed is a continuous log law (1x to 1k yd, 40x at 1M yd); the flat (x,z) pose is the globe sub-point, so descent is radial. Above 150 yd a HUD shows altitude, speed, lat/lon and continent; the M map shows the sub-point (no ring or line on the globe). **X** looks straight down. The HUD also names the nearest map landmark.
 - Fly orientation is a quaternion (`orient.js`) in space: yaw/pitch/roll deltas apply in the camera frame, so there is no pole or radial-up gimbal lock; below 800-4000 yd it blends to the ground yaw/pitch (roll levelled, pitch clamped), and yaw/pitch are re-derived from it so saves and `worldTest.focus` still work. Roll has no key binding yet.
 - Clouds are spherical shells that arc with the planet and stay visible from orbit. The JS mirror (`shellExtent`) and sweep cover the shell, including a ground clip for rays that would march through the planet. Sky gradient meets the true horizon limb (`horizonDip`), the sea shelf shares the noisy land edge (no teal rectangle, seam-free noise on the sphere), and the old screen-space moons fade out as space comes in. Limits: a faint colour step remains at the level horizon at 2k (fogged bent water vs sky gradient); darker straight-edged sea tiles remain around continents at 5-20k; Standard shell steps adapt to span (coarse from orbit); the cloud coverage map is not checked for an antimeridian seam beyond one capture.
-

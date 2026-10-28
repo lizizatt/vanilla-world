@@ -781,7 +781,7 @@ export async function runFrame(message) {
         accumulator+=Math.min(Math.max(message.dt,0),.1);
         while(accumulator>=1/120){
           const tickFlags=message.flags|((message.hop||0)>hopConsumed?8:0);
-          world.tick(message.throttle,message.steer,tickFlags);
+          world.tick(message.throttle,message.steer,tickFlags,message.pitch??0);
           if(message.hop)hopConsumed=Math.max(hopConsumed,message.hop);
           advanced=true;accumulator-=1/120;
         }

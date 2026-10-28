@@ -1,4 +1,126 @@
 #[test]
+fn pitched_thrust_keeps_vertical_readiness_conservative_and_ground_contact_solid() {
+    use super::*;
+    for pitch in [-1.0, 1.0] {
+        for throttle in [-1.0, 1.0] {
+            for thrust in [50.0, 100000.0, f32::MAX] {
+                let mut world = Voyage::from_manifest(fixture(0.0)).unwrap();
+                world.origin = [700.0, 64.0];
+                world.state.position[1] = 50.0;
+                world.state.pitch = pitch * flats_racer_physics::PITCH_LIMIT;
+                world.tuning.acceleration = thrust;
+                let bound = world.frame_vertical_sweep_distance();
+                assert!(bound.is_finite());
+                for _ in 0..12 {
+                    let before = world.state;
+                    if world.advance(Input { pitch, throttle, boost: true, ..Default::default() }).is_err() {
+                        assert_eq!(world.state, before);
+                        break;
+                    }
+                    assert!((f64::from(world.state.position[1]) - 50.0).abs() <= bound);
+                    assert!(world.state.position[1] >= FLOOR_CLEARANCE);
+                }
+            }
+        }
+    }
+    let mut world = Voyage::from_manifest(fixture(0.0)).unwrap();
+    world.origin = [700.0, 64.0];
+    for _ in 0..1200 {
+        world.advance(Input { throttle: 1.0, pitch: -1.0, boost: true, ..Default::default() }).unwrap();
+        assert!(world.state.position[1] >= FLOOR_CLEARANCE);
+    }
+}
+
+#[test]
+fn default_pitched_launches_have_measured_apices_without_an_artificial_ceiling() {
+    use super::*;
+    use flats_racer_physics::{PITCH_LIMIT, HEAT_RISE_PER_SEC};
+    let base = Voyage::from_manifest(fixture(0.0)).unwrap().tuning;
+    let cold_to_full = 1.0 / HEAT_RISE_PER_SEC;
+    for gravity in [48.0, 24.0] {
+        let tuning = Tuning { gravity, ..base };
+        let vertical_thrust = (base.acceleration + base.boost_acceleration) * base.air_control * PITCH_LIMIT.sin();
+        if gravity == 48.0 { assert!(vertical_thrust < gravity); }
+        else { assert!(vertical_thrust > gravity); }
+        for launch in [7.0, 112.0] {
+            for boost_seconds in [cold_to_full, 60.0] {
+                let mut state = State::new([0.0, 3.0, 0.0], 0.0).unwrap();
+                state.pitch = PITCH_LIMIT;
+                state.velocity = [0.0, launch, -base.boost_max_speed];
+                let mut apex = state.position[1];
+                for tick in 0..7200 {
+                    let support = (state.position[1] <= tuning.support_reach()).then_some(state.position[1]);
+                    state.step_with_tuning(Input {
+                        throttle: 1.0, pitch: 1.0, boost: (tick as f32 * FIXED_DT) < boost_seconds,
+                        ..Default::default()
+                    }, [support; 4], FIXED_DT, &tuning).unwrap();
+                    state.position[1] = (state.position[1] + state.velocity[1] * FIXED_DT).max(FLOOR_CLEARANCE);
+                    if state.position[1] == FLOOR_CLEARANCE { state.velocity[1] = state.velocity[1].max(0.0); }
+                    apex = apex.max(state.position[1]);
+                }
+                if gravity == 48.0 {
+                    let ballistic_bound = 3.0 + launch * launch / (2.0 * (gravity - vertical_thrust));
+                    assert!(apex <= ballistic_bound + 0.1);
+                }
+                eprintln!("pitch launch: gravity={gravity}, initial_vy={launch}, boost_seconds={boost_seconds}, apex_y={apex:.3}");
+            }
+        }
+    }
+}
+
+#[test]
+fn accepted_ramp_launches_measure_actual_support_generated_momentum() {
+    use super::*;
+    for slope in [0.35, 1.4] {
+        for gravity in [48.0, 24.0] {
+            let mut world = Voyage::from_manifest(fixture(0.0)).unwrap();
+            world.origin = [700.0, 64.0];
+            world.state.position = [0.0, 3.0, 0.0];
+            world.state.velocity = [300.0, slope as f32 * 300.0, 0.0];
+            world.state.yaw = -std::f32::consts::FRAC_PI_2;
+            world.state.pitch = flats_racer_physics::PITCH_LIMIT;
+            world.tuning.gravity = gravity;
+            let a = [690.0, -10.0 * slope, 40.0];
+            let b = [1100.0, 400.0 * slope, 40.0];
+            let c = [1100.0, 400.0 * slope, 90.0];
+            let d = [690.0, -10.0 * slope, 90.0];
+            world.set_scene_mesh(&[a, c, b, a, d, c].concat()).unwrap();
+            let mut jumped = false;
+            let mut launched = false;
+            for _ in 0..240 {
+                let x = world.global()[0];
+                let jump = !jumped && x > 1090.0;
+                jumped |= jump;
+                world.advance(Input { throttle: 1.0, pitch: 1.0, boost: true, jump, ..Default::default() }).unwrap();
+                assert_eq!(world.hold, 0, "slope={slope}, x={x}");
+                if world.global()[0] > 1102.0 {
+                    launched = true;
+                    eprintln!("actual ramp: gravity={gravity}, slope={slope}, launch_y={}, launch_vy={}, vx={}",
+                        world.state.position[1], world.state.velocity[1], world.state.velocity[0]);
+                    assert!(jumped);
+                    for boost_seconds in [(1.0 - world.state.heat) / flats_racer_physics::HEAT_RISE_PER_SEC, 60.0] {
+                        let mut airborne = world.state;
+                        let mut apex = airborne.position[1];
+                        for tick in 0..7200 {
+                            airborne.step_with_tuning(Input {
+                                throttle: 1.0, pitch: 1.0, boost: tick as f32 * FIXED_DT < boost_seconds,
+                                ..Default::default()
+                            }, [None; 4], FIXED_DT, &world.tuning).unwrap();
+                            airborne.position[1] += airborne.velocity[1] * FIXED_DT;
+                            apex = apex.max(airborne.position[1]);
+                            if airborne.position[1] < 0.0 { break; }
+                        }
+                        eprintln!("actual ramp apex: gravity={gravity}, slope={slope}, remaining_boost={boost_seconds:.3}, apex_y={apex:.3}");
+                    }
+                    break;
+                }
+            }
+            assert!(launched, "Ramp must actually be traversed");
+        }
+    }
+}
+
+#[test]
 fn cached_collision_parts_preserve_queries_ranges_and_atomic_replacement() {
     use super::*;
     let vertices = [

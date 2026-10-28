@@ -33,7 +33,8 @@ function frame(now) {
   try {
     const focused=document.hasFocus(),editing=app.raceMenu.open||app.editor.isOpen;
     const accepts=document.activeElement===canvas && focused && !editing;
-    const controls={...input.sample(keys,app.testPads || Array.from(navigator.getGamepads?.() || []),accepts,settings.controls,!focused||!editing)};
+    const controls={...input.sample(keys,app.testPads || Array.from(navigator.getGamepads?.() || []),accepts,settings.controls,!focused||!editing,
+      !app.flight&&app.choice.vehicle==='podracer')};
     if(controls.reset)$('reset').click();
     if(controls.flight&&!app.race)$(app.flight?'drive':'fly').click();
     if(controls.help&&!editing)app.openRaceMenu();
@@ -41,7 +42,7 @@ function frame(now) {
     if(controls.zoom)app.zoom(controls.zoom);
     const cameraOrbit=app.orbit;app.orbit=[0,0];const keyDrive=!!(controls.throttle||controls.steer),right=!app.flight&&!!(app.mouseButtons&2);
     if(right){controls.steer=Math.max(-1,Math.min(1,(app.renderer.chase?.[0]||0)*4));if(app.mouseButtons&1)controls.throttle=1;}
-    const locked=app.wreckLocked();if(locked){Object.assign(controls,{throttle:0,steer:0,flags:0});client.pendingHop=0;}else if(app.wasLocked&&!app.flight)void app.respawn();app.wasLocked=locked;
+    const locked=app.wreckLocked();if(locked){Object.assign(controls,{throttle:0,steer:0,pitch:0,flags:0});client.pendingHop=0;}else if(app.wasLocked&&!app.flight)void app.respawn();app.wasLocked=locked;
     if(app.flight) {
       let swap;const before=app.flight,[yaw,pitch]=app.flight.length>=9?toEuler(app.flight.slice(5,9),app.flight[3]):[0,0];
       // The attitude quaternion is authoritative while this frame loop owns the pose (no Euler round trip, so no gimbal reset near +-90 degrees pitch).
@@ -66,7 +67,7 @@ function frame(now) {
     if(app.editor.isOpen)app.flight=app.editor.pose();
     app.syncGates();
     app.renderer.warpCap=app.flight&&app.space&&app.renderer.sharedSpace?warpClamp(nearestAltitude(app.space,app.renderer.timeOfDay??0)):undefined;
-    if(!app.frozenPresentation&&!locked&&!app.swapHold)client.frame(dt,controls.throttle,controls.steer,controls.flags,app.flight?.slice(0,3),settings.distant,app.renderer.view);
+    if(!app.frozenPresentation&&!locked&&!app.swapHold)client.frame(dt,controls.throttle,controls.steer,controls.flags,app.flight?.slice(0,3),settings.distant,app.renderer.view,controls.pitch);
     cameraCollision.frame(client.state,app.renderer.sceneRegion ?? client.state.telemetry[10]);
     app.renderer.fxInput={throttle:Math.max(0,controls.throttle),boosting:(controls.flags&2)!==0,heat:app.dial?client.state.telemetry[6]:0,health:[client.state.telemetry[15]??1,client.state.telemetry[16]??1],drifting:(controls.flags&4)!==0};
     // During a gravity-well swap the renderer still holds the old body's chart; keep presenting the last frame instead of drawing the new pose on it.

@@ -22,7 +22,7 @@ test('worker replies immediately drain one coalesced latest-input frame with the
   assert.equal(calls.length,2);assert.deepEqual(client.state,{pose:1});
   const {sampleTime,...fields}=calls[1].fields;
   assert(Number.isFinite(sampleTime));
-  assert.deepEqual(fields,{dt:.05,throttle:-1,steer:.2,flags:2,focus:[4,5,6],distant:false,hop:0});
+  assert.deepEqual(fields,{dt:.05,throttle:-1,steer:.2,pitch:0,flags:2,focus:[4,5,6],distant:false,hop:0});
   client.frame(.09,1,0,0);client.frame(.09,0,0,1);
   calls[1].resolve({pose:2});await settle();
   assert.equal(calls.length,3);assert.equal(calls[2].fields.dt,.1);assert.equal(calls[2].fields.throttle,0);

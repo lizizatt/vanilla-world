@@ -463,8 +463,8 @@ impl Voyage {
     }
 
     pub(crate) fn advance(&mut self, input: Input) -> Result<(), String> {
-        if !input.throttle.is_finite() || !input.steer.is_finite() {
-            return Err("Throttle and steer must be finite".into());
+        if !input.throttle.is_finite() || !input.steer.is_finite() || !input.pitch.is_finite() {
+            return Err("Throttle, steer and pitch must be finite".into());
         }
         // Keep the terrain ledge guard distance-bounded instead of speed-dependent.
         let steps = (self.travel_bound(f64::from(FIXED_DT)) / SUPPORT_TRAVEL)
@@ -702,8 +702,11 @@ impl Voyage {
         let speed = (f64::from(self.state.velocity[1]).abs() + 2.0)
             .max(rise_rate + f64::from(self.tuning.hop_speed))
             .max(floor_rate);
+        let vertical_thrust = (f64::from(self.tuning.acceleration) + f64::from(self.tuning.boost_acceleration))
+            * f64::from(self.tuning.air_control).max(1.0)
+            * f64::from(flats_racer_physics::PITCH_LIMIT).sin();
         let acceleration = (f64::from(self.tuning.spring) * f64::from(self.tuning.hover_height))
-            .max(f64::from(self.tuning.gravity));
+            .max(f64::from(self.tuning.gravity)) + vertical_thrust;
         let excursion = initial_floor + (speed + acceleration * duration) * duration;
         // Pad velocity casts, actual f32 substep dt, and accumulated position rounding on every branch.
         let error = roundoff * 12.0 * substeps;
@@ -1049,12 +1052,13 @@ impl Voyage {
         self.resident.remove(&index);
     }
 
-    pub fn tick(&mut self, throttle: f32, steer: f32, flags: u32) -> Result<(), JsValue> {
+    pub fn tick(&mut self, throttle: f32, steer: f32, flags: u32, pitch: Option<f32>) -> Result<(), JsValue> {
         let before = self.hold;
         let result = self
             .advance(Input {
                 throttle,
                 steer,
+                pitch: pitch.unwrap_or(0.0),
                 brake: flags & 1 != 0,
                 boost: flags & 2 != 0,
                 drift: flags & 4 != 0,
@@ -1101,6 +1105,7 @@ impl Voyage {
             ),
             f64::from(self.state.health[0]),
             f64::from(self.state.health[1]),
+            f64::from(self.state.pitch),
         ]
     }
 

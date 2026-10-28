@@ -2,6 +2,16 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {collisionFixture,frameFixture,runInContext} from './world-worker-fixtures.mjs';
 
+test('frame pitch reaches every fixed tick and invalid pitch is rejected before physics',async()=>{
+  const f=frameFixture(),pitches=[];
+  f.context.dependencies.world.tick=(_throttle,_steer,_flags,pitch)=>pitches.push(pitch);
+  await f.dispatch({id:1,action:'frame',dt:.025,throttle:1,steer:0,flags:2,pitch:.7});
+  assert.deepEqual(pitches,[.7,.7,.7]);
+  await f.dispatch({id:2,action:'frame',dt:.01,throttle:1,steer:0,flags:2,pitch:NaN});
+  assert.match(f.events.find(e=>e.id===2).error,/Pitch must be finite/);
+  assert.equal(pitches.length,3);
+});
+
 test('only explicit open capability true enables resource-only instance deltas',async()=>{
   for(const capability of [undefined,false,'true',1,true]) {
     const f=collisionFixture();
@@ -95,4 +105,3 @@ test('visual tail finishes before the next queued physics request begins',async(
   assert.deepEqual(f.events.map(e=>e.event||`reply:${e.id}`),
     ['collision','tick','reply:1','scene','pump','tick','reply:2','pump']);
 });
-
