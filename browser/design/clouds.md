@@ -30,3 +30,6 @@ Same sweep/shell invariants, no per-tier NaNs/seams, no duplicated cloud literal
 
 **Shell radius follows the terrain bend.** The cloud shell curvature is blended with the same smoothstep as terrain bend (BEND_RANGE 150-1500 yd): 12x the true radius at the ground, exactly R from 1500 yd up, so clouds never hover over terrain that has already dropped away. Apparent cloud horizon dip grows with altitude (tested).
 
+
+### Two-piece march
+Rays leaving the shell base and re-entering farther out cross a near sheet and a far horizon bank; the march covers both (steps split by piece length), removing the see-through band at high altitude.

@@ -63,16 +63,16 @@ export function march(o) {
   const {eye,dir,t=0,high=false,time=1440,centre=[0,0],coverage,sceneDist=1e9,jitter=.5,night=0,sun:sunOver}=o;
   const ex=extent(eye[1],dir[1],sceneDist,high);
   if(!ex.ns)return {alpha:0,rgb:[0,0,0],extent:ex};
-  const sun=sunOver??sunDirection(time),ns=ex.ns,ss=(ex.s1-ex.s0)/steps(high);
+  const sun=sunOver??sunDirection(time),ns=ex.ns,nA=ex.b1>ex.b0?Math.min(Math.max(Math.round(ns*(ex.s1-ex.s0)/Math.max(ex.s1-ex.s0+ex.b1-ex.b0,1)),Math.floor(ns/4)),Math.floor(ns*3/4)):ns,ss=(ex.s1-ex.s0)/Math.max(nA,1),ssB=(ex.b1-ex.b0)/Math.max(ns-nA,1);
   const grade=[1-.8*night,1-.73*night,1-.5*night],fog=[.08*(1-night),.15*(1-night),.2*(1-night)];
   let trans=1;const light=[0,0,0];
   for(let i=0;i<ns;i++) {
-    const ts=ex.s0+ss*(i+jitter),rel=[dir[0]*ts,dir[1]*ts,dir[2]*ts],pos=worldAt(eye,rel),sunY=dot(upAt(eye[1],rel),sun),day=smoothstep(-.1,.25,sunY);
+    const inA=i<nA,ts=inA?ex.s0+ss*(i+jitter):ex.b0+ssB*(i-nA+jitter),rel=[dir[0]*ts,dir[1]*ts,dir[2]*ts],pos=worldAt(eye,rel),sunY=dot(upAt(eye[1],rel),sun),day=smoothstep(-.1,.25,sunY);
     const s=density(pos,t,high,centre,coverage,o.mask);
     if(s[0]<=.001)continue;
-    const tail=ex.capped?1-ex.cutK*smoothstep(.55,1,(ts-ex.s0)/(ex.s1-ex.s0)):1;
+    const tail=ex.capped&&inA?1-ex.cutK*smoothstep(.55,1,(ts-ex.s0)/(ex.s1-ex.s0)):1;
     const w=(1-smoothstep(FADE_START,CLOUD_HALF_SIZE,ts))*.96*ex.sEdge*tail;
-    const absorb=(1-Math.exp(-s[0]*ss*.008))*w;
+    const absorb=(1-Math.exp(-s[0]*(inA?ss:ssB)*.008))*w;
     let shade=1;
     if(high){const sd=density([pos[0]+sun[0]*ss*2.5,pos[1]+sun[1]*ss*2.5,pos[2]+sun[2]*ss*2.5],t,high,centre,coverage,o.mask)[0];shade=mix(mix(.65,1,Math.exp(-sd*2)),1,smoothstep(.7,1,s[2]))*(1+.8*Math.max(dot(dir,sun),0)**6);}
     const lit=mix(.62,1,s[2])*mix(.75,1,s[1])*(.7+.3*trans)*shade;
@@ -107,7 +107,8 @@ export function extent(eyeY,dirY,sceneDist,high,far=1e8) {
   let s1=x.s1,sEdge=1;
   if(sceneDist<1e8){sEdge=smoothstep(0,350,sceneDist-x.s0);s1=Math.min(s1,sceneDist);}
   const ns=x.live&&s1>x.s0&&sEdge>0?steps(high):0;
-  return {s0:x.s0,s1,ns,sEdge,capped:x.sFull>cap&&s1===cap,cutK:smoothstep(0,.5,(x.sFull-cap)/Math.max(cap-x.s0,1))};
+  const b1=x.b1>x.b0&&ns>0&&sceneDist>x.b0?Math.min(x.b1,sceneDist):x.b0;
+  return {s0:x.s0,s1,b0:x.b0,b1,ns,sEdge,capped:x.sFull>cap&&s1===cap,cutK:smoothstep(0,.5,(x.sFull-cap)/Math.max(cap-x.s0,1))};
 }
 
 /** Mirror of the WGSL shellRoots: both distances where a ray from height `e` (direction y `dy`) meets the shell at altitude `y` of curvature k = 1/Re. */
@@ -122,15 +123,16 @@ export function shellRoots(e,dy,y,k) {
 export function shellExtent(eyeY,dirY,k,high,far=1e8) {
   const {ya,yb,down}=slab(high),O=shellRoots(eyeY,dirY,yb,k),I=shellRoots(eyeY,dirY,ya+down*(1-smoothstep(0,.12,dirY)),k);
   const G=shellRoots(eyeY,dirY,0,k),gHit=eyeY>0&&G[0]>0&&G[0]<=G[1];
-  let s0=Math.max(O[0],0),sFull=gHit?Math.min(O[1],G[0]):O[1],live=O[0]<=O[1];
+  let b0=0,b1=0,s0=Math.max(O[0],0),sFull=gHit?Math.min(O[1],G[0]):O[1],live=O[0]<=O[1];
   if(I[0]<=I[1]){
     if(I[0]>s0){
       // An eye inside the layer looking slightly down leaves through the base, then re-enters farther out: keep the longer piece so the horizon bank does not vanish when the eye crosses the base.
-      if(I[1]<sFull&&sFull-I[1]>.25*(Math.min(sFull,I[0])-s0))s0=I[1];else sFull=Math.min(sFull,I[0]);
+      if(I[1]<sFull&&I[1]>I[0]){b0=I[1];b1=sFull;}
+      sFull=Math.min(sFull,I[0]);
     }else if(I[1]>s0)s0=I[1];
   }
   live=live&&sFull>s0;
   if(gHit)live=live&&s0<G[0];
   const cap=s0+Math.max(tier(high).minSpan,SPAN_PER_DISTANCE*s0),s1=Math.min(sFull,cap);
-  return {s0,s1,sFull,live:live&&s1>s0&&s0<far};
+  return {s0,s1,sFull,b0,b1,live:live&&s1>s0&&s0<far};
 }
