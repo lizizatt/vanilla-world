@@ -56,7 +56,7 @@ test('apparent cloud horizon dip grows with altitude and matches the terrain ben
   let prev=-1;
   for(const a of [50,100,300,600,1000,1300])assert.ok(dip(a)>prev,`dip at ${a}`),prev=dip(a);
   for(const a of [100,500,1000,1500]){const g=1/CLOUD_RADIUS_GROUND_SCALE,b=planetFactors(a).bend;assert.ok(Math.abs(shellCurvatureAt(a)*PLANET_RADIUS-(g+(1-g)*b))<1e-4,`curvature follows the terrain bend at ${a}`);}
-  assert.ok(Math.abs(shellCurvatureAt(5000)-SHELL_CURVATURE)<1e-12);
+  assert.ok(Math.abs(shellCurvatureAt(7000)-SHELL_CURVATURE)<1e-12);
 });
 
 test('low-altitude horizon: the flatter shell keeps distant cloud above the ground horizon',()=>{

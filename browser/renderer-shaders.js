@@ -43,6 +43,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   }
   if(v.material==2.0 || v.material==4.0){
     color=waterColor(v.p,select(1.0,v.n.x,v.n.z>.5),rampWidth,dx,dy);
+    color=mix(color,select(fogTint(),u.sky[2].rgb,gameSky()),farOceanFade(v.p));
   }
   let fog=max(clamp(length(v.p-u.eye.xyz)/150000.0,0.0,.93),valleyHaze(v.p))*(1.0-u.pad[0].y);
   return vec4f(mix(color,fogTint(),fog)+limbGlow(v.p),1);
