@@ -42,12 +42,18 @@ export class MapRaster {
 
 /** Separable box blur (edge-clamped) of an interleaved array, in place via a scratch copy. */
 export function boxBlur(src,w,h,r,stride=1) {
+  const it=boxBlurSteps(src,w,h,r,stride);let v;while(!(v=it.next()).done);return v.value;
+}
+/** Generator form of boxBlur: yields every few rows/columns so callers can slice it. */
+export function* boxBlurSteps(src,w,h,r,stride=1) {
   const out=new Float32Array(src.length),tmp=new Float32Array(src.length),n=2*r+1;
   for(let y=0;y<h;y++)for(let c=0;c<stride;c++){
+    if(y%32===0&&c===0)yield;
     let s=0;for(let k=-r;k<=r;k++)s+=src[(y*w+Math.min(w-1,Math.max(0,k)))*stride+c];
     for(let x=0;x<w;x++){tmp[(y*w+x)*stride+c]=s/n;s+=src[(y*w+Math.min(w-1,x+r+1))*stride+c]-src[(y*w+Math.max(0,x-r))*stride+c];}
   }
   for(let x=0;x<w;x++)for(let c=0;c<stride;c++){
+    if(x%32===0&&c===0)yield;
     let s=0;for(let k=-r;k<=r;k++)s+=tmp[(Math.min(h-1,Math.max(0,k))*w+x)*stride+c];
     for(let y=0;y<h;y++){out[(y*w+x)*stride+c]=s/n;s+=tmp[(Math.min(h-1,y+r+1)*w+x)*stride+c]-tmp[(Math.max(0,y-r)*w+x)*stride+c];}
   }
@@ -67,21 +73,28 @@ export function heightColour(h) {
  * minimap/height tint and hillshade baked in). Pure: typed arrays in, typed arrays out.
  */
 export function mapFields(raster,sea=0) {
+  const it=mapFieldsSteps(raster,sea);let r;while(!(r=it.next()).done);return r.value;
+}
+/** Generator form of mapFields: yields between stages and every few rows so a caller can slice the work across frames. */
+export function* mapFieldsSteps(raster,sea=0) {
   const {w,h,hsum,hn,csum,cn}=raster,n=w*h,H=new Float32Array(n),L=new Float32Array(n),Cs=new Float32Array(n*3),M=new Float32Array(n);
   for(let k=0;k<n;k++){
+    if(k%16384===0)yield;
     if(hn[k]){const v=hsum[k]/hn[k];if(v>sea+1){L[k]=1;H[k]=v;}}
     if(cn[k]&&L[k]){M[k]=1;for(let c=0;c<3;c++)Cs[k*3+c]=csum[k*3+c]/cn[k];}
   }
-  const land=boxBlur(L,w,h,1),reach=boxBlur(boxBlur(boxBlur(L,w,h,10),w,h,10),w,h,10),Hs=boxBlur(boxBlur(H,w,h,1),w,h,1);
-  const Cb=boxBlur(Cs,w,h,2,3),Mb=boxBlur(M,w,h,2),rgb=new Float32Array(n*3);
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+  const land=yield* boxBlurSteps(L,w,h,1);
+  let reach=yield* boxBlurSteps(L,w,h,10);reach=yield* boxBlurSteps(reach,w,h,10);reach=yield* boxBlurSteps(reach,w,h,10);
+  const Hs=yield* boxBlurSteps(yield* boxBlurSteps(H,w,h,1),w,h,1);
+  const Cb=yield* boxBlurSteps(Cs,w,h,2,3),Mb=yield* boxBlurSteps(M,w,h,2),rgb=new Float32Array(n*3);
+  for(let y=0;y<h;y++){if(y%6===0)yield;for(let x=0;x<w;x++){
     const k=y*w+x;
     if(land[k]<.05){rgb.set(PARCHMENT,k*3);continue;}
     const base=Mb[k]>.04?[Cb[k*3]/Mb[k]*255,Cb[k*3+1]/Mb[k]*255,Cb[k*3+2]/Mb[k]*255]:heightColour(Hs[k]);
     const dx=(Hs[y*w+Math.min(w-1,x+1)]-Hs[y*w+Math.max(0,x-1)])/(2*MAP_CELL)*2.4,dz=(Hs[Math.min(h-1,y+1)*w+x]-Hs[Math.max(0,y-1)*w+x])/(2*MAP_CELL)*2.4;
     const lit=(.45*dx+.8+.45*dz)/Math.hypot(dx,1,dz)/.8,shade=Math.min(1.5,Math.max(.55,lit));
     for(let c=0;c<3;c++)rgb[k*3+c]=Math.min(255,mix(base[c],PARCHMENT[c],.34)*shade);
-  }
+  }}
   return {w,h,land,reach,rgb};
 }
 
@@ -92,8 +105,12 @@ const bilinear=(a,w,h,fx,fy,stride=1,c=0)=>{
 
 /** Shade the fields into an RGBA map for `frame` ({x0,z0,width,height} in render space) at width x height pixels: land tint + hillshade, ink coast, ripple-hatched sea, paper grain and vignette. */
 export function shadeMap(fields,raster,frame,width,height,out=new Uint8ClampedArray(width*height*4)) {
+  const it=shadeSteps(fields,raster,frame,width,height,out);while(!it.next().done);return out;
+}
+export function* shadeSteps(fields,raster,frame,width,height,out) {
   const {w,h,land,reach,rgb}=fields,sx=frame.width/width,sz=frame.height/height;
   for(let py=0;py<height;py++){
+    if(py%4===0)yield;
     const fy=(frame.z0+(py+.5)*sz-raster.z0)/MAP_CELL-.5,vy=(py+.5)/height-.5;
     for(let px=0;px<width;px++){
       const fx=(frame.x0+(px+.5)*sx-raster.x0)/MAP_CELL-.5,vx=(px+.5)/width-.5;
@@ -163,12 +180,18 @@ function drawFrame(ctx,width,height) {
   ctx.restore();
 }
 
-/** Full render: shaded parchment plus decor into a new canvas (`make` supplies the canvas factory so tests can run without a DOM). */
-export function renderMap({raster,frame,width=1024,sea=0,maelstrom,moon,make=()=>document.createElement('canvas')}) {
+/** Generator form of renderMap: yields between slices (each a few ms); returns the canvas. */
+export function* renderMapSteps({raster,frame,width=1024,sea=0,maelstrom,moon,make=()=>document.createElement('canvas')}) {
   const height=Math.round(width*frame.height/frame.width),canvas=make();canvas.width=width;canvas.height=height;
   const ctx=canvas.getContext('2d'),image=ctx.createImageData(width,height);
-  shadeMap(mapFields(raster,sea),raster,frame,width,height,image.data);ctx.putImageData(image,0,0);
+  const fields=yield* mapFieldsSteps(raster,sea);
+  yield* shadeSteps(fields,raster,frame,width,height,image.data);
+  ctx.putImageData(image,0,0);yield;
   const px=p=>p&&[(p[0]-frame.x0)/frame.width*width,(p[1]-frame.z0)/frame.height*height];
   drawDecor(ctx,width,height,{maelstrom:px(maelstrom),moon:px(moon)});
   return canvas;
+}
+/** Full render in one go (tests, tools). */
+export function renderMap(opts) {
+  const it=renderMapSteps(opts);let r;while(!(r=it.next()).done);return r.value;
 }

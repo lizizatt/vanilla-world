@@ -1,13 +1,13 @@
 import {imageRects,schematicRects,mapFrame,moonFrame,moonSpot,toMap,mapIcons,drawMap,stitch,worldArt,WORLD_ART_URL,WORLD_ART_SIZE,ELUNE_ART} from './worldmap.js';
 import {maelstromCentre} from './clouds.js';
-import {MapRaster,renderMap} from './map-render.js';
+import {MapRaster,renderMapSteps} from './map-render.js';
 import {mapBitmap} from './world-store.js';
-const TILE=1600/3,REFINE_MS=1500;
+const TILE=1600/3,REFINE_MS=4000,SLICE_MS=4;
 
 /** Fullscreen world map dialog. The map is generated from the far terrain already streamed (map-render.js) in the panel's own chart, so icons align by construction; a local painting (world-map-art.jpg, fitted by worldArt) overrides it when present. Before any terrain has arrived a schematic is drawn. */
 export class MapPanel {
   constructor({dialog,canvas,stage,status,close},  {requestArt,teleport,pose,tracks=()=>[],bodies=()=>[],teleportBody=()=>{}}) {
-      Object.assign(this,{dialog,canvas,stage,status,requestArt,teleport,pose,tracks,bodies,teleportBody,rows:undefined,images:new Map(),requested:false,timer:0,renderer:renderMap});
+      Object.assign(this,{dialog,canvas,stage,status,requestArt,teleport,pose,tracks,bodies,teleportBody,rows:undefined,images:new Map(),requested:false,timer:0,renderer:renderMapSteps});
     close.addEventListener('click',()=>dialog.close());
     dialog.addEventListener('close',()=>this.stop());
     this.you=stage.ownerDocument.createElement('div');this.you.id='map-you';this.you.hidden=true;
@@ -37,16 +37,32 @@ export class MapPanel {
     const raster=this.raster,key=[frame.x0,frame.z0,frame.width,frame.height].map(Math.round).join(','),tiles=raster.tiles.size;
     if(this.cache===undefined&&this.sourceId){this.cache=null;this.loadCache(key);}
     const gen=this.gen,saved=this.cache?.key===key?this.cache:undefined;
-    if(gen&&gen.key===key&&(gen.revision===raster.revision||Date.now()-gen.at<REFINE_MS))return gen.canvas;
-    if(!tiles)return saved?.bitmap;
+    const shown=gen?.key===key?gen.canvas:saved?.bitmap;
+    if(this.job||!tiles)return shown;
+    if(gen&&gen.key===key&&gen.revision===raster.revision)return gen.canvas;
     if(saved&&!gen&&saved.tiles>=tiles)return saved.bitmap;
-    const canvas=this.renderer({raster,frame,sea:this.manifest.sea_level??0,maelstrom:centre,moon,make:()=>this.stage.ownerDocument.createElement('canvas')});
-    this.gen={key,canvas,revision:raster.revision,tiles,at:Date.now()};
+    const wait=gen&&gen.key===key?REFINE_MS-(Date.now()-gen.at):0;
+    if(wait>0){if(!this.refine)this.refine=setTimeout(()=>{this.refine=0;if(this.dialog.open)this.render();},wait);return shown;}
+    const opts={raster,frame,sea:this.manifest.sea_level??0,maelstrom:centre,moon,make:()=>this.stage.ownerDocument.createElement('canvas')},made=this.renderer(opts);
+    if(typeof made?.next!=='function'){this.finish(made,key,tiles,raster.revision,saved);return made;}
+    // The render is a generator: run it in <=SLICE_MS slices between frames so the page never stalls; the finished map replaces the shown one.
+    this.job=made;const revision=raster.revision,pump=()=>{
+      const end=performance.now()+SLICE_MS;let r;
+      try {while(!(r=made.next()).done&&performance.now()<end);} catch(error){this.job=undefined;console.warn(error.message);return;}
+      if(!r.done)return void(this.jobTimer=setTimeout(pump,0));
+      this.job=undefined;
+      if(this.raster!==raster)return;
+      this.finish(r.value,key,tiles,revision,saved);if(this.dialog.open)this.render();
+    };
+    this.jobTimer=setTimeout(pump,0);
+    return shown;
+  }
+  finish(canvas,key,tiles,revision,saved) {
+    this.gen={key,canvas,revision,tiles,at:Date.now()};
     if(this.sourceId&&canvas.toBlob&&tiles>(saved?.tiles??0)+8){
       clearTimeout(this.saving);
       this.saving=setTimeout(()=>canvas.toBlob(blob=>{if(blob)mapBitmap(this.sourceId,key,{key,tiles,blob}).catch(()=>{});},'image/webp',.88),2500);
     }
-    return canvas;
   }
   loadCache(key) {
     mapBitmap(this.sourceId,key).then(rec=>rec?.blob&&createImageBitmap(rec.blob).then(bitmap=>{this.cache={key,tiles:rec.tiles,bitmap};if(this.dialog.open)this.render();})).catch(()=>{});
@@ -73,7 +89,7 @@ export class MapPanel {
     this.requested=true;this.requestArt(this.manifest.regions.map(r=>r.map));
     if(this.dialog.open)this.render();
   }
-  stop() {clearInterval(this.timer);clearTimeout(this.refine);this.refine=0;}
+  stop() {clearInterval(this.timer);clearTimeout(this.refine);this.refine=0;clearTimeout(this.jobTimer);this.job=undefined;}
   render() {
     const {manifest,rows}=this;
     const rects=rows?imageRects(manifest,rows):[],art=rows&&rects.some(Boolean);

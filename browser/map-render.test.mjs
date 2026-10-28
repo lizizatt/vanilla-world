@@ -90,6 +90,23 @@ test('panel: far events feed the raster, the generated map replaces the schemati
   } finally { delete globalThis.document;delete globalThis.fetch; }
 });
 
+test('generator renders are sliced, never re-run for unchanged data, and re-run once when new far data lands', async () => {
+  const make=()=>({style:{},dataset:{},addEventListener(){},remove(){}});
+  const panel=new MapPanel({dialog:{addEventListener(){},open:true},canvas:{},stage:{ownerDocument:{createElement:make},style:{setProperty(){}},querySelectorAll:()=>[],append(){}},status:{},close:{addEventListener(){}}},{requestArt(){},teleport(){},pose:()=>undefined});
+  let starts=0,steps=0;panel.render=()=>{};panel.renderer=()=>{starts++;return (function*(){for(let i=0;i<300;i++){steps++;yield;}return {done:true};})();};
+  panel.configure(manifest,'');panel.far({event:'horizon',vertices:Float32Array.from([10,120,20,0,0,0,0]),placement:[1000,2000]});
+  clearTimeout(panel.refine);panel.refine=0;
+  const frame={x0:0,z0:0,width:10,height:10};
+  assert.equal(panel.generated(frame,[0,0],[0,0]),undefined);assert.equal(starts,1);assert.ok(panel.job);
+  panel.generated(frame,[0,0],[0,0]);assert.equal(starts,1,'no second job while one runs');
+  while(panel.job)await new Promise(r=>setTimeout(r,2));
+  assert.equal(steps,300);assert.deepEqual(panel.generated(frame,[0,0],[0,0]),{done:true});
+  panel.generated(frame,[0,0],[0,0]);assert.equal(starts,1,'cache hit costs nothing');
+  panel.far({event:'horizon',vertices:Float32Array.from([10,120,20,0,0,0,0]),placement:[3000,2000]});
+  panel.generated(frame,[0,0],[0,0]);assert.equal(starts,1,'refresh is throttled');
+  panel.stop();
+});
+
 test('far events that stream in before configure() are queued and replayed', () => {
   const panel=new MapPanel({dialog:{addEventListener(){},open:false},canvas:{},stage:{ownerDocument:{createElement:()=>({style:{},dataset:{}})}},status:{},close:{addEventListener(){}}},{requestArt(){},teleport(){},pose:()=>undefined});
   panel.far({event:'horizon',vertices:Float32Array.from([10,120,20,0,0,0,0]),placement:[1000,2000]});
