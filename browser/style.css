@@ -237,8 +237,6 @@ dialog h2 { color: #ffb34d; margin-top: 0; }
 #boost-fx { position: fixed; inset: 0; pointer-events: none; background: repeating-conic-gradient(from 0deg at 50% 50%, rgba(160,220,255,.5) 0 .6deg, transparent .6deg 7deg); -webkit-mask-image: radial-gradient(ellipse at center, transparent 45%, #000 100%); mask-image: radial-gradient(ellipse at center, transparent 45%, #000 100%); }
 #boost-fx[hidden] { display: none; }
 details.welcome-help summary { cursor: pointer; } details.welcome-help p { margin: 8px 0 0; } .welcome-help a { color: var(--gold); }
-#space-hud { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); padding: 3px 10px; border-radius: 4px; background: rgba(0,0,0,.45); color: #ffd98a; font-size: 12px; letter-spacing: .8px; pointer-events: none; white-space: nowrap; }
-#space-hud[hidden] { display: none; }
 
 #time-hud { position: fixed; top: 6px; left: 50%; transform: translateX(-50%); z-index: 20; display: flex; gap: 14px; align-items: center; font-size: 13px; pointer-events: none; }
 #time-hud label { pointer-events: auto; background: rgba(0,0,0,.2); padding: 0 8px; border-radius: 4px; }

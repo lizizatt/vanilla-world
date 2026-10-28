@@ -59,12 +59,6 @@ export function nearestLandmark(x,z,icons=[]) {
   return best;
 }
 const wrapDelta=(dx,dz)=>[wrapTurn(dx,2*Math.PI*PLANET_RADIUS),dz];
-export function spaceHud(pose,speed,rects,icons) {
-  const {lat,lon}=subPoint(pose[0],pose[2]),d=r=>(Math.abs(r*180/Math.PI)).toFixed(1),near=nearestLandmark(pose[0],pose[2],icons),
-    nearText=near?` · ${near.distance>=1000?(near.distance/1000).toFixed(1)+"k":near.distance.toFixed(0)} yd from ${near.label}`:"";
-  const alt=Math.max(0,pose[1]),altText=alt>=10000?`${(alt/1000).toFixed(1)}k`:alt.toFixed(0);
-  return `${placeName(pose[0],pose[2],rects)}${nearText} · ${d(lat)}°${lat>=0?'N':'S'} ${d(lon)}°${lon>=0?'E':'W'} · ALT ${altText} yd · ${speed>=10000?(speed/1000).toFixed(1)+'k':speed.toFixed(0)} yd/s`;
-}
 
 /** Moon position in the planet frame (static planet, slow rails: whole turns per day clock so the wrap never pops). */
 export function moonPlanetPosition(moon,timeOfDay) {
