@@ -34,16 +34,16 @@ try{
   log('ready '+await page.evaluate(()=>worldEvidence.ready)+' errors '+JSON.stringify(await page.evaluate(()=>worldEvidence.errors)));
   await page.evaluate(()=>document.getElementById('welcome')?.remove());
   await page.waitForTimeout(6000);
-  const pos=()=>page.evaluate(()=>(worldEvidence.state?.p||worldEvidence.state?.position||[]).slice(0,3).map(v=>Math.round(v)));
+  const pos=()=>page.evaluate(()=>(worldEvidence.state?.telemetry||[]).slice(0,3).map(v=>Math.round(v)));
   const p0=await pos();await page.keyboard.down('w');await page.waitForTimeout(5000);await page.keyboard.up('w');const p1=await pos();
   log(`drive ${JSON.stringify(p0)} -> ${JSON.stringify(p1)}`);if(JSON.stringify(p0)===JSON.stringify(p1))problems.push('vehicle did not move');
   await page.screenshot({path:join(out,'drive.png')});
-  log('state keys '+await page.evaluate(()=>Object.keys(worldEvidence.state||{}).join()));log('racer hud row hidden='+await page.evaluate(()=>document.getElementById('swe1r-hud-row').hidden)+' sfx row hidden='+await page.evaluate(()=>document.getElementById('swe1r-sfx-row').hidden));log('npc instances '+await page.evaluate(()=>worldEvidence.npcs??worldEvidence.info?.npcInstances??'n/a'));
+  log('render npc '+await page.evaluate(()=>JSON.stringify([worldEvidence.render?.npcInstances,worldEvidence.render?.sceneInstances,worldEvidence.bodySwaps])));log('racer hud row hidden='+await page.evaluate(()=>document.getElementById('swe1r-hud-row').hidden)+' sfx row hidden='+await page.evaluate(()=>document.getElementById('swe1r-sfx-row').hidden));log('npc instances '+await page.evaluate(()=>worldEvidence.npcs??worldEvidence.info?.npcInstances??'n/a'));
   await page.keyboard.press('m');await page.waitForTimeout(4000);
   log('map status "'+await page.locator('#map-status').textContent()+'" icons '+await page.locator('.map-icon').count());
   await page.screenshot({path:join(out,'map.png')});
   const elune=page.locator('.map-icon[data-body=elune]');
-  if(await elune.count()){await elune.click();await page.waitForTimeout(25000);log('after elune teleport '+JSON.stringify(await page.evaluate(()=>({errors:worldEvidence.errors,ready:worldEvidence.ready,body:document.title}))));await page.screenshot({path:join(out,'elune.png')});}
+  if(await elune.count()){await elune.click();await page.waitForTimeout(25000);log('after elune teleport '+JSON.stringify(await page.evaluate(()=>({errors:worldEvidence.errors,ready:worldEvidence.ready,swaps:worldEvidence.bodySwaps,pos:worldEvidence.state?.telemetry?.slice(0,3)}))));await page.screenshot({path:join(out,'elune.png')});}
   else problems.push('no Elune map button');
   log('error panel: '+await page.evaluate(()=>document.getElementById('error')?.hidden?'hidden':document.getElementById('error')?.textContent));
   await page.context().setOffline(true);await page.reload();
