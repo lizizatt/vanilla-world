@@ -369,7 +369,7 @@ The spawn height comes from the ADT, not a guessed sea-level floor.
 | Mode | Controls |
 |---|---|
 | Pod drive | W thrust, S reverse, A/D steer, Up/Down arrows pitch, X brake, J hop, Shift boost, Space/C drift, F cockpit, V look behind, F9 reset |
-| Pod standard controller | Left stick X steers, Y pitches (up = nose up); RT (7) accelerates minus LT (6) reverse thrust; bottom face (0, PS X / Xbox A) boosts; left face (2, square / Xbox X) drifts; RB/R1 (5) hops; right stick looks/clicks cockpit; D-pad chase zoom; Y/triangle resets; Start drive/fly |
+| Pod standard controller | Left stick X steers, Y pitches (pull down = nose up); RT (7) accelerates minus LT (6) reverse thrust; bottom face (0, PS X / Xbox A) boosts; left face (2, square / Xbox X) drifts; RB/R1 (5) hops; right stick looks/clicks cockpit; D-pad chase zoom; Y/triangle resets; Start drive/fly |
 | Chase camera | **Left-drag** orbits the camera independently of heading and it stays where left (no snap-back; it recentres only while you drive with keys/pad). **Right-drag** steers: the camera keeps its heading and the craft turns toward it. **Both buttons** steer and thrust forward. Left/Right arrows orbit in pod drive, wheel zooms |
 | Free flight | W/S forward/back, A/D strafe, Q/E altitude, arrows look, Shift fast |
 | World overview | Frames both complete coarse continents |
@@ -388,6 +388,9 @@ The pod mapping is class-based, including the Data Rocket skin; free flight and
 other vehicle classes keep their controls. Left-stick axes have an axial 0.15
 deadzone and a mild cubic response; triggers retain their 0.08 deadzone and analog
 scaling. Holding LT at rest backs up; simultaneous triggers subtract.
+Pod pitch input is inverted for both devices: ArrowDown / stick down raises the
+nose; ArrowUp / stick up lowers it. One input-level `POD_PITCH_SIGN` controls both;
+physics and free-flight/camera conventions are unchanged.
 
 Pitch targets ±20 degrees and eases at 8/s in the authoritative fixed-step physics
 (including digital keyboard presses), returning level on release. Forward, reverse
