@@ -78,7 +78,9 @@ export class MapPanel {
   toggle() {if(this.dialog.open)this.dialog.close();else this.show();}
   show() {
     if(!this.manifest)return;
-    if(this.art===undefined){this.art=null;fetch(WORLD_ART_URL).then(r=>r.ok?r.blob():null).then(b=>b&&createImageBitmap(b)).then(i=>{if(i){this.art=i;if(this.dialog.open)this.render();}else this.artFailed=true;}).catch(()=>{this.artFailed=true;}).finally(()=>{if(this.artFailed)this.fetchData();});}
+    // The painting is a local-only override (never published): hosted builds skip the request instead of logging a 404.
+    if(this.art===undefined&&globalThis.location&&!/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)){this.art=null;this.artFailed=true;this.fetchData();}
+    else if(this.art===undefined){this.art=null;fetch(WORLD_ART_URL).then(r=>r.ok?r.blob():null).then(b=>b&&createImageBitmap(b)).then(i=>{if(i){this.art=i;if(this.dialog.open)this.render();}else this.artFailed=true;}).catch(()=>{this.artFailed=true;}).finally(()=>{if(this.artFailed)this.fetchData();});}
     else if(this.artFailed)this.fetchData();
     const was=document.activeElement;this.dialog.show();was?.focus?.();this.render();
     clearInterval(this.timer);this.timer=setInterval(()=>this.marker(),100);
