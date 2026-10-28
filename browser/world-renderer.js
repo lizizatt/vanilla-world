@@ -23,6 +23,7 @@ import {SimClock,sanitiseScale,daylightAt,CloudClock} from './sim-clock.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
 import {cameraAxes,AdmissionFade,sceneSelection} from './renderer-helpers.js';
 import {posedAsset,npcMoves,moveMatrix,pose} from './renderer-actors.js';
+import {BEND_ALWAYS} from './terrain-transition.js';
 import {buffer,texture,drawable,setFlags,setGates,releaseMaterial,release,uploadMaterials,drawTerrain,refreshOcean} from './renderer-terrain.js';
 import {destroyCraft,releaseCraft,buildCraft,startWreck,wreckChunk,endWreck,setProps,setCraftOverride,domeDraw} from './renderer-craft.js';
 import {reset,configure,event,clearFar,swapPlanetState,bodyEvent} from './renderer-events.js';
@@ -132,7 +133,7 @@ export class WorldRenderer {
     this.cameraLook=look;
     const aspect=width/height;
     this.view={eye:[this.camera[0]+origin[0],this.camera[1],this.camera[2]+origin[1]],right,up,look,aspect};
-    const planetOn=!!flight&&settings.planet!==false,pf=this.planet=planetFactorsFor(activeBody(),planetOn?this.view.eye[1]:0,planetOn);pf.mesh=planetOn&&!!settings.globeMesh;pf.registry=planetOn&&!!settings.globeRegistry;
+    const planetOn=(!!flight||BEND_ALWAYS)&&settings.planet!==false,pf=this.planet=planetFactorsFor(activeBody(),planetOn?this.view.eye[1]:0,planetOn);pf.mesh=planetOn&&!!settings.globeMesh;pf.registry=planetOn&&!!settings.globeRegistry;
     const clock=this.clock??=new SimClock(DAY,1);
     clock.scale=flight?Math.min(sanitiseScale(settings.timeScale),this.warpCap??Infinity):1;clock.step(dt);
     const cc=this.cloudClock??=new CloudClock(time);cc.step(dt,clock.scale);pf.flowScale=cc.stretch;pf.flowCycles=cc.cycles;

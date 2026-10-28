@@ -4,7 +4,7 @@
 import {PLANET_RADIUS,WORLD_CENTRE,MOONS} from './space.js';
 import {smoothRange} from './math.js';
 import {simEpoch} from './sim-clock.js';
-import {BEND_RANGE,GLOBE_RANGE,SPACE_RANGE,ZONE_LIGHT_RANGE} from './terrain-transition.js';
+import {BEND_ALWAYS,BEND_RANGE,GLOBE_RANGE,SPACE_RANGE,ZONE_LIGHT_RANGE} from './terrain-transition.js';
 import {SURFACE_GRAVITY,ATMOSPHERE_EDGE,gravityAt,densityAt,circularSpeed} from './planet-physics.js';
 import {toPlanet,fromPlanet} from './planet-frame.js';
 
@@ -54,9 +54,9 @@ const smooth=smoothRange;
 export const regimeOf=(altitude,body=AZEROTH)=>altitude>=body.ranges.space[1]?'orbit':altitude>=body.ranges.bend[0]?'atmosphere':'ground';
 /** Fade factors (bend, globe, space, zone) for an altitude above a body; same shape as terrain-transition planetFactors. */
 export function planetFactorsFor(body,altitude,enabled=true) {
-  if(!enabled||!(altitude>0))return {bend:0,globe:0,space:0,zone:1};
+  if(!enabled||!(altitude>0))return {bend:enabled&&BEND_ALWAYS?1:0,globe:0,space:0,zone:1};
   const f=n=>Number(n.toFixed(6)),r=body.ranges;
-  return {zone:f(1-smooth(r.zone,altitude)),bend:f(smooth(r.bend,altitude)),globe:f(smooth(r.globe,altitude)),space:body.atmosphereEdge?f(smooth(r.space,altitude)):1};
+  return {zone:f(1-smooth(r.zone,altitude)),bend:BEND_ALWAYS?1:f(smooth(r.bend,altitude)),globe:f(smooth(r.globe,altitude)),space:body.atmosphereEdge?f(smooth(r.space,altitude)):1};
 }
 export const gravityFor=(body,altitude)=>gravityAt(altitude,body.radius,body.gravity);
 export const densityFor=(body,altitude)=>densityAt(altitude,body.atmosphereEdge);
