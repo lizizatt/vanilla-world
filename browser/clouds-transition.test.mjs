@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {shellExtent} from './cloud-march.js';
 import {PLANET_RADIUS} from './space.js';
 import {SHELL_CURVATURE,shellCurvatureAt,stepTierMix,TIER_FADE_SECONDS,cloudShader,cloudShaderHigh,cloudUniform} from './clouds.js';
-import {cloudShellRadius,CLOUD_RADIUS_RANGE,CLOUD_RADIUS_GROUND_SCALE,planetFactors,BEND_RANGE,SPACE_RANGE,GLOBE_RANGE,ZONE_LIGHT_RANGE} from './terrain-transition.js';
+import {BEND_ALWAYS,cloudShellRadius,CLOUD_RADIUS_RANGE,CLOUD_RADIUS_GROUND_SCALE,planetFactors,BEND_RANGE,SPACE_RANGE,GLOBE_RANGE,ZONE_LIGHT_RANGE} from './terrain-transition.js';
 
 const VISIBLE=15e4; // beyond this the sheet is fully fogged
 
@@ -38,7 +38,7 @@ test('blended planet factors are C0 and monotonic with altitude',()=>{
 
 test('cloud shell radius: limits, monotonic, C1 and continuous in altitude',()=>{
   const R=PLANET_RADIUS,r=a=>cloudShellRadius(a,R);
-  assert.equal(r(0),R*CLOUD_RADIUS_GROUND_SCALE);
+  assert.equal(r(0),BEND_ALWAYS?R:R*CLOUD_RADIUS_GROUND_SCALE);
   assert.ok(Math.abs(r(CLOUD_RADIUS_RANGE[1])-R)<1e-6);
   assert.equal(r(1e6),R);
   let prev=r(0),slope=0;
@@ -48,7 +48,7 @@ test('cloud shell radius: limits, monotonic, C1 and continuous in altitude',()=>
     assert.ok(Math.abs(s-slope)<=R*.02,`slope jump at ${a}`);
     slope=s;prev=v;
   }
-  assert.ok(shellCurvatureAt(0)<SHELL_CURVATURE/5&&shellCurvatureAt(9000)===SHELL_CURVATURE);
+  assert.ok((BEND_ALWAYS||shellCurvatureAt(0)<SHELL_CURVATURE/5)&&shellCurvatureAt(9000)===SHELL_CURVATURE);
 });
 
 test('apparent cloud horizon dip grows with altitude and matches the terrain bend curvature',()=>{
@@ -61,6 +61,7 @@ test('apparent cloud horizon dip grows with altitude and matches the terrain ben
 
 test('low-altitude horizon: the flatter shell keeps distant cloud above the ground horizon',()=>{
   const low=shellExtent(40,0,shellCurvatureAt(40),false),old=shellExtent(40,0,SHELL_CURVATURE,false);
+  if(BEND_ALWAYS)return;
   assert.ok(low.s0>3*old.s0,`ground horizon cloud starts ${low.s0} vs ${old.s0}`);
 });
 

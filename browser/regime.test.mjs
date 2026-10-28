@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {regimeOf,REGIME_BANDS} from './regime.js';
-import {BEND_RANGE,GLOBE_RANGE,SPACE_RANGE,planetFactors,wgslRamp} from './terrain-transition.js';
+import {BEND_ALWAYS,BEND_RANGE,GLOBE_RANGE,SPACE_RANGE,planetFactors,wgslRamp} from './terrain-transition.js';
 import {CLOUD_ALTITUDE,CLOUD_THICKNESS} from './cloud-config.js';
 import {zoneBlend} from './renderer-sky.js';
 import {spaceShader} from './space.js';
@@ -17,7 +17,7 @@ test('regime tag follows the planet ramps at the band edges', () => {
   assert.equal(regimeOf(SPACE_RANGE[1]-1),'atmosphere');
   assert.equal(regimeOf(SPACE_RANGE[1]),'orbit');
   assert.equal(REGIME_BANDS.atmosphere,BEND_RANGE[0]);
-  assert.equal(planetFactors(REGIME_BANDS.atmosphere).bend,0);
+  assert.equal(planetFactors(REGIME_BANDS.atmosphere).bend,BEND_ALWAYS?1:0);
   assert.equal(planetFactors(REGIME_BANDS.orbit).space,1);
 });
 

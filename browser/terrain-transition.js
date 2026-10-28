@@ -5,6 +5,8 @@ import {smoothstep as smooth} from './math.js';
 // Azeroth was R=42,781 when these were tuned; they scale with sqrt(R/42,781) (ALTITUDE_SCALE) for the current radius.
 export const ALTITUDE_SCALE=0.577;
 const scaled=r=>Object.freeze(r.map(v=>Math.round(v*ALTITUDE_SCALE)));
+// Always-curved world: bend k=1 at every altitude (render space only; physics stays Cartesian). Set false to restore the flat-to-round ramp.
+export const BEND_ALWAYS=true;
 export const BEND_RANGE=scaled([150,1500]);
 export const GLOBE_RANGE=scaled([0,60]);
 export const SPACE_RANGE=scaled([2000,9000]);
@@ -22,7 +24,7 @@ export const wgslRamp=range=>`smoothstep(${range[0].toFixed(1)},${range[1].toFix
 // following the terrain bend ramp so the clouds curve exactly as much as the terrain below them (curvature, not radius, is blended) and match the globe from BEND_RANGE[1] up.
 export const CLOUD_RADIUS_RANGE=BEND_RANGE;
 export const CLOUD_RADIUS_GROUND_SCALE=12;
-export const cloudShellRadius=(altitude,planetRadius)=>planetRadius/(1/CLOUD_RADIUS_GROUND_SCALE+(1-1/CLOUD_RADIUS_GROUND_SCALE)*smooth(CLOUD_RADIUS_RANGE[0],CLOUD_RADIUS_RANGE[1],altitude));
+export const cloudShellRadius=(altitude,planetRadius)=>BEND_ALWAYS?planetRadius:planetRadius/(1/CLOUD_RADIUS_GROUND_SCALE+(1-1/CLOUD_RADIUS_GROUND_SCALE)*smooth(CLOUD_RADIUS_RANGE[0],CLOUD_RADIUS_RANGE[1],altitude));
 
 // The ground cloud layer sits at 11% of R on the shrunken planet, which reads as a detached shell from space. Above the weather it settles
 // (smoothstep over CLOUD_LAYER_RANGE, eye altitude) to a layer at 3.5% of R, so the planet view and every far body view hug the surface.
@@ -32,6 +34,6 @@ export const cloudAltitudeAt=(eyeAltitude,planetRadius)=>{const far=Math.min(CLO
 
 /** Fade factors for an altitude: bend (terrain curvature), globe (sphere alpha), space (black sky, stars), zone (per-zone lighting). Clouds have no ramp of their own: the curved layer is always drawn. */
 export function planetFactors(altitude,enabled=true) {
-  if(!enabled||!(altitude>0))return {bend:0,globe:0,space:0,zone:1};
-  return {zone:fix(1-ramp(ZONE_LIGHT_RANGE,altitude)),bend:ramp(BEND_RANGE,altitude),globe:ramp(GLOBE_RANGE,altitude),space:ramp(SPACE_RANGE,altitude)};
+  if(!enabled||!(altitude>0))return {bend:enabled&&BEND_ALWAYS?1:0,globe:0,space:0,zone:1};
+  return {zone:fix(1-ramp(ZONE_LIGHT_RANGE,altitude)),bend:BEND_ALWAYS?1:ramp(BEND_RANGE,altitude),globe:ramp(GLOBE_RANGE,altitude),space:ramp(SPACE_RANGE,altitude)};
 }

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { nearestLandmark, PLANET_RADIUS, CONTINENT_YD, CONTINENT_DEG, MOONS, planetFrame, moonPlanetPosition, subPoint, globeToFlat, wrapFlat, placeName, spaceHud, WORLD_CENTRE, FALLBACK_RECTS } from './space.js';
-import { planetFactors } from './terrain-transition.js';
+import { BEND_ALWAYS, planetFactors } from './terrain-transition.js';
 import { FLIGHT_CEILING, flightBoost, moveFlight } from './flight.js';
 
 test('radius makes one continent span 40 degrees', () => {
@@ -11,7 +11,7 @@ test('radius makes one continent span 40 degrees', () => {
 
 test('planet factors are bounded, monotonic and zero at ground', () => {
   const g = planetFactors(0);
-  assert.deepEqual([g.bend, g.globe, g.space], [0, 0, 0]);
+  assert.deepEqual([g.bend, g.globe, g.space], [BEND_ALWAYS ? 1 : 0, 0, 0]);
   let p = planetFactors(0);
   for (let a = 10; a <= 1e6; a *= 1.3) {
     const f = planetFactors(a);
