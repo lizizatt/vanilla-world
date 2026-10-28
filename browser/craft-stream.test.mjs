@@ -2,6 +2,20 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {loadCraft} from './craft-stream.js';
 import {craftMatrix} from './world-renderer.js';
+import {cameraView} from './world-camera.js';
+
+test('pitched craft forward axis and cockpit match engine direction at every yaw and bank',()=>{
+  for(const pitch of [-20,0,20])for(const yaw of [-2,0,2])for(const bank of [-.3,0,.3]){
+    const state=Array(18).fill(0);state[0]=1e9;state[2]=-1e9;state[3]=yaw;state[4]=bank;state[17]=pitch*Math.PI/180;
+    const m=craftMatrix(state,[1e9,-1e9],1);
+    const expected=[-Math.sin(yaw)*Math.cos(state[17]),Math.sin(state[17]),-Math.cos(yaw)*Math.cos(state[17])];
+    assert(expected.every((n,i)=>Math.abs(n-m[i])<1e-7),'Bank must not change the pitched thrust direction');
+    const rig={craft:{metadata:{scale:1},anchor:[0,0,.75]},clipCamera:(_a,b)=>b};
+    const view=cameraView(rig,state,undefined,0,[1e9,-1e9],{cockpit:true});
+    assert(view.look.every((n,i)=>Math.abs(n-expected[i])<1e-7));
+    assert(rig.camera.every(Number.isFinite));
+  }
+});
 
 test('craft model forward, scale, banking and floating origin match the physics body',()=>{
   const m=craftMatrix([10000,2,-20000,0,0],[9999,-20002],1);

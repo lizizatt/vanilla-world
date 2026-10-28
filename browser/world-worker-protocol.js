@@ -50,6 +50,7 @@ export async function handle(message) {
   if(message.action==='frame') {
     validateHop(message.hop);
     validateSampleTime(message.sampleTime);
+    if(message.pitch!==undefined&&!Number.isFinite(message.pitch))throw new Error('Pitch must be finite');
     if(message.view!==undefined)validateView(message.view);
     await runFrame(message);
   } else if(message.action==='restore') {

@@ -838,6 +838,7 @@ fn default_tuning_matches_step_over_mixed_inputs() {
             boost: frame < 240,
             drift: frame % 120 < 60,
             jump: (360..420).contains(&frame),
+            pitch: if frame < 600 { 1.0 } else { -1.0 },
         };
         let supports = if (600..720).contains(&frame) {
             [None; 4]
@@ -849,6 +850,48 @@ fn default_tuning_matches_step_over_mixed_inputs() {
             configured.step_with_tuning(input, supports, FIXED_DT, &tuning)
         );
         assert_eq!(default, configured, "frame {frame}");
+    }
+
+}
+
+#[test]
+fn pitch_is_bounded_time_based_returns_level_and_rejects_nonfinite_atomically() {
+    let mut reference = 0.0;
+    for steps in [30, 120, 480] {
+        let mut state = racer();
+        for _ in 0..steps {
+            state.step(Input { pitch: 10.0, ..Default::default() }, [None; 4], 1.0 / steps as f32).unwrap();
+        }
+        assert!(state.pitch <= PITCH_LIMIT && state.pitch > PITCH_LIMIT * 0.999);
+        if steps == 30 { reference = state.pitch; }
+        assert!((state.pitch - reference).abs() < 1e-6);
+        let before = state;
+        assert_eq!(state.step(Input { pitch: f32::NAN, ..Default::default() }, [None; 4], FIXED_DT), Err(StepError::InvalidInput));
+        assert_eq!(state, before);
+        for _ in 0..steps {
+            state.step(Input::default(), [None; 4], 1.0 / steps as f32).unwrap();
+        }
+        assert!(state.pitch.abs() < 0.0002);
+        state.reset([0.0; 3], 0.0).unwrap();
+        assert_eq!(state.pitch, 0.0);
+    }
+}
+
+#[test]
+fn pitch_tilts_forward_reverse_and_boost_thrust_without_tilting_gravity() {
+    let tuning = Tuning { drag: 0.0, air_control: 1.0, ..Tuning::default() };
+    for pitch in [-1.0, 0.0, 1.0] {
+        for throttle in [-1.0, -0.5, 0.0, 0.5, 1.0] {
+            for boost in [false, true] {
+                let mut state = racer();
+                state.pitch = pitch * PITCH_LIMIT;
+                let thrust = throttle * (tuning.acceleration + if boost && throttle > 0.0 { tuning.boost_acceleration } else { 0.0 });
+                state.step_with_tuning(Input { throttle, pitch, boost, ..Default::default() }, [None; 4], FIXED_DT, &tuning).unwrap();
+                assert!((state.velocity[2] + thrust * state.pitch.cos() * FIXED_DT).abs() < 1e-6);
+                assert!((state.velocity[1] - (thrust * state.pitch.sin() - tuning.gravity) * FIXED_DT).abs() < 1e-6);
+                assert_eq!(state.velocity[0], 0.0);
+            }
+        }
     }
 }
 

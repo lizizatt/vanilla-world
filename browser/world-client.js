@@ -67,13 +67,13 @@ export class WorldClient {
       if(data.error)request.reject(new Error(data.error));else request.resolve(data.result);
     };
   }
-  frame(dt,throttle,steer,flags,focus,distant=true,view) {
+  frame(dt,throttle,steer,flags,focus,distant=true,view,pitch=0) {
     if(!!focus!==this.poseFlying){this.discardFrame();this.poseFlying=!!focus;}
     const hop=!!(flags&8)&&!focus;
     if(hop&&!this.hopHeld)this.pendingHop=++this.hopSequence;
     this.hopHeld=hop;
     this.elapsed=Math.min(.1,this.elapsed+dt);
-    this.pendingFrame={throttle,steer,flags,focus,distant,sampleTime:performance.now()};
+    this.pendingFrame={throttle,steer,pitch:focus?0:pitch,flags,focus,distant,sampleTime:performance.now()};
     if(this.farOnly&&focus)this.pendingFrame.farOnly=true;
     if(view!==undefined)this.pendingFrame.view=view;
     this.flushFrame();
@@ -88,7 +88,7 @@ export class WorldClient {
     this.state=state;
     const p=state.telemetry,time=state.poseTime,previous=this.poseSamples.at(-1);
     if(time!==undefined && (!Number.isFinite(time) || !Array.isArray(p) || p.length<15
-      || !p.slice(0,15).every(Number.isFinite)))throw new Error('Invalid confirmed vehicle pose');
+      || !p.slice(0,15).every(Number.isFinite) || (p.length>17&&!Number.isFinite(p[17]))))throw new Error('Invalid confirmed vehicle pose');
     if(time===undefined || this.poseFlying || p[8] || state.scene?.waitingCollision) {
       this.clearPose();
     } else {
@@ -120,6 +120,7 @@ export class WorldClient {
     const yaw=b.p[3]-a.p[3];
     out[3]=a.p[3]+Math.atan2(Math.sin(yaw),Math.cos(yaw))*alpha;
     out[4]=a.p[4]+(b.p[4]-a.p[4])*alpha;
+    if(p.length>17)out[17]=(a.p[17]??0)+((b.p[17]??0)-(a.p[17]??0))*alpha;
     this.lastPoseTime=time;
     return out;
   }

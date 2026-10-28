@@ -10,6 +10,8 @@ pub mod wreck;
 
 
 pub const FIXED_DT: f32 = 1.0 / 120.0;
+pub const PITCH_LIMIT: f32 = 20.0 * std::f32::consts::PI / 180.0;
+const PITCH_RESPONSE: f64 = 8.0;
 /// Engine heat per second while boosting (7.5 s from cold to 1.0) and while cooling (10 s from full). Boost has no
 /// reserve: it is always available and heat is the only limiter.
 pub const HEAT_RISE_PER_SEC: f32 = 0.4 / 3.0;
@@ -76,7 +78,7 @@ pub struct Tuning {
     pub damping: f32,
     pub gravity: f32,
     pub hop_speed: f32,
-    /// Multiplier for airborne horizontal thrust, braking, grip and steering.
+    /// Multiplier for airborne engine thrust, braking, grip and steering.
     pub air_control: f32,
 }
 
@@ -168,6 +170,8 @@ pub struct Input {
     pub throttle: f32,
     /// Positive is left, negative is right; finite values are clamped to [-1, 1].
     pub steer: f32,
+    /// Target attitude in [-1, 1], positive nose up; tilts signed engine thrust.
+    pub pitch: f32,
     pub brake: bool,
     pub boost: bool,
     pub drift: bool,
@@ -184,6 +188,8 @@ pub struct State {
     pub yaw_rate: f32,
     /// Cosmetic roll in radians, bounded to +/-0.35; never affects support or thrust.
     pub bank: f32,
+    /// Nose-up attitude in radians, independent of support rays and collision resolution.
+    pub pitch: f32,
     pub grounded: bool,
     pub jump_cooldown: f32,
     /// Engine heat in [0, 1]: rises while forward boost has nonzero control authority, cools when boost is released.
@@ -210,7 +216,7 @@ impl fmt::Display for StepError {
         match self {
             Self::InvalidDt => f.write_str("dt must be finite and in (0, 1/30] seconds"),
             Self::InvalidInput => {
-                f.write_str("throttle, steer and terrain rise rate must be finite")
+                f.write_str("throttle, steer, pitch and terrain rise rate must be finite")
             }
             Self::InvalidState => f.write_str("state must be finite with valid heat and timers"),
             Self::InvalidTuning(message) => f.write_str(message),
@@ -235,6 +241,7 @@ impl State {
             yaw: wrap_yaw(yaw),
             yaw_rate: 0.0,
             bank: 0.0,
+            pitch: 0.0,
             grounded: false,
             jump_cooldown: 0.0,
             heat: 0.0,
@@ -290,7 +297,7 @@ impl State {
         if !dt.is_finite() || dt <= 0.0 || dt > 1.0 / 30.0 {
             return Err(StepError::InvalidDt);
         }
-        if !input.throttle.is_finite() || !input.steer.is_finite() || !surface_velocity.is_finite()
+        if !input.throttle.is_finite() || !input.steer.is_finite() || !input.pitch.is_finite() || !surface_velocity.is_finite()
         {
             return Err(StepError::InvalidInput);
         }
@@ -319,6 +326,7 @@ impl State {
             && [self.yaw, self.yaw_rate, self.bank]
                 .iter()
                 .all(|v| v.is_finite())
+            && (-PITCH_LIMIT..=PITCH_LIMIT).contains(&self.pitch)
             && (0.0..=1.0).contains(&self.heat)
             && self.health.iter().all(|h| (0.0..=1.0).contains(h))
             && [self.jump_cooldown, self.support_lockout]
@@ -334,6 +342,9 @@ impl State {
         dt: f32,
         tuning: &Tuning,
     ) {
+        let target = f64::from(input.pitch.clamp(-1.0, 1.0) * PITCH_LIMIT);
+        self.pitch = (f64::from(self.pitch)
+            + (target - f64::from(self.pitch)) * -(-PITCH_RESPONSE * f64::from(dt)).exp_m1()) as f32;
         self.jump_cooldown = (self.jump_cooldown - dt).max(0.0);
         self.support_lockout = (self.support_lockout - dt).max(0.0);
         let mut height = 0.0;
@@ -377,8 +388,6 @@ impl State {
         } else {
             vertical - gravity * dt64
         };
-        self.velocity[1] = next_vertical as f32;
-
         let throttle = input.throttle.clamp(-1.0, 1.0) as f64;
         let steer = input.steer.clamp(-1.0, 1.0) as f64;
         let authority = if self.grounded {
@@ -433,11 +442,14 @@ impl State {
         } else if !input.boost {
             self.heat = (self.heat - HEAT_COOL_PER_SEC * dt).max(0.0);
         }
-        longitudinal += throttle
+        let thrust = throttle
             * (tuning.acceleration as f64
                 + tuning.boost_acceleration as f64 * boost_fraction as f64)
             * authority
             * dt64;
+        let (pitch_sin, pitch_cos) = f64::from(self.pitch).sin_cos();
+        longitudinal += thrust * pitch_cos;
+        self.velocity[1] = (next_vertical + thrust * pitch_sin) as f32;
         // Scaled by authority like grip above: full air control keeps full drag, but a
         // reduced air authority must not let full-strength drag outrun already-scaled-down
         // airborne thrust, or holding the throttle in midair can never gain speed.
