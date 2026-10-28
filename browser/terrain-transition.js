@@ -15,7 +15,7 @@ export const CLOUD_BASE=CLOUD_ALTITUDE-CLOUD_THICKNESS*.5;
 // The bend starts at the cloud base and finishes where the sky has gone black (SPACE_RANGE end); the globe fades in over the second half.
 export const SPACE_RANGE=Object.freeze([2500,6500]);
 export const BEND_RANGE=Object.freeze([Math.floor(CLOUD_BASE/10)*10,SPACE_RANGE[1]]);
-export const GLOBE_RANGE=Object.freeze([3500,3560]);
+export const GLOBE_RANGE=Object.freeze([3000,5000]);
 // Per-zone lighting (Light.dbc tint) fades to the global sun look, reaching zero at the base of the lowest cloud layer.
 export const ZONE_LIGHT_RANGE=Object.freeze([300,CLOUD_ALTITUDE-CLOUD_THICKNESS*.5]);
 
