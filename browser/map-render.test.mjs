@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {MapRaster,MAP_CELL,mapFields,shadeMap,boxBlur,heightColour} from './map-render.js';
 import {MapPanel} from './map-panel.js';
-import {mapFrame,moonFrame,moonSpot,toMap,mapIcons} from './worldmap.js';
+import {mapFrame,cropWest,moonFrame,moonSpot,toMap,mapIcons} from './worldmap.js';
 
 const manifest={spawn:[0,5,0],sea_level:0,ocean:[5333.33,-7466.667,13525.33,22400],world_bounds:[[0,0,51,56],[24,20,45,62]],horizons:[{region:0,source_bounds:[0,0,51,56]},{region:1,source_bounds:[24,20,45,62]}],
   regions:[{id:'k',map:'Kalimdor',tile_origin:[0,0],tile_count:[64,64],placement:[-21866.667,-7466.667]},{id:'e',map:'Azeroth',tile_origin:[0,0],tile_count:[64,64],placement:[725.333,-16000]}]};
@@ -65,6 +65,14 @@ test('moon spot sits in the band above the continents and over the Maelstrom col
   const base=mapFrame([[-21867,-7467,5333,22400],[13525,-5333,24725,17067]],[[8856,3507]]),f=moonFrame(base),m=moonSpot(f,[8856,3507]);
   assert.equal(m[0],8856);assert.ok(m[1]<base.z0&&m[1]>f.z0);
   const [u,v]=toMap(f,...m);assert.ok(u>0&&u<1&&v>0&&v<.2);
+});
+
+test('west crop trims the empty ocean, keeps Maelstrom and the moon inside with margin, and the moon clears the top edge', () => {
+  const base=mapFrame([[-21867,-7467,5333,22400],[13525,-5333,24725,17067]],[[8856,3507]]),f=moonFrame(cropWest(base));
+  assert.ok(Math.abs(f.width-base.width*.74)<1e-6);
+  const [u,v]=toMap(f,8856,3507);assert.ok(u>.1&&u<.9&&v>.2&&v<.9);
+  const [mu,mv]=toMap(f,...moonSpot(f,[8856,3507]));assert.ok(mu>.1&&mu<.9);
+  assert.ok(mv>.1,`moon centre at ${mv.toFixed(3)} of height keeps room above`);
 });
 
 test('panel: far events feed the raster, the generated map replaces the schematic, Elune sits on the moon, icons use the same chart', () => {

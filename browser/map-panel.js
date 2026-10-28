@@ -1,4 +1,4 @@
-import {imageRects,schematicRects,mapFrame,moonFrame,moonSpot,toMap,mapIcons,drawMap,stitch,worldArt,WORLD_ART_URL,WORLD_ART_SIZE,ELUNE_ART} from './worldmap.js';
+import {imageRects,schematicRects,mapFrame,cropWest,moonFrame,moonSpot,toMap,mapIcons,drawMap,stitch,worldArt,WORLD_ART_URL,WORLD_ART_SIZE,ELUNE_ART} from './worldmap.js';
 import {maelstromCentre} from './clouds.js';
 import {MapRaster,renderMapSteps} from './map-render.js';
 import {mapBitmap} from './world-store.js';
@@ -103,7 +103,7 @@ export class MapPanel {
       this.frame=undefined;
     } else {
       this.frame=mapFrame(use,[centre,[manifest.spawn[0],manifest.spawn[2]]]);
-      if(this.raster)this.frame=moonFrame(this.frame);
+      if(this.raster)this.frame=moonFrame(cropWest(this.frame));
       this.place=(x,z)=>toMap(this.frame,x,z);
     }
     this.moonAt=!project&&this.raster?moonSpot(this.frame,centre):undefined;

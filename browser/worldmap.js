@@ -56,9 +56,11 @@ export function mapFrame(rects,extra=[],margin=.04) {
   const x0=Math.min(...xs),x1=Math.max(...xs),z0=Math.min(...zs),z1=Math.max(...zs),mx=(x1-x0)*margin,mz=(z1-z0)*margin;
   return {x0:x0-mx,z0:z0-mz,width:x1-x0+2*mx,height:z1-z0+2*mz};
 }
+/** The generated map drops the empty west ocean: keeps the right (1-fraction) of the frame; Kalimdor's west coast sits ~30% in. */
+export const cropWest=(frame,fraction=.26)=>({...frame,x0:frame.x0+frame.width*fraction,width:frame.width*(1-fraction)});
 /** The generated map keeps a band of sky above the continents for Elune's moon: the frame grows upward, the moon hangs over the Maelstrom's column. */
-export const moonFrame=frame=>({x0:frame.x0,width:frame.width,z0:frame.z0-frame.height*.14,height:frame.height*1.14});
-export const moonSpot=(frame,centre)=>[centre[0],frame.z0+frame.height*.085];
+export const moonFrame=frame=>({x0:frame.x0,width:frame.width,z0:frame.z0-frame.height*.18,height:frame.height*1.18});
+export const moonSpot=(frame,centre)=>[centre[0],frame.z0+frame.height*.12];
 /** Render position to fractions of the map frame (0..1, z down). */
 export const toMap=(frame,x,z)=>[(x-frame.x0)/frame.width,(z-frame.z0)/frame.height];
 export const fromMap=(frame,u,v)=>[frame.x0+u*frame.width,frame.z0+v*frame.height];
