@@ -38,3 +38,12 @@ test('gateMesh spans the gate width along its heading and the next gate has a ta
   assert.ok(top(gateMesh(g,0,true))>top(m));
   assert.ok(gateMesh(g,0,true,true).length>gateMesh(g,0,true).length,'finish banner is checkered');
 });
+
+test('the shipped Elune Loop loads, is scoped to Elune and carries its authored moon heights',async()=>{
+  const {readFile}=await import('node:fs/promises');const {tracksFor}=await import('./vehicles.js');
+  const fetcher=async f=>({ok:true,json:async()=>JSON.parse(await readFile(new URL(f,import.meta.url),'utf8'))});
+  const all=await loadTracks(fetcher);const loop=all.find(t=>t.id==='elune-loop');
+  assert.ok(loop);assert.equal(loop.body,'elune');assert.equal(loop.gates.length,22);assert.equal(loop.vehicle,'podracer');assert.equal(loop.start.pos[1],7.462982177734375);
+  assert.ok(tracksFor(all,'podracer','elune').some(t=>t.id==='elune-loop'));
+  assert.ok(!tracksFor(all,'podracer','azeroth').some(t=>t.id==='elune-loop'));
+});

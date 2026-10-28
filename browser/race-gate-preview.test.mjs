@@ -41,3 +41,18 @@ test('textured parts use the supplied textures, blend as alpha and tile UVs; no 
   assert.ok(flat.asset.batches.every(b => b.texture === 'white' && b.blend === 'opaque'));
   for (const list of [gantry({ at: [0, 0, 0], yaw: 0, real: { tex, pole: { asset: m.asset, textures: m.textures }, banner: { asset: m.asset, textures: m.textures }, lens: { asset: m.asset, textures: m.textures } } })]) assert.ok(list.every(valid));
 });
+
+const zRange = ({ asset }) => { let lo = Infinity, hi = -Infinity; for (let i = 0; i < asset.vertices.length; i += 12) { const z = asset.vertices[i + 2]; lo = Math.min(lo, z); hi = Math.max(hi, z); } return [lo, hi]; };
+
+test('checkpoint sky line follows the requested length (far taller on a low-gravity body)', () => {
+  const top = sky => zRange(checkpoint({ at: [0, 0, 0], yaw: 0, sky })[0])[1];
+  assert.ok(top(400) >= 400 && top(400) > top(200) + 150);
+});
+
+test('checkpoint posts and their beams rest on their own ground when one side stands higher', () => {
+  const flat = checkpoint({ at: [0, 0, 0], yaw: 0 }), tilt = checkpoint({ at: [0, 0, 0], yaw: 0, rise: [0, 30] });
+  assert.ok(valid(tilt[0]));
+  const has = (l, z) => { const v = l[0].asset.vertices; for (let i = 2; i < v.length; i += 12) if (Math.abs(v[i] - z) < 1e-4) return true; return false; };
+  assert.ok(has(tilt, 40.5) && !has(flat, 40.5));
+  assert.equal(zRange(tilt[0])[0], zRange(flat[0])[0]);
+});
