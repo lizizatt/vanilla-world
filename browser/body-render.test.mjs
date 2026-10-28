@@ -8,9 +8,9 @@ import {ELUNE,AZEROTH,centreAt,toInertial} from './bodies.js';
 const sha=s=>createHash('sha1').update(s).digest('hex').slice(0,12);
 
 test('Azeroth shaders are byte-identical to the current radius-baked strings', () => {
-  assert.equal(sha(bendShader),'b406900f87e8');
-  assert.equal(sha(spaceShader),'ac9818c942e5');
-  assert.equal(sha(patchShader),'c2ad8d38f9b7');
+  assert.equal(sha(bendShader),'41571a04c875');
+  assert.equal(sha(spaceShader),'1d0ff818b328');
+  assert.equal(sha(patchShader),'43917331b1ac');
   assert.equal(bendShader,bendShaderFor(PLANET_RADIUS,WORLD_CENTRE));
   assert.equal(patchShader,patchShaderFor(PLANET_RADIUS));
 });

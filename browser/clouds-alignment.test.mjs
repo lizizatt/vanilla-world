@@ -6,7 +6,7 @@ import {worldAt} from './cloud-march.js';
 import {planetFactors} from './terrain-transition.js';
 import {bendRel,subPoint,PLANET_RADIUS as R,WORLD_CENTRE,FALLBACK_RECTS,MAELSTROM_Z,MAELSTROM_LAT} from './space.js';
 
-const manifest={ocean:[5333.333,-16000,13525.333,17066.667],world_bounds:[[0,0,51,56],[24,20,45,62]],regions:[{placement:[-21866.667,-7466.667]},{placement:[725.333,-16000]}]};
+const manifest={ocean:[5333.333,-16000,13525.333,17066.667],world_bounds:[[0,0,51,56],[24,20,45,62]],regions:[{placement:[-21866.667,-12266.667]},{placement:[725.333,-16000]}]};
 const deg=r=>r*180/Math.PI;
 
 // Ground truth from the user's world map (800x533): land x 95-300 (Kalimdor) and 535-720 (EK), the spiral centre at (405,265).
@@ -68,7 +68,7 @@ test('cloud height above the globe is the true radial altitude (shell concentric
 });
 
 test('near the ground the cloud mapping blends to the flat terrain frame (landmark offset bounded and 0 at both ends)', () => {
-  const lat=16;
+  const lat=12;
   for(const alt of [20,100,150,400,800,1200,1500,3000]) {
     const bend=planetFactors(alt).bend,eye=[WORLD_CENTRE[0]+3000,alt,WORLD_CENTRE[1]-R*lat*Math.PI/180];
     for(const d of [[10000,0],[0,-10000],[-7000,7000],[13000,-13000]]) {

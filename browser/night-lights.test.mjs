@@ -4,7 +4,7 @@ import {SETTLEMENTS,PALETTES,FIRE,NIGHT_W,NIGHT_H,FLAG_ARCANE,FLAG_EERIE,settlem
 import {spaceShader,patchShader,subPoint} from './space.js';
 
 const manifest={world_bounds:[[0,0,0,0],[0,0,0,0]],regions:[
-  {map:'Kalimdor',placement:[-5000,-3000],tile_origin:[0,0]},{map:'Azeroth',placement:[9000,1000],tile_origin:[0,0]}]};
+  {map:'Kalimdor',placement:[-5000,-3000],tile_origin:[0,0]},{map:'Azeroth',placement:[9000,-1000],tile_origin:[0,0]}]};
 const texel=(out,s,w=NIGHT_W,h=NIGHT_H)=>{
   const {lat,lon}=subPoint(...s.pos),x=Math.floor((lon/(2*Math.PI)+.5)*w),y=Math.floor((.5-lat/Math.PI)*h),i=(y*w+x)*4;
   return [...out.slice(i,i+4)];

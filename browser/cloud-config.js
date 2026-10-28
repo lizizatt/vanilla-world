@@ -16,6 +16,8 @@ export const MAELSTROM={eyeRadius:2200*S,wallRadius:5200*S,radius:24000*S,arms:3
 // World-map registration: the eye sits 43% of the way from Kalimdor's east coast to the Eastern Kingdoms' west coast,
 // and at 35% / 40% of the way down each continent's tile rows, averaged because the two continents are offset provisionally.
 export const MAELSTROM_MAP={across:.43,kalimdorDown:.35,easternDown:.4};
+/** Kalimdor's row was moved this far north (yd) when Orgrimmar was levelled with the Maelstrom; the Maelstrom keeps its earlier z by adding it back. */
+export const KALIMDOR_NORTH_SHIFT=4800;
 
 // Whirlpool dip, the single source of truth for JS and Rust (set_whirlpool in voyage.rs): the ocean surface at distance r
 // from the centre sits depth*(1-(r/radius)^2)^2 yd below sea level (zero value and slope at the rim). The funnel ends at the bottom.

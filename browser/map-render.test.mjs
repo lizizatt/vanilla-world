@@ -4,8 +4,8 @@ import {MapRaster,MAP_CELL,mapFields,shadeMap,boxBlur,heightColour} from './map-
 import {MapPanel} from './map-panel.js';
 import {mapFrame,cropWest,moonFrame,moonSpot,toMap,mapIcons} from './worldmap.js';
 
-const manifest={spawn:[0,5,0],sea_level:0,ocean:[5333.33,-7466.667,13525.33,22400],world_bounds:[[0,0,51,56],[24,20,45,62]],horizons:[{region:0,source_bounds:[0,0,51,56]},{region:1,source_bounds:[24,20,45,62]}],
-  regions:[{id:'k',map:'Kalimdor',tile_origin:[0,0],tile_count:[64,64],placement:[-21866.667,-7466.667]},{id:'e',map:'Azeroth',tile_origin:[0,0],tile_count:[64,64],placement:[725.333,-16000]}]};
+const manifest={spawn:[0,5,0],sea_level:0,ocean:[5333.33,-12266.667,13525.33,22400],world_bounds:[[0,0,51,56],[24,20,45,62]],horizons:[{region:0,source_bounds:[0,0,51,56]},{region:1,source_bounds:[24,20,45,62]}],
+  regions:[{id:'k',map:'Kalimdor',tile_origin:[0,0],tile_count:[64,64],placement:[-21866.667,-12266.667]},{id:'e',map:'Azeroth',tile_origin:[0,0],tile_count:[64,64],placement:[725.333,-16000]}]};
 const TILE=1600/3;
 
 /** A flat-topped island of radius `r` yd centred on chart (cx,cz), fed as horizon vertices like the worker sends them. */
@@ -46,7 +46,7 @@ test('shading: land is tinted differently from sea, coast is inked dark, hillsha
 });
 
 test('chart exactness: a feature placed at a city shows up at the pixel the icon uses (within 2px)', () => {
-  const frame=moonFrame(mapFrame([[-21867,-7467,5333,22400],[13525,-5333,24725,17067]],[[8856,3507]])),W=500,Hh=Math.round(W*frame.height/frame.width);
+  const frame=moonFrame(mapFrame([[-21867,-12267,5333,17600],[13525,-5333,24725,17067]],[[8856,3507]])),W=500,Hh=Math.round(W*frame.height/frame.width);
   const r=new MapRaster(manifest);
   const cities=mapIcons(manifest,[8856,3507]).filter(i=>['orgrimmar','stormwind','undercity','darnassus'].includes(i.id));
   for(const c of cities)island(r,c.position[0],c.position[1],900);
@@ -62,13 +62,13 @@ test('chart exactness: a feature placed at a city shows up at the pixel the icon
 });
 
 test('moon spot sits in the band above the continents and over the Maelstrom column', () => {
-  const base=mapFrame([[-21867,-7467,5333,22400],[13525,-5333,24725,17067]],[[8856,3507]]),f=moonFrame(base),m=moonSpot(f,[8856,3507]);
+  const base=mapFrame([[-21867,-12267,5333,17600],[13525,-5333,24725,17067]],[[8856,3507]]),f=moonFrame(base),m=moonSpot(f,[8856,3507]);
   assert.equal(m[0],8856);assert.ok(m[1]<base.z0&&m[1]>f.z0);
   const [u,v]=toMap(f,...m);assert.ok(u>0&&u<1&&v>0&&v<.2);
 });
 
 test('west crop trims the empty ocean, keeps Maelstrom and the moon inside with margin, and the moon clears the top edge', () => {
-  const base=mapFrame([[-21867,-7467,5333,22400],[13525,-5333,24725,17067]],[[8856,3507]]),f=moonFrame(cropWest(base));
+  const base=mapFrame([[-21867,-12267,5333,17600],[13525,-5333,24725,17067]],[[8856,3507]]),f=moonFrame(cropWest(base));
   assert.ok(Math.abs(f.width-base.width*.74)<1e-6);
   const [u,v]=toMap(f,8856,3507);assert.ok(u>.1&&u<.9&&v>.2&&v<.9);
   const [mu,mv]=toMap(f,...moonSpot(f,[8856,3507]));assert.ok(mu>.1&&mu<.9);

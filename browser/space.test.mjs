@@ -76,7 +76,7 @@ test('turn rate does not depend on altitude', () => {
 test('flat -> globe -> flat round trip is exact, incl. world edges, and matches the render frame', () => {
   let s = 99;
   const rnd = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296;
-  const pts = [[-21867, -7467], [24725, 17067], [5333, 22400], [13525, -5333], [1429, -267], ...Array.from({ length: 2000 }, () => [-10000 + rnd() * 20000, -10000 + rnd() * 20000])];
+  const pts = [[-21867, -12267], [24725, 17067], [5333, 17600], [13525, -5333], [1429, -267], ...Array.from({ length: 2000 }, () => [-10000 + rnd() * 20000, -10000 + rnd() * 20000])];
   for (const [x, z] of pts) {
     const { lat, lon } = subPoint(x, z);
     const [rx, rz] = globeToFlat(lat, lon);

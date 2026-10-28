@@ -4,13 +4,13 @@ import {PLANET_RADIUS,WORLD_CENTRE,planetFrame} from './space.js';
 import {cloudShellRadius,cloudAltitudeAt,CLOUD_RADIUS_GROUND_SCALE} from './terrain-transition.js';
 import {flowWGSL,FLOW,MASK,bakeLandMask} from './cloud-flow.js';
 import {createRegistry,defaultManifest} from './tile-registry.js';
-import {CLOUD_ALTITUDE,CLOUD_THICKNESS,CLOUD_HALF_SIZE,HYJAL_SUMMIT,CLOUD_ALTITUDE_FACTOR,CLOUD_TOWER,WHIRLPOOL_DIP,MAELSTROM,MAELSTROM_MAP,FUNNEL,FUNNEL_STEPS,tier} from './cloud-config.js';
+import {CLOUD_ALTITUDE,CLOUD_THICKNESS,CLOUD_HALF_SIZE,HYJAL_SUMMIT,CLOUD_ALTITUDE_FACTOR,CLOUD_TOWER,WHIRLPOOL_DIP,MAELSTROM,MAELSTROM_MAP,KALIMDOR_NORTH_SHIFT,FUNNEL,FUNNEL_STEPS,tier} from './cloud-config.js';
 export * from './cloud-config.js';
 
 export function maelstromCentre(manifest) {
   const o=manifest.ocean,[kalimdor,east]=manifest.world_bounds.map((b,i)=>{
     const placement=manifest.regions[i].placement[1];
-    return placement+(b[1]+(i?MAELSTROM_MAP.easternDown:MAELSTROM_MAP.kalimdorDown)*(b[3]+1-b[1]))*1600/3;
+    return placement+(i?0:KALIMDOR_NORTH_SHIFT)+(b[1]+(i?MAELSTROM_MAP.easternDown:MAELSTROM_MAP.kalimdorDown)*(b[3]+1-b[1]))*1600/3;
   });
   return [o[0]+MAELSTROM_MAP.across*(o[2]-o[0]),(kalimdor+east)/2];
 }
