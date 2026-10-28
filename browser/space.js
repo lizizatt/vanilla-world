@@ -113,7 +113,7 @@ export function bendRel(rel,eye,k=1,radius=PLANET_RADIUS,centre=WORLD_CENTRE) {
   const lat0=clampLat((centre[1]-eye[2])/radius),lat=clampLat(lat0-rel[2]/radius),dl=rel[0]/radius;
   const cl=Math.cos(lat),sp0=Math.sin(lat0),cp0=Math.cos(lat0),cd=cl*Math.cos(dl);
   const n=[cl*Math.sin(dl),cp0*cd+sp0*Math.sin(lat),sp0*cd-cp0*Math.sin(lat)],r=radius+rel[1]+eye[1];
-  const t=Math.min(Math.max((k-.1)/.2,0),1),s=Math.min(Math.max((Math.hypot(rel[0],rel[2])-1.5*radius)/radius,0),1),kk=k+(1-k)*t*t*(3-2*t)*s*s*(3-2*s);
+  const t=Math.min(Math.max((k-.1)/.2,0),1),s=Math.max(Math.min(Math.max((Math.hypot(rel[0],rel[2])-1.5*radius)/radius,0),1),Math.min(Math.max((Math.hypot(rel[0],rel[2])/Math.sqrt(2*radius*Math.max(eye[1],1))-.5)/.7,0),1)),kk=k+(1-k)*t*t*(3-2*t)*s*s*(3-2*s);
   return [rel[0]+(n[0]*r-rel[0])*kk,rel[1]+(n[1]*r-(radius+eye[1])-rel[1])*kk,rel[2]+(n[2]*r-rel[2])*kk];
 }
 const wgslF=x=>Number.isInteger(x)?x+'.0':String(x);
@@ -127,7 +127,7 @@ fn bend(rel:vec3f,eye:vec3f,k:f32)->vec3f {
   let n=vec3f(cl*sin(dl),cp0*cd+sp0*sin(lat),sp0*cd-cp0*sin(lat));
   let w=vec3f(0.0,-(R+eye.y),0.0)+n*(R+rel.y+eye.y);
   // Far water/terrain (past ~1.5 R of chart distance, where it would wrap round the globe) is fully curved once the bend is well under way, so no flat plane floats beyond the horizon at partial bend.
-  let kk=k+(1.0-k)*smoothstep(.1,.3,k)*smoothstep(1.5*R,2.5*R,length(rel.xz));
+  let kk=k+(1.0-k)*smoothstep(.1,.3,k)*max(smoothstep(1.5*R,2.5*R,length(rel.xz)),smoothstep(.5,1.2,length(rel.xz)/sqrt(2.0*R*max(eye.y,1.0))));
   return mix(rel,w,kk);
 }`;
 export const bendShader=bendShaderFor(PLANET_RADIUS,WORLD_CENTRE);
