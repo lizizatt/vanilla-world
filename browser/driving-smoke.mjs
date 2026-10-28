@@ -83,7 +83,8 @@ try{
     await route.fulfill({contentType:'text/javascript',
       body:execFileSync('git',['show',`${process.env.BASELINE_REF}:browser/${name}`])});
   });
-  if(process.env.COAST_WATER==='0')await context.route('**/water-stream.js',async route=>{
+  if(process.env.MAP_OPEN==='1')await context.route('**/map-render.js',async route=>{const response=await route.fetch(),source=await response.text();await route.fulfill({response,body:source.replace('export function renderMap(','function renderMap0(')+'\nexport function renderMap(a){const t=performance.now();const r=renderMap0(a);(window.__mapRenders??=[]).push(performance.now()-t);return r;}\n'});});
+if(process.env.COAST_WATER==='0')await context.route('**/water-stream.js',async route=>{
     const response=await route.fetch(),source=await response.text();
     assert(source.includes('class WaterStream'),'Water comparison must disable only the optional stream');
     await route.fulfill({response,body:source+'\nWaterStream.prototype.pump=function(){};\n'});
@@ -240,6 +241,7 @@ try{
   await page.locator('#files').setInputFiles(process.env.WOW_DATA);
   await page.waitForFunction(()=>worldEvidence.ready || worldEvidence.errors.length,{},{timeout:180000});
   assert.deepEqual(await page.evaluate(()=>worldEvidence.errors),[]);
+  if(process.env.MAP_OPEN==='1'){await page.keyboard.press('KeyM');await page.waitForTimeout(3000);}
   if(process.env.TELEPORT_BODY){// the app's own map-panel body teleport (in-page well swap), then drive on that body
     const body=process.env.TELEPORT_BODY;
     await page.waitForTimeout(20000);// the target engine warms in the background
@@ -427,7 +429,8 @@ try{
     audio:worldEvidence.audio,adapter:worldEvidence.adapter,
     environmentEnd:{visibility:document.visibilityState,hidden:document.hidden,hasFocus:document.hasFocus()}};});
   data.before=before;data.environment=environment;
-  await writeFile(new URL('raw.json',output),JSON.stringify(data));
+  if(process.env.MAP_OPEN==='1'){data.mapRenders=await page.evaluate(()=>window.__mapRenders||[]);console.log('MAP_RENDERS '+JSON.stringify(data.mapRenders.map(x=>Math.round(x*10)/10)));}
+await writeFile(new URL('raw.json',output),JSON.stringify(data));
   if(stopProfiles)await stopProfiles();
   const settings={mode,straight,sourcePose:source,tuning:await page.evaluate(()=>worldTest.request('tuning')),
     video,sound,profile:cpuProfile,presentation,sceneUpdates,materialScheduling,inputPulses:pulses,...await page.evaluate(()=>{
