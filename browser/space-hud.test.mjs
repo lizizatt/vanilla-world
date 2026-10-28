@@ -16,3 +16,6 @@ test('near Elune the nearest body is Elune',()=>{
   const t=1440,c=centreAt(ELUNE,t),s=createFlight([c[0]+ELUNE.radius+500,c[1],c[2]],t,'elune');
   assert.equal(spaceReadout(s,t).nearest,'elune');
 });
+
+import {readoutVisible as _rv} from './space-hud.js';import {AZEROTH as _A} from './bodies.js';
+test('readout hides in space with hysteresis',()=>{const e=_A.ranges.space[1];assert.equal(_rv(5,_A),false);assert.equal(_rv(e-1,_A,true),true);assert.equal(_rv(e,_A,true),false);assert.equal(_rv(e*.97,_A,false),false);assert.equal(_rv(e*.9,_A,false),true);});
