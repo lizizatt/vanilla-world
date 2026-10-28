@@ -78,7 +78,7 @@ async function open(selection,remember=false) {
     app.renderer.reset();app.renderer.clipCamera=undefined;app.renderer.cameraFloor=undefined;cameraCollision.reset();app.flight=undefined;app.pauseAudio();music.stop();Object.assign(settings,defaults);app.syncSettings();
     app.applyMemoryBudget();
     const result=await client.open(selection,loadingMap);client.bodyId=activeBody().id;
-    app.renderer.configure(result.info.manifest);client.sky();client.animate(settings.animateNpcs);mapPanel.configure(result.info.manifest);
+    app.renderer.configure(result.info.manifest);client.sky();client.animate(settings.animateNpcs);mapPanel.configure(result.info.manifest,result.info.id);
     void loadTracks().then(async found=>{app.shipped=found;app.tracks=await app.withOverrides(found);app.gateKey=undefined;});
 app.gateKit=undefined;void loadGateKit((a,p)=>client.request(a,p),()=>getSwe1r()&&loadPodModel(getSwe1r(),{index:309,scale:1/600})).then(kit=>{app.gateKit=kit;app.gateKey=undefined;});
     cameraCollision.configure(result.info.manifest);
@@ -237,7 +237,7 @@ async function soiSwap(app,parentId) {
     app.renderer.swapPlanetState(prev.id,parentId);
     app.renderer.reset({keepPlanet:true});app.renderer.clipCamera=undefined;app.renderer.cameraFloor=undefined;cameraCollision.reset();
     const manifest=client.info.manifest;
-    app.renderer.configure(manifest);client.sky();client.animate(settings.animateNpcs);mapPanel.configure(manifest);    cameraCollision.configure(manifest);lap('configure');
+    app.renderer.configure(manifest);client.sky();client.animate(settings.animateNpcs);mapPanel.configure(manifest,client.info.id);    cameraCollision.configure(manifest);lap('configure');
     void engine.request('rebind',{replay:false}).catch(e=>console.warn('demote rebind',e));// old near world sheds its near residency; its events are only counted now
     // The worker handles messages in order, so rebind then tuning are queued without blocking frames; the next frame lands after both.
     const rebound=client.request('rebind');lap('rebind');// new near world forgets what it "already sent" so streaming and the horizon reach the fresh renderer
