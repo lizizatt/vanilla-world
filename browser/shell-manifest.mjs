@@ -10,10 +10,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 
 // Files no static analysis can see (loaded through the wasm-bindgen glue). Add runtime-only URLs here.
 export const RUNTIME_ASSETS = ['pkg/flats_racer_web.js', 'pkg/flats_racer_web_bg.wasm'];
-// world-map-art.jpg is a git-ignored, user-supplied painted map: never required, never published (map-panel falls back to the user's own Data art).
+// world-map-art.jpg is a git-ignored, user-supplied painted map: never required, never published (map-panel draws a generated parchment map from the streamed far terrain when it is absent).
 
 // Fetched optionally at runtime and published separately (see build-dist.mjs and server.mjs), never part of the shell.
-export const OPTIONAL_RUNTIME = new Set(['npc-pack.json', 'local/npc-spawns.json']);
+export const OPTIONAL_RUNTIME = new Set(['npc-pack.json', 'local/npc-spawns.json', 'world-map-art.jpg']);
 export const FORBIDDEN = /test|smoke|server|runtime|local\/|\.py$|\.md$/;
 const LOCAL_REF = /['"](\.{1,2}\/[\w./-]+\.(?:js|mjs|json|css|svg|wasm))['"]/g;
 const HTML_REF = /(?:src|href)="(\.\/[^"#?]+)"/g;

@@ -92,6 +92,7 @@ const client=new WorldClient(data=>{
       if(loading.open)$('loading-warning').textContent=data.message;
     }
     else {
+      if((data.event==='horizon'||data.event==='horizon-material')&&activeBody().id==='azeroth')mapPanel.far(data);
       cameraCollision.event(data);
       if(data.event==='collision'){app.renderer.cameraFloor=(x,y,z)=>cameraCollision.floorY(x,y,z);app.renderer.clipCamera=(pivot,point,origin)=>{
         const pointWithClearance=cameraCollision.clip(pivot,point,origin);
