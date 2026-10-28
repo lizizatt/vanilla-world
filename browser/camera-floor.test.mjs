@@ -78,3 +78,11 @@ test('sea floor only over real water: dry basin allows low pitch, whirlpool bowl
   assert.ok(m.floorY(9000,-500,9000)<-300,'but far below y=0');
   assert.equal(m.floorY(9000+3000,-5,9000),.5,'outside the bowl: sea level');
 });
+test('a lake inside a land tile is a camera floor too (Moonglade on Elune), without raising the camera above it',()=>{
+  const c=collisionWithGround(-14,0),offsets=new Uint32Array(CELLS*CELLS+1);
+  for(let i=1;i<offsets.length;i++)offsets[i]=9;
+  c.tiles.get(0).water={vertices:new Float32Array([0,-8,0,0,-8,50,50,-8,0]),offsets,triangles:new Uint32Array([0])};
+  assert.equal(c.floorY(5,-13,5),-7.5,'a camera under the lake surface is lifted onto it');
+  assert.equal(c.floorY(5,-7,5),-Infinity,'above the lake nothing constrains it');
+  assert.equal(c.floorY(400,-13,400),-Infinity,'outside the lake only the terrain counts');
+});

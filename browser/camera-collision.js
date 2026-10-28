@@ -31,14 +31,14 @@ function triangleHit(vertices,i,from,direction) {
   const t=(bx*qx+by*qy+bz*qz)/determinant;
   return t>=0 && t<=1?t:Infinity;
 }
-function terrainTile(tile) {
-  const source=tile.vertices,buckets=Array.from({length:CELLS*CELLS},()=>[]);
+function terrainTile(tile,kind=0,source=tile.vertices) {
+  const buckets=Array.from({length:CELLS*CELLS},()=>[]);
   let count=0;
-  for(let i=0;i<source.length;i+=21)if(source[i+6]===0)count+=9;
+  for(let i=0;i<source.length;i+=21)if(source[i+6]===kind)count+=9;
   const positions=new Float32Array(count);
   count=0;
   for(let i=0;i<source.length;i+=21) {
-    if(source[i+6]!==0)continue;
+    if(source[i+6]!==kind)continue;
     const first=count;
     for(let v=0;v<3;v++)for(let a=0;a<3;a++)positions[count++]=source[i+v*7+a];
     const x0=cell(Math.min(source[i],source[i+7],source[i+14]));
@@ -56,6 +56,7 @@ function terrainTile(tile) {
 export function prepareDetail(data) {
   for(const tile of data.tiles) {
     tile.camera=terrainTile(tile);
+    tile.camera.water=terrainTile(tile,2);
     let count=0;
     for(let i=0;i<tile.vertices.length;i+=7)if(tile.vertices[i+6]===2)count+=7;
     tile.liquid=new Float32Array(count);let offset=0;
@@ -76,7 +77,7 @@ export class CameraCollision {
     if(data.event==='detail') {
       for(const index of data.removed)this.tiles.delete(index);
       for(const tile of data.tiles) {
-        const prepared=tile.camera||terrainTile(tile),{vertices,offsets,triangles}=prepared;
+        const prepared=tile.camera||Object.assign(terrainTile(tile),{water:terrainTile(tile,2)}),{vertices,offsets,triangles}=prepared;
         if(!(vertices instanceof Float32Array)||vertices.length%9||!(offsets instanceof Uint32Array)||
           offsets.length!==CELLS*CELLS+1||offsets[0]!==0||offsets.at(-1)!==triangles.length||
           !(triangles instanceof Uint32Array)||offsets.some((n,i)=>i>0&&n<offsets[i-1])||
@@ -102,7 +103,7 @@ export class CameraCollision {
       this.pending.push([-max[1]+dx-pad,min[2]-pad,-max[0]+dz-pad,-min[1]+dx+pad,max[2]+pad,-min[0]+dz+pad]);
     }
   }
-  /** Lowest allowed camera height at world (x,z): the terrain surface or the sea, whichever is higher, plus clearance. Only terrain tiles count, so tunnels and WMOs stay flyable. */
+  /** Lowest allowed camera height at world (x,z): the terrain surface, a tile's own water surface (lakes) or the sea, whichever is highest, plus clearance. Only terrain tiles count, so tunnels and WMOs stay flyable. */
   floorY(x,y,z,clearance=.5) {
     const top=y+200;
     let hit=Infinity;const rects=[];
@@ -111,7 +112,10 @@ export class CameraCollision {
       if(lx<0||lx>=TILE||lz<0||lz>=TILE)continue;
       rects.push([px,pz,px+TILE,pz+TILE]);
       const bucket=cell(lz)*CELLS+cell(lx),local=[lx,top,lz],direction=[0,-200,0];
-      for(let i=tile.offsets[bucket];i<tile.offsets[bucket+1];i++)hit=Math.min(hit,triangleHit(tile.vertices,tile.triangles[i],local,direction));
+      for(const part of [tile,tile.water]) {
+        if(!part)continue;
+        for(let i=part.offsets[bucket];i<part.offsets[bucket+1];i++)hit=Math.min(hit,triangleHit(part.vertices,part.triangles[i],local,direction));
+      }
     }
     // Water exists only outside loaded land tiles (they carve the ocean, so dry basins like the track have none); there it follows the whirlpool bowl.
     const sea=coversLand(rects,x,z)?-Infinity:this.waterSurface(x,z)+clearance;
