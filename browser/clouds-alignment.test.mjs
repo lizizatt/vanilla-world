@@ -43,7 +43,7 @@ test('every layer takes the Maelstrom centre from maelstromCentre()', () => {
 const wrapX=dx=>{const turn=2*Math.PI*R;return ((dx+turn/2)%turn+turn)%turn-turn/2;};
 // Orbit ring: eyes on a ring of longitudes/latitudes at several altitudes, looking at landmarks placed by the terrain's own bend mapping.
 const eyes=[];
-for(const lat of [-60,-20,0,20,45,70])for(const lonDeg of [-120,-60,0,40,120,170])for(const alt of [5000,20000,60000,150000])eyes.push([WORLD_CENTRE[0]+R*lonDeg*Math.PI/180,alt,WORLD_CENTRE[1]-R*lat*Math.PI/180]);
+for(const lat of [-60,-20,0,20,45,70])for(const lonDeg of [-120,-60,0,40,120,170])for(const alt of [7000,20000,60000,150000])eyes.push([WORLD_CENTRE[0]+R*lonDeg*Math.PI/180,alt,WORLD_CENTRE[1]-R*lat*Math.PI/180]);
 const maelstrom=maelstromCentre(manifest);
 const landmarks=[maelstrom,[(FALLBACK_RECTS[0][0]+FALLBACK_RECTS[0][2])/2,(FALLBACK_RECTS[0][1]+FALLBACK_RECTS[0][3])/2],[(FALLBACK_RECTS[1][0]+FALLBACK_RECTS[1][2])/2,(FALLBACK_RECTS[1][1]+FALLBACK_RECTS[1][3])/2],[FALLBACK_RECTS[0][0],FALLBACK_RECTS[0][1]],[FALLBACK_RECTS[1][2],FALLBACK_RECTS[1][3]]];
 

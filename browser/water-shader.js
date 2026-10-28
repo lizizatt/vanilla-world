@@ -51,6 +51,8 @@ fn fogTint()->vec3f {return select(mix(vec3f(.08,.15,.20),vec3f(.008,.016,.045),
 `;
 /** Per-point night (0 day .. 1 night) on the bent globe from the sun in u.pad[1]; matches the globe shader's terminator. Needs the terrain/splat U layout. */
 export const localNightShadingFor=(radius,sunLocal=false)=>{const PLANET_RADIUS=wgslNumber(radius);return `
+// Far flat-world ocean dissolves into the sky horizon colour (opaque colour blend, so clouds still draw over it); gone as the bend takes over.
+fn farOceanFade(p:vec3f)->f32 {return smoothstep(6000.0,24000.0,length((p-u.eye.xyz).xz))*(1.0-clamp(u.pad[0].x*${PLANET_RADIUS},0.0,1.0));}
 fn localNight(p:vec3f)->f32 {
   let g=1.0-u.forward.w;let k=select(clamp(u.pad[0].x*${PLANET_RADIUS},0.0,1.0),1.0,${sunLocal}&&dot(u.pad[1].xyz,u.pad[1].xyz)>.5);
   if(k<=0.0){return g;}
