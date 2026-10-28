@@ -368,7 +368,7 @@ export async function rebindRenderer(replay=true) {
   resident.clear();tileVersions.clear();detailReady.clear();terrainMaterials.clear();
   detailPending=undefined;detailBusy=false;geometryJob=undefined;geometryRevision++;geometryDirty=false;geometryPending.clear();geometryRemoved.clear();
   sentAssets=new Set();sentTextures=new Set();sentInstances=new Map();sentSceneRegion=undefined;sceneSignature='';
-  sceneState=undefined;sceneFocus=undefined;sceneSubmissionPending=true;objectWait=[];unresolvedWindow=undefined;
+  collisionSignature='';sceneState=undefined;sceneFocus=undefined;sceneSubmissionPending=true;objectWait=[];unresolvedWindow=undefined;
   craft={ready:false,pending:false};
   terrain.clear();await terrain.init(manifest);
   if(replay){startFarWorker();void replayHorizon(token);}
