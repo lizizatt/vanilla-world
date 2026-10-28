@@ -72,7 +72,7 @@ option { background: #0a121b; }
 dialog { width: min(740px, calc(100% - 24px)); max-height: calc(100dvh - 24px); overflow: auto; background: transparent; color: #edf5f7; border: 0; padding: 16px; text-shadow: inherit; }
 dialog::backdrop { background: transparent; }
 #map-panel { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; padding: 0; background: transparent; position: fixed; inset: 0; z-index: 5; overflow: hidden; pointer-events: none; }
-#map-stage { position: relative; width: min(100vw, calc(100dvh * var(--map-aspect, 1.6))); aspect-ratio: var(--map-aspect, 1.6); margin: auto; top: 50%; transform: translateY(-50%); }
+#map-stage { position: relative; width: min(80vw, calc(80dvh * var(--map-aspect, 1.6))); aspect-ratio: var(--map-aspect, 1.6); margin: auto; top: 50%; transform: translateY(-50%); }
 #map-canvas { width: 100%; height: 100%; display: block; pointer-events: none; }
 #map-close { position: absolute; top: 8px; right: 8px; pointer-events: auto; }
 #map-status { position: absolute; bottom: 8px; left: 8px; margin: 0; padding: 2px 8px; }
