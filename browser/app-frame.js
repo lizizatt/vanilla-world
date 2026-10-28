@@ -1,15 +1,12 @@
 import {moveFlight,FLIGHT_PITCH} from './flight.js';
 import {basis,fromEuler,fromBasis,toEuler,stepOrient,turnAround} from './orient.js';
-import {spaceHud} from './space.js';
 import {stepShared} from './shared-flight.js';
 import {nearestAltitude} from './space-flight.js';
 import {warpClamp} from './sky-coupling.js';
-import {spaceReadout,readoutVisible} from './space-hud.js';
 import {activeBody} from './body-shaders.js';
 import {domeLevel} from './dome-shell.js';
 import {istText,daylightAt,sanitiseScale} from './sim-clock.js';
 import {gpuBytesOf} from './memory-budget.js';
-import {regimeOf} from './regime.js';
 import {flightMusicArea} from './world-music.js';
 import {nearestFlag} from './race-flags.js';
 import {tracksFor,skinOf} from './vehicles.js';
@@ -105,7 +102,6 @@ function frame(now) {
       $('cockpit').setAttribute('aria-pressed',String(settings.cockpit&&!app.flight));
       $('motion').textContent=app.flight?'':scene?.waitingCollision||p[8]===1?'Loading nearby ground'
         :p[8]===2?'Unsupported surface':p[8]===3?'Obstacle or steep ground':'';
-      const airborne=!!app.flight&&regimeOf(app.flight[1])!=='ground'&&(app.hudShown=readoutVisible(app.flight[1],activeBody(),app.hudShown!==false));$('space-hud').hidden=!airborne;if(airborne)$('space-hud').textContent=app.space?spaceReadout(app.space,app.renderer.timeOfDay??0,keys.has('ShiftLeft')).label:spaceHud(app.flight,app.flightSpeed,app.renderer.planetRects?.(),app.landmarks());
       if(app.raceMenu.open&&!app.raceMenu.querySelector('[data-page=diagnostics]').hidden) {
       $('input-device').textContent=input.device==='controller'?'Controller':'Keyboard';
       $('camera-status').textContent=app.flight?'Flight camera is collision-free':settings.cockpit
