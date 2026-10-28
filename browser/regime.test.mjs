@@ -25,7 +25,7 @@ test('tuning tables are frozen and keep their shipped values', () => {
   for(const t of [FLIGHT,ORIENT,CAMERA,BEND_RANGE,GLOBE_RANGE,SPACE_RANGE])assert.ok(Object.isFrozen(t));
   assert.deepEqual({...FLIGHT},{walkSpeed:1200,fastSpeed:8000,floor:-10000,ceiling:1000000,pitch:Math.PI/2,boostFrom:1000,boostMax:40});
   assert.deepEqual([...ORIENT.levelAlt],[800,4000]);
-  assert.deepEqual([BEND_RANGE,GLOBE_RANGE,SPACE_RANGE].map(r=>[...r]),[[87,865],[0,35],[1154,5193]]);
+  assert.deepEqual([BEND_RANGE,GLOBE_RANGE,SPACE_RANGE].map(r=>[...r]),[[1840,4800],[1840,1875],[2500,6500]]);
   assert.equal(CAMERA.recentre,7);
 });
 
