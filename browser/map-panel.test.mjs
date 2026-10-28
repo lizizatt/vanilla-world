@@ -27,7 +27,7 @@ test('each body from config gets a button that flies there', () => {
   const stage={ownerDocument:{createElement:()=>make()},style:{setProperty(){}},querySelectorAll:()=>[],append:e=>els.push(e)},flown=[];
   try {
     const panel=new MapPanel({dialog:{addEventListener(){},close(){}},canvas:{width:100,getContext:()=>({clearRect(){},save(){},restore(){},fillRect(){},strokeRect(){},fillText(){},beginPath(){},rect(){},stroke(){},fill(){}})},stage,status:{},close:{addEventListener(){}}},{requestArt(){},teleport:icon=>flown.push(icon.body),pose:()=>null,bodies:()=>[{id:'elune',label:'Elune'},{id:'second',label:'Second'}]});
-    panel.manifest={spawn:[0,0,0],sea_level:0,ocean:[5333,-16000,13525,17066],world_bounds:[[0,0,51,56]],horizons:[{region:0,source_bounds:[0,0,51,56]}],regions:[{map:'K',tile_origin:[0,0],tile_count:[64,64],placement:[-21866,-7466]}]};panel.you=make();panel.world=()=>{};
+    panel.manifest={spawn:[0,0,0],sea_level:0,ocean:[5333,-16000,13525,17066],world_bounds:[[0,0,51,56]],horizons:[{region:0,source_bounds:[0,0,51,56]}],regions:[{map:'K',tile_origin:[0,0],tile_count:[64,64],placement:[-21866,-12266]}]};panel.you=make();panel.world=()=>{};
     panel.render();
     const buttons=els.filter(e=>e.dataset.body);
     assert.deepEqual(buttons.map(b=>b.textContent),['Elune','Second']);
@@ -43,7 +43,7 @@ test('every race start gets a pin at its own map position', () => {
   const tracks=[{id:'a',start:{pos:[-20000,0,-5000]}},{id:'b',start:{pos:[15000,0,3000]}}];
   try {
     const panel=new MapPanel({dialog:{addEventListener(){}},canvas:{width:100,getContext:()=>({clearRect(){},save(){},restore(){},fillRect(){},strokeRect(){},fillText(){},beginPath(){},rect(){},stroke(){},fill(){}})},stage,status:{},close:{addEventListener(){}}},{requestArt(){},teleport(){},pose:()=>null,tracks:()=>tracks});
-    panel.manifest={spawn:[0,0,0],sea_level:0,ocean:[5333,-16000,13525,17066],world_bounds:[[0,0,51,56],[24,20,45,62]],horizons:[{region:0,source_bounds:[0,0,51,56]},{region:1,source_bounds:[24,20,45,62]}],regions:[{map:'K',tile_origin:[0,0],tile_count:[64,64],placement:[-21866,-7466]},{map:'E',tile_origin:[0,0],tile_count:[64,64],placement:[725,-16000]}]};panel.you=make();panel.world=()=>{};
+    panel.manifest={spawn:[0,0,0],sea_level:0,ocean:[5333,-16000,13525,17066],world_bounds:[[0,0,51,56],[24,20,45,62]],horizons:[{region:0,source_bounds:[0,0,51,56]},{region:1,source_bounds:[24,20,45,62]}],regions:[{map:'K',tile_origin:[0,0],tile_count:[64,64],placement:[-21866,-12266]},{map:'E',tile_origin:[0,0],tile_count:[64,64],placement:[725,-16000]}]};panel.you=make();panel.world=()=>{};
     panel.render();
     const pins=els.filter(e=>e.className==='map-track');
     assert.equal(pins.length,2);
@@ -58,7 +58,7 @@ test('configuring with a moon manifest (no world_bounds) keeps Azeroth\'s map, s
   const stage={ownerDocument:{createElement:()=>make()},style:{setProperty(){}},querySelectorAll:()=>[],append:e=>els.push(e)};
   try {
     const panel=new MapPanel({dialog:{addEventListener(){}},canvas:{width:100,getContext:()=>({clearRect(){},save(){},restore(){},fillRect(){},strokeRect(){},fillText(){},beginPath(){},rect(){},stroke(){},fill(){}})},stage,status:{},close:{addEventListener(){}}},{requestArt(){},teleport(){},pose:()=>undefined});
-    const azeroth={spawn:[0,0,0],sea_level:0,ocean:[5333,-16000,13525,17066],world_bounds:[[0,0,51,56]],horizons:[{region:0,source_bounds:[0,0,51,56]}],regions:[{map:'K',tile_origin:[0,0],tile_count:[64,64],placement:[-21866,-7466]}]};
+    const azeroth={spawn:[0,0,0],sea_level:0,ocean:[5333,-16000,13525,17066],world_bounds:[[0,0,51,56]],horizons:[{region:0,source_bounds:[0,0,51,56]}],regions:[{map:'K',tile_origin:[0,0],tile_count:[64,64],placement:[-21866,-12266]}]};
     panel.configure(azeroth);panel.configure({spawn:[0,0,0],regions:[{map:'Elune',tile_origin:[0,0],tile_count:[60,30],placement:[0,0]}]});
     assert.equal(panel.manifest,azeroth);
     panel.you=make();panel.world=()=>{};

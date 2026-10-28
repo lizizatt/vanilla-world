@@ -42,8 +42,8 @@ test('frame mapping round-trips and icons hold spawn and maelstrom',()=>{
 import {WORLD_MAPS as WM} from './worldmap.js';
 test('single world map names are preferred candidates',()=>{assert.ok(WM.includes('World'));});
 import {maelstromCentre as mc} from './clouds.js';
-const ART_M={spawn:[0,5,0],sea_level:0,world_bounds:[[0,0,51,56],[24,20,45,62]],ocean:[5333.33,-7466.667,13525.33,22400],horizons:[],regions:[{id:'k',map:'Kalimdor',tile_origin:[0,0],tile_count:[64,64],placement:[-21866.667,-7466.667]},{id:'e',map:'Azeroth',tile_origin:[0,0],tile_count:[64,64],placement:[725.333,-16000]}]};
-const KO=[-4800,9600],EO=[17792,1066.67];
+const ART_M={spawn:[0,5,0],sea_level:0,world_bounds:[[0,0,51,56],[24,20,45,62]],ocean:[5333.33,-12266.667,13525.33,22400],horizons:[],regions:[{id:'k',map:'Kalimdor',tile_origin:[0,0],tile_count:[64,64],placement:[-21866.667,-12266.667]},{id:'e',map:'Azeroth',tile_origin:[0,0],tile_count:[64,64],placement:[725.333,-16000]}]};
+const KO=[-4800,4800],EO=[17792,1066.67];
 // WoW (x north, y west) to render, per continent, then through the fitted chart; px = where the place is painted in world-map-art.jpg (800x533)
 const PLACES=[['Orgrimmar',KO,1330,-4420,[230,239]],['Darnassus',KO,9950,2150,[124,90]],['Thunder Bluff',KO,-1280,128,[157,284]],['Gadgetzan',KO,-7150,-3790,[220,386]],['Ratchet',KO,-960,-3830,[221,279]],['Moonglade',KO,7500,-2500,[199,132]],['Stormwind',EO,-8985,497,[582,333]],['Undercity',EO,1890,240,[586,147]],['Booty Bay',EO,-14400,440,[583,425]],['Ironforge',EO,-5000,-880,[603,265]]];
 test('map chart: known places land on their painted spot (residuals within 20px, mean under 8)',()=>{

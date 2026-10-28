@@ -14,10 +14,10 @@ for (const id of FILES) {
   });
 }
 
-test('Thousand Needles races sit on the shifted Kalimdor row', async () => {
+test('Thousand Needles races sit on the northern Kalimdor row (Orgrimmar level with the Maelstrom)', async () => {
   for (const id of ['steamwheedle', 'track-to-sea']) {
     const t = JSON.parse(await readFile(new URL(`./tracks/${id}.json`, import.meta.url), 'utf8'));
-    assert.ok(t.start.pos[2] > 15000, `${id} start z ${t.start.pos[2]}`);
+    assert.ok(t.start.pos[2] > 9000 && t.start.pos[2] < 12000, `${id} start z ${t.start.pos[2]}`);
     assert.equal(t.body ?? 'azeroth', 'azeroth');
   }
 });

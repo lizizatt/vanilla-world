@@ -1,5 +1,5 @@
 const DATABASE='vanilla-world-local-overworld';
-export const LAYOUT_VERSION=3;
+export const LAYOUT_VERSION=4;
 let connection;
 
 function database() {
@@ -42,7 +42,7 @@ export const worldLiquids=(sourceId,tile,record)=>stored(`liquids:2:${sourceId}:
 /** Locally derived far-horizon minimap colour (32x32 RGBA per tile), keyed by data fingerprint; never committed or shipped. */
 export const farMinimap=(sourceId,tile,record)=>stored(`minimap:1:${sourceId}:${tile}`,record);
 /** Generated parchment map (webp blob + the far-tile count it was drawn from), keyed by data fingerprint and chart frame; derived from the user's data, never committed. */
-export const mapBitmap=(sourceId,key,record)=>stored(`map:1:${sourceId}:${key}`,record);
+export const mapBitmap=(sourceId,key,record)=>stored(`map:2:${sourceId}:${key}`,record);
 export function validateWorldSave(save,sourceId) {
   if (!save) return;
   const pose=p=>Array.isArray(p) && p.length===4 && p.every(v=>typeof v==='number' && Number.isFinite(v) && Math.abs(v)<1e12);

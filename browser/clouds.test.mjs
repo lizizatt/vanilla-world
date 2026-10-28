@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {CLOUD_ALTITUDE,CLOUD_ALTITUDE_FACTOR,HYJAL_SUMMIT,MAELSTROM,FUNNEL,cloudShader,cloudUniform,funnelShader,maelstromCentre,sunDirection,cloudShaderHigh,bakeCloudNoise,CLOUD_TOWER,resolveCloudQuality,SlowFrameGuard} from './clouds.js';
 
 const manifest={ocean:[5333,-17600,13525,17066],world_bounds:[[0,0,51,56],[24,20,45,62]],
-  regions:[{placement:[-21866,-17600]},{placement:[725,-16000]}]};
+  regions:[{placement:[-21866,-22400]},{placement:[725,-16000]}]};
 test('cloud uniform puts the maelstrom on the world-map eye at 0.8x Hyjal and tracks daylight',()=>{
   assert.equal(CLOUD_ALTITUDE,CLOUD_ALTITUDE_FACTOR*HYJAL_SUMMIT);
   const view={eye:[1,2,3],right:[1,0,0],up:[0,1,0],look:[0,0,1],aspect:2};
