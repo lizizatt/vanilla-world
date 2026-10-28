@@ -18,7 +18,7 @@ function store() {
     }};
     request.result=db;queueMicrotask(()=>request.onsuccess());return request;
   }}});
-  runInContext(code+'\nglobalThis.api={worldSave,worldTuning,worldLiquids};',context);
+  runInContext(code+'\nglobalThis.api={worldSave,worldTuning,worldLiquids,launchObjects};',context);
   return {...context.api,opens,transactions,records};
 }
 test('liquids and saved overrides share one asynchronous connection while preserving save and tuning keys',async()=>{
@@ -32,6 +32,16 @@ test('liquids and saved overrides share one asynchronous connection while preser
   s.opens[0].result.onversionchange();assert(s.opens[0].result.closed);
   assert.equal((await s.worldSave('install')).pose,1);assert.equal(s.opens.length,2);
   s.opens[1].result.onclose();await s.worldSave('install');assert.equal(s.opens.length,3);
+});
+test('launch placement persists independently by source and body without touching world saves',async()=>{
+  const s=store(),moon=[{id:'ramp',body:'elune'}],planet=[{id:'powerup',body:'azeroth'}];
+  await s.launchObjects('install','elune',moon);
+  await s.launchObjects('install','azeroth',planet);
+  assert.deepEqual(await s.launchObjects('install','elune'),moon);
+  assert.deepEqual(await s.launchObjects('install','azeroth'),planet);
+  assert.equal(await s.launchObjects('different-install','elune'),undefined);
+  await s.launchObjects('install','elune',[]);
+  assert.deepEqual(await s.launchObjects('install','azeroth'),planet);
 });
 
 test('blocked or failed opens stay explicit and cannot leave a late untracked connection alive',async()=>{

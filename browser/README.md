@@ -432,8 +432,26 @@ atmosphere edge (1711 yd) and cloud base (1316.8 yd) are already below Hyjal's
 1971 yd summit. Full space rendering starts at 5193 yd on Azeroth; Elune's SOI
 exit is about 20110 yd above its surface. A 60 s unlimited boost after the extreme
 Elune ramp reaches 27263.5 yd in the numerical model, but requires surviving
-overheat; pod drive has no automatic orbital/SOI handoff. Free flight retains its
-existing handoff. No escape behavior or default tuning was invented here.
+overheat. Ordinary pod motion retains that local law. Pickup-powered ramp
+departures now support ballistic SOI handoff as described below; free flight is unchanged.
+
+**Placeable launches:** press T for the track editor's launch panel. Place a
+15/25/45/90-degree curved ramp or a pickup granting **15 seconds of actual boost
+use**, then rotate/delete saved objects independently of the track. Placements
+persist per body/installation. Reset/restore/reopen clears charge and respawns
+pickups, but keeps placed objects. ArrowDown / stick down raises the nose.
+With charge, launch attitude remains stabilized until the charge is exhausted,
+then eases to normal +/-20-degree input. Boost adds 100 yd/s² beyond ordinary
+airborne engine thrust; coast is ballistic, not free-camera movement.
+
+Load local Azeroth Data before traveling to Elune, so both resident worlds are
+available. A 90-degree launch just outside the base reaches Azeroth on a full
+15-boost-second burn, including real body handoff and return to normal ground
+physics. The other ramp angles can escape Elune but miss Azeroth; no angle
+cutoffs were added. Ordinary, uncharged ramps retain constant-gravity local
+physics and cannot enter orbital mode. No ordinary defaults or altitude ceiling
+were changed. See [the launch design and measured results](design/pod-launch.md)
+for exact launch assumptions, numbers, persistence semantics and limitations.
 
 Run `node browser\pod-controls-smoke.mjs` with read-only `WOW_DATA` and `SWE1R_DATA`
 paths. It owns an ephemeral loopback server and the machine heavy-job lock, checks

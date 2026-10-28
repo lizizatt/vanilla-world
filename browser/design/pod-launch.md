@@ -46,8 +46,9 @@ fixed-step inertial solver, not a fly-camera speed law. It is still pod drive:
 the craft and cockpit render, controls remain pod controls, and releasing boost
 coasts rather than stopping. Do not mix a main-thread predictor with a worker
 authority. Attitude during ballistic travel must retain the ramp's launch
-direction; returning instantly to the ground's ±20-degree target would make a
-90-degree burn impossible.
+direction while charge remains. When exhausted, attitude eases back toward the
+normal +/-20-degree target at 8/s, rather than allowing ordinary thrust to remain
+vertical forever. Steering resumes then. There is no automatic aiming.
 
 Use the body's configured pod surface gravity (Azeroth 48, Elune 24 by default)
 with inverse-square falloff; convert position and velocity through existing
@@ -65,6 +66,78 @@ must be recorded: a launch on the far side of the moon cannot be promised the
 same destination. Ordinary Azeroth thrust remains below gravity; this prevents
 sustained powered ascent, not arbitrary pre-existing ramp momentum. The earlier
 extreme-ramp counterexample still forbids a universal altitude-bound claim.
+
+### Approved local/interplanetary distinction
+
+Ordinary ramp departures retain the existing constant-gravity local law and
+horizontal drag/cap. Only a departure with pickup charge enters inverse-square,
+two-body flight. It stays ballistic after charge exhaustion and returns to normal
+Rust ground/hover physics on collision/landing in the destination well. This
+explicitly authorized distinction changes neither ordinary tuning nor any
+altitude ceiling. Keeping inverse-square gravity for an unpowered 300 yd/s
+quarter-pipe launch was demonstrably unsafe: even at 20 degrees, ordinary boost
+could eventually outrun declining gravity. Attitude smoothing alone was not a fix.
+
+Interplanetary flight has no ambient hover drag or speed clamp that deletes launch
+momentum: releasing thrust coasts. Ordinary engines still cannot add horizontal
+speed beyond their configured cap; the pickup bypasses that engine limit.
+Powered acceleration is **100 yd/s² extra**, scaled by the analog trigger,
+on top of the ordinary configured engine (72 yd/s² airborne at full default boost).
+No gravity, ordinary thrust, ordinary boost duration or speed default was retuned.
+Its charge also protects against heat damage during the powered fraction of a
+tick. Ordinary heat/durability still advance outside that fraction and survive
+world handoff. Holds spend neither charge nor engine time.
+
+Terrain is queried even at high altitude; no guessed terrain-height cutoff.
+Unloaded samples hold, known empty air does not. Destination scenery is checked
+before the first accepted step there. Inertial state and engine health transfer
+unchanged, then the old worker releases its journey.
+
+### Placement and lifecycle
+
+Open the track editor (T). The launch panel places, lists, rotates and deletes
+objects independently of the track draft. Heading is in degrees. Changes save
+immediately to IndexedDB, scoped by installation and body; track Undo does not
+undo launch objects. Quarter-pipes have 48 yd radius and 16 yd entrance width.
+Their directional guide is entered from the front, not the side/back.
+Pickups fill, not stack, and remain consumed until reset/restore/reopen. Reset
+clears charge and the journey, not saved placements. In-progress orbital journeys
+and charge are not persisted across browser reloads.
+
+Load Azeroth from local Data first so both world workers are warm before going
+to Elune. Standalone Elune without an available Azeroth worker cannot complete a
+handoff: it stops with an explicit error instead of reloading or teleporting.
+Custom tuning and arbitrary launch headings are not promised to reach Azeroth.
+
+## Measured results
+
+Deterministic production solver: chart `[-300,10,0]` on Elune, heading 0,
+150 yd/s entrance speed, time 720, coast up the guide, then full 15 boost-seconds.
+
+| Ramp | Outcome after charge exhaustion |
+|---|---|
+| 15 degrees | Escapes Elune but misses Azeroth; no artificial angle cutoff |
+| 25 degrees | Escapes Elune but misses Azeroth |
+| 45 degrees | Escapes Elune but misses Azeroth |
+| 90 degrees | Reaches Azeroth below 500 yd in 38.1 s, about 2803.5 yd/s; approximately 23 s coasting |
+
+With **no pickup**, default Azeroth 90-degree ramps at 150 / 300 yd/s and held
+ordinary boost return to ground: peaks **770.55 / 2268.87 yd**. These assume
+10 yd entrance elevation, full 20-degree nose-up after stabilization and even
+unlimited survival of overheating. The second peak can cross the visual
+atmosphere/cloud band, but neither escapes or crosses the full-space band
+(5193 yd). These are explicit launch cases, not bounds on arbitrary initial energy.
+
+Real Data + SWE1R production input/worker/Wasm smoke also exercises editor
+placement/rotation/deletion and cockpit view. Ramp entrance `[-300,16.25,0]`,
+pickup `[-300,14.4813,60]`, heading 0, approach from z=220:
+entry about **113.9 yd/s**, departure **103.4 yd/s**, 15 boost-seconds,
+SOI crossing about **16.15 s** after departure, then ordinary-physics landing in
+Azeroth after about **38.53 s** wall time. Both engines remain healthy; charge
+is zero and the journey is cleared. Moving p99 **7.1 ms**, zero page/world errors.
+Run `node browser\pod-launch-smoke.mjs` with read-only `WOW_DATA` and `SWE1R_DATA`;
+it owns its ephemeral port and the heavy-job lock. Screenshots/traces are ignored
+under `browser\test-results\pod-launch`, not shipped as game assets.
 
 ## Evidence required before claiming completion
 

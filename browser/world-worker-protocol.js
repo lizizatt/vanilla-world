@@ -8,6 +8,7 @@ import {ready,source,world,timings,postFrameVisuals,openWorld,runFrame,restoreWo
   requireWorld,setPopulation,setActorsOn,setMemoryBudget,stopLoadingArt,farAck,farReject,snapshot,settleAfterAction,rebindRenderer,
   finishFrame,scheduleTerrainMaterials,sceneFault} from './world-engine.js';
 import {formatError,validateHop,validateSampleTime,validateParkedPose,validateTuning} from './world-worker-logic.js';
+import {pod} from './world-engine.js';
 
 let music,sky,worldMap;
 
@@ -47,10 +48,15 @@ export async function handle(message) {
   if(message.action==='prop-model')return loadProp(source,wasmTypes,String(message.path));
   if(message.action==='open')return openWorld(message);
   requireWorld();
+  if(message.action==='launch-objects'){pod.setObjects(message.objects);return true;}
+  if(message.action==='pod-adopt'){pod.adopt(message.pod,world);return snapshot();}
+  if(message.action==='pod-release'){pod.journey=null;pod.remaining=0;pod.hold=0;return true;}
   if(message.action==='frame') {
     validateHop(message.hop);
     validateSampleTime(message.sampleTime);
     if(message.pitch!==undefined&&!Number.isFinite(message.pitch))throw new Error('Pitch must be finite');
+    if(message.simTime!==undefined&&!Number.isFinite(message.simTime))throw new Error('Pod time must be finite');
+    if(message.podEnabled!==undefined&&typeof message.podEnabled!=='boolean')throw new Error('Invalid pod mode');
     if(message.view!==undefined)validateView(message.view);
     await runFrame(message);
   } else if(message.action==='restore') {

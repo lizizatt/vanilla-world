@@ -241,3 +241,5 @@ details.welcome-help summary { cursor: pointer; } details.welcome-help p { margi
 #time-hud { position: fixed; top: 6px; left: 50%; transform: translateX(-50%); z-index: 20; display: flex; gap: 14px; align-items: center; font-size: 13px; pointer-events: none; }
 #time-hud label { pointer-events: auto; background: rgba(0,0,0,.2); padding: 0 8px; border-radius: 4px; }
 #ist-clock { font-variant-numeric: tabular-nums; letter-spacing: .05em; }
+#launch-tools{position:absolute;left:10px;bottom:10px;background:rgba(26,18,9,.9);color:#ffd36a;border:2px solid #c8a24a;border-radius:6px;padding:12px;z-index:5;width:280px;font-size:.85rem}
+#launch-tools label{display:block;margin:4px 0}
