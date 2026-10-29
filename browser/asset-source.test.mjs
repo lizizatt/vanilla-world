@@ -59,6 +59,18 @@ export function fixture(name, data, { flags = 0x80000200, method = 2, corruptOff
 const entry = (path, bytes) => ({ path, file: new File([bytes], path, { lastModified: 1234 }) });
 const code = expected => error => error.code === expected;
 
+test('sector read-ahead ends at the selected block instead of reading unrelated megabytes',async()=>{
+  const path='tiny.blp',payload=Buffer.from('small texture'.repeat(500)),mpq=fixture(path,payload);
+  const source=await openDataSource([entry('terrain.MPQ',Buffer.concat([mpq,Buffer.alloc(2*1024*1024)]))]);
+  const before=source.stats.readBytes;
+  assert.deepEqual(Buffer.from(await source.read(path)),payload);
+  assert.equal(source.stats.readBytes-before,mpq.length-112);
+  const warm=source.stats.readBytes;
+  assert.deepEqual(Buffer.from(await source.read(path)),payload);
+  assert.equal(source.stats.readBytes-warm,mpq.length-112,'No persistent extraction cache is implied');
+  await source.close();
+});
+
 test('Storm hashes and native mount precedence, including single-character patch glob', () => {
   assert.equal(mpqHash('(hash table)', 0x300), 0xc3af3770);
   assert.equal(mpqHash('(block table)', 0x300), 0xec83b3a3);

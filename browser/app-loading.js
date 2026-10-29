@@ -1,7 +1,7 @@
 import {rememberDataFolder,forgetDataFolder,authorizeDataFolder} from './asset-folder.js';
 import {worldSave,worldTuning,validateWorldSave,LAYOUT_VERSION} from './world-store.js';
 import {overview} from './flight.js';
-import {nearChunksReady} from './loading-gate.js';
+import {ARRIVAL,arrivalReadiness} from './loading-gate.js';
 import {TUNING_FIELDS,validateTuningRecord,migrateTuning} from './world-tuning.js';
 import {unstuckPoses} from './race.js';
 import {loadTracks} from './race-flags.js';
@@ -18,7 +18,9 @@ import {WorldClient} from './world-client.js';
 export function installLoading(app) {
 const {canvas,cameraCollision,evidence,defaults,settings,loading,loadingArt,mapPanel,music,client}=app;
 const $=id=>document.getElementById(id);
-Object.assign(app,{loadingProgress,fail,open,showReconnect,operation,soiSwap:id=>soiSwap(app,id),budgetEngines:gpu=>budgetEngines(app,gpu)});
+Object.assign(app,{loadingProgress,fail,open,showReconnect,operation,arrival,waitNearby,loadingFrame,
+  soiSwap:(id,options)=>options?.seamless||app.arriving?soiSwap(app,id):arrival(()=>soiSwap(app,id),'Changing world'),
+  budgetEngines:gpu=>budgetEngines(app,gpu)});
 loading.addEventListener('cancel',event=>event.preventDefault());
 loading.addEventListener('close',()=>{if(!loading.open){loadingArt.clear();client.stopLoadingArt();}});
 function loadingProgress({text,completed,total}) {
@@ -56,6 +58,54 @@ function enabled(value) {
   $('tuning-panel').inert=!value || !Array.isArray(client.info?.tuning);
   $('cockpit').disabled=!value;
 }
+async function loadingFrame() {
+  const worker=client.worker,generation=client.roleGeneration;
+  const state=await client.request('frame',{dt:0,throttle:0,steer:0,flags:0,loading:true,
+    focus:app.flight?.slice(0,3),distant:false,podEnabled:false});
+  if(client.worker!==worker||client.roleGeneration!==generation)throw new DOMException('Destination changed','AbortError');
+  client.state=state;
+  app.renderer.uploadMaterials();
+  return state;
+}
+async function waitNearby() {
+  const started=performance.now();let timer;
+  const deadline=new Promise(resolve=>{timer=setTimeout(()=>resolve(undefined),ARRIVAL.timeoutMs);});
+  try{
+    for(;;){
+      const state=await Promise.race([loadingFrame(),deadline]);
+      const status=arrivalReadiness(state,app.renderer,state?performance.now()-started:ARRIVAL.timeoutMs);
+      evidence.loading={...status,active:true,body:client.bodyId};
+      loadingProgress({text:`Preparing nearby terrain and scenery (${status.completed}/${status.total})`,
+        completed:status.completed,total:status.total});
+      if(status.proceed){
+        if(status.timedOut){
+          const warning='Nearby scenery is still loading. Continuing with collision safety holds enabled.';
+          $('loading-warning').textContent=warning;app.report(warning);console.warn(warning);
+          evidence.loading.warning=warning;
+        }
+        return status;
+      }
+      await new Promise(resolve=>setTimeout(resolve,ARRIVAL.pollMs));
+    }
+  }finally{clearTimeout(timer);}
+}
+async function arrival(action,label='Loading destination') {
+  if(app.arriving)throw new Error('Wait for the current destination to finish loading.');
+  app.arriving=true;client.discardFrame();document.exitPointerLock?.();
+  evidence.loading={active:true,ready:false,completed:0,total:4,body:client.bodyId};
+  $('loading-warning').textContent='';if(!loading.open)loading.showModal();
+  loadingProgress({text:label,completed:0,total:4});
+  try {
+    await loadingFrame();
+    const result=await action();
+    await waitNearby();
+    return result;
+  }finally{
+    evidence.loading={...evidence.loading,active:false};
+    app.arriving=false;client.discardFrame();app.last=0;
+    if(loading.open)loading.close();canvas.focus();
+  }
+}
 async function restore(save) {
   validateWorldSave(save,client.info.id);
   if(!save)return false;
@@ -70,6 +120,7 @@ async function open(selection,remember=false) {
   if(app.busy)return;
   app.busy=true;app.running=false;enabled(false);$('error').hidden=true;$('welcome').hidden=true;app.report('Loading world...');
   $('select').disabled=true;evidence.ready=false;
+  evidence.loading={active:true,ready:false,completed:0,total:4};
   loadingArt.clear();$('loading-warning').textContent='';
   loading.showModal();loadingProgress({text:'Opening local Data...'});
   let opened=false;
@@ -77,7 +128,7 @@ async function open(selection,remember=false) {
     const loadingMap=app.renderer.manifest?.regions[app.renderer.sceneRegion]?.map;
     app.renderer.reset();app.renderer.clipCamera=undefined;app.renderer.cameraFloor=undefined;cameraCollision.reset();app.flight=undefined;app.pauseAudio();music.stop();Object.assign(settings,defaults);app.syncSettings();
     app.applyMemoryBudget();
-    const result=await client.open(selection,loadingMap,selection==='elune'&&new URLSearchParams(location.search).get('poleFrame')?{poleFrame:new URLSearchParams(location.search).get('poleFrame')}:{});client.bodyId=activeBody().id;
+    const result=await client.open(selection,loadingMap,{loading:true,...(selection==='elune'&&new URLSearchParams(location.search).get('poleFrame')?{poleFrame:new URLSearchParams(location.search).get('poleFrame')}:{} )});client.bodyId=activeBody().id;
     app.renderer.configure(result.info.manifest);client.sky();client.animate(settings.animateNpcs);mapPanel.configure(result.info.manifest,result.info.id);
     void loadTracks().then(async found=>{if(new URLSearchParams(location.search).get('poleFrame'))found=[];// pole frames carry no tracks or gates in v1 (design/poles.md)
       app.shipped=found;app.tracks=await app.withOverrides(found);app.gateKey=undefined;});
@@ -100,28 +151,19 @@ app.gateKit=undefined;void loadGateKit((a,p)=>client.request(a,p),()=>getSwe1r()
     if(selection==='elune'){settings.clouds=false;app.syncSettings();const values=app.tuningValues.slice();values[14]=podGravityFor(values[14],'azeroth','elune');await client.request('tuning',{values});app.tuningValues=values;}
     const restored=await restore(save);
     if(tune&&!restored)client.state=await client.request('reset');
-    const gateStart=performance.now();
-    for(;;){
-      const state=await client.request('frame',{dt:0,throttle:0,steer:0,flags:0,distant:settings.distant});
-      client.state=state;
-      const failed=state.scene.waitingCollisionDetails.find(item=>item.status!=='PENDING');
-      if(failed)throw new Error(`Starting location collision unavailable: ${failed.key} (${failed.status})`);
-      if(state.scene.waitingCollision&&state.scene.capacityBlocked)throw new Error('Starting collision cannot fit the scene budget');
-      if(!state.required.every(i=>state.resident.includes(i)))throw new Error(state.failures.join('\n')||'Starting terrain unavailable');
-      if(!state.scene.waitingCollision&&state.required.every(i=>app.renderer.tiles.has(i))&&nearChunksReady(state.nearTerrain,performance.now()-gateStart))break;
-      if(!$('error').hidden)throw new Error($('error').textContent);
-      loadingProgress({text:`Preparing nearby scenery: ${state.scene.waitingCollision} collision assets remaining. Water: ${state.water.resident} tiles streamed.`});
-      await new Promise(resolve=>setTimeout(resolve,16));
-    }
+    await waitNearby();evidence.loading.active=false;
     loading.close();
-    evidence.ready=true;app.report(restored?'Loaded.':'',restored);canvas.focus();app.applySkin();
+    app.busy=false;
+    if(!evidence.loading.timedOut)app.report(restored?'Loaded.':'',restored);
+    canvas.focus();app.applySkin();
     await app.applyUrlPose();
+    evidence.ready=true;
   } catch(error) {
     fail(error);app.report('');
     if(opened){enabled(true);app.running=true;evidence.ready=true;}
     else {client.stop();$('welcome').hidden=false;
       if(selection===app.folder&&selection?.kind==='directory'){app.folder=undefined;await forgetDataFolder().catch(()=>{});}}
-  } finally {if(loading.open)loading.close();app.busy=false;$('select').disabled=false;}
+  } finally {if(loading.open)loading.close();if(evidence.loading)evidence.loading.active=false;app.busy=false;$('select').disabled=false;}
 }
 // A remembered handle whose permission needs a click offers one continue button plus a way to pick another folder.
 function showReconnect(on) {
@@ -158,10 +200,10 @@ $('forget').addEventListener('click',async()=>{
     $('permission').textContent='Folder forgotten. World and saves retained.';}
   catch(error){fail(error);}
 });
-async function operation(action) {
+async function operation(action,{arrival:destination=false}={}) {
   if(app.busy || !client.info)return;
   app.busy=true;client.discardFrame();
-  try {await action();canvas.focus();}catch(error){fail(error);}finally{app.busy=false;}
+  try {await (destination?arrival(action):action());canvas.focus();return true;}catch(error){fail(error);return false;}finally{app.busy=false;}
 }
 $('save').addEventListener('click',()=>operation(async()=>{
   const state=await client.request('snapshot'),p=state.telemetry;
@@ -175,18 +217,18 @@ $('save').addEventListener('click',()=>operation(async()=>{
 $('load').addEventListener('click',()=>operation(async()=>{
   if(!await restore(await worldSave(client.info.id)))throw new Error('No save for this Data installation yet.');
   app.report('Loaded.',true);app.running=true;
-}));
+},{arrival:true}));
 $('unstuck').addEventListener('click',()=>operation(async()=>{
   const p=client.state?.telemetry;if(!p)return;
   for(const pose of unstuckPoses(p)){
     try{client.state=await client.request('restore',{pose});app.flight=undefined;app.race?.jump();app.renderer.camera=undefined;app.running=true;app.report('Unstuck: moved 10 m up.',true);return;}catch{/* fall through to the next recovery pose */}
   }
   app.report('Unstuck failed: no free space above.',true);
-}));
+},{arrival:true}));
 $('reset').addEventListener('click',()=>operation(async()=>{
   app.flight=undefined;client.state=await client.request('reset');app.race?.jump();app.renderer.camera=undefined;app.running=true;
   $('error').hidden=true;app.report('Reset. Save unchanged.',true);
-}));
+},{arrival:true}));
 $('retry').addEventListener('click',()=>operation(async()=>{
   client.state=await client.request('retry');app.running=true;app.report('Retrying loading...',true);$('error').hidden=true;
 }));
@@ -194,7 +236,7 @@ $('fly').addEventListener('click',()=>{
   const p=client.state?.telemetry;if(!p||app.race)return;
   app.flight=[p[0],p[1]+20,p[2]+20,p[3],-.25];canvas.focus();
 });
-$('overview').addEventListener('click',()=>{if(client.info&&!app.race){app.flight=overview(client.info.manifest);canvas.focus();}});
+$('overview').addEventListener('click',()=>{if(client.info&&!app.race)void arrival(()=>{app.flight=overview(client.info.manifest);app.space=undefined;}).catch(fail);});
 $('drive').addEventListener('click',()=>{app.flight=undefined;app.renderer.camera=undefined;canvas.focus();});
 }
 

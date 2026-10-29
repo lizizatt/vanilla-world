@@ -37,17 +37,16 @@ async function applyUrlPose() {
     else if(view.drive){client.state=await client.request('restore',{pose:view.drive});app.flight=undefined;app.renderer.camera=undefined;}
     app.running=true;
   };
-  const target=poseBody(view);
-  if(target===activeBody().id||!app.soiSwap){await place();return;}
-  // The in-page swap needs the app idle and the target engine warm; the flight pose is in the target body's chart, so it is placed only after the swap settled.
-  void (async()=>{
-    const t0=performance.now();
-    while(performance.now()-t0<120000&&(app.busy||!app.engines?.[target]?.info||!app.renderer?.planetSets?.[target]))await new Promise(r=>setTimeout(r,250));
-    const ok=await app.soiSwap(target).catch(()=>false);
-    if(ok)await app.evidence?.swapSettled;
-    await new Promise(r=>setTimeout(r,500));
+  await app.arrival(async()=>{
+    const target=poseBody(view);
+    await app.launch.cancel();
+    if(target!==activeBody().id&&app.soiSwap){
+      await app.prepareEngines;
+      if(!await app.soiSwap(target))throw new Error(`The ${target} world is not ready for this pose.`);
+      await app.evidence?.swapSettled;
+    }
     await place();
-  })();
+  },'Restoring linked position');
 }window.exportPose=exportPose;
 window.addEventListener('keydown',event=>{if(!event.repeat&&app.running&&(event.code==='F8'||(event.code==='KeyY'&&event.ctrlKey&&event.altKey))){event.preventDefault();event.stopPropagation();exportPose();}},true);
 }

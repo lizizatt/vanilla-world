@@ -97,18 +97,18 @@ function syncGates(force) {
   const spots=live.filter(t=>t.id!==own).map(flagPosition),fk=JSON.stringify(spots);
   if(fk!==flagKey){flagKey=fk;app.renderer.setFlags(spots);}
 }
-function startRace(track) {
+async function startRace(track) {
   if(app.race||app.busy||!app.running||!client.info)return;
   if(vehicleOf(track)!==app.choice.vehicle)app.selectVehicle({vehicle:vehicleOf(track)});
-  app.operation(async()=>{
+  const ready=await app.operation(async()=>{
     app.flight=undefined;
     track=await groundTrack(track);
     const [x,y,z]=startLine(track).grid;
     client.state=await client.request('restore',{pose:[x,y+2,z,track.start.yaw]});
     app.renderer.camera=undefined;app.running=true;$('error').hidden=true;
     const board=validScores(await raceScores(track.id).catch(()=>undefined));app.raceBest=board.runs[0];
-    $('race-board').hidden=true;app.race=new Race(track,gateReach(activeBody().id));lastCount=0;lastLap=1;music.setBattle(true,false);music.loadCue('click');music.loadCue('quest');const t=performance.now()/1000;app.race.start(t);app.race.lined(t);app.promptTrack=undefined;
-  });
+  },{arrival:true});
+  if(ready){$('race-board').hidden=true;app.race=new Race(track,gateReach(activeBody().id));lastCount=0;lastLap=1;music.setBattle(true,false);music.loadCue('click');music.loadCue('quest');const t=performance.now()/1000;app.race.start(t);app.race.lined(t);app.promptTrack=undefined;}
 }
 let lastCount=0;app.voiceMap=undefined;app.voiceReader=undefined;let lastVoice;let lastLap=1;
 let raceTune=null;
@@ -116,7 +116,7 @@ let raceTune=null;
 app.wreckBusy=false;app.wasLocked=false;
 app.wreckLocked=()=>app.wreckBusy||!!app.renderer.wreck;
 // After a wreck the dead pod is replaced: same spot but 10 m up (Unstuck poses), repaired and cooled, at rest.
-async function respawn(){const p=client.state?.telemetry;if(!p)return;for(const pose of unstuckPoses(p)){try{client.state=await client.request('restore',{pose,repair:true});app.race?.jump();app.renderer.camera=undefined;return;}catch{/* try the next candidate pose */}}}
+async function respawn(){return app.arrival(async()=>{const p=client.state?.telemetry;if(!p)return;for(const pose of unstuckPoses(p)){try{client.state=await client.request('restore',{pose,repair:true});app.race?.jump();app.renderer.camera=undefined;return;}catch{/* try the next candidate pose */}}}).catch(app.fail);}
 async function testCrash(auto=false,speed){
   if(app.wreckBusy||!client.state)return;
   const input=app.renderer.startWreck(client.state.telemetry,Math.floor(Math.random()*1e9),speed);

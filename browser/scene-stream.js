@@ -688,6 +688,7 @@ export class SceneStream {
         }
         this.instances=draft.instances;this.visualRequests=draft.requests;
         this.mergeRequests();this.revision++;this.visualRevision=this.revision;this.visualPosition=position;
+        this.visualMap=this.map;this.visualPlacementRevision=this.placementRevision;
         this.visualLimit=limit;
         this.timings.visualJobs=(this.timings.visualJobs||0)+1;
       } finally {if(this.visualJob===job)this.visualJob=undefined;}
@@ -705,7 +706,8 @@ export class SceneStream {
     try {
       for (let job = 0; job < this.limits.jobs; job++) {
         const pending = [...this.requests.values()].filter(r => !this.cache.has(r.key) && !this.failures.has(r.key) && !skipped.has(r.key))
-          .sort(requestOrder);
+          .sort((a,b)=>Number(!!isCritical(b))-Number(!!isCritical(a))||
+            Number(!!this.loadingKeys?.has(b.key))-Number(!!this.loadingKeys?.has(a.key))||requestOrder(a,b));
         let request = this.visualOnly
           ? pending.find(r=>!!r.discovery===(this.timings.loads%4===0))||pending[0] : pending[0];
         if (!request) break;
