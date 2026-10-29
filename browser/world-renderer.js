@@ -16,7 +16,8 @@ import {beamState} from './beam.js';
 import {advanceIntake,writeIntakeMatrix} from './swe1r/intakes.js';
 import {horizonDip} from './space.js';
 import {planetFactorsFor,bodiesEnabled} from './bodies.js';
-import {activeBody,activeFramedBody} from './body-shaders.js';
+import {activeBody,activeFramedBody,activeFrame} from './body-shaders.js';
+import {northNightFill,northFlagLamp,northTwilightSun} from './polar-light.js';
 import {skyUniform,DAY} from './sky.js';
 import {eluneSkyAt,AIRLESS_SKY} from './elune-sky.js';
 import {localSunAt,solarTime} from './local-sun.js';
@@ -146,7 +147,9 @@ export class WorldRenderer {
     // Atmospheric bodies light from where the camera stands: the local sun and the clock reading that sun corresponds to drive every day/night and Light.dbc lookup.
     this.sunLocal=moonSky?moonSky.sun:localSunAt(activeFramedBody(),this.view.eye[0],this.view.eye[2],this.timeOfDay);
     this.localTime=moonSky?this.timeOfDay:solarTime(this.sunLocal);
-    const daylight=this.daylight=moonSky?moonSky.daylight:daylightAt(this.localTime);
+    const northNight=!airless&&activeFrame()==='N'?northNightFill(this.view.eye[0],this.view.eye[2],activeBody().radius):0;
+    if(northNight>0)this.sunLocal=northTwilightSun(this.sunLocal,northNight);
+    const daylight=this.daylight=moonSky?moonSky.daylight:Math.max(daylightAt(this.localTime),northNight);
     const sky0=airless?AIRLESS_SKY:DAY_SKY.map((v,i)=>NIGHT_SKY[i]+(v-NIGHT_SKY[i])*daylight);
     const game=airless?undefined:zoneBlend(this.sampleSky(),pf.zone),sky=game?game.fog:sky0;pf.fog=(game?game.horizon:sky).slice(0,3);
     this.gameSky=game;
@@ -309,7 +312,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
       fx.frame=undefined;
     }
     if(fx&&quality>0&&!this.cameraBlocked){
-      emitLamps(fx,lamps,origin,Math.min(dt,.1),1-daylight);
+      emitLamps(fx,northNight>0?[...lamps,northFlagLamp(origin)]:lamps,origin,Math.min(dt,.1),1-daylight);
       const dome=this.dome?.craft&&domePlacement(activeBody().id);
       if(dome)emitDomeMist(fx,{eye:this.view.eye,level:domeMask(activeBody().id,this.view.eye[0],this.view.eye[2],30,15,this.view.eye[1]-dome.pos[1]),ground:dome.pos[1],dt:Math.min(dt,.1)});
     fx.update(Math.min(dt,.1));

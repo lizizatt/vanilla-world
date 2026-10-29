@@ -9,6 +9,7 @@ import {MOON_SEED,regolithBlp,regolithGroundBlp,moonMinimapHash} from './moon-so
 import {chunk,join,ver} from './demo-source.js';
 import {PLANET_RADIUS,WORLD_CENTRE} from './space.js';
 import {ELUNE_RADIUS} from './bodies.js';
+import {poleFlagChunks} from './pole-flag.js';
 
 export const POLE_TILES=16,POLE_AREA=90002;
 const SPEC={
@@ -73,7 +74,8 @@ export function poleBodySource(spec) {
 export function poleAdt(body,frame,tx,ty,n=POLE_TILES) {
   const {H,N,S}=poleLattice(body,frame,tx,ty,n),cell=(lx,lz)=>(Math.round(lz/S)+1)*N+Math.round(lx/S)+1;
   const normal=(lx,lz)=>{const k=cell(lx,lz),dx=(H[k+1]-H[k-1])/(2*S),dz=(H[k+N]-H[k-N])/(2*S),m=Math.hypot(dx,dz,1);return [dz/m,dx/m,1/m];};
-  return synthAdt((lx,lz)=>H[cell(lx,lz)],tx,ty,poleSpec(body).texture,POLE_AREA,normal);
+  const extra=tx===Math.floor(n/2)&&ty===Math.floor(n/2)?poleFlagChunks(frame,poleHeightChart(body,frame,0,0),Math.floor(n/2)):[];
+  return synthAdt((lx,lz)=>H[cell(lx,lz)],tx,ty,poleSpec(body).texture,POLE_AREA,normal,extra);
 }
 
 // ---- Engine overlay (L3): the real body world plus the N and S pole regions that wasm `with_poles` appends. ----

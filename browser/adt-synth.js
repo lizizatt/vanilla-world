@@ -9,8 +9,8 @@ const chunk=(magic,body)=>{const out=new Uint8Array(8+body.length),v=new DataVie
 export const mcvtOffsets=()=>{const o=[],s=ADT_CHUNK/8;
   for(let r=0;r<17;r++)for(let c=0;c<(r%2?8:9);c++)o.push([c*s+(r%2?s/2:0),(r>>1)*s+(r%2?s/2:0)]);return o;};
 
-/** `height(x,z)` takes tile-local yd (x east, z south) and returns yd above sea level. */
-export function synthAdt(height,tx=0,ty=0,texture='Tileset\\Generic\\Black.blp',areaId=0,normal) {
+/** height(x,z) takes tile-local yd (x east, z south) and returns yd above sea level. */
+export function synthAdt(height,tx=0,ty=0,texture='Tileset\\Generic\\Black.blp',areaId=0,normal,extra=[]) {
   const parts=[],ver=new Uint8Array(4);ver[0]=18;parts.push(chunk('MVER',ver));
   parts.push(chunk('MTEX',new TextEncoder().encode(texture+'\0')));
   const offs=mcvtOffsets();
@@ -30,6 +30,7 @@ export function synthAdt(height,tx=0,ty=0,texture='Tileset\\Generic\\Black.blp',
     const body=new Uint8Array(at);body.set(head);let p=128;for(const s of sub){body.set(s,p);p+=s.length;}
     parts.push(chunk('MCNK',body));
   }
+  for(const [magic,body] of extra)parts.push(chunk(magic,body));
   const out=new Uint8Array(parts.reduce((n,a)=>n+a.length,0));let p=0;for(const a of parts){out.set(a,p);p+=a.length;}
   return out;
 }

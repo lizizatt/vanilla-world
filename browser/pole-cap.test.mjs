@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {capHeight,capAlbedo,edgeColat,CAP} from './pole-cap.js';
 import {poleLattice,poleAdt,poleHeightChart,POLE_TILES,poleTileOrigin} from './pole-source.js';
-import {polarSun,polarDaylight,polarWeight} from './polar-light.js';
+import {polarSun,polarDaylight,polarWeight,northNightFill,northTwilightSun,northFlagLamp} from './polar-light.js';
 import {POLE_FLAGS,poleFlagPlacement,poleMesh} from './pole-flag.js';
 import {PLANET_RADIUS as R} from './space.js';
 import {ADT_TILE} from './adt-synth.js';
@@ -79,6 +79,25 @@ test('polar light: identity below 60 deg, south always lit, north always dark, n
 
 test('flags: Horde north, Alliance south, WoW models by path only; pole mesh is procedural',()=>{
   assert.equal(POLE_FLAGS.N.faction,'horde');assert.equal(POLE_FLAGS.S.faction,'alliance');
-  for(const f of ['N','S']){const p=poleFlagPlacement(f,3);assert.ok(p.model.endsWith('.mdx')&&p.fallback.endsWith('.mdx'));assert.deepEqual(p.position,[0,3,0]);}
+  for(const f of ['N','S']){const p=poleFlagPlacement(f,3);assert.ok(p.model.endsWith('.m2'));assert.deepEqual(p.position,[0,3,0]);}
   const m=poleMesh();assert.ok(m.positions.length>0&&m.indices.length>0);
+});
+
+test('only the centre pole tile carries the faction banner doodad (MMDX/MDDF) and it stands at the pole',()=>{
+  const find=(b,tag)=>{const s=[...tag].reverse().join('');for(let i=0;i+8<=b.length;){const m=String.fromCharCode(...b.slice(i,i+4));if(m===s){const n=new DataView(b.buffer,b.byteOffset+i+4,4).getUint32(0,true);return b.slice(i+8,i+8+n);}i++;}return null;};
+  const dec=new TextDecoder();
+  for(const body of ['azeroth','elune'])for(const [frame,faction] of [['N','Horde'],['S','Alliance']]) {
+    const c=Math.floor(POLE_TILES/2),b=poleAdt(body,frame,c,c),mmdx=find(b,'MMDX'),mddf=find(b,'MDDF');
+    assert.ok(mmdx&&dec.decode(mmdx).includes(`Banner${faction}`.toLowerCase()),`${body} ${frame} banner`);
+    assert.equal(mddf.length,36);const v=new DataView(mddf.buffer,mddf.byteOffset,36);
+    assert.ok(Math.abs(v.getFloat32(8,true)-c*ADT_TILE)<.01&&Math.abs(v.getFloat32(16,true)-c*ADT_TILE)<.01);
+    assert.equal(find(poleAdt(body,frame,c+1,c),'MDDF'),null);
+  }
+});
+
+test('north night fill: zero outside the cap, lifts the sun toward twilight, flag lamp sits at the pole',()=>{
+  assert.equal(northNightFill(0,-200000-R,R),0);
+  const f=northNightFill(0,-200040,R);assert.ok(f>.2);
+  const s=northTwilightSun([1,-.4,0],f);assert.ok(s[1]>-.1&&s[1]<0);assert.deepEqual(northTwilightSun([1,.5,0],f),[Math.hypot(1,.5)**-1,.5/Math.hypot(1,.5),0]);
+  const l=northFlagLamp([10,20]);assert.equal(l.matrix[12],-10);assert.equal(l.matrix[14],-200000-20);
 });

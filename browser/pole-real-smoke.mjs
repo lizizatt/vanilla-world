@@ -48,7 +48,7 @@ try{
     const [x,z]=dirToChart('E',[Math.cos(la)*Math.cos(lo),Math.sin(la),Math.cos(la)*Math.sin(lo)],b.centre,b.radius,lo);
     return {x,z,yaw:head==='north'?0:head==='south'?Math.PI:-Math.PI/2,radius:b.radius};
   },[body,lat,lon,heading]);
-  if(env.POLEFRAME){const a=(90-lat)*Math.PI/180*start.radius;Object.assign(start,{x:0,z:(env.POLEFRAME==='N'?-200000:200000)-a,frame:env.POLEFRAME});}// start inside a pole frame (lat = degrees from the equator of the body, measured to the pole)
+  if(env.POLEFRAME){const a=env.DIST?Number(env.DIST):(90-lat)*Math.PI/180*start.radius;Object.assign(start,{x:0,z:(env.POLEFRAME==='N'?-200000:200000)-a,frame:env.POLEFRAME});}// start inside a pole frame (lat = degrees from the equator of the body, measured to the pole)
   summary.start=start;
   const height=body==='azeroth'?40:60;
   if(mode==='fly') {
@@ -61,6 +61,7 @@ try{
     },[start,height]);
     if(await page.locator('#drive').evaluate(e=>!e.hidden))await page.locator('#drive').evaluate(e=>e.click());
   }
+  if(env.STILL&&shots){await page.locator('#world').focus();await page.waitForTimeout(Number(env.STILL)*1000);await writeFile(new URL(`${body}-${mode}-still${env.POLEFRAME||''}.png`,shots),await page.screenshot());console.log(JSON.stringify({still:true,errors:errors.slice(0,5)}));await browser.close();process.exit(errors.length?1:0);}
   await page.locator('#world').focus();
   await page.waitForTimeout(3000);
   await page.evaluate(()=>{__handler.length=0;});
