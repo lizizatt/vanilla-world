@@ -5,7 +5,7 @@ import {terrainMips,resizeRgba,MINIMAP_SIZE} from './terrain-stream.js';
 import {prepareDetail} from './camera-collision.js';
 import {loadLoadingArt} from './loading-art.js';
 import {moonSource,MOON_SEED} from './moon-source.js';
-import {poleBodySource} from './pole-source.js';
+import {poleBodySource,withPoleTiles} from './pole-source.js';
 import {graftSource} from './graft-source.js';
 import {errorFields,isRequestId} from './worker-rpc.js';
 
@@ -39,6 +39,7 @@ async function pump() {
       if(job.poleFrame)source=poleBodySource(job.poleFrame);
       else if(job.folder==='elune'&&job.graft)source=graftSource(moonSource(),await openDataSource(job.graft,progress),{bodyId:'elune',seed:MOON_SEED});
       else source=job.folder==='elune'?moonSource():await openDataSource(job.folder,progress);
+      if(job.poles)source=withPoleTiles(source,job.poles);
       if(job.loadingArt&&!artStopped)void loadLoadingArt(source,bytes=>{
         const texture=new SceneTexture(bytes);
         try{return {...JSON.parse(texture.metadata()),rgba:texture.rgba()};}

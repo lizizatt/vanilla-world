@@ -5,7 +5,8 @@ import {HEIGHT_RANGE,HEIGHT_MIN} from './height-bake.js';
 import {BEND_RANGE,wgslRamp} from './terrain-transition.js';
 import {nightLightsWgsl} from './night-lights-wgsl.js';
 import {wrapAngle,wrapTurn} from './math.js';
-import {LAT_MAX,clampLat,latLonOf,flatOf,frameAtLatLon} from './equirect.js';
+import {LAT_MAX,clampLat,latLonOf,flatOf,frameAtLatLon,dirLatLon} from './equirect.js';
+import {rotate} from './frames.js';
 export const CONTINENT_YD=29867,CONTINENT_DEG=120;
 export const PLANET_RADIUS=Math.round(CONTINENT_YD/(CONTINENT_DEG*Math.PI/180));
 // World centre (render yd) at lat/lon 0, and the fallback continent rectangles [x0,z0,x1,z1] when no manifest is loaded (hosted build).
@@ -26,8 +27,14 @@ export function horizonDip(altitude,bend=1,radius=PLANET_RADIUS) {
   const k=radius/(radius+Math.max(0,altitude));return Math.sqrt(1-k*k)*bend;
 }
 export function planetFrame(x,z,centre=WORLD_CENTRE,radius=PLANET_RADIUS) {
-  const {lat,lon}=latLonOf(x,z,centre,radius);
-  return frameAtLatLon(clampLat(lat),lon);
+  const {lat,lon}=latLonOf(x,z,centre,radius),f=frameAtLatLon(clampLat(lat),lon),q=centre.q;
+  return q?{east:rotate(q,f.east),up:rotate(q,f.up),south:rotate(q,f.south)}:f;
+}
+/** Body-space {lat, lon} under a chart point: the chart's own sub-point for E, the rotated one for a pole frame (centre from frameCentre). */
+export function bodyPoint(x,z,centre=WORLD_CENTRE,radius=PLANET_RADIUS) {
+  const {lat,lon}=latLonOf(x,z,centre,radius),q=centre.q;
+  if(!q)return {lat,lon};
+  const cl=Math.cos(lat);return dirLatLon(rotate(q,[cl*Math.cos(lon),Math.sin(lat),cl*Math.sin(lon)]));
 }
 
 /** Position model: the flat pose (x, z) is the globe sub-point (the radial below you), lon = (x - cx)/R and lat = -(z - cz)/R, so descending radially lands on the same flat (x, z). */

@@ -3,11 +3,22 @@
 import {bendShaderFor,spaceShaderFor,patchShaderFor} from './space.js';
 import {AZEROTH,ELUNE,bodyOf} from './bodies.js';
 import {atmosphericDisc} from './body-sky.js';
+import {frameCentre} from './frames.js';
 
 /** The body this page's chart renders: ?body=elune boots the moon, anything else Azeroth; setActiveBody switches it in-page (the renderer rebuilds its radius-baked pipelines via useBody). */
 let current;
 export const activeBody=()=>current??(typeof location!=='undefined'&&new URLSearchParams(location.search).get('body')==='elune'?ELUNE:AZEROTH);
 export const setActiveBody=body=>{current=body;};
+let frameId='E',framed;
+/** Which frame ('E','N','S') the camera's chart coordinates are in; E is the authored chart and leaves every body untouched. */
+export const setActiveFrame=id=>{frameId=id||'E';};
+export const activeFrame=()=>frameId;
+/** The active body with its centre carried into the active frame: every (centre, radius) consumer becomes frame-aware; identical object to the base body in E. */
+export function activeFramedBody() {
+  const base=activeBody();if(frameId==='E')return base;
+  if(!framed||framed.base!==base||framed.id!==frameId)framed={base,id:frameId,body:{...base,centre:frameCentre(frameId,base.centre)}};
+  return framed.body;
+}
 export const wgslNumber=x=>Number.isInteger(x)?x+'.0':String(x);
 
 const cache=new Map();

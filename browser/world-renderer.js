@@ -16,7 +16,7 @@ import {beamState} from './beam.js';
 import {advanceIntake,writeIntakeMatrix} from './swe1r/intakes.js';
 import {horizonDip} from './space.js';
 import {planetFactorsFor,bodiesEnabled} from './bodies.js';
-import {activeBody} from './body-shaders.js';
+import {activeBody,activeFramedBody} from './body-shaders.js';
 import {skyUniform,DAY} from './sky.js';
 import {eluneSkyAt,AIRLESS_SKY} from './elune-sky.js';
 import {localSunAt,solarTime} from './local-sun.js';
@@ -144,7 +144,7 @@ export class WorldRenderer {
     this.timeOfDay=this.podTime??this.timeLock??clock.now();
     const airless=activeBody().id==='elune',moonSky=airless?eluneSkyAt(state[0],state[2],this.timeOfDay):undefined;
     // Atmospheric bodies light from where the camera stands: the local sun and the clock reading that sun corresponds to drive every day/night and Light.dbc lookup.
-    this.sunLocal=moonSky?moonSky.sun:localSunAt(activeBody(),this.view.eye[0],this.view.eye[2],this.timeOfDay);
+    this.sunLocal=moonSky?moonSky.sun:localSunAt(activeFramedBody(),this.view.eye[0],this.view.eye[2],this.timeOfDay);
     this.localTime=moonSky?this.timeOfDay:solarTime(this.sunLocal);
     const daylight=this.daylight=moonSky?moonSky.daylight:daylightAt(this.localTime);
     const sky0=airless?AIRLESS_SKY:DAY_SKY.map((v,i)=>NIGHT_SKY[i]+(v-NIGHT_SKY[i])*daylight);
@@ -172,7 +172,7 @@ export class WorldRenderer {
     const writeUniform=item=>{
       if(uniformCount>=16384)throw Error('World draw uniform budget exceeded');
       const base=uniformCount++*64;
-      item.offset=base*4;u.set(view,base);u.set(skyFloats,base+40);u[base+28]=u[base+60]=pf.bend;u[base+30]=u[base+62]=this.view.eye[2];u[base+29]=u[base+61]=pf.space;u.set(sunDir,base+32);return base;
+      item.offset=base*4;u.set(view,base);u.set(skyFloats,base+40);u[base+28]=u[base+60]=pf.bend;u[base+30]=u[base+62]=this.view.eye[2]+(activeBody().centre[1]-activeFramedBody().centre[1]);u[base+29]=u[base+61]=pf.space;u.set(sunDir,base+32);return base;
     };
     for(const item of terrain){
       const base=writeUniform(item),body=item===this.body;
@@ -190,7 +190,7 @@ const lamps=[],draws=[],selection=this.cameraBlocked?{selected:[],omitted:0}:
         sceneVisible(asset.bounds,this.sceneMatrix(instance,this.manifest.regions[this.sceneRegion],origin),
           this.camera,right,up,look,aspect));
     const append=(asset,instance,m,textures,items,rigid=false)=>{
-        if(rigid&&pf.bend>0)m=rigidPodMatrix(m,state,this.view.eye,activeBody(),Array.isArray(rigid)?rigid:undefined);
+        if(rigid&&pf.bend>0)m=rigidPodMatrix(m,state,this.view.eye,activeFramedBody(),Array.isArray(rigid)?rigid:undefined);
         if(rigid&&instance===this.craft?.instance)this.rigidCraftMatrix=Array.from(m);
         const distance=rigid&&pf.bend>0?Math.hypot(m[12],m[13],m[14]):Math.hypot(m[12]-this.camera[0],m[13]-this.camera[1],m[14]-this.camera[2]);
         this.admissionFade??=new AdmissionFade();
@@ -299,7 +299,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
     const craft=this.craft;
     if(fx&&quality>0&&craft?.source&&!this.wreck&&!this.cameraBlocked&&(!flight||this.showCraftInFlight)&&this.cameraMode!=='cockpit') {
       const input=this.fxInput||{},speed=Math.abs(state[5]),scale=craft.metadata.scale;
-      fx.frame=pf.bend>0?podParticleFrame(activeBody(),state):undefined;
+      fx.frame=pf.bend>0?podParticleFrame(activeFramedBody(),state):undefined;
       craft.fx??={points:exhaustPoints(craft.source.vertices,craft.source.indices,craft.metadata),length:craft.size[0]};
       emitPlumes(fx,{points:craft.fx.points,matrix:craftMatrix(state,origin,scale),origin,scale,length:craft.fx.length,speed,
         thrust:input.throttle??Math.min(1,speed/150),boosting:!!input.boosting,dt:Math.min(dt,.1)});

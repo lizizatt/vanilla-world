@@ -11,8 +11,24 @@ const Q={
 };
 export const FRAME_IDS=Object.freeze(['E','N','S']);
 export const isPoleFrame=id=>id==='N'||id==='S';
+/** Global (render) coordinates of each pole chart's origin; mirrors POLE_ANCHORS in world.rs (poles are far outside every authored region). */
+export const POLE_ANCHORS=Object.freeze({N:Object.freeze([0,-200000]),S:Object.freeze([0,200000])});
+/** Rotation (rows) taking frame axes to body axes, or undefined for E. */
+export const frameQ=id=>Q[id];
+/**
+ * Chart centre of frame id as the engine sees it: E is the body's authored centre; a pole frame is its anchor, carrying its rotation as .q.
+ * Carrying q on the centre array lets every existing (centre, radius) call site become frame-aware without a signature change.
+ */
+export function frameCentre(id,centre) {
+  if(!isPoleFrame(id))return centre;
+  const c=[...POLE_ANCHORS[id]];c.q=Q[id];c.frame=id;return c;
+}
+/** Rotation of a chart centre produced by frameCentre (undefined for E). */
+export const centreQ=centre=>centre?.q;
+
 const mul=(m,v)=>[m[0][0]*v[0]+m[0][1]*v[1]+m[0][2]*v[2],m[1][0]*v[0]+m[1][1]*v[1]+m[1][2]*v[2],m[2][0]*v[0]+m[2][1]*v[1]+m[2][2]*v[2]];
 const mulT=(m,v)=>[m[0][0]*v[0]+m[1][0]*v[1]+m[2][0]*v[2],m[0][1]*v[0]+m[1][1]*v[1]+m[2][1]*v[2],m[0][2]*v[0]+m[1][2]*v[1]+m[2][2]*v[2]];
+export const rotate=(q,v)=>mul(q,v);
 export const dirToBody=(id,d)=>id==='E'?d:mul(Q[id],d);
 export const dirToFrame=(id,d)=>id==='E'?d:mulT(Q[id],d);
 const centreOf=(id,centre)=>id==='E'?centre:[0,0];

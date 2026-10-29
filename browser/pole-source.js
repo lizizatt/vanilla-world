@@ -19,11 +19,11 @@ export const poleSpec=body=>{const s=SPEC[body];if(!s)throw new Error(`No pole s
 /** Chart (x, z) of the pole frame -> height (yd above sea; Elune: above the mean sphere). */
 export const poleHeightChart=(body,frame,x,z)=>{const s=poleSpec(body);return s.height(chartToDir(frame,x,z,s.centre,s.radius));};
 export const poleAlbedoChart=(body,frame,x,z)=>{const s=poleSpec(body);return s.albedo(chartToDir(frame,x,z,s.centre,s.radius));};
-export const poleTileOrigin=(tx,ty)=>[(tx-POLE_TILES/2)*ADT_TILE,(ty-POLE_TILES/2)*ADT_TILE];
+export const poleTileOrigin=(tx,ty,n=POLE_TILES)=>[(tx-n/2)*ADT_TILE,(ty-n/2)*ADT_TILE];
 
 /** Height lattice (2.08 yd with a one-cell border) of one pole tile; vertices and normals share it so normals are continuous across tile borders. */
-export function poleLattice(body,frame,tx,ty) {
-  const [ox,oz]=poleTileOrigin(tx,ty),S=ADT_TILE/256,N=259,H=new Float32Array(N*N);
+export function poleLattice(body,frame,tx,ty,n=POLE_TILES) {
+  const [ox,oz]=poleTileOrigin(tx,ty,n),S=ADT_TILE/256,N=259,H=new Float32Array(N*N);
   for(let j=0;j<N;j++)for(let i=0;i<N;i++)H[j*N+i]=poleHeightChart(body,frame,ox+(i-1)*S,oz+(j-1)*S);
   return {H,N,S};
 }
@@ -70,8 +70,41 @@ export function poleBodySource(spec) {
   };
 }
 /** Synthetic ADT bytes for pole tile (tx, ty in 0..POLE_TILES-1) of `frame` ('N'|'S'). */
-export function poleAdt(body,frame,tx,ty) {
-  const {H,N,S}=poleLattice(body,frame,tx,ty),cell=(lx,lz)=>(Math.round(lz/S)+1)*N+Math.round(lx/S)+1;
+export function poleAdt(body,frame,tx,ty,n=POLE_TILES) {
+  const {H,N,S}=poleLattice(body,frame,tx,ty,n),cell=(lx,lz)=>(Math.round(lz/S)+1)*N+Math.round(lx/S)+1;
   const normal=(lx,lz)=>{const k=cell(lx,lz),dx=(H[k+1]-H[k-1])/(2*S),dz=(H[k+N]-H[k-N])/(2*S),m=Math.hypot(dx,dz,1);return [dz/m,dx/m,1/m];};
   return synthAdt((lx,lz)=>H[cell(lx,lz)],tx,ty,poleSpec(body).texture,POLE_AREA,normal);
+}
+
+// ---- Engine overlay (L3): the real body world plus the N and S pole regions that wasm `with_poles` appends. ----
+/** Per-body frame spec fed to wasm `with_poles` (radians, chart yards). Azeroth hands over at 72 deg (ramp from 62), Elune at 60 deg (ramp from 40). */
+export const POLE_FRAME_SPEC={
+  azeroth:{radius:PLANET_RADIUS,centre:WORLD_CENTRE,handoff:72*Math.PI/180,hysteresis:Math.PI/180,ramp_start:62*Math.PI/180,wrap:2*Math.PI*PLANET_RADIUS,tiles:[20,20]},
+  elune:{radius:ELUNE_RADIUS,centre:[0,0],handoff:Math.PI/3,hysteresis:Math.PI/180,ramp_start:40*Math.PI/180,wrap:2*Math.PI*ELUNE_RADIUS,tiles:[12,12]},
+};
+export const poleFrameSpec=body=>{const s=POLE_FRAME_SPEC[body];if(!s)throw new Error(`No pole frame spec for body ${body}`);return s;};
+const POLE_REGION=/^world\\maps\\pole([ns])\\pole[ns]_(\d+)_(\d+)\.adt$/;
+const POLE_MINIMAP=/^textures\\minimap\\0{22}([\da-f]{4})([\da-f]{4})f([12])\.blp$/;
+export const poleMinimapHash=(frame,tx,ty)=>`${'0'.repeat(22)}${tx.toString(16).padStart(4,'0')}${ty.toString(16).padStart(4,'0')}f${frame==='N'?1:2}.blp`;
+const concat=(a,b)=>{const out=new Uint8Array(a.length+b.length);out.set(a);out.set(b,a.length);return out;};
+/** Wrap an asset source so the pole regions' tiles, minimaps and ice texture are synthesised on demand; every other path goes to `inner` unchanged. No data, no loading. */
+export function withPoleTiles(inner,body) {
+  const [nx,ny]=poleFrameSpec(body).tiles,spec=poleSpec(body),cache=new Map(),ice=regolithBlp(64,body==='azeroth'?[225,232,240]:[128,128,128]);
+  const rows=()=>{let t='';for(const f of ['N','S'])for(let y=0;y<ny;y++)for(let x=0;x<nx;x++)t+=`Pole${f}\\map${x}_${y}.blp\t${poleMinimapHash(f,x,y)}\n`;return new TextEncoder().encode(t);};
+  return {
+    get fingerprint(){return inner.fingerprint;},get archives(){return inner.archives;},get stats(){return inner.stats;},
+    async read(path,options) {
+      const key=path.replaceAll('/','\\').toLowerCase();
+      if(key==='textures\\minimap\\md5translate.trs'){const base=await inner.read(path,options);return concat(base,rows());}
+      if(POLE_MINIMAP.test(key))return ice.slice();
+      if(key==='tileset\\pole\\ice.blp')return ice.slice();
+      const m=POLE_REGION.exec(key);
+      if(m&&+m[2]<nx&&+m[3]<ny) {
+        if(!cache.has(key)){if(cache.size>=64)cache.delete(cache.keys().next().value);cache.set(key,poleAdt(body,m[1].toUpperCase(),+m[2],+m[3],nx));}
+        return cache.get(key).slice();
+      }
+      return inner.read(path,options);
+    },
+    close() {return inner.close?.();},
+  };
 }

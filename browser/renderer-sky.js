@@ -5,7 +5,7 @@ import {wantsDisc} from './renderer-init.js';
 import {schematicRects} from './worldmap.js';
 import {viewFrom,otherView} from './body-sky.js';
 import {AZEROTH,ELUNE,BODIES,planetFactorsFor,farDrawLevel} from './bodies.js';
-import {activeBody} from './body-shaders.js';
+import {activeBody,activeFramedBody} from './body-shaders.js';
 import {patchesAt,packPatches,PATCH_GRID} from './globe-patches.js';
 import {makeOtherSet} from './renderer-init.js';
 import {createRegistry,defaultManifest,bakeSurface,surfaceTexel,splatMinimap,adtChunk} from './tile-registry.js';
@@ -154,7 +154,7 @@ export function drawPatches(r,pass) {
     r.device.queue.writeTexture({texture:r.heightTex},encodeHeights(r.heightGrid),{bytesPerRow:HEIGHT_W},[HEIGHT_W,HEIGHT_H]);
     r.heightDirty=false;r.heightAt=performance.now();
   }
-  const eye=r.view.eye,patches=patchesAt(eye[0],eye[2],Math.max(0,eye[1]),activeBody().id==='elune'?{radius:ELUNE.radius,centre:ELUNE.centre,maxLevel:ELUNE.maxLevel}:undefined);
+  const eye=r.view.eye,patches=patchesAt(eye[0],eye[2],Math.max(0,eye[1]),activeBody().id==='elune'?{radius:ELUNE.radius,centre:activeFramedBody().centre,maxLevel:ELUNE.maxLevel}:activeFramedBody().centre!==activeBody().centre?{centre:activeFramedBody().centre}:undefined);
   r.device.queue.writeBuffer(r.patchBuffer,0,packPatches(patches));
   r.patchCount=patches.length;
   pass.setPipeline(r.patchPipeline);pass.setBindGroup(0,r.patchGroup);pass.setVertexBuffer(0,r.patchBuffer);pass.draw(PATCH_GRID*PATCH_GRID*6,patches.length);

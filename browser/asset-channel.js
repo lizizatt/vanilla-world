@@ -54,9 +54,9 @@ export class AssetSource {
   stopLoadingArt(){this.post({action:'stop-art'});}
 }
 
-export async function openAssetSource(folder,createWorker=()=>new Worker('./asset-worker.js',{type:'module'}),onProgress,{loadingArt=false,map,graft,poleFrame}={}) {
+export async function openAssetSource(folder,createWorker=()=>new Worker('./asset-worker.js',{type:'module'}),onProgress,{loadingArt=false,map,graft,poleFrame,poles}={}) {
   const source=new AssetSource(createWorker());
   source.onProgress=onProgress;
-  try {Object.assign(source,await source.request('open',{folder,loadingArt,map,graft,poleFrame}));return source;}
+  try {Object.assign(source,await source.request('open',{folder,loadingArt,map,graft,poleFrame,poles}));return source;}
   catch(error){source.close();throw error;}
 }

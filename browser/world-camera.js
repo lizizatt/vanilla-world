@@ -1,6 +1,6 @@
 import {basis} from './orient.js';
 import {wrapAngle as wrap} from './math.js';
-import {activeBody} from './body-shaders.js';
+import {activeFramedBody} from './body-shaders.js';
 import {podCameraFrame} from './pod-render-frame.js';
 const unit=v=>{const length=Math.hypot(...v);return length?v.map(n=>n/length):[0,0,-1];};
 // Tuning: cockpit look pitch limit (rad), mouse-orbit sensitivity (rad/px), return-to-centre rate (1/s).
@@ -50,7 +50,7 @@ export function cameraView(rig,state,flight,dt,origin,settings={},lookBack=false
   const aim=flatCameraView(rig,state,flight,dt,origin,settings,lookBack);
   if(flight||settings.planet===false)return aim;
   const offset=[rig.camera[0]+origin[0]-state[0],rig.camera[1]-state[1],rig.camera[2]+origin[1]-state[2]];
-  const frame=podCameraFrame(activeBody(),state,offset,aim.look,aim.up);
+  const frame=podCameraFrame(activeFramedBody(),state,offset,aim.look,aim.up);
   const collisionReady=placePodCamera(rig,state,origin,frame,rig.cameraMode==='cockpit');
   return {...aim,look:frame.look,up:frame.up,collisionReady};
 }
@@ -83,7 +83,7 @@ function orbitalCamera(rig,state,dt,origin,settings,lookBack){
   const anchor=rig.craft?.anchor,scale=rig.craft?.metadata.scale??1;
   const offset=cockpit?forward.map((v,i)=>(v*anchor[0]-right[i]*anchor[1]+up[i]*anchor[2])*scale)
     :look.map((v,i)=>up[i]*3-v*Math.max(0,(settings.cameraDistance??15)-.15));
-  const frame=settings.planet===false?{eye:state.slice(0,3).map((v,i)=>v+offset[i]),look,up}:podCameraFrame(activeBody(),state,offset,look,up);
+  const frame=settings.planet===false?{eye:state.slice(0,3).map((v,i)=>v+offset[i]),look,up}:podCameraFrame(activeFramedBody(),state,offset,look,up);
   const collisionReady=placePodCamera(rig,state,origin,frame,cockpit);
   return {look:frame.look,up:frame.up,near:.1,collisionReady};
 }

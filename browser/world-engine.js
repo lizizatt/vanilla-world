@@ -14,6 +14,7 @@ import {FarChannel} from './far-channel.js';
 import {splitBudget,effectiveBudget,residentTileCap,bodyTileCap,nearRadius} from './memory-budget.js';
 import {FAR_LIMITS} from './far-stream.js';
 import {BODIES} from './bodies.js';
+import {poleFrameSpec} from './pole-source.js';
 import {viewChanged} from './world-view.js';
 import {ActorService,ACTOR} from './actors.js';
 import {maelstromCentre,WHIRLPOOL_DIP} from './clouds.js';
@@ -311,10 +312,12 @@ async function stream(p,pin,fill=false) {
     report(failures.size?`${failures.size} unavailable terrain tiles; retry after correcting access/data.`:`Detailed terrain ready: ${resident.size}/${LIMIT} tiles.`);
   }
 }
+/** Pole frame regions are procedural and have no WDL, so they carry no horizon patches or exterior water. */
+const horizonRegionCount=()=>manifest.regions.filter(r=>!r.frame).length;
 async function buildHorizon(wdls) {
   horizon={patches:0,vertices:0,gpuBytes:0,cpuParsedBound:0,wasmPeakBytes:0,regions:[]};
   const start=performance.now();
-  const regionCount=manifest.regions.length;
+  const regionCount=horizonRegionCount();
   for(let region=0;region<regionCount;region++)world.add_horizon(region,wdls[region]);
   const patchesByRegion=wdls.map((_,region)=>world.horizon_patches(region));
   const total=patchesByRegion.reduce((n,p)=>n+p.length/5,0);
@@ -345,7 +348,7 @@ async function buildHorizon(wdls) {
 function focusRegion(p) {return focusRegionOf(manifest,p);}
 /** Re-post the static horizon (index buffers and patch vertices) to a fresh consumer; the world already holds it, so this only reads. */
 async function replayHorizon(token) {
-  const regionCount=manifest.regions.length;
+  const regionCount=horizonRegionCount();
   for(let region=0;region<regionCount;region++) {
     if(token!==rebindToken)return;
     if(manifest.version!==4){const exterior=world.exterior_geometry(region);water?.setExterior(region,exterior);postMessage({event:'exterior-water',region,placement:manifest.regions[region].placement,vertices:exterior},[exterior.buffer]);}
@@ -692,7 +695,7 @@ export function snapshot() {
   const terrainState=terrain.snapshot();
   const clock=performance.now();
   if(clock-areaTime>500){areaTime=clock;areaId=flightFocus&&world.area_at?world.area_at(flightFocus[0],flightFocus[1]):world.area();}
-  return {telemetry:pod.telemetry(world),pod:pod.snapshot(world),area:areaId,poseTime,hopConsumed,resident:Array.from(resident),nearTerrain:{total:lastNearby.length,resident:lastNearby.filter(i=>resident.has(i)).length},required:Array.from(world.required_tiles()),
+  return {telemetry:pod.telemetry(world),frame:Array.from(world.frame_state?.()??[0,0,0,0,0]),pod:pod.snapshot(world),area:areaId,poseTime,hopConsumed,resident:Array.from(resident),nearTerrain:{total:lastNearby.length,resident:lastNearby.filter(i=>resident.has(i)).length},required:Array.from(world.required_tiles()),
     failures:Array.from(failures.values()),loads,evictions,peak,limit:LIMIT,horizon,source:source.stats,
     scene:sceneState?{instances:sceneState.instances.length,assets:sceneState.cachedAssets,bytes:sceneState.cachedBytes,
       pending:sceneState.pending,errors:sceneState.errors,population:sceneState.populationStatus,
@@ -731,7 +734,7 @@ export async function openWorld(message) {
     const previousSource=source;source=undefined;
     previousSource?.close();
     source=await openAssetSource(message.folder,undefined,data=>postMessage(data,data.rgba?[data.rgba.buffer]:[]),
-      {loadingArt:true,map:message.loadingMap,graft:message.dataFolder,poleFrame:message.poleFrame});
+      {loadingArt:true,map:message.loadingMap,graft:message.dataFolder,poleFrame:message.poleFrame,poles:polesFor(message)});
     report('World and archive workers ready');
     const moon=typeof message.folder==='string'&&!!BODIES[message.folder]?.rail;
     moonBody=moon;if(moon){LIMIT=bodyTileCap(memoryBudget,true);nearRadiusNow=nearRadius(LIMIT);}
@@ -742,7 +745,8 @@ export async function openWorld(message) {
       report(`Reading ${map} topology and terrain`,{stage:'topology',completed:wdts.length+wdls.length,total:moon?2:4});
       wdls.push(await source.read(`World\\Maps\\${map}\\${map}.wdl`));
     }
-    const json=moon?pkg.moon_manifest(wdts[0],wdls[0]):world_manifest(wdts[0],wdls[0],wdts[1],wdls[1]);
+    let json=moon?pkg.moon_manifest(wdts[0],wdls[0]):world_manifest(wdts[0],wdls[0],wdts[1],wdls[1]);
+    const poleBody=polesFor(message);if(poleBody)json=pkg.with_poles(json,JSON.stringify(poleFrameSpec(poleBody)));
     manifest=JSON.parse(json); manifest.landmarks=!moon;// skyline landmarks (landmarks.js) belong to Azeroth's maps only
     world=new Voyage(json);
     if(manifest.world_bounds){const [x,z]=maelstromCentre(manifest);world.set_whirlpool(x,z,WHIRLPOOL_DIP.radius,WHIRLPOOL_DIP.depth);}
@@ -778,6 +782,8 @@ export async function openWorld(message) {
 export function requireWorld() {
   if(!world)throw new Error('Local world is not open');
 }
+/** Body whose N/S pole regions are appended to the manifest (design/poles.md 19): every real body world unless the pole-frame harness or `poles:false` is in use. */
+const polesFor=message=>message.poleFrame||message.poles===false?undefined:(typeof message.folder==='string'&&BODIES[message.folder]?.rail?message.folder:'azeroth');
 export async function runFrame(message) {
     {
     if(pod.journey&&pod.journey.parent!==(moonBody?'elune':'azeroth'))return;
