@@ -8,12 +8,19 @@ const RACE_VEHICLES={podracer:1};
 
 const dist=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2]);
 const finite=v=>Array.isArray(v)&&v.length===3&&v.every(Number.isFinite);
+const slug=v=>typeof v==='string'&&/^[a-z0-9-]+$/.test(v);
+// A track starts on t.body (default azeroth); any gate may name another body with g.body. Positions are always in that body's own frame.
+export const trackBody=t=>t.body??'azeroth';
+export const gateBody=(t,g)=>g.body??trackBody(t);
+export const spansBodies=t=>t.gates.some(g=>gateBody(t,g)!==trackBody(t));
 
 export function validateTrack(t) {
   if(!t||typeof t.id!=='string'||!/^[a-z0-9-]+$/.test(t.id))throw new Error('track id must be a lowercase slug');
   if(!finite(t.start?.pos)||!Number.isFinite(t.start?.yaw))throw new Error('track start needs pos and yaw');
   if(!Array.isArray(t.gates)||t.gates.length<1)throw new Error('track needs at least one gate');
   for(const g of t.gates)if(!finite(g.pos)||!Number.isFinite(g.yaw)||!(g.width>0))throw new Error('gate needs pos, yaw and width>0');
+  if(t.body!==undefined&&!slug(t.body))throw new Error('track body must be a body id');
+  for(const g of t.gates)if(g.body!==undefined&&!slug(g.body))throw new Error('gate body must be a body id');
   const mode=t.mode??'p2p',laps=t.laps??1;
   if(mode!=='p2p'&&mode!=='lap')throw new Error('mode must be p2p or lap');
   if(!Number.isInteger(laps)||laps<1||(mode==='p2p'&&laps!==1))throw new Error('laps must be a positive integer (1 for p2p)');
@@ -23,8 +30,10 @@ export function validateTrack(t) {
 }
 
 // Max distance between any two course points (start included) plus margin, unless the track sets `breakoff`.
+// A track spanning several bodies has no single frame to measure in, so it never breaks off unless it sets `breakoff` (then per body).
 export function breakoffDistance(t) {
   if(Number.isFinite(t.breakoff)&&t.breakoff>0)return t.breakoff;
+  if(spansBodies(t))return Infinity;
   const pts=[t.start.pos,...t.gates.map(g=>g.pos)];
   let max=0;
   for(let i=0;i<pts.length;i++)for(let j=i+1;j<pts.length;j++)max=Math.max(max,dist(pts[i],pts[j]));
@@ -74,15 +83,21 @@ export class Race {
   jump() { this.last=null; }
   // Advance with the craft's latest position. Returns 'go', 'gate', 'finish' or null. The crossing test is swept over
   // the segment since the previous call, so one step may pass several gates in order; split times interpolate to the crossing.
-  update(pos,now) {
+  // `body` is the body whose frame `pos` is in: only gates on that body can be crossed and a change of body drops the swept
+  // segment. null = mid-swap (pos is stale): nothing is tested. undefined = legacy single-frame behaviour.
+  update(pos,now,body) {
     let event=null;
-    if(this.state==='countdown'&&now-this.cd>=COUNTDOWN_SECONDS){this.state='running';this.t0=now;this.last=pos;this.lastT=now;return 'go';}
-    if(this.state!=='running'){this.last=pos;this.lastT=now;return null;}
+    if(body!==this.at){this.at=body;this.last=null;}
+    const here=body===null?null:pos;
+    if(this.state==='countdown'&&now-this.cd>=COUNTDOWN_SECONDS){this.state='running';this.t0=now;this.last=here;this.lastT=now;return 'go';}
+    if(this.state!=='running'||body===null){this.last=here;this.lastT=now;return null;}
     if(this.last) {
       const a=this.last,t0=this.lastT??now;
       let from=a,done=0;
       while(this.state==='running') {
-        const u=crossingAt(this.track.gates[this.gateIndex],from,pos,this.reach);
+        const gate=this.track.gates[this.gateIndex];
+        if(body!==undefined&&gateBody(this.track,gate)!==body)break;
+        const u=crossingAt(gate,from,pos,this.reach);
         if(u<0)break;
         const total=done+(1-done)*u,at=t0+(now-t0)*total;
         this.splits.push(at-this.t0);this.next++;event='gate';
@@ -93,9 +108,14 @@ export class Race {
       }
     }
     this.last=pos;this.lastT=now;
-    if(this.state==='running'&&this.farFromCourse(pos))this.cancel('breakoff');
+    if(this.state==='running'&&this.farFromCourse(pos,body))this.cancel('breakoff');
     return event;
-  }  farFromCourse(pos) { return this.track.gates.every(g=>dist(pos,g.pos)>this.breakoff)&&dist(pos,this.track.start.pos)>this.breakoff; }
+  }
+  // Only course points in the craft's own frame count; with none there (or an infinite breakoff) it cannot be far from the course.
+  farFromCourse(pos,body) {
+    const t=this.track,pts=[[trackBody(t),t.start.pos],...t.gates.map(g=>[gateBody(t,g),g.pos])].filter(([b])=>body===undefined||b===body);
+    return pts.length>0&&pts.every(([,p])=>dist(pos,p)>this.breakoff);
+  }
 }
 
 // Per-lap durations from cumulative gate split times (the last gate of each lap closes it).

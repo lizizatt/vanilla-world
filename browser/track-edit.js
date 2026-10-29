@@ -51,7 +51,7 @@ export class TrackDraft {
   load(t) {
     this.id=t.id;this.name=t.name||t.id;this.vehicle=t.vehicle||'podracer';this.body=t.body&&t.body!=='azeroth'?t.body:undefined;this.mode=t.mode||'lap';this.laps=t.laps||1;
     this.start={pos:[...t.start.pos],yaw:t.start.yaw};
-    this.gates=(t.gates||[]).map(g=>({pos:[...g.pos],yaw:g.yaw,width:g.width}));
+    this.gates=(t.gates||[]).map(g=>({pos:[...g.pos],yaw:g.yaw,width:g.width,...(g.body?{body:g.body}:{})}));
     this.history=[];this.revision=(this.revision||0)+1;
   }
   static blank(pos,yaw=0,body) { return new TrackDraft({id:'new-track',name:'New track',body,mode:'lap',laps:1,start:{pos,yaw},gates:[]}); }
@@ -62,10 +62,11 @@ export class TrackDraft {
     const s=this.history.pop();if(!s)return false;
     const h=this.history;this.load(JSON.parse(s));this.history=h;this.revision++;return true;
   }
-  addGate(pos,yaw) {
+  // `body` is the body the gate stands on; it is recorded only when it differs from the track's start body.
+  addGate(pos,yaw,body) {
     this.checkpoint();
     const prev=this.gates.at(-1)?.pos||this.start.pos;
-    this.gates.push({pos:[pos[0],pos[1],pos[2]],yaw:yaw??yawToward(prev,pos),width:DEFAULT_WIDTH});
+    this.gates.push({pos:[pos[0],pos[1],pos[2]],yaw:yaw??yawToward(prev,pos),width:DEFAULT_WIDTH,...(body&&body!==(this.body??'azeroth')?{body}:{})});
     return this.gates.length-1;
   }
   moveGate(i,pos) { this.gates[i].pos=[pos[0],this.gates[i].pos[1],pos[2]];this.revision++; }

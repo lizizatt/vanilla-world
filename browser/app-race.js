@@ -1,5 +1,5 @@
 import {raceScores,trackOverride} from './world-store.js';
-import {Race,unstuckPoses,formatTime,lapTimes,bearing,addScore,validScores,validateTrack} from './race.js';
+import {Race,unstuckPoses,formatTime,lapTimes,bearing,addScore,validScores,validateTrack,gateBody,trackBody} from './race.js';
 import {createTrackEditor} from './track-editor.js';
 import {clampTrack} from './track-edit.js';
 import {flagPosition} from './race-flags.js';
@@ -22,8 +22,11 @@ const probeSurface=points=>client.request('probe',{points});
 // Pull stale saved heights back above the current ground/water; unloaded tiles leave a point as saved.
 async function groundTrack(track) {
   try {
-    const pts=[track.start.pos,...track.gates.map(g=>g.pos)].map(p=>[p[0],p[2]]);
-    return clampTrack(track,(await probeSurface(pts)).map(s=>({ground:s[1],water:s[2]})));
+    // Only points in the active body's frame can be probed; other bodies' gates keep their authored height.
+    const here=activeBody().id,items=[[trackBody(track),track.start.pos],...track.gates.map(g=>[gateBody(track,g),g.pos])];
+    const idx=items.flatMap(([b],i)=>b===here?[i]:[]),surfaces=items.map(()=>undefined);
+    (await probeSurface(idx.map(i=>[items[i][1][0],items[i][1][2]]))).forEach((s,k)=>{surfaces[idx[k]]={ground:s[1],water:s[2]};});
+    return clampTrack(track,surfaces);
   } catch { return track; }
 }
 async function withOverrides(found) {
@@ -73,7 +76,7 @@ async function settleGates(list,key) {
 function syncGates(force) {
   const live=app.editor.isOpen?app.tracks.filter(t=>(t.body??'azeroth')===activeBody().id):tracksFor(app.tracks,app.choice.vehicle,activeBody().id);
   if(!app.editor.isOpen){
-    const list=gateScene(live,app.race,performance.now()/1000,gateReach(activeBody().id)),key='w|'+activeBody().id+'|'+sceneKey(list)+'|'+!!app.gateKit;
+    const list=gateScene(live,app.race,performance.now()/1000,gateReach(activeBody().id),activeBody().id),key='w|'+activeBody().id+'|'+sceneKey(list)+'|'+!!app.gateKit;
     if(!force&&key===app.gateKey)return;
     app.gateKey=key;flagKey=undefined;
     app.renderer.setGates([]);app.renderer.setFlags([]);app.renderer.setProps(sceneProps(list,app.gateKit));
@@ -130,7 +133,8 @@ async function stinger(name){if(!app.voiceReader)return;music.setBattle(false);a
 async function say(...events){const event=events.find(e=>app.voiceMap?.[e]?.length),id=event&&pickVoice(app.voiceMap,event,lastVoice);if(!id||!app.voiceReader)return;lastVoice=id;const b=await app.voiceReader.wav('Voice/'+id).catch(()=>null);if(b)audio.say(b);}
 function raceFrame(controls,t) {
   if(app.race.state==='lineup'||app.race.state==='countdown'){controls.throttle=0;controls.steer=0;}
-  const count=Math.ceil(app.race.countdown(t)),event=app.race.update(client.state.telemetry,t);
+  app.race.reach=gateReach(activeBody().id);
+  const count=Math.ceil(app.race.countdown(t)),event=app.race.update(client.state.telemetry,t,app.swapHold||app.busy?null:activeBody().id);
   if(app.race.lap>lastLap){lastLap=app.race.lap;banner(lapBanner(app.race.lap,app.race.track.laps,lapTimes(app.race.splits,app.race.track.gates.length)));say(app.race.lap===app.race.track.laps?'final-lap':'lap-new');}
   if(event==='go'){say('countdown-go');app.goUntil=t+.8;raceTune=app.voiceReader&&audio.sampleOn?pickRaceMusic():null;music.setBattle(true,!raceTune);if(raceTune)app.voiceReader.wav(raceTune).then(b=>b?audio.loopMusic(b):music.setBattle(true,true)).catch(()=>music.setBattle(true,true));music.playCue('quest');audio.cue(SFX.go);}
   else if(event==='gate')audio.cue(SFX.gate,.5);
@@ -157,9 +161,9 @@ function raceHud(t) {
   else setText('race-delta','');
   setText('race-lap',lapCount(app.race.lap,app.race.track.laps));
   setText('race-laps',app.race.track.laps>1?lapTimesText(lapTimes(app.race.splits,app.race.track.gates.length),formatTime):'');
-  setText('race-gate',`Gate ${Math.min(done+1,app.race.totalGates)}/${app.race.totalGates}`);
-  const gate=app.race.nextGate,arrow=$('race-arrow');
-  arrow.hidden=!gate;
+  const gate=app.race.nextGate,away=gate&&gateBody(app.race.track,gate)!==activeBody().id,arrow=$('race-arrow');
+  setText('race-gate',`Gate ${Math.min(done+1,app.race.totalGates)}/${app.race.totalGates}${away?' ('+gateBody(app.race.track,gate)+')':''}`);
+  arrow.hidden=!gate||away;
   if(gate){const p=client.state.telemetry;arrow.style.transform=`rotate(${bearing(p,p[3],gate.pos)}rad)`;}
 }
 async function recordRun(track,run) {
