@@ -2,11 +2,12 @@ import {RpcTable} from './worker-rpc.js';
 export class WorldClient {
   constructor(onEvent,onError,canFrame=()=>true) {
     this.onEvent=onEvent;this.onError=onError;this.requests=new RpcTable();
-    this.elapsed=0;this.inFlight=false;this.canFrame=canFrame;
+    this.elapsed=0;this.inFlight=false;this.canFrame=canFrame;this.roleGeneration=0;
     this.poseSamples=[];this.poseFlying=false;
     this.hopSequence=0;this.pendingHop=0;this.hopHeld=false;
   }
   stop() {
+    this.roleGeneration++;
     this.worker?.terminate();this.worker=undefined;
     this.requests.rejectAll(new DOMException('World closed','AbortError'));
     this.inFlight=false;this.discardFrame();
@@ -38,7 +39,7 @@ export class WorldClient {
    * every module holding `app.client` keeps working; only the worker, its RPC table, info/state and body id move (farOnly is a role and stays). */
   swap(other) {
     for(const key of ['worker','requests','info','state','bodyId']){const t=this[key];this[key]=other[key];other[key]=t;}
-    for(const c of [this,other]){c.inFlight=false;c.discardFrame();c.poseFlying=false;if(c.worker)c.bind(c.worker);}
+    for(const c of [this,other]){c.roleGeneration++;c.inFlight=false;c.discardFrame();c.poseFlying=false;if(c.worker)c.bind(c.worker);}
   }
   bind(worker) {
     worker.onerror=event=>{
@@ -132,20 +133,21 @@ export class WorldClient {
       this.discardFrame();return;
     }
     if(this.inFlight || !this.pendingFrame)return;
-    const worker=this.worker,fields=this.pendingFrame,elapsed=this.elapsed;
+    const worker=this.worker,generation=this.roleGeneration,fields=this.pendingFrame,elapsed=this.elapsed;
+    const current=()=>this.worker===worker&&this.roleGeneration===generation;
     this.pendingFrame=undefined;this.elapsed=0;this.inFlight=true;
     this.request('frame',{dt:elapsed,...fields,hop:this.pendingHop}).then(state=>{
-      if(this.worker===worker){
+      if(current()){
         if(state.hopConsumed===this.pendingHop)this.pendingHop=0;
         this.recordPose(state);
       }
     }).catch(error=>{
-      if(this.worker===worker){
+      if(current()){
         this.discardFrame();
         if(error.name!=='AbortError')this.onError(error);
       }
     }).finally(()=>{
-      if(this.worker===worker){this.inFlight=false;this.flushFrame();}
+      if(current()){this.inFlight=false;this.flushFrame();}
     });
   }
 }

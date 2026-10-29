@@ -1,12 +1,17 @@
 import {modelPath} from './scene-stream.js';
 
-export async function loadCraft(source,wasm,emit) {
+export async function loadCraft(source,wasm,emit,shouldDefer=()=>false) {
+ const read=async path=>{
+   const bytes=await source.read(path,{shouldDefer});
+   if(shouldDefer())throw Object.assign(Error('Obsolete craft load'),{code:'DEFERRED'});
+   return bytes;
+ };
  try {
-  const models=await source.read('DBFilesClient\\CreatureModelData.dbc');
-  const displays=await source.read('DBFilesClient\\CreatureDisplayInfo.dbc');
+  const models=await read('DBFilesClient\\CreatureModelData.dbc');
+  const displays=await read('DBFilesClient\\CreatureDisplayInfo.dbc');
   const display=JSON.parse(wasm.scene_craft_display(models,displays)),
     path=modelPath(display.path);
-  const encoded=await source.read(path),metadata={...display,...JSON.parse(wasm.scene_craft_metadata(encoded))};
+  const encoded=await read(path),metadata={...display,...JSON.parse(wasm.scene_craft_metadata(encoded))};
   const model=wasm.SceneModel.craft(encoded,path,JSON.stringify(display.skins));
   let asset;
   try{
@@ -21,7 +26,7 @@ export async function loadCraft(source,wasm,emit) {
   if(paths.length>16)throw Error('Authored craft exceeds 16 textures');
   const textures=[];
   for(const key of paths){
-    const handle=new wasm.SceneTexture(await source.read(key));
+    const handle=new wasm.SceneTexture(await read(key));
     let texture;
     try{texture={key,...JSON.parse(handle.metadata()),rgba:handle.rgba()};}
     finally{handle.free();}
@@ -33,7 +38,7 @@ export async function loadCraft(source,wasm,emit) {
   emit({event:'craft',asset,textures,metadata},[asset.vertices.buffer,asset.indices.buffer,...textures.map(t=>t.rgba.buffer)]);
   return {ready:true,metadata,bytes,textureCount:textures.length,triangles};
  }catch(error){
-  emit({event:'craft-error',error:`Authored craft: ${error.message||error}`});
+  if(error.code!=='DEFERRED')emit({event:'craft-error',error:`Authored craft: ${error.message||error}`});
   throw error;
  }
 }

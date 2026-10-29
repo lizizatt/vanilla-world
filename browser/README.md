@@ -23,6 +23,31 @@ uncontrolled. This is a bounded driving gate, not a universal 20 ms guarantee.
 The independently reproduced authored ocean gap predates this async regression
 and is not fixed by material ordering.
 
+## Body-swap loading stress
+
+After building the browser, set `WOW_DATA` and `SWE1R_DATA` to your own local
+Data directories, then run `node browser\body-swap-stress.mjs` from the repository
+root. The harness acquires `heavy-lock.mjs` itself (do not wrap it in another
+lease), uses muted headless Edge on an ephemeral loopback port, and creates a
+fresh browser context without touching existing saves or port 4173.
+
+The default three cycles mix real map pod teleports with rapid swaps during
+loading. Set `SWAP_FLIGHT=1` to also exercise the Elune ramp/powerup flight to
+Azeroth and map back. A local NPC pack is served from
+`runtime\browser\npc-spawns.json`, or the explicit `NPC_PACK` path; without one,
+NPC stress coverage is unavailable. `SWAP_CYCLES` accepts 1–10 and `RUN_LABEL`
+names the ignored `browser\test-results\body-swap\<label>\results.json` report.
+`SOURCE_REF` optionally serves committed browser JS/HTML/CSS for a baseline;
+it still uses the locally built Wasm, so only compare compatible Wasm builds.
+
+Reports include per-phase live worker queues, outstanding RPCs, unresolved
+scene demand (not concurrent IO), main-message-handler timing, long tasks,
+heap/Wasm high-water sizes, renderer resource estimates, worker targets and
+ground readiness. They do not measure driver GPU memory, OS file caches, or
+abort an already synchronous decoder. Parked engines retain bounded model
+caches but cancel obsolete demand and retire their far/actor/water work;
+rebind generations prevent late results from publishing to a new consumer.
+
 ## Run locally
 
 Use a current hardware-accelerated Edge or Chrome. Every Edge test/probe script launches with

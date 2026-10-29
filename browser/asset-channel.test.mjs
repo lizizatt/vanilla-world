@@ -120,6 +120,20 @@ test('source cancellation and late completion reject stale results; corrupt data
   source.close();await closed;assert.equal(source.table.size,0);
 });
 
+test('cancelled queued reads and detail jobs do no IO or preprocessing before acknowledging',async()=>{
+  const reads=[],w=worker(dataSource(async path=>{reads.push(path);return new Uint8Array([1]);}));
+  w.postMessage({id:1,action:'open',folder:[]});await settle();
+  w.postMessage({id:2,action:'read',path:'obsolete',background:false});
+  // Invalid detail would fail validation if it reached preparation.
+  w.postMessage({id:3,action:'detail',background:true,detail:{tiles:null}});
+  w.postMessage({id:2,action:'cancel'});w.postMessage({id:3,action:'cancel'});
+  w.postMessage({id:1,action:'ack'});await settle();
+  assert.deepEqual(reads,[],'Cancellation must happen before opening an archive');
+  assert.equal(w.out.at(-1).code,'DEFERRED');
+  w.postMessage({id:2,action:'ack'});await settle();
+  assert.equal(w.out.at(-1).id,3);assert.equal(w.out.at(-1).code,'DEFERRED');
+});
+
 test('worker construction, send and runtime failures reject instead of leaving requests unresolved',async()=>{
   await assert.rejects(openAssetSource([],()=>{throw Error('no workers');}),/no workers/);
   const source=new AssetSource({postMessage(){throw Error('clone');},terminate(){}});

@@ -312,13 +312,24 @@ test('late reads cannot resurrect evicted tiles and errors stay explicit',async(
 });
 
 test('source reset cancels an in-flight material read without publishing or requesting an idle continuation',async()=>{
-  let resolve;
-  const messages=[],stream=new TerrainStream({read:()=>new Promise(r=>resolve=r)},{SceneTexture:Texture},
+  let resolve,shouldDefer;
+  const messages=[],stream=new TerrainStream({read:(_path,options)=>{shouldDefer=options.shouldDefer;return new Promise(r=>resolve=r);}},{SceneTexture:Texture},
     message=>messages.push(message));
   stream.setTile(0,fixture());const pending=stream.pump();
-  stream.clear();resolve(new Uint8Array(1));
+  assert.equal(shouldDefer(),false);stream.clear();assert.equal(shouldDefer(),true);resolve(new Uint8Array(1));
   assert.equal(await pending,undefined);assert.equal(messages.length,0);
   assert.equal(stream.tiles.size,0);assert.equal(stream.snapshot().cache,0);
+});
+
+test('a late minimap catalog cannot repopulate a demoted terrain stream',async()=>{
+  let resolve,shouldDefer;
+  const stream=new TerrainStream({read:(_path,options)=>{
+    shouldDefer=options.shouldDefer;return new Promise(done=>resolve=done);
+  }},{},()=>{});
+  const pending=stream.init({});
+  assert.equal(shouldDefer(),false);stream.clear();assert.equal(shouldDefer(),true);
+  resolve(new TextEncoder().encode('bad stale catalog'));await pending;
+  assert.equal(stream.catalog,undefined);assert.equal(stream.errors.size,0);
 });
 
 test('failed material extraction frees its handle without replacing the previous ready-to-load tile',()=>{

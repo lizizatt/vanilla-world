@@ -23,6 +23,26 @@ const fixture = ({ cutout = false, texture = 'leaves.blp' } = {}) => {
       } },
     reads: () => reads, freed: () => freed,
   };
+
+  test('role reset cancels required decoding without discarding the bounded warm cache',async()=>{
+    const f=fixture(),stream=new SceneStream(f.source,f.wasm);
+    stream.setTile('1:0:0',[p(1)]);stream.update(1,[0,0,0]);await stream.pump();
+    const cached=stream.cache.values().next().value,bytes=stream.bytes,decoded=f.freed();
+    let resolve,defer;
+    f.source.read=(_path,options)=>{defer=options.shouldDefer;return new Promise(done=>resolve=done);};
+    stream.setTile('1:0:0',[p(2,'new.m2')]);stream.update(1,[0,0,0]);
+    const pending=stream.pump();
+    assert.equal(defer(),false);
+    stream.clear(true);
+    assert.equal(defer(),true);assert.equal(stream.requests.size,0);
+    assert.equal(stream.bytes,bytes);assert(stream.cache.has('m2:tree.m2:[]'));
+    resolve(new Uint8Array([1]));await pending;
+    assert.equal(f.freed(),decoded,'Obsolete bytes must never enter a model decoder');
+    assert.equal(stream.cache.values().next().value,cached);
+    assert.equal(stream.position,undefined);
+    stream.setTile('1:0:0',[p(1)]);stream.update(1,[0,0,0]);
+    await stream.pump();assert.equal(stream.snapshot().instances.length,1);
+  });
 };
 
 test('bounded visual selection exactly matches full sorting without sorting the rejected tail',()=>{
@@ -143,7 +163,9 @@ test('collision bounds enclose hull vertices without changing authored visual bo
     return model;
   };
   const stream=new SceneStream(f.source,f.wasm);
-  const {value}=await stream.load({kind:'m2',path:'wide.m2',skins:[],score:0});
+  const request={key:'m2:wide.m2:[]',kind:'m2',path:'wide.m2',skins:[],score:0};
+  stream.requests.set(request.key,request);
+  const {value}=await stream.load(request);
   assert.deepEqual(value.bounds,[[-1,-1,0],[1,1,2]]);
   assert.deepEqual(value.collisionBounds,[[-300,-1,-20],[500,700,2]]);
 });
@@ -348,7 +370,9 @@ test('far model discovery leaves loading turns for the materials of already deco
     read:async path=>{reads.push(path);return new Uint8Array([1]);},
   },f.wasm,{jobs:1});
   stream.visualOnly=true;
-  const known=await stream.load({kind:'m2',path:'known.m2',skins:[],score:1200,distant:true});
+  const request={key:'m2:known.m2:[]',kind:'m2',path:'known.m2',skins:[],score:1200,distant:true};
+  stream.requests.set(request.key,request);
+  const known=await stream.load(request);
   stream.cache.set('m2:known.m2:[]',{...known,used:0});stream.bytes=known.bytes;
   stream.setDistantTile('1:0:0',[p(1,'known.m2',1200),p(2,'new.m2',1000)]);
   stream.update(1,[0,0,0]);

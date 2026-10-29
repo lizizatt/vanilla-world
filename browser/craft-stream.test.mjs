@@ -71,6 +71,16 @@ test('missing craft texture fails explicitly without publishing a partial model'
   assert.equal(messages[0].event,'craft-error');
   assert.match(messages[0].error,/missing local texture/);
 });
+test('cancelled craft loading stops before the next database read and emits no stale craft error',async()=>{
+  const f=fixture(),messages=[],reads=[];let resolve,obsolete=false,defer;
+  const source={read:(path,{shouldDefer})=>{
+    reads.push(path);defer=shouldDefer;return new Promise(done=>resolve=done);
+  }};
+  const load=loadCraft(source,f.wasm,message=>messages.push(message),()=>obsolete);
+  obsolete=true;assert.equal(defer(),true);resolve(new Uint8Array(1));
+  await assert.rejects(load,{code:'DEFERRED'});
+  assert.equal(reads.length,1);assert.equal(f.freed,0);assert.deepEqual(messages,[]);
+});
 test('an unsupported Stand rig fails rather than publishing the old sideways bind pose',async()=>{
   const f=fixture(),messages=[];
   f.wasm.SceneModel.craft=()=>{throw Error('unsupported Stand rig');};

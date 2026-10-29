@@ -48,8 +48,12 @@ export class TerrainStream {
   }
   async init(manifest) {
     this.manifest=manifest;
-    try {this.catalog=minimapCatalog(await this.source.read('textures\\Minimap\\md5translate.trs'));}
-    catch(error){this.errors.set('minimap-catalog',`Minimap catalog: ${error.message||error}`);}
+    const generation=this.generation,shouldDefer=()=>generation!==this.generation;
+    try {
+      const bytes=await this.source.read('textures\\Minimap\\md5translate.trs',{shouldDefer});
+      if(!shouldDefer())this.catalog=minimapCatalog(bytes);
+    }
+    catch(error){if(!shouldDefer())this.errors.set('minimap-catalog',`Minimap catalog: ${error.message||error}`);}
   }
   setTile(index,material) {
     this.preparing.delete(index);
@@ -134,12 +138,13 @@ export class TerrainStream {
       const tile=[...this.tiles.values()].find(t=>!t.done&&!this.errors.has(`tile:${t.index}`));
       if(tile){
         const path=key(tile.paths[tile.cursor]);
+        const shouldDefer=()=>generation!==this.generation||this.tiles.get(tile.index)!==tile;
         try {
           let mips=this.cache.get(path);
           if(mips){this.cacheHits++;}
           else {
-            mips=this.source.readTexture?(await this.source.readTexture(path,'mips')).mips
-              :terrainMips(this.decode(await this.source.read(path)));
+            mips=this.source.readTexture?(await this.source.readTexture(path,'mips',shouldDefer)).mips
+              :terrainMips(this.decode(await this.source.read(path,{shouldDefer})));
             this.loads++;
           }
           if(generation!==this.generation)return;
@@ -167,8 +172,9 @@ export class TerrainStream {
         const path=this.catalog.get(key(`${map}\\map${patch.x}_${patch.y}.blp`));
         if(!path){this.missingMinimaps.set(id,`${map} ${patch.x},${patch.y}`);this.failedFar.push(patch);return;}
         try {
-          const texture=this.source.readTexture?await this.source.readTexture(path,'minimap')
-            :this.decode(await this.source.read(path,{background:true}));
+          const shouldDefer=()=>generation!==this.generation;
+          const texture=this.source.readTexture?await this.source.readTexture(path,'minimap',shouldDefer)
+            :this.decode(await this.source.read(path,{background:true,shouldDefer}));
           if(generation!==this.generation)return;
           const rgba=this.source.readTexture?texture.rgba:resizeRgba(texture.width,texture.height,texture.rgba,MINIMAP_SIZE);
           if(this.source.fingerprint&&!this.farCacheOff)farMinimap(this.source.fingerprint,`${patch.region}:${patch.x}:${patch.y}`,rgba.slice()).catch(()=>{this.farCacheOff=true;});
