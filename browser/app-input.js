@@ -1,5 +1,6 @@
 import {DRIVE_KEYS} from './world-input.js';
 import {nearElune} from './elune-pose.js';
+import {podInSpace} from './pod-attitude.js';
 export function installInput(app) {
 const {canvas,keys,input,settings,mapPanel}=app;
 const $=id=>document.getElementById(id);
@@ -23,15 +24,24 @@ canvas.addEventListener('keydown',event=>{
 canvas.addEventListener('pointerdown',event=>{
   canvas.focus();app.resumeAudio(true);
   app.mouseButtons=event.buttons;if(event.button===0||event.button===2){app.dragging=true;canvas.setPointerCapture(event.pointerId);}
+  if(event.button===2&&!app.flight&&app.choice.vehicle==='podracer'&&podInSpace(app.client.state?.pod?.journey))canvas.style.cursor='grabbing';
 });
-canvas.addEventListener('pointermove',event=>{if(app.dragging){app.mouseButtons=event.buttons;app.orbit[0]+=event.movementX;app.orbit[1]+=event.movementY;}});
-canvas.addEventListener('pointerup',event=>{app.mouseButtons=event.buttons;app.dragging=!!(app.mouseButtons&3);});
-canvas.addEventListener('lostpointercapture',()=>{app.dragging=false;app.mouseButtons=0;});
+canvas.addEventListener('pointermove',event=>{
+  if(!app.dragging)return;
+  app.mouseButtons=event.buttons;
+  const turning=!!(event.buttons&2)&&!app.flight&&app.choice.vehicle==='podracer'&&podInSpace(app.client.state?.pod?.journey);
+  const motion=turning?(app.podOrbit??=[0,0]):app.orbit;
+  motion[0]+=event.movementX;motion[1]+=event.movementY;
+});
+canvas.addEventListener('pointerup',event=>{app.mouseButtons=event.buttons;app.dragging=!!(app.mouseButtons&3);if(!(event.buttons&2))canvas.style.cursor='';});
+const clearPointer=()=>{app.dragging=false;app.mouseButtons=0;app.orbit=[0,0];app.podOrbit=[0,0];canvas.style.cursor='';};
+canvas.addEventListener('lostpointercapture',()=>{if(app.mouseButtons)clearPointer();});
+canvas.addEventListener('pointercancel',clearPointer);
 canvas.addEventListener('contextmenu',event=>event.preventDefault());
 canvas.addEventListener('wheel',event=>{if(app.running){event.preventDefault();app.zoom(-Math.sign(event.deltaY));}},{passive:false});
 window.addEventListener('keyup',event=>keys.delete(event.code));
-canvas.addEventListener('blur',()=>{if(mapPanel.open)return;keys.clear();app.orbit=[0,0];app.dragging=false;app.mouseButtons=0;});
-window.addEventListener('blur',()=>{keys.clear();app.pauseAudio();});
+canvas.addEventListener('blur',()=>{if(mapPanel.open)return;keys.clear();clearPointer();});
+window.addEventListener('blur',()=>{keys.clear();clearPointer();app.pauseAudio();});
 window.addEventListener('focus',()=>app.resumeAudio());
-document.addEventListener('visibilitychange',()=>{keys.clear();app.last=0;if(document.hidden)app.pauseAudio();else app.resumeAudio();});
+document.addEventListener('visibilitychange',()=>{keys.clear();app.last=0;if(document.hidden){clearPointer();app.pauseAudio();}else app.resumeAudio();});
 }

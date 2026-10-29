@@ -79,13 +79,15 @@ export class WorldClient {
       if(data.error)request.reject(new Error(data.error));else request.resolve(data.result);
     };
   }
-  frame(dt,throttle,steer,flags,focus,distant=true,view,pitch=0,simTime,podEnabled) {
+  frame(dt,throttle,steer,flags,focus,distant=true,view,pitch=0,simTime,podEnabled,podControl) {
     if(!!focus!==this.poseFlying){this.discardFrame();this.poseFlying=!!focus;}
     const hop=!!(flags&8)&&!focus;
     if(hop&&!this.hopHeld)this.pendingHop=++this.hopSequence;
     this.hopHeld=hop;
     this.elapsed=Math.min(.1,this.elapsed+dt);
+    const pendingMouse=this.pendingFrame?.podControl?.mouse;
     this.pendingFrame={throttle,steer,pitch:focus?0:pitch,flags,focus,distant,sampleTime:performance.now()};
+    if(!focus&&podControl)this.pendingFrame.podControl={...podControl,mouse:podControl.mouse.map((v,i)=>v+(pendingMouse?.[i]||0))};
     if(this.farOnly&&focus)this.pendingFrame.farOnly=true;
     if(view!==undefined)this.pendingFrame.view=view;
     if(simTime!==undefined)this.pendingFrame.simTime=simTime;

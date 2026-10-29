@@ -10,7 +10,7 @@ export const POD_PITCH_SIGN=-1;
 
 /** The canonical Intent every device maps to: throttle/steer/pitch in [-1,1], bit flags (1 handbrake, 2 boost, 4 drift, 8 jump),
  *  look axes in [-1,1], zoom step and one-shot edge actions. */
-export const idleIntent=(brake=true)=>({throttle:0,steer:0,pitch:0,flags:brake?1:0,look:[0,0],zoom:0,cockpit:false,reset:false,flight:false,help:false});
+export const idleIntent=(brake=true)=>({throttle:0,steer:0,pitch:0,flags:brake?1:0,look:[0,0],orient:false,zoom:0,cockpit:false,reset:false,flight:false,help:false});
 
 export class WorldInput {
   constructor(){this.device='keyboard';this.active=undefined;this.previous=new Map();}
@@ -43,7 +43,7 @@ export class WorldInput {
       return {...actions,throttle:a[1]-a[2],steer:-a[0],pitch:a[5],
         flags:podracer?(button(pad,0)?2:0)|(button(pad,2)?4:0)|(button(pad,5)?8:0)
           :(button(pad,5)?2:0)|(button(pad,4)?4:0)|(button(pad,0)?8:0),
-        look:a.slice(3,5)};
+        look:a.slice(3,5),orient:podracer&&button(pad,4)};
     }
     const down=k=>Number(keys.has(k)),legacy=profile==='legacy';
     return {...idle,...actions,throttle:down('KeyW')-down('KeyS'),steer:down('KeyA')-down('KeyD'),

@@ -796,6 +796,7 @@ const polesFor=message=>message.poleFrame||message.poles===false?undefined:(type
 export async function runFrame(message) {
     {
     if(pod.journey&&pod.journey.parent!==(moonBody?'elune':'azeroth'))return;
+    pod.queueControl(message.focus||message.podEnabled===false?undefined:message.podControl);
     const started=performance.now();
     const p=pod.telemetry(world),focus=message.focus || Array.from(p.slice(0,3));flightFocus=message.focus?[message.focus[0],message.focus[2]]:undefined;
     if(!Array.isArray(focus)||focus.length!==3||!focus.every(v=>Number.isFinite(v)&&Math.abs(v)<1e12))throw new Error('Invalid world focus');

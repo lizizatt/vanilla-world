@@ -2,20 +2,28 @@ import {LAUNCH,validateLaunchObjects,rampCrossing,pickupCrossing,spendCharge,beg
 import {bodyOf,podGravityScale,toInertial} from './bodies.js';
 import {chartAxes} from './shared-flight.js';
 import {validateTuningRecord} from './world-tuning.js';
+import {podInSpace} from './pod-attitude.js';
 import {POLE_FRAME_SPEC} from './pole-source.js';
 import {poleLanding} from './pole-prefetch.js';
 /** Land at pose facing yaw; poleward of the frame handoff the pose and velocity are re-expressed in the pole chart (the journey itself is flown in E). */
 const land=(world,body,pose,yaw,v)=>{const p=poleLanding(POLE_FRAME_SPEC[body],pose,yaw,v);world.pod_land(new Float64Array(p?p.pose:[...pose,yaw]),new Float32Array(p?p.velocity:v));};
 
 export class PodRuntime {
-  constructor(){this.objects=[];this.remaining=0;this.spent=new Set();this.journey=null;this.time=720;this.hold=0;}
-  reset(){this.remaining=0;this.spent.clear();this.journey=null;this.hold=0;}
+  constructor(){this.objects=[];this.remaining=0;this.spent=new Set();this.journey=null;this.time=720;this.hold=0;this.control=undefined;}
+  reset(){this.remaining=0;this.spent.clear();this.journey=null;this.hold=0;this.control=undefined;}
+  queueControl(control){
+    if(!podInSpace(this.journey)){this.control=undefined;return;}
+    const pending=this.control?.mouse||[0,0];
+    this.control={active:control?.active??false,stick:control?.stick||[0,0],
+      mouse:pending.map((v,i)=>v+(control?.mouse[i]||0))};
+  }
   setObjects(objects){this.objects=structuredClone(validateLaunchObjects(objects));}
   telemetry(world){const p=this.journey?launchTelemetry(this.journey,world.telemetry()):Array.from(world.telemetry());if(this.hold)p[8]=this.hold;return p;}
   snapshot(world){const p=world?.telemetry();return {remaining:this.remaining,spent:[...this.spent],journey:this.journey,hold:this.hold,engines:p?[p[6],p[15],p[16]]:undefined};}
   adopt(value,world){
     const j=value?.journey;
     if(!j||j.mode!=='orbit'||!Number.isFinite(j.time)||!bodyOf(j.parent)||
+      (j.freeAttitude!==undefined&&typeof j.freeAttitude!=='boolean')||
       ![j.pos,j.velocity,j.direction,j.pose,j.look,j.up].every(a=>Array.isArray(a)&&a.length===3&&a.every(Number.isFinite))||
       !Array.isArray(j.controlAxes)||j.controlAxes.length!==3||!j.controlAxes.every(a=>Array.isArray(a)&&a.length===3&&a.every(Number.isFinite)&&Math.abs(Math.hypot(...a)-1)<1e-8)||
       !j.controlAxes.every((a,i)=>j.controlAxes.every((b,k)=>i===k||Math.abs(a.reduce((sum,v,n)=>sum+v*b[n],0))<1e-8))||
@@ -27,7 +35,7 @@ export class PodRuntime {
       !Array.isArray(value.engines)||value.engines.length!==3||!value.engines.every(v=>Number.isFinite(v)&&v>=0&&v<=1))throw Error('Invalid pod handoff');
     validateTuningRecord({version:1,values:j.tuning,cameraSeconds:0});
     world.pod_engine_state(new Float32Array(value.engines));
-    this.journey=structuredClone(j);this.remaining=value.remaining;this.spent=new Set(value.spent);this.hold=0;
+    this.journey=structuredClone(j);this.remaining=value.remaining;this.spent=new Set(value.spent);this.hold=0;this.control=undefined;
   }
   tick(world,input,body,time){
     const dt=LAUNCH.step;this.hold=0;
@@ -55,7 +63,7 @@ export class PodRuntime {
       return;
     }
     if(this.journey.parent!==body)return;
-    const old=this.journey,next=stepLaunch(old,{...input,boost:!!(input.flags&2),brake:!!(input.flags&1)});
+    const old=this.journey,next=stepLaunch(old,{...input,podControl:this.control,boost:!!(input.flags&2),brake:!!(input.flags&1)});
     // At an SOI transition the destination worker checks its own chart on the next step.
     const collision=next.parent===old.parent?world.pod_sweep(new Float64Array(old.pose),new Float64Array(next.pose)):0;
     if(collision===1){this.hold=1;return;}
@@ -74,6 +82,7 @@ export class PodRuntime {
       this.journey=null;return;
     }
     world.pod_engine_step(input.throttle,input.flags,(old.remaining-next.remaining)/dt);
+    if(this.control)this.control={...this.control,mouse:[0,0]};
     this.journey=next;this.remaining=next.remaining;this.time=next.time;
   }
 }

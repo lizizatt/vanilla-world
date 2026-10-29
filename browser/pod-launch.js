@@ -3,6 +3,7 @@ import {bodyOf,centreAt,toInertial,fromInertial,parentOf,BODIES,podGravityScale}
 import {chartAxes} from './shared-flight.js';
 import {TUNING_FIELDS} from './world-tuning.js';
 import {fromBasis} from './orient.js';
+import {podInSpace,turnPod,validatePodControl} from './pod-attitude.js';
 
 export const LAUNCH={angles:[15,25,45,90],radius:48,width:16,charge:15,power:172,step:1/120};
 const dot=(a,b)=>a.reduce((n,v,i)=>n+v*b[i],0);
@@ -74,6 +75,7 @@ export function gravityVector(pos,time,baseGravity=48) {
   return g;
 }
 export function stepLaunch(state,input,dt=LAUNCH.step) {
+  validatePodControl(input.podControl);
   if(!Number.isFinite(dt)||dt<=0||dt>1/30||![input.throttle,input.pitch??0,input.steer??0].every(Number.isFinite))throw Error('Invalid ballistic step');
   const throttle=input.brake?0:Math.max(-1,Math.min(1,input.throttle)),boost=input.boost&&throttle>0;
   const budget=spendCharge(state.remaining,boost,throttle,dt),tuning=state.tuning;
@@ -88,8 +90,13 @@ export function stepLaunch(state,input,dt=LAUNCH.step) {
     if(angle>=state.ramp.angle*Math.PI/180)return launchOrbit(next);
     return next;
   }
-  let direction=state.direction;
-  if(state.remaining<=0){
+  let direction=state.direction,carriedUp=state.up;
+  const control=input.podControl;
+  if(podInSpace(state)&&control&&(control.active||control.mouse.some(Boolean))){
+    ({direction,up:carriedUp}=turnPod(direction,carriedUp,control.mouse,control.active?control.stick:[0,0],dt));
+    next.freeAttitude=true;
+  }
+  if(state.remaining<=0&&!next.freeAttitude){
     const axes=state.mode==='local'?[[1,0,0],[0,1,0],[0,0,1]]:state.controlAxes;
     const look=state.mode==='local'?state.look:axes.map(a=>dot(a,state.direction));
     const yaw=Math.atan2(-look[0],-look[2])+(input.steer||0)*tuning[6]*tuning[16]*dt,pitch=Math.max(-1,Math.min(1,input.pitch||0))*20*Math.PI/180;
@@ -123,7 +130,7 @@ export function stepLaunch(state,input,dt=LAUNCH.step) {
   const pose=fromInertial(body,pos,next.time,parent===state.parent?state.pose[0]:body.centre[0]);
   const axes=chartAxes(body,pose,next.time),look=axes.map(v=>dot(v,direction));
   // Carry roll with the forward axis, rather than rebuilding "up" from the new gravity well.
-  const up=unit(add(state.up,direction,-dot(state.up,direction)));
+  const up=unit(add(carriedUp,direction,-dot(carriedUp,direction)));
   if(![...pos,...velocity,...pose,...look].every(Number.isFinite))throw Error('Nonfinite ballistic state');
   return {...next,parent,pos,velocity,pose,look,direction,up};
 }
