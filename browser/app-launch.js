@@ -1,6 +1,7 @@
 import {activeBody} from './body-shaders.js';
 import {launchObjects} from './world-store.js';
-import {validateLaunchObjects,launchAsset} from './pod-launch.js';
+import {validateLaunchObjects} from './pod-launch.js';
+import {launchProps} from './launch-kit.js';
 import {simEpoch,DAY_PERIOD,wrapTime} from './sim-clock.js';
 
 export function installLaunch(app) {
@@ -8,10 +9,8 @@ export function installLaunch(app) {
   const body=()=>activeBody().id;
   const draw=()=>{
     const spent=new Set(app.client.state?.pod?.spent||[]);
-    app.renderer.setLaunchProps(list.filter(o=>!spent.has(o.id)).map(o=>({
-      asset:launchAsset(o),textures:[],pos:o.pos,yaw:o.yaw,scale:1,space:'world'
-    })));
-    drawKey=JSON.stringify([...spent]);
+    app.renderer.setLaunchProps(list.filter(o=>!spent.has(o.id)).flatMap(o=>launchProps(o,app.gateKit)));
+    drawKey=JSON.stringify([...spent])+!!app.gateKit;
   };
   const ready=async()=>{
     const current=`${app.client.info.id}:${body()}`;
@@ -85,7 +84,7 @@ export function installLaunch(app) {
     const state=app.client.state?.pod,j=state?.journey;
     if(j&&!app.flight){simEpoch.days=Math.floor(j.time/DAY_PERIOD);app.renderer.podTime=wrapTime(j.time);}
     else app.renderer.podTime=undefined;
-    const stamp=JSON.stringify(state?.spent||[]);if((drawKey!==stamp||!app.renderer.launchProps)&&!loading)draw();
+    const stamp=JSON.stringify(state?.spent||[])+!!app.gateKit;if((drawKey!==stamp||!app.renderer.launchProps)&&!loading)draw();
     // Promise identity prevents a resumed tick from queuing a second swap.
     if(j&&j.parent!==body()&&!app.podSwap){
       app.swapHold=true;
