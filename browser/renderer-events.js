@@ -54,6 +54,7 @@ export function reset(r,{keepPlanet=false}={}) {
   r.terrainBundle=undefined;r.terrainBundleBuilds=0;
   r.sceneBundle=undefined;r.sceneBundleBuilds=0;
   r.releaseCraft();
+  if(r.particles){r.particles.data.fill(0);r.particles.physical.fill(0);r.particles.frame=undefined;}
   r.setLaunchProps?.([]);r.launchProps=undefined;
   r.craftError=undefined;
   for(const item of [...r.tiles.values(),...r.seams.values(),...r.horizon,...r.water,...r.flags,...r.gates,...r.coast.values()])r.release(item);

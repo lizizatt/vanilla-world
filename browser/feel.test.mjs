@@ -1,12 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {cameraView} from './world-camera.js';
+import {cameraView as drawCamera} from './world-camera.js';
 import {WorldInput} from './world-input.js';
 import {SFX,HEAT,heatStage} from './swe1r/sfx.js';
 import {heatColor} from './swe1r/hud.js';
 import {fillEngineBuffer,EngineEnvelope,WorldAudio} from './world-audio.js';
 import {TUNING_FIELDS,validateTuningRecord,migrateTuning} from './world-tuning.js';
 import {CameraCollision,prepareDetail} from './camera-collision.js';
+// These chase-law assertions use chart metres; planetary projection is covered by pod-render-frame.test.
+const cameraView=(rig,state,flight,dt,origin,settings={},back)=>drawCamera(rig,state,flight,dt,origin,{...settings,planet:false},back);
 
 test('local chase distance damping is time-based, rebases precisely, and clips after filtering',()=>{
   const state=[100,2,100,0],settings={cameraSeconds:.5,cameraDistance:15};

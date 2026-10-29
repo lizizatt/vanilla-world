@@ -12,11 +12,14 @@ export class PodRuntime {
   adopt(value,world){
     const j=value?.journey;
     if(!j||j.mode!=='orbit'||!Number.isFinite(j.time)||!bodyOf(j.parent)||
-      ![j.pos,j.velocity,j.direction,j.pose,j.look].every(a=>Array.isArray(a)&&a.length===3&&a.every(Number.isFinite))||
+      ![j.pos,j.velocity,j.direction,j.pose,j.look,j.up].every(a=>Array.isArray(a)&&a.length===3&&a.every(Number.isFinite))||
+      !Array.isArray(j.controlAxes)||j.controlAxes.length!==3||!j.controlAxes.every(a=>Array.isArray(a)&&a.length===3&&a.every(Number.isFinite)&&Math.abs(Math.hypot(...a)-1)<1e-8)||
+      !j.controlAxes.every((a,i)=>j.controlAxes.every((b,k)=>i===k||Math.abs(a.reduce((sum,v,n)=>sum+v*b[n],0))<1e-8))||
       !Number.isFinite(j.gravity)||j.gravity<=0||!Number.isFinite(value.remaining)||value.remaining<0||value.remaining>15||
       j.remaining!==value.remaining||!Array.isArray(value.spent)||value.spent.length>256||
       !value.spent.every(id=>typeof id==='string'&&/^[a-z0-9-]{1,80}$/.test(id))||
       Math.abs(Math.hypot(...j.direction)-1)>1e-8||
+      Math.abs(Math.hypot(...j.up)-1)>1e-8||Math.abs(j.up.reduce((sum,v,i)=>sum+v*j.direction[i],0))>1e-8||
       !Array.isArray(value.engines)||value.engines.length!==3||!value.engines.every(v=>Number.isFinite(v)&&v>=0&&v<=1))throw Error('Invalid pod handoff');
     validateTuningRecord({version:1,values:j.tuning,cameraSeconds:0});
     world.pod_engine_state(new Float32Array(value.engines));

@@ -2,11 +2,13 @@
 import {bodyOf,centreAt,toInertial,fromInertial,parentOf,BODIES,podGravityScale} from './bodies.js';
 import {chartAxes} from './shared-flight.js';
 import {TUNING_FIELDS} from './world-tuning.js';
+import {fromBasis} from './orient.js';
 
-export const LAUNCH={angles:[15,25,45,90],radius:48,width:16,charge:15,power:100,step:1/120};
+export const LAUNCH={angles:[15,25,45,90],radius:48,width:16,charge:15,power:172,step:1/120};
 const dot=(a,b)=>a.reduce((n,v,i)=>n+v*b[i],0);
 const unit=v=>{const n=Math.hypot(...v);if(!n)throw Error('Zero launch direction');return v.map(x=>x/n);};
 const add=(a,b,k=1)=>a.map((v,i)=>v+b[i]*k);
+const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
 const along=yaw=>[-Math.sin(yaw),0,-Math.cos(yaw)];
 export function validateLaunchObjects(value) {
   if(!Array.isArray(value)||value.length>128)throw Error('Launch objects must be a list of at most 128 objects');
@@ -57,8 +59,10 @@ function launchOrbit(state) {
   const before=toInertial(body,state.pose,state.time-.001),after=toInertial(body,state.pose,state.time+.001);
   const carry=after.map((v,i)=>(v-before[i])*1000);
   return {...state,mode:'orbit',pos:toInertial(body,state.pose,state.time),
+    controlAxes:axes,
     velocity:add(inertialVector(axes,state.look.map(v=>v*state.speed)),carry),
-    direction:unit(inertialVector(axes,state.look))};
+    direction:unit(inertialVector(axes,state.look)),
+    up:unit(inertialVector(axes,[Math.sin(state.ramp.yaw)*Math.sin(state.angle),Math.cos(state.angle),Math.cos(state.ramp.yaw)*Math.sin(state.angle)]))};
 }
 export function gravityVector(pos,time,baseGravity=48) {
   let g=[0,0,0];
@@ -73,7 +77,8 @@ export function stepLaunch(state,input,dt=LAUNCH.step) {
   if(!Number.isFinite(dt)||dt<=0||dt>1/30||![input.throttle,input.pitch??0,input.steer??0].every(Number.isFinite))throw Error('Invalid ballistic step');
   const throttle=input.brake?0:Math.max(-1,Math.min(1,input.throttle)),boost=input.boost&&throttle>0;
   const budget=spendCharge(state.remaining,boost,throttle,dt),tuning=state.tuning;
-  const thrust=throttle*((tuning[2]+(boost?tuning[3]:0))*(state.mode==='ramp'?1:tuning[16])+LAUNCH.power*budget.fraction);
+  const ordinary=(tuning[2]+(boost?tuning[3]:0))*(state.mode==='ramp'?1:tuning[16]);
+  const thrust=throttle*(ordinary*(1-budget.fraction)+LAUNCH.power*budget.fraction);
   const next={...state,remaining:budget.remaining,time:state.time+2*dt};
   if(state.mode==='ramp'){
     const g=state.gravity*podGravityScale(state.parent);
@@ -85,7 +90,8 @@ export function stepLaunch(state,input,dt=LAUNCH.step) {
   }
   let direction=state.direction;
   if(state.remaining<=0){
-    const body=bodyOf(state.parent),axes=state.mode==='local'?[[1,0,0],[0,1,0],[0,0,1]]:chartAxes(body,state.pose,state.time),look=state.look;
+    const axes=state.mode==='local'?[[1,0,0],[0,1,0],[0,0,1]]:state.controlAxes;
+    const look=state.mode==='local'?state.look:axes.map(a=>dot(a,state.direction));
     const yaw=Math.atan2(-look[0],-look[2])+(input.steer||0)*tuning[6]*tuning[16]*dt,pitch=Math.max(-1,Math.min(1,input.pitch||0))*20*Math.PI/180;
     const target=inertialVector(axes,[-Math.sin(yaw)*Math.cos(pitch),Math.sin(pitch),-Math.cos(yaw)*Math.cos(pitch)]);
     direction=unit(add(state.direction,target.map((v,i)=>v-state.direction[i]),-Math.expm1(-8*dt)));
@@ -101,14 +107,13 @@ export function stepLaunch(state,input,dt=LAUNCH.step) {
     return {...next,pose,velocity,direction,look:direction};
   }
   let force=direction.map(v=>v*thrust);
-  if(budget.fraction===0&&throttle>0){
-    // Ordinary engines retain their horizontal cap without deleting ballistic launch momentum.
-    const body=bodyOf(state.parent),up=chartAxes(body,state.pose,state.time)[1];
+  if(budget.fraction<1&&throttle!==0){
+    // Govern ordinary engine work on the whole airspeed, never ballistic momentum or gravity.
+    const body=bodyOf(state.parent);
     const before=toInertial(body,state.pose,state.time-.001),after=toInertial(body,state.pose,state.time+.001);
     const relative=state.velocity.map((v,i)=>v-(after[i]-before[i])*1000);
-    const horizontal=add(relative,up,-dot(relative,up)),vertical=dot(force,up),tangent=add(force,up,-vertical);
-    const proposed=add(horizontal,tangent,dt),speed=Math.hypot(...proposed),cap=Math.max(Math.hypot(...horizontal),tuning[boost?1:0]);
-    if(speed>cap)force=add(proposed.map((v,i)=>(v*cap/speed-horizontal[i])/dt),up,vertical);
+    if(Math.hypot(...relative)>=tuning[boost?1:0]&&dot(direction,relative)*throttle>0)
+      force=direction.map(v=>v*throttle*LAUNCH.power*budget.fraction);
   }
   const g=gravityVector(state.pos,state.time,state.gravity),a=add(g,force);
   const pos=add(add(state.pos,state.velocity,dt),a,.5*dt*dt);
@@ -117,14 +122,20 @@ export function stepLaunch(state,input,dt=LAUNCH.step) {
   const parent=parentOf(pos,next.time,state.parent),body=bodyOf(parent);
   const pose=fromInertial(body,pos,next.time,parent===state.parent?state.pose[0]:body.centre[0]);
   const axes=chartAxes(body,pose,next.time),look=axes.map(v=>dot(v,direction));
+  // Carry roll with the forward axis, rather than rebuilding "up" from the new gravity well.
+  const up=unit(add(state.up,direction,-dot(state.up,direction)));
   if(![...pos,...velocity,...pose,...look].every(Number.isFinite))throw Error('Nonfinite ballistic state');
-  return {...next,parent,pos,velocity,pose,look,direction};
+  return {...next,parent,pos,velocity,pose,look,direction,up};
 }
 export function launchTelemetry(state,base) {
   const p=Array.from(base),speed=state.velocity?Math.hypot(...state.velocity):state.speed;
   p.splice(0,5,...state.pose,Math.atan2(-state.look[0],-state.look[2]),0);
   p[5]=speed;p[7]=0;p[8]=0;p[11]=Math.round(p[0]);p[12]=Math.round(p[2]);p[14]=speed;
   p[17]=Math.asin(Math.max(-1,Math.min(1,state.look[1])));
+  if(state.mode==='orbit'){
+    const axes=chartAxes(bodyOf(state.parent),state.pose,state.time),up=axes.map(a=>dot(a,state.up));
+    p.splice(18,4,...fromBasis(cross(state.look,up),up,state.look));
+  }
   return p;
 }
 

@@ -404,14 +404,14 @@ impl Voyage {
 
     /// Overheating wears the engines (the hotter side alternates per episode, 60/40) and a rising obstacle contact (hold 3)
     /// damages one engine (alternating) by the speed just before it.
-    fn durability_step(&mut self, hold_before: u8, powered: f32) {
+    fn durability_step(&mut self, hold_before: u8) {
         let d = &mut self.dur;
         let speed = self.state.velocity[0].hypot(self.state.velocity[2]);
         if !d.on {
             d.pre_speed = speed;
             return;
         }
-        let rate = flats_racer_physics::heat_damage_rate(self.state.heat) * FIXED_DT * (1.0-powered);
+        let rate = flats_racer_physics::heat_damage_rate(self.state.heat) * FIXED_DT;
         let hot = rate > 0.0;
         if d.hot && !hot {
             d.hot_side ^= 1;
@@ -1067,8 +1067,7 @@ impl Voyage {
             })
             .map_err(|e| JsValue::from_str(&e));
         if result.is_ok() {
-            let protection=if flags & 2 != 0 && flags & 1 == 0 && throttle>0.0 {powered.unwrap_or(0.0)} else {0.0};
-            self.durability_step(before,protection);
+            self.durability_step(before);
         }
         result
     }
@@ -1236,11 +1235,11 @@ impl Voyage {
             return Err(JsValue::from_str("Invalid pod engine input"));
         }
         if flags & 2 != 0 && flags & 1 == 0 && throttle > 0.0 {
-            self.state.heat = (self.state.heat + flats_racer_physics::HEAT_RISE_PER_SEC * FIXED_DT * (1.0-powered)).min(1.0);
+            self.state.heat = (self.state.heat + flats_racer_physics::HEAT_RISE_PER_SEC * FIXED_DT).min(1.0);
         } else if flags & 2 == 0 {
             self.state.heat = (self.state.heat - flats_racer_physics::HEAT_COOL_PER_SEC * FIXED_DT).max(0.0);
         }
-        self.durability_step(self.hold,powered);
+        self.durability_step(self.hold);
         Ok(())
     }
 

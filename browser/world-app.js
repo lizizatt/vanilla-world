@@ -57,6 +57,7 @@ const mapPanel=new MapPanel({dialog:$('map-panel'),canvas:$('map-canvas'),stage:
   requestArt:names=>client.worldmap(names),  pose:()=>activeBody().id==='azeroth'?app.flight??client.state?.telemetry:undefined,tracks:()=>tracksFor(app.tracks,app.choice.vehicle,activeBody().id),
   bodies:()=>app.renderer?.sharedSpace?Object.values(BODIES).filter(b=>b.rail).map(b=>({id:b.id,label:b.label??b.id[0].toUpperCase()+b.id.slice(1)})):[],
   teleport:async icon=>{
+    try{await app.launch.cancel();}catch(error){app.fail(error);return;}
     const plan=teleportModePlan(icon,activeBody().id,!app.flight);
     // The in-page well swap needs the app idle, so it runs before the operation that places the pose.
     if(plan.swap) {

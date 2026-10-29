@@ -44,5 +44,7 @@ test('handoff copies inertial authority without changing momentum, rejects damag
   assert.throws(()=>p.adopt({...value,remaining:3}));
   assert.throws(()=>p.adopt({...value,spent:[{}]}));
   assert.throws(()=>p.adopt({...value,journey:{...j,tuning:[]}}));
+  assert.throws(()=>p.adopt({...value,journey:{...j,controlAxes:[j.controlAxes[0],j.controlAxes[0],j.controlAxes[0]]}},ground()));
+  assert.throws(()=>p.adopt({...value,journey:{...j,up:j.direction}},ground()));
   assert.deepEqual(p.journey,j);
 });
