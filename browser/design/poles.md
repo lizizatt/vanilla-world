@@ -1,0 +1,275 @@
+# Poles and full-world traversal (Azeroth and Elune)
+
+Status: design proposal, no code. Supersedes the "rolling tangent-plane chart" and "rotated chart swap" ideas (commits 4a15ef4b / 465ee0a6 and the polar wall are dropped; the *math* of a rotated chart is reused below, the *swap* is not).
+
+## 1. Goal and decisions
+
+User requirements (fixed):
+
+1. Drive or fly anywhere on Azeroth or Elune, **including both poles**, and around the full circumference.
+2. **Azeroth poles**: a procedural plane of ice and snow, a flagpole at the pole. Where ice meets water, an **ice shelf 1-10 m above sea level** (1 m = 1.0936 yd, so **1.09-10.94 yd**). Occasional small **icebergs in the water within ~0.5 km (547 yd)** of the ice.
+3. **Elune poles**: a flagpole each; otherwise the existing moon terrain, unchanged.
+4. **No loading delays while driving, no visible seams.**
+
+Decisions already made by the user:
+
+- Poles are fully procedural. Real WoW data stays below ~75 deg and **keeps its authored equirect chart** (E-W stretch 1.65x at Darnassus ~53 deg, 1.94x at the Kalimdor tip ~59 deg). Nothing is resampled.
+- The plan must support full circumnavigation; Rust has no longitude wrap today.
+- The seam where the authored chart meets the metric procedural zone goes over open ocean, with the scale eased over a few km.
+
+## 2. What the code does today (verified)
+
+| Fact | Where |
+|---|---|
+| One equirect chart per body: `lon=(x-cx)/R`, `lat=(cz-z)/R`. Every pole is the singular row `z = cz -/+ R*pi/2`. | `browser\equirect.js:8-11`, `browser\space.js:28-38` |
+| Azeroth `R = round(29867 / (120 deg in rad)) = 14260 yd` (circumference ~89,600 yd; the 64x64 ADT grid is only ~34,133 yd). Elune `R = 32000/(2 pi) = 5092.96 yd`, grid 60x30 tiles = exactly one circumference. | `browser\space.js:10`, `browser\bodies.js:11-12`, `browser\moon-source.js:6-7` |
+| Fly mode already wraps: longitude wraps and crossing a pole maps `lat' = pi-lat, lon+pi` and flips the heading. That is a *teleport on a singular chart*: the tiles there are the stretched equirect ones. | `browser\space.js:40-50`, `browser\flight.js:36`, `browser\app-frame.js:59` |
+| Rust drive physics is flat Y-up in chart yards; `Voyage` keeps an f64 `origin` and a `rebase()` that re-bases when the local position exceeds 256 yd. No longitude wrap, no pole handling. | `client\crates\flats-racer-web\src\voyage.rs:113,150,162,231-239` |
+| `sample_at(p)`: `locate(p)` finds a resident tile, else falls through to **analytic ocean** (`contains(manifest.ocean,p)`, or `exterior_ocean` for manifest v3), else `availability 2` (void). So open ocean needs **no tiles**. | `voyage.rs:246-345`, `world.rs:256-275` |
+| `Manifest` already holds multiple `Region`s (Kalimdor, Eastern Kingdoms) with a `placement`, each with its own tile grid; Elune is one region built by `build_moon`. | `voyage\types.rs:7-13,61-74`, `world.rs:65-127,145-185` |
+| Elune terrain is a pure function of a unit direction (integer-hash noise, rounded to 1/64 yd); only `chartDir(x,z)` ties it to the chart. Tiles are synthesised in JS as fake ADTs, so no data and no wasm port. | `browser\moon-terrain.js:1-3,55-58`, `browser\moon-source.js:1-8` |
+| Sun/clock: Azeroth keeps the global clock curve (`daylightAt(t)`, bit-identical); Elune uses the true position-based sun. `localSunAt` already works from `planetFrame(...).up`, so it is fine at a pole (up is defined; east/south are not). | `browser\sky-coupling.js:15-28`, `browser\local-sun.js:9-12`, `browser\clouds.js:19-22` |
+| Cloud flow already fades its zonal wind to zero toward the pole (80-89 deg). | `browser\cloud-flow.js:14-17` |
+| Pod launch lands through `world.pod_land(pose4, velocity3)`. | `browser\pod-driver.js:62-66`, `voyage.rs:1278` |
+| Tile residency is capped by the memory budget (`bodyTileCap`) and streamed by `stream()` in the worker, nearest first. | `browser\memory-budget.js:137-141`, `browser\world-engine.js:238-242` |
+
+Consequences:
+
+- The distortion is **only the chart**. Terrain data is already direction-based (Elune) or ocean/analytic (Azeroth poles). So nothing about the *content* needs resampling.
+- Open-ocean and procedural zones need **no authored tiles**, so a frame change inside them can be loading-free if the destination's tiles are synthesised in JS and pre-streamed.
+
+## 3. Challenge to the "rolling tangent-plane chart"
+
+A chart re-centred continuously on the pod must regenerate the whole resident lattice at every re-centre, and everything keyed to chart coordinates (tracks, flags, graft, NPCs, map poses, far shaders, pose links) must follow. That is the hitch the chart-swap prototype showed (~8 s per swap, `moon-chart` experiment).
+
+With poles decided to be procedural, something simpler is correct:
+
+> **Three fixed frames per body, handed off only inside procedural/ocean content**:
+> **E** (today's equirect chart, authored data, wraps in longitude), **N** and **S** (a *pole chart*: the same equirect chart, rotated so the pole sits at the chart origin).
+
+Why this is enough:
+
+- Authored content (Kalimdor, Eastern Kingdoms, the Moonglade graft, the Elune Loop) lives in E and never moves. No rolling.
+- A pole chart centred on the pole has the pole as an ordinary regular point (chart origin, lat 0 lon 0 of the rotated chart). Within the cap radius (~18-30 deg) the stretch is `1/cos(<=30 deg) <= 1.15`, and the pole itself has stretch 1. No singularity, no streaking.
+- A rotated equirect is a **3x3 rotation Q applied to the direction before the existing equirect math** (`dir_E = Q * dir_pole`). Every consumer that already speaks equirect (shaders, `planetFrame`, cloud `worldAt`, `moonHeightDir(chartDir)`) gets one extra matrix, not a new projection. The azimuthal-equidistant alternative is exactly metric to the rim but needs a new branch in every WGSL copy; keep it as the fallback only if 1.15x is judged visible.
+- Hand-off happens over **ocean (Azeroth) or procedural regolith (Elune)**, where the destination's content is a pure function. It is a pose re-expression plus a pre-streamed tile set, not an engine re-open.
+
+If you still dislike discrete frames, a fully continuous alternative exists (a pole-centred azimuthal chart *plus* a warped E near the seam), but warping E-W scale per row introduces shear proportional to the distance from the central meridian (tens of km), which is why I do not recommend it.
+
+### Frame model
+
+```mermaid
+flowchart TB
+  subgraph S["Frame S (south pole chart, rotated equirect, metric)"]
+    S0["origin = south pole, flagpole at (0,0)"]
+  end
+  subgraph E["Frame E (existing equirect chart, authored data, wraps E-W)"]
+    E0["lat 0..ramp: authored tiles + analytic ocean"]
+    E1["ramp zone: speed ease, ocean/regolith only"]
+  end
+  subgraph N["Frame N (north pole chart, rotated equirect, metric)"]
+    N0["origin = north pole, flagpole at (0,0)"]
+  end
+  E1 -- "hop at handoff lat (hysteresis band)" --> N0
+  N0 -- "hop back" --> E1
+  E1 -- "hop" --> S0
+  CAP["cap(dir): ice plane, shelf 1.09-10.94 yd, icebergs, flagpole\n(pure fn of 3D direction)"] --> N0
+  CAP --> S0
+  MOON["moonHeightDir(dir) (existing)"] --> N0
+  MOON --> S0
+```
+
+## 4. Frame model in detail
+
+### 4.1 Frames
+
+`browser\frames.js` (new, pure, mirrored by Rust constants and a unify-style test like `unify.test.mjs`):
+
+```
+Frame { id: 'E'|'N'|'S', Q: 3x3 (dir_E = Q * dir_frame), centre, radius }
+frameFor(body, dir, current)  -> id, with hysteresis
+hop(pose, vel, yaw, from, to) -> { pose, vel, yaw }   // exact, closed form
+```
+
+- E: identity Q, today's `centre` (`WORLD_CENTRE` for Azeroth), unchanged coordinates. **Every existing pose, track, gate, flag, ramp, NPC and pose link stays valid with an implicit `frame: 'E'`.**
+- N/S: Q rotates the pole to the chart origin; chart x = east along the rotated equator, chart z = south, origin = pole. The chart is local (small patch), so there is no wrap and no seam inside it.
+- Heading convention at the exact pole: **chart yaw is the heading**, with chart -z ("up the screen" at yaw 0) pointing along the lon-0 meridian away from the pole in N, and along the same meridian in S. At the pole the compass shows "POLE" plus a bearing to the lon-0 meridian (grid heading), never a geographic N/E.
+
+### 4.2 Hand-off (hop)
+
+- Trigger: `|lat|` crosses `handoff` in E, or `colat` crosses the same circle in N/S, with a hysteresis band (+-1 deg) so jitter on the circle cannot ping-pong.
+- A hop is a pure re-expression: position through the body direction, heading through the Jacobian (`chartVector`, meridian convergence = longitude difference), **true ground speed conserved**. The geometry the player sees is identical before and after; only the coordinate system under it changes.
+- Pre-stream: from `ramp start` onward the worker streams the destination frame's synthesized tiles around the *predicted* hop position (same `stream()` window, `world-engine.js:238-242`), so the hop finds them resident (no `availability 1`, no stall).
+- Rust: `Voyage` holds all three frames at once as regions in one manifest (see 6), and a hop is an atomic `origin`/position/yaw/velocity re-seat in the style of the existing atomic rebase and its rollback test (`voyage\tests.rs:422`).
+
+Parameters (per body, tunable):
+
+| | ramp start | handoff | cap/ice edge | notes |
+|---|---|---|---|---|
+| Azeroth | 62 deg | **72 deg** | ice edge ~80 deg (colat ~10 deg = ~2.5 kyd) | Kalimdor tip 59 deg, WDL/ADT grid ends ~75 deg; seam is open ocean |
+| Elune | 40 deg | **60 deg** | none (existing moon terrain) | graft and Elune Loop are near the equator |
+
+### 4.3 Scale ease (the authored-chart / metric seam)
+
+Equirect stretch at lat 72 deg is 3.24x: the same pod command moves the pod 3.24x slower E-W in *true* yards than N-S. A hop that conserves true speed would make E-W motion suddenly 3.2x faster. So inside the ramp zone (Azeroth 62-72 deg = ~2.5 kyd of arc; Elune 40-60 deg) Rust applies a latitude **metric ramp** `m(phi)` to the *E-W chart displacement* of the pod:
+
+```
+m = 1                          phi <= ramp_start
+m = lerp_smooth(1, 1/cos(h))   ramp_start < phi < handoff      (h = handoff lat)
+dx_chart_applied = dx_physics * m
+```
+
+so true E-W speed approaches the pod's real speed exactly at the hop and is continuous across it. Chart x is still `R*lon`, so poses stay consistent; only the integrator differs. Only ocean/regolith exists in the zone, so nothing authored is distorted (rule: validate that no track/gate/ramp is authored inside the ramp zone). Below `ramp start` behaviour is bit-identical to today (golden shots unchanged).
+
+### 4.4 Longitude wrap (E frame)
+
+- Azeroth: circumference 2*pi*14260 = ~89,600 yd. Only ~34,133 yd has tiles, the rest is analytic ocean. Wrap = **shift `origin` by +-2*pi*R and re-seat** (the f64 `origin` already exists), applied before `locate`. Authored tiles are keyed by position, so `locate` also needs the wrapped coordinate.
+- Elune: the 60-tile lattice spans exactly one circumference (32,000 yd), so `locate` takes the tile column **modulo 60** and the JS generator is already direction-based, so heights agree across the wrap bit for bit.
+- JS: `wrapFlat` (`space.js:41-50`) stays for fly mode longitude only; its pole flip (`flight.js:36`) is replaced by a real frame hop (L4).
+
+## 5. Procedural cap function
+
+Pure function of the 3D unit direction `d` (body frame). Integer-hash value noise only, output rounded to 1/64 yd, same scheme as `moonHeightDir` (`moon-terrain.js:1-3`), so any later port matches bit for bit and tiles agree on every shared edge. **No data, no loading beyond tile synthesis** (Elune tile cost has not been profiled in isolation; the spike measures it).
+
+```
+colat   = acos(|d.y|)                        // angle from the nearest pole
+edge    = EDGE0 + A*fbm(lon-only noise)      // shelf edge colatitude, ~10 deg +- 1.5 deg
+inIce   = colat < edge
+shelfH  = 1.09 + (10.94-1.09)*smoothnoise(d*k)   // yd above sea, 1-10 m
+iceH    = shelfH                              // flat plane, tiny sastrugi (+-0.15 yd) for texture only
+bergs:  grid cells ~300 yd on the sphere, hash -> 12% occupied, jittered centre,
+        radius 6-25 yd, faceted top (max of 3-5 planes), top 1-6 yd above water,
+        only for  edge < colat < edge + 547 yd/R  (0.5 km band)
+ground  = max(iceH if inIce else -inf, berg top)
+water   = sea level where ground < sea
+```
+
+Details and rules:
+
+- The ice **shelf edge** is a short steep ramp (1-2 yd run) so the hover pod can drive off it and fall into the water, and so the edge is a clean silhouette in the minimap. Bergs only in the 0.5 km band, so the open ocean stays open.
+- Beyond the band to the seam: plain ocean (same analytic ocean as today, sea level 0).
+- The **flagpole** is a placed doodad at the chart origin of N and S (and on Elune): a procedural mesh instance (pole ~14 yd, flag ~4x3 yd), with collision via `set_scene_bounds` (`voyage.rs:918`), the same path other scenery boxes use. It stands at the exact pole in the pole frame, so no seam logic is needed.
+- Surface colours (snow white/ice blue for Azeroth, with slight blue in shadow; none for Elune, which keeps regolith) are produced from the **same function** for near tiles, the minimap, and the globe colour grid, so far/near/map agree.
+- **Elune**: pole frames call `moonHeightDir`/`moonAlbedo` with the pole-chart direction (`chartDir` gains the rotation Q). No fade, no cap. Flagpole only.
+
+## 6. Rust / wasm changes (per file)
+
+All in **one cargo build group** (R1). No change to the physics crate (`flats-racer-physics\src\lib.rs`): the pod stays flat Y-up; the ramp is applied by the caller.
+
+| File | Change |
+|---|---|
+| `voyage\types.rs:7,61` | `Region` gains `frame: u8` and a frame table (`Q`, hop circle, ramp start) in `Manifest`; bump manifest `version`. |
+| `world.rs:65-127,145-185` | `build_world`/`build_moon` add N and S pole regions (small grids, e.g. ~18x18 tiles Azeroth, ~12x12 Elune) with `placement` rectangles far enough apart that frames never overlap in flat space. Keep region ids stable (regions 0-1 stay Kalimdor/EK). |
+| `world.rs:256-275` | `locate`/`exterior_ocean`: wrap the x coordinate for E (shift/modulo), restrict the existing analytic ocean branch to E, and treat pole regions as tile-only (cap content is synthetic tiles). |
+| `voyage.rs:231-239` | Extend `rebase()` with `hop(frame)` (atomic, same rollback shape as the existing rebase); frame id lives in `Voyage` state and is returned to JS in telemetry. |
+| `voyage.rs:246-345` | `sample_at` is frame-aware (region by frame); no new analytic branch needed for poles. |
+| `voyage.rs:465-506` | `advance`/`advance_substep` apply the metric ramp `m(phi)` to the E-W displacement in E and trigger `hop` after the substep. |
+| `voyage.rs:434`, `1278` | `restore_pose` and `pod_land` take a frame id (default E). |
+| `voyage\tests.rs` | Tests: ramp continuity, hop round trip, wrap, hysteresis, no `availability 1` at the hop with pre-streamed tiles. |
+| `flats-racer-web\src\lib.rs`/bindings | Expose frame id in the telemetry vector (append, do not reorder). |
+
+Wasm rebuild points: **R1 only** (everything above together). Everything else is JS-only and can be built and shipped first.
+
+## 7. JS / worker / renderer changes
+
+- `browser\frames.js` + `frames.test.mjs` (new): frame defs, `frameFor`, `hop`, `chartVector`, metric ramp (mirrored in Rust, guarded like `unify.test.mjs`).
+- `browser\pole-source.js` (new): synthesises pole-frame ADTs (Azeroth ice cap and Elune regolith) the way `moon-source.js` does; flagpole instance; iceberg placement is part of terrain (no doodads).
+- `world-engine.js:238-242` `stream()`: window follows the predicted hop target; `restorePose`/`pod_land` get a frame argument; protocol message for `hop` (protocol files touched recently on main; coordinate).
+- `space.js:28-38`, `planet-frame.js:9-21`: `planetFrame`/`subPoint`/`toPlanet`/`fromPlanet` take a frame (Q). `latLonOf` remains the only chart<->lat/lon function.
+- Shaders (bend, surface, lights, cloud `worldAt`): one `mat3` frame uniform applied before the equirect math; extend `unify.test.mjs` mirror guard. **Per-draw frame**, because for a few frames after a hop the horizon/near instances of the previous frame may still be drawn; they are drawn under their own frame uniform and expire as the pre-hop tiles evict (see risks).
+- Fly mode: `flight.js:36` replaced by `frameFor` + `hop` on the same thresholds; keeps camera attitude by converting the quaternion through `chartVector` (the earlier `turnAround` hack at `app-frame.js:59` is removed).
+- Pose links: `pose.frame` (optional, default `E`); restore accepts it. Pose export of a pole pose is stored in its own frame (no conversion needed because every frame is a legal chart).
+- Camera: collision (`cameraCollision`) is chart-independent (uses `max(ground, water)`); pole poses only need the pole-frame ground query. Chase camera yaw hop is applied together with the pod hop in the same frame (no visible swing).
+
+## 8. Elune vs Azeroth
+
+| | Azeroth | Elune |
+|---|---|---|
+| Pole content | Ice plane + shelf + bergs + flagpole | Existing moon terrain + flagpole |
+| Authored data | Kalimdor/EK below ~59 deg; keep chart | Moonglade graft + Elune Loop near equator; keep chart |
+| Seam over | Open ocean (62-72 deg) | Procedural regolith (40-60 deg), no visible material change (same function) |
+| Ocean | Analytic E ocean continues in N/S regions up to the shelf | None; no water except the Moonglade lake |
+| Lighting | Clock curve (see Q2) | Position-based sun: poles get low-sun long shadows and permanent twilight unless tilt is added (Q2) |
+| Wrap | 89,600 yd, origin shift | 32,000 yd, modulo 60 columns |
+| Handoff | 72 deg, ramp 62-72 | 60 deg, ramp 40-60 |
+| Gravity | `POD_GRAVITY_SCALE.azeroth=1` | `.elune=0.5` (`bodies.js:15`) |
+
+## 9. Cross-cutting features
+
+- **Shadows**: shadow/directional light uses the local sun already position-based on Elune; on Azeroth it follows the clock curve, so at the poles the sun direction is *the same as everywhere*. Because pole frames use rotated axes, the light vector must be rotated by Q once per frame (not recomputed per tile). Test with sun elevation sampled at the pole.
+- **Camera**: orbital/chase camera up vector comes from `planetFrame.up`, fine at the pole; yaw is a grid yaw. `cameraCollision` clamps above `max(terrain, water)+margin` (already in place).
+- **Compass / HUD**: heading readout in pole frames is grid heading; show "POLE" within ~200 yd of the flagpole; `bearing()` (`race.js:114`) is chart-local so gates in a pole frame work if tracks carry a frame.
+- **Tracks / gates / ramps**: stored in chart yards with an implicit `frame: 'E'`. Add optional `frame` to track and ramp records; v1 disables the track editor inside the ramp zone and pole frames (greyed with a message), v2 allows pole-frame tracks (a "pole run" track around the flagpole is a good showpiece).
+- **Minimap / map panel / world map**: the equirect map art ends at the top/bottom rows; render ice caps as white bands above ~78 deg (from the same cap colour function) and add pole icons that teleport into N/S. Click-to-teleport poles resolve through `frameFor(dir)`.
+- **Far globe / space map art**: globe colour/height grids (`PLANET_STATE` grids in `renderer-events.js:17`) are filled from the cap function above 75 deg (cross-fade 70-75) so the globe shows white caps that match the near view; far shelf/berg detail is not drawn (sub-pixel).
+- **Pod launch landing**: ballistic landing resolves the target in 3D direction; the landing step calls `frameFor(dir)` and seats via `pod_land(pose, vel, frame)`. A launch that crosses a pole is simulated in inertial/globe space already (`pod-launch.md`), so only the **final seat** needs the frame.
+- **Sound/music**: no change; zones for polar frames need an area id (add synthetic `ICE_CAP` area like `ELUNE_AREA`, `moon-terrain.js` convention).
+- **Clouds**: curved shell clouds use true planet radius (`clouds.js:23-24`); the cloud `worldAt` needs the frame matrix (above). Flow already fades to zero at the pole (`cloud-flow.js:27`).
+
+## 10. Open items flagged separately (not in this design's scope)
+
+- **Polar day/night** (Q2).
+- **Planet ripple at speed**: the user-reported distortion of the planet while moving fast is a separate bug (suspected bend/precision at velocity) and must not be conflated with polar rendering; verify after L3 whether it persists in pole frames.
+
+## 11. Performance and budget
+
+- p99 handler target ~20 ms and 0 console errors (existing drive gate). Per frame additions: one mat3 multiply in `planetFrame`, one latitude test and the ramp multiply per physics substep. Negligible.
+- Tile synthesis: unmeasured today (the `ms` values in `elune-pose-shot` output are per-tile frame metrics, ~14-18, not synthesis time); the pole cap is simpler (plane + noise), target **<= 10 ms/tile**, to be measured in the spike; resident tiles are bounded by `bodyTileCap` (`memory-budget.js:141`), the pole regions share that budget (they never add to it because only the frame in use plus the pre-streamed destination are resident).
+- **Hop frame cost**: re-express pose, swap frame uniform, and (at most) drop/evict the previous frame's far tiles over several frames; budget **< 2 ms** in the hop frame, and zero worker round trips on the critical path (tiles pre-streamed).
+- Memory: pre-streamed destination tiles (<= 9) for ~3 s around each hop; within the existing cap.
+
+## 12. Test and gate plan
+
+Unit (node:test):
+
+- `frames.test.mjs`: hop round trip (position, heading, ground speed, many random poses), hysteresis (no ping-pong on the circle), wrap at +-pi*R, ramp continuity and `m=1` below ramp start, rotated-chart distortion bound `<= 1.15` inside the cap radius, pole heading convention.
+- `pole-source.test.mjs`: cap determinism (same seed/direction = same bytes), edge agreement across tile and chunk borders, shelf height in 1.09-10.94 yd, bergs only inside 0.5 km and within size range, ice colour agrees between near/minimap/globe, flagpole at origin.
+- Rust: ramp continuity, atomic hop and rollback, wrap `locate`, `availability` never 1 across a hop with pre-streamed tiles.
+- Mirror guards: WGSL `mat3` frame vs `frames.js` in `unify.test.mjs`.
+
+Real-data smokes (via `heavy-lock.mjs`):
+
+- **Pole crossing** with `driving-smoke.mjs`: add `POLE_CROSS=1` (env style already used there: `TELEPORT_BODY`, `YAW`, `DRIVE_SECONDS`); spawn at lat 60 yaw toward the pole, hold W through the pole and out the other side on both bodies. Assertions: 0 console errors; exactly the expected hops (2); true ground speed continuous across hops (|delta| < 3 %); no teleport > N yd per frame in 3D; **0 frames with tile availability 1** (no loading); handler p99 < 20 ms; no pixel discontinuity at the seam (shot diff of the frames before/after the hop).
+- **Circumnavigation** at lat 0 and lat 60 on both bodies: drive one full circumference; position continuity at the wrap (`origin` shift), no errors, no stall.
+- Shots at lat 60 / 75 / 85 / pole on both bodies (`elune-pose-shot.mjs` with `POSES`), before/after.
+- **Golden Azeroth gates** (coordinator-run): below the ramp start behaviour is bit-identical, so goldens must not change.
+
+## 13. Layers, effort, order
+
+| # | Layer | Effort | Wasm |
+|---|---|---|---|
+| **L0** | `frames.js` (+tests), cap function, pole-source tile synth, flagpole mesh | **M** | JS only |
+| **SPIKE** | See below: cap + seam measurement | **S** | JS only |
+| **L1** | Pole-frame near rendering in a *test* body-world (like `moonEngine`): open N/S as regions, drive on the cap without hops | **M** | JS only (reuses regions) |
+| **L2** | Rust: frame regions, E wrap, hop, metric ramp, `restore_pose`/`pod_land` frame arg, tests (**R1**) | **L** | **R1** |
+| **L3** | Renderer frame uniform (`mat3`) in bend/surface/lights/cloud, per-draw frame, globe caps | **L** | JS only |
+| **L4** | Fly-mode hop, pose-link `frame`, restore retry, camera yaw hop | **M** | JS only |
+| **L5** | Map panel/minimap caps, compass/HUD, tracks `frame` field, pole teleports, pod-launch landing | **M** | JS only |
+| **L6** | Lighting decision (Q2), polish, perf tuning, optional pole-frame tracks | **S-M** | none |
+
+Order: L0 -> SPIKE -> L1 -> **R1 (L2)** -> L3 -> L4 -> L5 -> L6. L0/L1/L3/L4/L5 are JS-only, so only one cargo build is needed; do not start L3 against an unmerged R1 shape (agree the frame uniform and telemetry layout first).
+
+### Recommended first spike (JS only, no cargo)
+
+1. Implement the cap function and `pole-source.js` for Azeroth N.
+2. Open the cap as a standalone region (the existing Elune-style engine path) and place a *flat* seam rectangle of ocean beside it, with the ice edge ~10 deg from the pole and a camera at the 72 deg seam.
+3. Measure: **tile synthesis ms (p50/p99)**, time from arrival to first resident tile (should be 0 when pre-streamed), **seam visibility** (shot diff across the ocean/ice colour and height at the seam; waves/normals mismatch), shelf-edge silhouette quality and berg density.
+4. Output: numbers plus shots; go/no-go for the rotated-equirect pole frame vs the azimuthal fallback.
+
+## 14. Risks and unknowns
+
+- **Dual-frame rendering during a hop** (largest): near/horizon instances placed in the previous frame must keep drawing correctly while the new frame's tiles take over; mitigated by per-draw frame uniforms and by hopping over open ocean (no authored instances within view except far horizon landmarks like the Nordrassil landmark, which should be converted by `hop` like any instance).
+- **Worker protocol churn**: `world-engine.js` / `world-client.js` / worker protocol were just changed on main; `stream()` plus `restore` paths must be re-read before L2/L3.
+- **Authored-chart seam at the ocean**: the wave/ocean normal texture is in chart yards; across the hop the wave pattern is continuous in true space but not in chart space (a visible, slow wave stretch in the ramp zone). Mitigation: fade ocean detail with distance and do the hop at the point of minimum stretch change; measure in the spike.
+- **Far horizon/globe art** needs the same caps; mismatch between near white and far blue would be a visible pop at the transition altitude.
+- **Pose-link compatibility**: add `frame` as optional; old links restore in E exactly as today.
+- **Moonglade graft / tracks in E only**: pole frames have no graft; teleports from a pole to Moonglade hop to E.
+- Chart stretch inside a pole frame reaches 1.15x at the cap rim for Elune (30 deg); acceptable for regolith, check in shots; if not, shrink the cap radius or use the azimuthal chart.
+
+## 15. Open questions for the user
+
+1. **Pole frame mapping**: rotated-equirect pole frames (recommended: stretch <= 1.15 at the rim, reuses every shader) or azimuthal-equidistant pole frames (exact metric to the rim, needs a new shader branch)?
+2. **Polar day/night**: Azeroth uses a global clock curve and has no axial tilt, so every point, including the poles, gets the same day/night; Elune's position-based sun leaves the poles in permanent grazing light. Do you want **axial tilt and seasons** (true midnight sun / polar night, shadows sweep around the flagpole) or keep "no tilt" and just have long shadows at the pole? Recommendation: add a small tilt only to the **sun direction used near the poles** later (L6); keep the global clock until then.
+3. **Pole tracks**: should v1 forbid placing tracks/gates in pole frames and the ramp zone (recommended), or support them immediately?
+4. **Ice cap extent**: cap edge ~80 deg (colat ~10 deg, ~2.5 kyd radius) with a ~548-yd berg belt; is that the scale you want, or a larger/smaller ice cap?
+5. **Flagpole**: one tall pole with a flag at each pole, plain procedural, or a landmark prop (e.g. a banner/obelisk) with an area/zone name ("The Pole")?
