@@ -32,7 +32,8 @@ lease), uses muted headless Edge on an ephemeral loopback port, and creates a
 fresh browser context without touching existing saves or port 4173.
 
 The default three cycles mix real map pod teleports with rapid swaps during
-loading. Set `SWAP_FLIGHT=1` to also exercise the Elune ramp/powerup flight to
+loading, followed by four immediate swaps without awaiting worker replies.
+Set `SWAP_FLIGHT=1` to also exercise the Elune ramp/powerup flight to
 Azeroth and map back. A local NPC pack is served from
 `runtime\browser\npc-spawns.json`, or the explicit `NPC_PACK` path; without one,
 NPC stress coverage is unavailable. `SWAP_CYCLES` accepts 1–10 and `RUN_LABEL`

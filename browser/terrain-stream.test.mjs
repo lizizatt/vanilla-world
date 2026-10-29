@@ -3,6 +3,15 @@ import assert from 'node:assert/strict';
 import {TerrainStream,minimapCatalog,resizeRgba,terrainMips,TERRAIN_CACHE_LIMIT} from './terrain-stream.js';
 import {WorldRenderer,terrainEdgeMask} from './world-renderer.js';
 
+test('a replaced horizon index releases the old GPU allocation',()=>{
+  const renderer=Object.create(WorldRenderer.prototype),next={};let destroyed=0;
+  Object.assign(renderer,{manifest:{},indices:new Map([[0,{destroy(){destroyed++;}}]]),buffer:()=>next});
+  const old=globalThis.GPUBufferUsage;globalThis.GPUBufferUsage={INDEX:1};
+  try{renderer.event({event:'horizon-index',region:0,indices:new Uint32Array([0])});}
+  finally{if(old===undefined)delete globalThis.GPUBufferUsage;else globalThis.GPUBufferUsage=old;}
+  assert.equal(destroyed,1);assert.equal(renderer.indices.get(0),next);
+});
+
 test('initial worker geometry waits for manifest and atlas configuration without dropping events',()=>{
   const renderer=Object.create(WorldRenderer.prototype);
   renderer.pendingEvents=[];

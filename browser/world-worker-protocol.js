@@ -65,6 +65,7 @@ export async function handle(message) {
   } else if(message.action==='reset') {
     await resetWorld();
   } else if(message.action==='rebind') {
+    postMessage({event:'renderer-bound',id:message.id});
     await rebindRenderer(message.replay!==false);
   } else if(message.action==='retry') {
     await retryWorld();

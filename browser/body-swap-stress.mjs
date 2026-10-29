@@ -16,6 +16,7 @@ const sourceRef=process.env.SOURCE_REF&&execFileSync('git',['rev-parse','--verif
 const sourceFiles=new Map();
 const release=await acquireHeavyLock(`body-swap-${label}`);
 let browser,server,page,deadline;
+const activeRequests=new Set();
 const result={head:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),sourceRef,cycles,flight:process.env.SWAP_FLIGHT==='1',
   phases:[],errors:[],warnings:[],workers:[],network:{active:0,peak:0,failed:[]}};
 const mime={'.html':'text/html','.js':'text/javascript','.mjs':'text/javascript','.wasm':'application/wasm',
@@ -24,7 +25,9 @@ const mime={'.html':'text/html','.js':'text/javascript','.mjs':'text/javascript'
 function instrument(path,text) {
   if(path==='/world-app.js')return text+'\nglobalThis.swapStressApp=app;\n';
   if(path==='/world-client.js')return text.replace("if(data.event==='world-error')",
-    "if(data.event==='stress-probe'){worker.stress=data.metrics;return;}if(data.event==='world-error')");
+    "if(data.event==='stress-probe'){worker.stress=data.metrics;return;}if(data.event==='world-error')")
+    .replace('const id=this.requests.open({resolve,reject,action});',
+      'const id=this.requests.open({resolve,reject,action});this.worker.stressRpcPeak=Math.max(this.worker.stressRpcPeak||0,this.requests.size);');
   if(path==='/asset-channel.js')return text.replace("if(['progress'",
     "if(data.event==='asset-stress-probe'){this.stress=data.metrics;return;}if(['progress'");
   if(path==='/world-worker.js')return text+`
@@ -33,7 +36,7 @@ setInterval(()=>postMessage({event:'stress-probe',metrics:stressProbe()}),250);
 `;
   if(path==='/world-engine.js')return text+`
 export function stressProbe(){return {
- rebind:rebindToken,wasmBytes:wasm?.memory.buffer.byteLength||0,sourcePending:source?.table?.size||0,source:{...source?.stats,...source?.stress},
+ rebind:rebindToken,horizonPatches:horizon?.patches,wasmBytes:wasm?.memory.buffer.byteLength||0,sourcePending:source?.table?.size||0,source:{...source?.stats,...source?.stress},
  terrainRead:!!terrainRead,geometry:!!geometryJob,detailBusy,detailPending:detailPending?.tiles.size||0,
  materialBusy,materials:terrainMaterials.size,sceneBusy:!!scene?.busy,sceneRequests:scene?.requests.size||0,
  scenePending:scene?[...scene.requests.keys()].filter(k=>!scene.cache.has(k)&&!scene.failures.has(k)).length:0,
@@ -84,7 +87,6 @@ try {
   });
   await targets.send('Target.setDiscoverTargets',{discover:true});
   const context=await browser.newContext({viewport:{width:1280,height:720},serviceWorkers:'block'});
-  const activeRequests=new Set();
   context.on('request',r=>{activeRequests.add(r);result.network.active=activeRequests.size;result.network.peak=Math.max(result.network.peak,activeRequests.size);});
   const complete=r=>{activeRequests.delete(r);result.network.active=activeRequests.size;};
   context.on('requestfinished',complete);
@@ -107,13 +109,18 @@ try {
   const sample=()=>page.evaluate(()=>{
     const app=swapStressApp,clients={[app.client.bodyId||'opening']:app.client,...app.engines},r=app.renderer;
     return {at:performance.now(),body:app.client.bodyId,busy:app.busy,running:app.running,heap:performance.memory?.usedJSHeapSize,
-      engines:Object.fromEntries(Object.entries(clients).map(([id,c])=>[id,{rpc:c.requests.size,inFlight:c.inFlight,...c.worker?.stress}])),
+      engines:Object.fromEntries(Object.entries(clients).map(([id,c])=>[id,{rpc:c.requests.size,rpcPeak:c.worker?.stressRpcPeak||0,inFlight:c.inFlight,...c.worker?.stress}])),
       gpu:worldEvidence.gpuBytes,render:worldEvidence.render,tiles:r.tiles.size,textures:r.textures.size,assets:r.assets.size,
+      horizonCount:r.horizon.length,pod:app.client.state?.pod,telemetry:app.client.state?.telemetry.slice(0,6),
+      duplicateHorizon:r.horizon.length-new Set(r.horizon.map(h=>`${h.region}:${h.cell}`)).size,
       groundReady:!app.flight&&!!app.client.state?.required.every(i=>app.client.state.resident.includes(i))&&!app.client.state?.scene?.waitingCollision&&r.tiles.size>0,
       errors:worldEvidence.errors.slice(),swaps:worldEvidence.bodySwaps||0};
   });
   async function phase(name,action,dwell=500) {
-    await page.evaluate(name=>{swapStress.phase=name;},name);
+    await page.evaluate(name=>{
+      swapStress.phase=name;
+      for(const c of [swapStressApp.client,...Object.values(swapStressApp.engines)])c.worker.stressRpcPeak=c.requests.size;
+    },name);
     const row={name,start:Date.now(),samples:[]};result.phases.push(row);
     console.log(`[body-swap] ${name}`);
     let sampling=true;
@@ -129,7 +136,7 @@ try {
     }catch(e){row.error=e.message;throw e;}finally{
       sampling=false;await monitor;row.ms=Date.now()-row.start;
       const ready=row.samples.find(s=>s.groundReady&&(name==='azeroth-start'||s.swaps>row.before.swaps));
-      row.groundReadyMs=ready?ready.at-row.before.at:null;
+      row.groundReadyMs=ready?Math.max(0,ready.at-row.before.at):null;
     }
   }
   await page.goto(`http://127.0.0.1:${port}/?test`);
@@ -162,6 +169,15 @@ try {
       },{target,map:cycle===0});
     },cycle===0?2500:250);
   }
+  await phase('back-to-back-swaps',()=>page.evaluate(async()=>{
+    for(const target of ['elune','azeroth','elune','azeroth']){
+      // Unlike launch.swap, this does not wait behind rebind/launch-object RPC replies.
+      if(!await swapStressApp.soiSwap(target))throw Error(`Immediate swap refused: ${target}`);
+      const p=swapStressApp.client.info.manifest.spawn;
+      worldTest.focus([p[0]+800,p[1]+120,p[2]+800,0,-.3]);
+    }
+    await worldEvidence.swapSettled;
+  }),1500);
   if(result.flight){
     await phase('flight-preparation',async()=>{
       await page.evaluate(async()=>{
@@ -212,6 +228,8 @@ try {
   assert.deepEqual(result.final.errors,[]);
   assert(result.final.running,'World stopped during repeated swaps');
   assert.equal(Object.keys(result.final.engines).length,2);
+  assert.equal(result.final.duplicateHorizon,0,'Obsolete horizon replay reached the final consumer');
+  assert.equal(result.final.horizonCount,result.final.engines[result.final.body].horizonPatches,'Full horizon must arrive exactly once');
 }catch(error){result.failure=error.stack;process.exitCode=1;console.error(error.message);}
 finally{
   clearTimeout(deadline);
@@ -227,7 +245,10 @@ finally{
   }
   await browser?.close();
   if(server)await new Promise(resolve=>server.close(resolve));
-  result.network.activeAfterClose=result.network.active;
+  // Worker teardown may omit Playwright's terminal request event; these are not live-fetch counts.
+  result.network.unsettledRequestEventsAtClose=activeRequests.size;
+  result.network.unsettledUrls=[...activeRequests].map(r=>r.url());
+  result.workersRemainingAtClose=result.workers.filter(w=>w.action==='created').length-result.workers.filter(w=>w.action==='destroyed').length;
   await writeFile(new URL('results.json',out),JSON.stringify(result,null,2));
   release();
   console.log(JSON.stringify({head:result.head,phases:result.phases.length,failure:result.failure,errors:result.errors.length,
