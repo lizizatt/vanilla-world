@@ -1,6 +1,7 @@
 import {moveFlight,FLIGHT_PITCH} from './flight.js';
 import {basis,fromEuler,fromBasis,toEuler,stepOrient,turnAround} from './orient.js';
 import {stepShared} from './shared-flight.js';
+import {boostView,renderBoost} from './boost-hud.js';
 import {nearestAltitude} from './space-flight.js';
 import {warpClamp} from './sky-coupling.js';
 import {activeBody,setActiveFrame} from './body-shaders.js';
@@ -104,7 +105,7 @@ function frame(now) {
       $('cockpit').setAttribute('aria-pressed',String(settings.cockpit&&!app.flight));
       $('motion').textContent=app.flight?'':scene?.waitingCollision||p[8]===1?'Loading nearby ground'
         :p[8]===2?'Unsupported surface':p[8]===3?'Obstacle or steep ground':'';
-      if(s.pod?.remaining>0)$('motion').textContent+=` Powered boost: ${s.pod.remaining.toFixed(1)} s of use`;
+      renderBoost($('boost-bar'),boostView(s.pod));
       if(app.raceMenu.open&&!app.raceMenu.querySelector('[data-page=diagnostics]').hidden) {
       $('input-device').textContent=input.device==='controller'?'Controller':'Keyboard';
       $('camera-status').textContent=app.flight?'Flight camera is collision-free':settings.cockpit
