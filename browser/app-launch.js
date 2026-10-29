@@ -66,9 +66,9 @@ export function installLaunch(app) {
     })().finally(()=>{app.swapHold=false;app.podCancel=undefined;});
     return app.podCancel;
   };
-  app.launch={ready,save,place,cancel,list:()=>list,swap:async target=>{
+  app.launch={ready,save,place,cancel,list:()=>list,swap:async(target,{seamless=false}={})=>{
     await app.prepareEngines;
-    if(!await app.soiSwap(target))throw Error(`The ${target} world is not ready; load local Data before interplanetary travel`);
+    if(!await app.soiSwap(target,{seamless}))throw Error(`The ${target} world is not ready; load local Data before interplanetary travel`);
     await ready();
   }};
   app.editor.launch={
@@ -90,7 +90,7 @@ export function installLaunch(app) {
       app.swapHold=true;
       const previousBody=body();
       app.podSwap=(async()=>{
-        await app.launch.swap(j.parent);
+        await app.launch.swap(j.parent,{seamless:true});
         const adopted=await app.client.request('pod-adopt',{pod:state});
         app.client.state=adopted;app.client.clearPose();
         await release(app.engines[previousBody]);

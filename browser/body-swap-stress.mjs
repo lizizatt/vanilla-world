@@ -8,7 +8,7 @@ import {chromium} from 'playwright';
 import {acquireHeavyLock} from './heavy-lock.mjs';
 
 assert(process.env.WOW_DATA&&process.env.SWE1R_DATA,'Set WOW_DATA and SWE1R_DATA');
-const cycles=Number(process.env.SWAP_CYCLES||3),label=process.env.RUN_LABEL||'body-swap';
+const cycles=Number(process.env.SWAP_CYCLES||3),label=process.env.RUN_LABEL||'body-swap',nearby=process.env.NEARBY_LOADING==='1';
 assert(Number.isInteger(cycles)&&cycles>=1&&cycles<=10,'SWAP_CYCLES must be 1..10');
 assert(/^[\w-]+$/.test(label),'RUN_LABEL must be a filename-safe label');
 const root=new URL('./',import.meta.url),out=new URL(`./test-results/body-swap/${label}/`,root);
@@ -42,7 +42,7 @@ export function stressProbe(){return {
  scenePending:scene?[...scene.requests.keys()].filter(k=>!scene.cache.has(k)&&!scene.failures.has(k)).length:0,
  sceneBytes:scene?.bytes||0,resident:resident.size,sceneInstances:sceneState?.instances.length||0,
  required:world?Array.from(world.required_tiles()):[],residentIds:[...resident],waiting:objectWait.length,
- terrain:terrain?.snapshot(),far:{...far?.snapshot(),active:far?.active,reading:!!far?.reading},craftPending:craft.pending,actors:actors?.snapshot(),population:scene?.populationStatus
+ terrain:terrain?.snapshot(),far:{...far?.snapshot(),active:far?.active,reading:!!far?.reading},craftPending:craft.pending,actors:actors?.snapshot(),population:scene?.populationStatus,timings,decoder:scene?.timings
 };}
 `;
   if(path==='/asset-worker.js')return text+`
@@ -93,7 +93,19 @@ try {
   context.on('requestfailed',r=>{complete(r);result.network.failed.push({url:r.url(),error:r.failure()?.errorText});});
   await context.addInitScript(()=>{
     delete Navigator.prototype.serviceWorker;navigator.getGamepads=()=>[];
-    window.swapStress={longTasks:[],handlers:[],frames:[],phase:'startup'};
+    window.swapStress={longTasks:[],handlers:[],frames:[],phase:'startup',loadingFrames:0,controlViolations:[],modalViolations:[],flightLoadingFrames:0};
+    const send=Worker.prototype.postMessage;
+    Worker.prototype.postMessage=function(data,...rest){
+      if(window.worldEvidence?.loading?.active){
+        if(!document.getElementById('loading-screen').open)swapStress.modalViolations.push(data.action);
+        if(data.action==='frame'){
+          swapStress.loadingFrames++;
+          if(swapStress.phase==='powered-flight-elune-azeroth')swapStress.flightLoadingFrames++;
+          if(data.dt!==0||data.throttle||data.steer||data.flags||!data.loading)swapStress.controlViolations.push(data);
+        }
+      }
+      return send.call(this,data,...rest);
+    };
     new PerformanceObserver(list=>{for(const e of list.getEntries())swapStress.longTasks.push({phase:swapStress.phase,ms:e.duration});}).observe({type:'longtask',buffered:true});
     const descriptor=Object.getOwnPropertyDescriptor(Worker.prototype,'onmessage');
     Object.defineProperty(Worker.prototype,'onmessage',{...descriptor,set(fn){
@@ -112,6 +124,7 @@ try {
       engines:Object.fromEntries(Object.entries(clients).map(([id,c])=>[id,{rpc:c.requests.size,rpcPeak:c.worker?.stressRpcPeak||0,inFlight:c.inFlight,...c.worker?.stress}])),
       gpu:worldEvidence.gpuBytes,render:worldEvidence.render,tiles:r.tiles.size,textures:r.textures.size,assets:r.assets.size,
       horizonCount:r.horizon.length,pod:app.client.state?.pod,telemetry:app.client.state?.telemetry.slice(0,6),
+      loading:worldEvidence.loading,modal:document.getElementById('loading-screen').open,
       duplicateHorizon:r.horizon.length-new Set(r.horizon.map(h=>`${h.region}:${h.cell}`)).size,
       groundReady:!app.flight&&!!app.client.state?.required.every(i=>app.client.state.resident.includes(i))&&!app.client.state?.scene?.waitingCollision&&r.tiles.size>0,
       errors:worldEvidence.errors.slice(),swaps:worldEvidence.bodySwaps||0};
@@ -131,7 +144,7 @@ try {
       }
     })();
     try {
-      row.before=await sample();await action();
+      row.before=await sample();await action();row.release=await sample();
       await page.waitForTimeout(dwell);
     }catch(e){row.error=e.message;throw e;}finally{
       sampling=false;await monitor;row.ms=Date.now()-row.start;
@@ -143,9 +156,12 @@ try {
   await page.waitForFunction(()=>window.worldTest&&!document.getElementById('select').disabled);
   await page.locator('#swe1r-files').setInputFiles(process.env.SWE1R_DATA);
   await page.waitForFunction(()=>document.getElementById('swe1r-status').dataset.ok==='1');
+  const openedAt=Date.now();
   await page.locator('#files').setInputFiles(process.env.WOW_DATA);
   await page.waitForFunction(()=>worldEvidence.ready||worldEvidence.errors.length,null,{timeout:240000});
   assert.deepEqual(await page.evaluate(()=>worldEvidence.errors),[]);
+  result.initialMs=Date.now()-openedAt;
+  result.initial=await sample();
   await page.evaluate(async()=>{
     await swapStressApp.prepareEngines;
     const {VEHICLES}=await import('./vehicles.js');
@@ -154,6 +170,39 @@ try {
   });
   await page.locator('#world').click();
   await phase('azeroth-start',async()=>{},2000);
+  if(nearby){
+    await page.evaluate(()=>{
+      const buttons=Array.from({length:17},()=>({pressed:false,value:0}));
+      buttons[7]={pressed:true,value:1};
+      worldTest.gamepads([{connected:true,mapping:'standard',index:0,axes:[.5,0,0,0],buttons}]);
+    });
+    for(const [name,icon] of [
+      ['reset',{body:'azeroth',label:'Spawn',reset:true}],
+      ['moon',{body:'elune',label:'Elune'}],
+      ['moon-pole',{body:'elune',pole:'N',label:'Elune north pole'}],
+      ['home',{body:'azeroth',label:'Azeroth',reset:true}],
+    ])await phase(name,async()=>{
+      const state=await page.evaluate(async icon=>{
+        await swapStressApp.mapPanel.teleport(icon);
+        return {loading:worldEvidence.loading,body:swapStressApp.client.bodyId};
+      },icon);
+      if(!sourceRef){
+        assert(state.loading?.ready,`${name} released without destination readiness`);
+        assert.equal(state.body,icon.body);
+      }
+    },1000);
+    await page.evaluate(()=>worldTest.gamepads([]));
+    if(!sourceRef)await phase('pose-link',async()=>{
+      const state=await page.evaluate(async()=>{
+        const pose={v:1,body:'elune',flight:swapStressApp.engines.elune.info.manifest.spawn.slice(0,3).concat([0,-.3])};
+        const url=location.href;
+        try{history.replaceState(null,'',`?test&pose=${encodeURIComponent(JSON.stringify(pose))}`);await swapStressApp.applyUrlPose();}
+        finally{history.replaceState(null,'',url);}
+        return {loading:worldEvidence.loading,body:swapStressApp.client.bodyId};
+      });
+      assert.equal(state.body,'elune');assert(state.loading.ready,'Pose-link restore must wait for nearby scenery');
+    },1000);
+  }else{
   for(let cycle=0;cycle<cycles;cycle++)for(const [leg,target] of ['elune','azeroth','elune','azeroth'].entries()) {
     await phase(`${cycle}-${leg}-${target}-loading`,async()=>{
       await page.evaluate(async({target,map})=>{
@@ -178,10 +227,11 @@ try {
     }
     await worldEvidence.swapSettled;
   }),1500);
+  }
   if(result.flight){
     await phase('flight-preparation',async()=>{
       await page.evaluate(async()=>{
-        await worldTest.launch.swap('elune');worldTest.focus([-300,300,120,0,-1]);
+        if(swapStressApp.client.bodyId!=='elune')await worldTest.launch.swap('elune');worldTest.focus([-300,300,120,0,-1]);
       });
       await page.waitForTimeout(6000);
       await page.evaluate(async()=>{
@@ -209,6 +259,7 @@ try {
         await page.waitForFunction(()=>swapStressApp.client.bodyId==='azeroth',null,{timeout:180000});
         await page.waitForFunction(()=>!worldEvidence.state?.pod?.journey,null,{timeout:120000});
       }finally{await page.evaluate(()=>{swapStress.flying=false;worldTest.gamepads([]);});}
+      if(!sourceRef)assert.equal(await page.evaluate(()=>swapStress.flightLoadingFrames),0,'Automatic SOI handoff must not open the arrival gate');
     });
     await phase('map-return-elune',()=>page.evaluate(()=>swapStressApp.mapPanel.teleport({body:'elune',label:'Elune'})),2000);
   }
@@ -226,8 +277,14 @@ try {
   result.final=await sample();
   result.targets=(await targets.send('Target.getTargets')).targetInfos.map(t=>({type:t.type,url:t.url,id:t.targetId}));
   assert.deepEqual(result.final.errors,[]);
+  assert.deepEqual(result.errors,[],'No page, world or console errors during the workload');
   assert(result.final.running,'World stopped during repeated swaps');
   assert.equal(Object.keys(result.final.engines).length,2);
+  if(nearby&&!sourceRef){
+    const controls=await page.evaluate(()=>({frames:swapStress.loadingFrames,violations:swapStress.controlViolations,modal:swapStress.modalViolations}));
+    assert(controls.frames>0);assert.deepEqual(controls.violations,[]);assert.deepEqual(controls.modal,[]);
+    result.loadingControls=controls;
+  }
   assert.equal(result.final.duplicateHorizon,0,'Obsolete horizon replay reached the final consumer');
   assert.equal(result.final.horizonCount,result.final.engines[result.final.body].horizonPatches,'Full horizon must arrive exactly once');
 }catch(error){result.failure=error.stack;process.exitCode=1;console.error(error.message);}
@@ -241,6 +298,12 @@ finally{
       const tasks=records.longTasks.filter(r=>r.phase===row.name).map(r=>r.ms);
       row.performance={handlerP99:quantile(handlers,.99),handlerMax:Math.max(0,...handlers),
         frameP99:quantile(frames,.99),frameMax:Math.max(0,...frames),longTasks:tasks.length,longTaskMax:Math.max(0,...tasks)};
+    }
+    if(nearby&&records){
+      result.startupHandlerP99=quantile(records.handlers.filter(r=>r.phase==='startup').map(r=>r.ms),.99);
+      if(Math.max(result.startupHandlerP99,...result.phases.map(p=>p.performance?.handlerP99||0))>20){
+        result.failure='Nearby loading handler p99 exceeded 20 ms';process.exitCode=1;
+      }
     }
   }
   await browser?.close();

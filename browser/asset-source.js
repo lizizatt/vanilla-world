@@ -94,7 +94,7 @@ class Archive {
     this.stats = stats;
     this.window = null;
   }
-  async bytes(offset, length, cached = false) {
+  async bytes(offset, length, cached = false, blockEnd = this.file.size) {
     if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(length) || offset < 0 || length < 0 || offset + length > this.file.size)
       fail('CORRUPT', `${this.name}: read outside archive (${offset}+${length})`);
     if (length > ASSET_LIMITS.indexBytes) fail('LIMIT', `${this.name}: read exceeds index limit`);
@@ -103,7 +103,7 @@ class Archive {
       return this.window.bytes.slice(start, start + length);
     }
     if (cached && length <= ASSET_LIMITS.readBytes) {
-      const size = Math.min(ASSET_LIMITS.readBytes, this.file.size - offset);
+      const size = Math.min(ASSET_LIMITS.readBytes, blockEnd - offset);
       this.window = { offset, bytes: await this.bytes(offset, size) };
       this.stats.windowBytes = Math.max(this.stats.windowBytes, size);
       return this.window.bytes.slice(0, length);
@@ -247,7 +247,7 @@ class Archive {
     if (compressed) {
       const tableBytes = (count + 1) * 4;
       if (tableBytes > packed) fail('CORRUPT', `${path}: short sector table`);
-      offsets = await this.bytes(this.base + offset, tableBytes, true);
+      offsets = await this.bytes(this.base + offset, tableBytes, true, this.base + offset + packed);
       if (flags & ENCRYPTED) decrypt(offsets, (key - 1) >>> 0);
       if (u32(offsets, 0) < tableBytes) fail('CORRUPT', `${path}: sectors overlap offset table`);
     } else if (packed !== size) fail('CORRUPT', `${path}: stored size mismatch`);
@@ -269,7 +269,7 @@ class Archive {
           const start=offsets?u32(offsets,sector*4):sector*this.sectorSize;
           const end=offsets?u32(offsets,(sector+1)*4):start+want;
           if(end<=start||end>packed||end-start>want)fail('CORRUPT',`${path}: invalid sector ${sector} offsets`);
-          let raw=await this.bytes(this.base+offset+start,end-start,true);
+          let raw=await this.bytes(this.base+offset+start,end-start,true,this.base+offset+packed);
           if(flags&ENCRYPTED)raw=decrypt(raw,(key+sector)>>>0);
           if(compressed&&raw.length!==want){
             pending.push(this.decode(raw,want,flags,path).then(decoded=>output.set(decoded,sector*this.sectorSize))

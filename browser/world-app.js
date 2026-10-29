@@ -45,7 +45,8 @@ async function seatPod(plan,icon) {
   app.report(`Seating pod at ${icon.label}...`,true);
   app.flight=plan.flight;app.pendingFrame=plan.frame;app.space=undefined;app.race?.jump();app.renderer.camera=undefined;app.running=true;
   for(let attempt=0;attempt<40;attempt++) {
-    await new Promise(r=>setTimeout(r,500));
+    await app.loadingFrame();
+    await new Promise(r=>setTimeout(r,100));
     try {
       const state=await client.request('restore',{pose:seatPose(plan.seat,Math.floor(attempt/6))});
       app.flight=undefined;app.space=undefined;client.state=state;app.renderer.camera=undefined;app.running=true;app.report(`Teleported to ${icon.label}.`,true);return;
@@ -56,7 +57,7 @@ async function seatPod(plan,icon) {
 const mapPanel=new MapPanel({dialog:$('map-panel'),canvas:$('map-canvas'),stage:$('map-stage'),status:$('map-status'),close:$('map-close')},{
   requestArt:names=>client.worldmap(names),  pose:()=>activeBody().id==='azeroth'&&!(app.flight?(app.flightFrame??'E')!=='E':client.state?.frame?.[0])?app.flight??client.state?.telemetry:undefined,tracks:()=>tracksFor(app.tracks,app.choice.vehicle,activeBody().id),
   bodies:()=>app.renderer?.sharedSpace?Object.values(BODIES).filter(b=>b.rail).map(b=>({id:b.id,label:b.label??b.id[0].toUpperCase()+b.id.slice(1)})):[],
-  teleport:async icon=>{
+  teleport:icon=>app.arrival(async()=>{
     try{await app.launch.cancel();}catch(error){app.fail(error);return;}
     const plan=teleportModePlan(icon,activeBody().id,!app.flight);
     // The in-page well swap needs the app idle, so it runs before the operation that places the pose.
@@ -75,7 +76,7 @@ const mapPanel=new MapPanel({dialog:$('map-panel'),canvas:$('map-canvas'),stage:
       app.flight=undefined;client.state=await client.request(icon.reset?'reset':'restore',icon.reset?undefined:{pose:icon.pose});app.race?.jump();
       app.renderer.camera=undefined;app.running=true;$('error').hidden=true;if(plan.mode==='fly'&&client.state?.telemetry){app.flight=flyFromDrive(client.state.telemetry,plan.lift);app.space=undefined;}app.report(`Teleported to ${icon.label}.`,true);
     });
-  },
+  },`Loading ${icon.label}`).catch(error=>app.fail(error)),
 });
 mapPanel.dialog.addEventListener('close',()=>canvas.focus());
 mapPanel.dialog.addEventListener('keydown',event=>{if(event.code==='KeyM'&&!event.repeat){event.preventDefault();mapPanel.toggle();}});
@@ -108,7 +109,7 @@ const client=new WorldClient(data=>{
     if(data.event==='far-scene')app.renderer.clearFar();else app.running=false;
     app.fail(error);return false;
   }
-},error=>{app.running=false;app.fail(error);},()=>app.running&&!app.busy&&!document.hidden&&!app.frozenPresentation);
+},error=>{app.running=false;app.fail(error);},()=>app.running&&!app.busy&&!app.arriving&&!document.hidden&&!app.frozenPresentation);
 Object.assign(app,{canvas,keys,input,audio,cameraCollision,evidence,defaults,settings,gib,gibMem,loading,loadingArt,mapPanel,music,client});
 installHud(app);
 installSettings(app);

@@ -24,6 +24,17 @@ const fixture = ({ cutout = false, texture = 'leaves.blp' } = {}) => {
     reads: () => reads, freed: () => freed,
   };
 
+  test('arrival-visible demand follows collision-critical work and precedes other cosmetics',async()=>{
+    const f=fixture(),stream=new SceneStream(f.source,f.wasm,{jobs:1}),reads=[];
+    stream.position=[0,0,0];
+    for(const [key,required,score] of [['cosmetic',false,2],['arrival',false,10],['critical',true,1]])
+      stream.requests.set(key,{key,kind:'m2',path:key,skins:[],score,required,collisionScore:100});
+    stream.loadingKeys=new Set(['arrival']);
+    stream.load=async r=>{reads.push(r.key);return {value:{},bytes:0};};
+    await stream.pump(true);await stream.pump(true);await stream.pump(true);
+    assert.deepEqual(reads,['critical','arrival','cosmetic']);
+  });
+
   test('role reset cancels required decoding without discarding the bounded warm cache',async()=>{
     const f=fixture(),stream=new SceneStream(f.source,f.wasm);
     stream.setTile('1:0:0',[p(1)]);stream.update(1,[0,0,0]);await stream.pump();

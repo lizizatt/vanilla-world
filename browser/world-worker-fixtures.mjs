@@ -6,6 +6,7 @@ import {FAR_LIMITS} from './far-stream.js';
 import {validateView,viewChanged} from './world-view.js';
 import {PodRuntime} from './pod-driver.js';
 import {validatePodControl} from './pod-attitude.js';
+import {ARRIVAL,arrivalResources} from './loading-gate.js';
 
 export {runInContext};
 
@@ -21,7 +22,7 @@ export function boot(events=[],clock=performance) {
   const context=createContext({init:async()=>({memory:{buffer:new ArrayBuffer(0)}}),performance:clock,postMessage:message=>events.push(message),
     setTimeout:(callback,delay)=>{const id=++nextTimer;timers.set(id,{callback,delay});return id;},
     clearTimeout:id=>timers.delete(id),
-    PodRuntime,validatePodControl,transformedBounds,globalCollisionVertices,SCENE_LIMITS,FAR_LIMITS,boundsWithin,boundsDistance,validateView,viewChanged,sceneReady});
+    ARRIVAL,arrivalResources,PodRuntime,validatePodControl,transformedBounds,globalCollisionVertices,SCENE_LIMITS,FAR_LIMITS,boundsWithin,boundsDistance,validateView,viewChanged,sceneReady});
   runInContext(worker,context);
   runInContext('far={active:true,close(){},retry(){},near(){},snapshot:()=>({resident:0,failures:[]})};',context);
   context.timers=timers;

@@ -131,7 +131,7 @@ export class TerrainStream {
     this.busy=true;
     const generation=this.generation;
     try {
-      if(this.far.length&&this.source.fingerprint&&!this.farCacheOff){
+      if(!this.nearOnly&&this.far.length&&this.source.fingerprint&&!this.farCacheOff){
         if(await this.drainCachedFar(generation))return true;
         if(generation!==this.generation)return;
       }
@@ -164,7 +164,7 @@ export class TerrainStream {
           if(error.code==='DEFERRED')return true;
           this.errors.set(`tile:${tile.index}`,`Terrain texture ${path}: ${error.message||error}`);
         }
-      }else if(this.catalog&&this.far.length){
+      }else if(!this.nearOnly&&this.catalog&&this.far.length){
         const patch=this.far.shift(),id=`${patch.region}:${patch.x}:${patch.y}`;
         if(this.farDone.has(id))return;
         this.farDone.add(id);

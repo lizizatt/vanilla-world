@@ -18,6 +18,7 @@ import {poleFrameSpec} from './pole-source.js';
 import {hopTargets,frameOfPoint} from './pole-prefetch.js';
 import {viewChanged} from './world-view.js';
 import {ActorService,ACTOR} from './actors.js';
+import {ARRIVAL,arrivalResources} from './loading-gate.js';
 import {maelstromCentre,WHIRLPOOL_DIP} from './clouds.js';
 import {TILE,createTerrainIndex,terrainDistance,tileKeyOf,assetPathOf,focusRegionOf,sourcePositionOf,
   nextUnresolvedWindow,isCameraUnknown,isObjectWaiting} from './world-worker-logic.js';
@@ -51,7 +52,7 @@ function applyMemoryBudget() {
 export const stopLoadingArt=()=>source?.stopLoadingArt();
 const actorGround=(sx,sy)=>{const r=manifest?.regions[actorRegion];if(!r||!world)return NaN;
   const s=world.surface(-sy+r.placement[0]+(32-r.tile_origin[0])*1600/3,-sx+r.placement[1]+(32-r.tile_origin[1])*1600/3);return s[0]===0?s[1]:NaN;};
-globalThis.setInterval?.(()=>{if(actors&&actorFocus&&sceneState){actors.update(sceneState.instances,actorFocus);actors.wander(sceneState.instances,actorFocus,actorGround);}},ACTOR.tickMs);
+globalThis.setInterval?.(()=>{if(!arrivalLoading&&actors&&actorFocus&&sceneState){actors.update(sceneState.instances,actorFocus);actors.wander(sceneState.instances,actorFocus,actorGround);}},ACTOR.tickMs);
 const terrainErrors=new Map();
 let terrainFocus='';
 let craft={ready:false,pending:false};
@@ -237,6 +238,7 @@ function recordTerrainFailure(index,error) {
   failures.set(index,`${manifest.tiles[index].file}: ${error?.code || 'PARSE'} ${error?.message || String(error)}`);
 }
 let lastNearby=[],poleBody;
+let arrivalLoading=false;
 /** Global points just across the nearest frame boundary, so the atomic hop always lands on resident terrain (see pole-prefetch.js). */
 const hopPrefetch=p=>poleBody&&manifest.regions.some(r=>r.frame)?hopTargets(poleFrameSpec(poleBody),frameOfPoint(manifest,p),p,2500/poleFrameSpec(poleBody).radius):[];
 async function stream(p,pin,fill=false) {
@@ -244,7 +246,7 @@ async function stream(p,pin,fill=false) {
   if(required.length>LIMIT)throw new Error('Support footprint exceeds the bounded terrain collision budget.');
   const nearby=nearbyTerrain(p);lastNearby=nearby;
   const across=hopPrefetch(p).flatMap(g=>nearbyTerrain(g).slice(0,4));
-  const wanted=[...new Set([...required,...across,...nearby])].slice(0,LIMIT);
+  const wanted=[...new Set(arrivalLoading?[...required,...nearby]:[...required,...across,...nearby])].slice(0,arrivalLoading?Math.min(LIMIT,Math.max(ARRIVAL.tiles,required.length)):LIMIT);
   const tiles=[],removed=[];
   if(terrainRead?.ready && !wanted.includes(terrainRead.index)) {
     if('error' in terrainRead)recordTerrainFailure(terrainRead.index,terrainRead.error);
@@ -683,7 +685,7 @@ function startOptionalWork(message) {
     pumpTerrainMaterials();
     const terrainReady=Array.from(world.required_tiles()).every(i=>resident.has(i));
     if(terrainReady)startCraft();
-    if(message.focus||terrainReady)water?.pump();
+    if(!arrivalLoading&&(message.focus||terrainReady))water?.pump();
   }
 }
 export function finishFrame(message) {
@@ -704,7 +706,12 @@ export function snapshot() {
   const terrainState=terrain.snapshot();
   const clock=performance.now();
   if(clock-areaTime>500){areaTime=clock;areaId=flightFocus&&world.area_at?world.area_at(flightFocus[0],flightFocus[1]):world.area();}
-  return {telemetry:pod.telemetry(world),frame:Array.from(world.frame_state?.()??[0,0,0,0,0]),pod:pod.snapshot(world),area:areaId,poseTime,hopConsumed,resident:Array.from(resident),nearTerrain:{total:lastNearby.length,resident:lastNearby.filter(i=>resident.has(i)).length},required:Array.from(world.required_tiles()),
+  const resources=arrivalLoading?arrivalResources(scene):undefined;
+  if(scene)scene.loadingKeys=resources?new Set([...resources.keys,...resources.textures,...resources.roots]):undefined;
+  const arrival=arrivalLoading?{tiles:lastNearby.slice(0,Math.min(LIMIT,ARRIVAL.tiles)),
+    ground:flightFocus?lastNearby.length===0||resident.has(lastNearby[0]):Array.from(world.required_tiles()).every(i=>resident.has(i)),
+    waiting:objectWait.length,resources}:undefined;
+  return {arrival,telemetry:pod.telemetry(world),frame:Array.from(world.frame_state?.()??[0,0,0,0,0]),pod:pod.snapshot(world),area:areaId,poseTime,hopConsumed,resident:Array.from(resident),nearTerrain:{total:lastNearby.length,resident:lastNearby.filter(i=>resident.has(i)).length},required:Array.from(world.required_tiles()),
     failures:Array.from(failures.values()),loads,evictions,peak,limit:LIMIT,horizon,source:source.stats,
     scene:sceneState?{instances:sceneState.instances.length,assets:sceneState.cachedAssets,bytes:sceneState.cachedBytes,
       pending:sceneState.pending,errors:sceneState.errors,population:sceneState.populationStatus,
@@ -723,6 +730,7 @@ export function snapshot() {
     distant:far.snapshot(),actors:actors?.snapshot()};
 }
 export async function openWorld(message) {
+    arrivalLoading=message.loading===true;
     pod.reset();pod.setObjects([]);
     sceneInstanceDeltas=message.sceneInstanceDeltas===true;
     sceneInstanceUpdates=message.sceneInstanceUpdates===true;
@@ -768,7 +776,7 @@ export async function openWorld(message) {
     actors=new ActorService(source,wasmTypes,(message,transfers)=>postMessage(message,transfers));actors.enabled=actorsOn;
     scene.asyncVisuals=true;
     startFarWorker();
-    terrain=new TerrainStream(source,wasmTypes,(message,transfers)=>postMessage(message,transfers));actors.enabled=actorsOn;
+    terrain=new TerrainStream(source,wasmTypes,(message,transfers)=>postMessage(message,transfers));terrain.nearOnly=arrivalLoading;actors.enabled=actorsOn;
     water=new WaterStream(source,wasmTypes,manifest,(message,transfers)=>postMessage(message,transfers));actors.enabled=actorsOn;
     applyMemoryBudget();
     void terrain.init(manifest);
@@ -795,19 +803,21 @@ export function requireWorld() {
 const polesFor=message=>message.poleFrame||message.poles===false?undefined:(typeof message.folder==='string'&&BODIES[message.folder]?.rail?message.folder:'azeroth');
 export async function runFrame(message) {
     {
+    arrivalLoading=message.loading===true;
+    if(terrain)terrain.nearOnly=arrivalLoading;
     if(pod.journey&&pod.journey.parent!==(moonBody?'elune':'azeroth'))return;
-    pod.queueControl(message.focus||message.podEnabled===false?undefined:message.podControl);
+    pod.queueControl(arrivalLoading||message.focus||message.podEnabled===false?undefined:message.podControl);
     const started=performance.now();
     const p=pod.telemetry(world),focus=message.focus || Array.from(p.slice(0,3));flightFocus=message.focus?[message.focus[0],message.focus[2]]:undefined;
     if(!Array.isArray(focus)||focus.length!==3||!focus.every(v=>Number.isFinite(v)&&Math.abs(v)<1e12))throw new Error('Invalid world focus');
-    prepareDistant(focus,message.distant!==false,!!message.focus,message.view);
+    prepareDistant(focus,!arrivalLoading&&message.distant!==false,!!message.focus,message.view);
     const frameLoads=loads;
     const terrainStart=performance.now();if(!message.farOnly)await stream([focus[0],focus[2]],!message.focus);
     timings.terrainMs+=performance.now()-terrainStart;
     const sceneStart=performance.now();if(!message.farOnly)updateScene(focus,!postFrameVisuals);timings.sceneMs+=performance.now()-sceneStart;
     source.refresh?.();
     const physicsStart=performance.now();let advanced=false;
-    if(!message.focus) {
+    if(!message.focus&&!arrivalLoading) {
       const now=performance.now(),elapsed=lastHoldTime?Math.min(now-lastHoldTime,1000):0;lastHoldTime=now;
       if(objectWait.length){accumulator=0;measureHold('objects',elapsed);}
       else {
@@ -823,7 +833,7 @@ export async function runFrame(message) {
         measureHold(hold===1?'terrain':hold===3?'solid':hold===2?'unsupported':'clear',elapsed);
       }
     } else {accumulator=0;lastHoldTime=0;lastHold='clear';}
-    materialFrameReady=loads===frameLoads && (advanced || !!message.focus || objectWait.length>0);
+    materialFrameReady=loads===frameLoads && (arrivalLoading || advanced || !!message.focus || objectWait.length>0);
     // Stamp the completed fixed tick in the input clock, not its variably delayed delivery time.
     if(message.sampleTime===undefined || message.focus)poseTime=undefined;
     else if(advanced || poseTime===undefined || objectWait.length)poseTime=message.sampleTime-accumulator*1000;

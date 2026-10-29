@@ -24,7 +24,7 @@ function frame(now) {
   const dt=app.last?Math.min((now-app.last)/1000,.1):0;
   if(app.last&&evidence.frameLog){const log=evidence.frameLog;log.push([+now.toFixed(1),+(now-app.last).toFixed(1)]);if(log.length>2400)log.splice(0,600);}
   app.last=now;
-  if(!app.running || !client.state || app.busy || document.hidden) {
+  if(!app.running || !client.state || app.busy || app.arriving || document.hidden) {
     client.discardFrame();
     if(client.state){audio.update(client.state,{throttle:0,flags:1},0,false);music.update(client.state.area,false);}
     return;
@@ -67,7 +67,7 @@ function frame(now) {
         if(r.aim)q=fromBasis(r.aim.right,r.aim.up,r.aim.look);// same physical attitude in the new parent's chart (no orientation reset at the swap)
       } else app.flight=moveFlight(app.flight,keys,dt,aim);if(app.flight.poleFlip)q=turnAround(q);const [ny,np]=toEuler(q,app.flight[3]);app.flightSpeed=dt>0?Math.hypot(app.flight[0]-before[0],app.flight[1]-before[1],app.flight[2]-before[2])/dt:0;
       app.flight[3]=ny;app.flight[4]=np;app.flight.length=5;app.flight.push(...q);app.attitude={ref:app.flight,q};
-      if(swap){app.swapHold=true;const release=()=>{app.swapHold=false;};app.soiSwap(swap).then(ok=>{if(!ok)app.soiHandoff(swap,app.flight);}).catch(error=>{console.error('SOI swap failed',error);app.soiHandoff(swap,app.flight);}).finally(release);}
+      if(swap){app.swapHold=true;const release=()=>{app.swapHold=false;};app.soiSwap(swap,{seamless:true}).then(ok=>{if(!ok)app.soiHandoff(swap,app.flight);}).catch(error=>{console.error('SOI swap failed',error);app.soiHandoff(swap,app.flight);}).finally(release);}
     }
     if(!app.flight)app.space=undefined;
     if(app.race){app.flight=undefined;if(!app.raceMenu.open)app.raceFrame(controls,now/1000);}

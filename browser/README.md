@@ -49,6 +49,20 @@ abort an already synchronous decoder. Parked engines retain bounded model
 caches but cancel obsolete demand and retire their far/actor/water work;
 rebind generations prevent late results from publishing to a new consumer.
 
+Set `NEARBY_LOADING=1` for the initial-load/reset/Elune/pole/home workload.
+It holds controller input during teleports, checks the blocking modal and
+zero-input worker frames, requires destination readiness, and checks startup
+and each phase's message-handler p99 against 20 ms. Current-code runs also
+restore a cross-body pose link; `SWAP_FLIGHT=1` verifies that automatic powered
+SOI handoff never enters the arrival gate. Reports include each action's
+release sample separately from its subsequent dwell.
+
+Initial loading and explicit relocations now use the same arrival gate: resident
+support, four nearest terrain tiles, bounded nearest model/NPC geometry and
+textures, and no pending required collision request. Automatic flight transitions
+remain seamless. See [Nearby loading and arrival readiness](design/loading.md)
+for the policy, timeout boundary, scheduling, measurements and limitations.
+
 ## Run locally
 
 Use a current hardware-accelerated Edge or Chrome. Every Edge test/probe script launches with

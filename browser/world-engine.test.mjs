@@ -4,6 +4,17 @@ import {SCENE_LIMITS,boundsWithin} from './scene-stream.js';
 import {prepareDetail} from './camera-collision.js';
 import {settle,boot,fixture,collisionFixture,frameFixture,materialFixture,runInContext} from './world-worker-fixtures.mjs';
 
+test('arrival pumping streams without advancing simulation even if input or accumulated time exists',async()=>{
+  const f=frameFixture();
+  f.context.dependencies.scene.instances=[];
+  f.context.dependencies.scene.cache=new Map();f.context.dependencies.scene.requests=new Map();f.context.dependencies.scene.failures=new Map();
+  runInContext('accumulator=.09;',f.context);
+  await f.dispatch({id:1,action:'frame',loading:true,dt:.1,throttle:1,steer:1,flags:8});
+  assert(!f.events.some(e=>e.event==='tick'),'Arrival frames must not run fixed ticks');
+  assert.equal(runInContext('accumulator',f.context),0);
+  assert(f.events.some(e=>e.id===1&&e.result?.arrival),'Readiness telemetry is part of the ordinary state reply');
+});
+
 test('optional visual reads never gate an already collision-ready pose',async()=>{
   const context=boot();
   runInContext(`
