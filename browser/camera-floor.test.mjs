@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {CameraCollision} from './camera-collision.js';
 import {cameraView,lifted} from './world-camera.js';
+import {toPlanet,localAxes} from './planet-frame.js';
 
 const TILE=1600/3,CELLS=32;
 function collisionWithGround(y,sea=0) {
@@ -38,7 +39,9 @@ test('fly and chase cameras are lifted above water and ground, and are untouched
 test('the chase floor lift is capped near the pivot so a high surface cannot leave the camera looking straight down',()=>{
   const rig={cameraFloor:()=>500};
   const view=cameraView(rig,[0,10,0,0,0,0,0,1,0],undefined,.016,[0,0],{});
-  assert.ok(rig.camera[1]<=10+3+rig.chaseDistance*.5+1e-6,`eye at ${rig.camera[1]}`);
+  const anchor=[0,10,0],center=toPlanet(anchor),eye=toPlanet(rig.camera),up=localAxes(anchor).up;
+  const lift=eye.reduce((sum,v,i)=>sum+(v-center[i])*up[i],0);
+  assert.ok(lift<=3+rig.chaseDistance*.5+1e-6,`physical eye lift ${lift}`);
   const horizontal=Math.hypot(rig.camera[0],rig.camera[2]);
   assert.ok(horizontal>5,'the eye stays behind the pod');
   assert.ok(Math.abs(view.look[1])<.8,`look pitch ${view.look[1]}`);

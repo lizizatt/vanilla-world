@@ -411,7 +411,8 @@ Thus unsupported Azeroth boost still accelerates downward by 23.375 yd/s²;
 Elune boost accelerates upward by 0.625. There is no artificial altitude ceiling.
 The existing bar measures **heat, not finite boost energy**: cold-to-full is 7.5 s,
 boost remains available afterward, and default durability wrecks continuously
-overheated engines at approximately 13.8 s. Disabling durability/overheat changes
+overheated engines at approximately 18.2 s from cold (0.15/s damage split 60/40,
+not the earlier 13.8 s estimate). Disabling durability/overheat changes
 that safety assumption; this change does not add a cutoff or retune it.
 
 Deterministic 120 Hz trajectories (`voyage/tests.rs`, 60 s observation) measure:
@@ -441,8 +442,17 @@ use**, then rotate/delete saved objects independently of the track. Placements
 persist per body/installation. Reset/restore/reopen clears charge and respawns
 pickups, but keeps placed objects. ArrowDown / stick down raises the nose.
 With charge, launch attitude remains stabilized until the charge is exhausted,
-then eases to normal +/-20-degree input. Boost adds 100 yd/s² beyond ordinary
-airborne engine thrust; coast is ballistic, not free-camera movement.
+then eases to normal +/-20-degree input in the retained launch control frame.
+Powered boost supplies **172 yd/s² total**, replacing ordinary thrust/boost,
+not stacking with them. Heat and overheat damage build normally; the current
+60/40 engine-damage split lets a cold full burn survive without an exemption.
+When the charge runs out, the held button uses ordinary boost under its
+regular engine speed governor. Coasting momentum and gravitational acceleration
+are not speed-clamped; coast is ballistic, not free-camera movement.
+SOI transitions retain the full attitude and metric chase/cockpit frame; the pod
+and engine effects render rigidly in camera-relative coordinates, not through
+per-vertex globe bending. Manual map teleports clear both workers' journey/charge
+and cached snapshots, preventing a stale automatic handoff from swapping back.
 
 Load local Azeroth Data before traveling to Elune, so both resident worlds are
 available. A 90-degree launch just outside the base reaches Azeroth on a full

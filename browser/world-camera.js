@@ -1,11 +1,19 @@
 import {basis} from './orient.js';
 import {wrapAngle as wrap} from './math.js';
+import {activeBody} from './body-shaders.js';
+import {podCameraFrame} from './pod-render-frame.js';
 const unit=v=>{const length=Math.hypot(...v);return length?v.map(n=>n/length):[0,0,-1];};
 // Tuning: cockpit look pitch limit (rad), mouse-orbit sensitivity (rad/px), return-to-centre rate (1/s).
 export const CAMERA=Object.freeze({pitchLimit:89*Math.PI/180,orbitSense:.004,recentre:7});
 const PITCH_LIMIT=CAMERA.pitchLimit;
 
 export function craftMatrix(state,origin,scale) {
+  if(state.length===22){
+    const {look,right,up}=basis(state.slice(18)),m=new Float32Array(16);
+    for(const [column,v] of [look,right.map(n=>-n),up].entries())m.set(v.map(n=>n*scale),column*4);
+    m.set([state[0]-origin[0],state[1],state[2]-origin[1],1],12);
+    return m;
+  }
   const c=Math.cos(state[3]),s=Math.sin(state[3]),cb=Math.cos(state[4]),sb=-Math.sin(state[4]); // physics bank is negative for a left steer; render left side down
   const cp=Math.cos(state[17]??0),sp=Math.sin(state[17]??0);
   const m=new Float32Array(16);
@@ -37,6 +45,50 @@ export const floorAt=(rig,eye,origin)=>rig.cameraFloor?.(eye[0]+origin[0],eye[1]
 export const floorLift=(floor,eyeY,cap=Infinity)=>floor===undefined?0:Math.max(0,Math.min(floor-eyeY,cap));
 
 export function cameraView(rig,state,flight,dt,origin,settings={},lookBack=false) {
+  if(!flight&&state.length===22)return orbitalCamera(rig,state,dt,origin,settings,lookBack);
+  rig.orbitalLook=undefined;
+  const aim=flatCameraView(rig,state,flight,dt,origin,settings,lookBack);
+  if(flight||settings.planet===false)return aim;
+  const offset=[rig.camera[0]+origin[0]-state[0],rig.camera[1]-state[1],rig.camera[2]+origin[1]-state[2]];
+  const frame=podCameraFrame(activeBody(),state,offset,aim.look,aim.up);
+  const collisionReady=placePodCamera(rig,state,origin,frame,rig.cameraMode==='cockpit');
+  return {...aim,look:frame.look,up:frame.up,collisionReady};
+}
+
+function placePodCamera(rig,state,origin,frame,cockpit){
+  const eye=[frame.eye[0]-origin[0],frame.eye[1],frame.eye[2]-origin[1]];
+  const pivot=[state[0]-origin[0],state[1],state[2]-origin[1]],clear=rig.clipCamera?.(pivot,eye,origin);
+  rig.cameraBlocked=undefined;
+  if(cockpit){
+    if(!clear)rig.cameraBlocked='pending';
+    else if(Math.hypot(...clear.map((v,i)=>v-eye[i]))>1e-5)rig.cameraBlocked=rig.cameraCollisionReady===false?'pending':'geometry';
+  }
+  rig.camera=!cockpit&&clear?clear:eye;
+  return !!clear&&!rig.cameraBlocked;
+}
+
+function orbitalCamera(rig,state,dt,origin,settings,lookBack){
+  rig.origin=origin;rig.cameraBlocked=undefined;
+  const cockpit=settings.cockpit&&rig.craft?.anchor;
+  rig.cameraMode=cockpit?'cockpit':'chase';
+  rig.orbitalLook??=[0,0];
+  const input=settings.cameraLook||[0,0],orbit=settings.cameraOrbit||[0,0];
+  if(input.some(Boolean)||orbit.some(Boolean)){
+    rig.orbitalLook[0]=wrap(rig.orbitalLook[0]-input[0]*Math.PI*dt-orbit[0]*CAMERA.orbitSense);
+    rig.orbitalLook[1]=Math.max(-PITCH_LIMIT,Math.min(PITCH_LIMIT,rig.orbitalLook[1]+input[1]*Math.PI/2*dt-orbit[1]*CAMERA.orbitSense));
+  }else if(cockpit||settings.cameraRecentre)rig.orbitalLook=rig.orbitalLook.map(n=>n*Math.exp(-CAMERA.recentre*dt));
+  const {look:forward,right,up}=basis(state.slice(18));
+  const heading=rig.orbitalLook[0]+(lookBack?Math.PI:0),pitch=rig.orbitalLook[1]+(cockpit?0:-Math.atan(.3));
+  const look=forward.map((v,i)=>v*Math.cos(heading)*Math.cos(pitch)-right[i]*Math.sin(heading)*Math.cos(pitch)+up[i]*Math.sin(pitch));
+  const anchor=rig.craft?.anchor,scale=rig.craft?.metadata.scale??1;
+  const offset=cockpit?forward.map((v,i)=>(v*anchor[0]-right[i]*anchor[1]+up[i]*anchor[2])*scale)
+    :look.map((v,i)=>up[i]*3-v*Math.max(0,(settings.cameraDistance??15)-.15));
+  const frame=settings.planet===false?{eye:state.slice(0,3).map((v,i)=>v+offset[i]),look,up}:podCameraFrame(activeBody(),state,offset,look,up);
+  const collisionReady=placePodCamera(rig,state,origin,frame,cockpit);
+  return {look:frame.look,up:frame.up,near:.1,collisionReady};
+}
+
+function flatCameraView(rig,state,flight,dt,origin,settings={},lookBack=false) {
   rig.origin=origin;
   const mode=flight?'fly':settings.cockpit&&rig.craft?.anchor?'cockpit':'chase';
   if(rig.cameraMode!==undefined && mode!==rig.cameraMode)rig.camera=undefined;

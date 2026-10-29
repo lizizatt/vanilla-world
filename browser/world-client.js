@@ -90,7 +90,8 @@ export class WorldClient {
     this.state=state;
     const p=state.telemetry,time=state.poseTime,previous=this.poseSamples.at(-1);
     if(time!==undefined && (!Number.isFinite(time) || !Array.isArray(p) || p.length<15
-      || !p.slice(0,15).every(Number.isFinite) || (p.length>17&&!Number.isFinite(p[17]))))throw new Error('Invalid confirmed vehicle pose');
+      || !p.slice(0,15).every(Number.isFinite) || (p.length>17&&!Number.isFinite(p[17])) ||
+      (p.length>18&&(p.length!==22||!p.slice(18).every(Number.isFinite)||Math.abs(Math.hypot(...p.slice(18))-1)>1e-6))))throw new Error('Invalid confirmed vehicle pose');
     if(time===undefined || this.poseFlying || p[8] || state.scene?.waitingCollision) {
       this.clearPose();
     } else {
@@ -123,6 +124,11 @@ export class WorldClient {
     out[3]=a.p[3]+Math.atan2(Math.sin(yaw),Math.cos(yaw))*alpha;
     out[4]=a.p[4]+(b.p[4]-a.p[4])*alpha;
     if(p.length>17)out[17]=(a.p[17]??0)+((b.p[17]??0)-(a.p[17]??0))*alpha;
+    if(a.p.length===22&&b.p.length===22){
+      const sign=a.p.slice(18).reduce((sum,v,i)=>sum+v*b.p[18+i],0)<0?-1:1;
+      const q=a.p.slice(18).map((v,i)=>v+(b.p[18+i]*sign-v)*alpha),length=Math.hypot(...q);
+      out.splice(18,4,...q.map(v=>v/length));
+    }
     this.lastPoseTime=time;
     return out;
   }

@@ -79,19 +79,46 @@ quarter-pipe launch was demonstrably unsafe: even at 20 degrees, ordinary boost
 could eventually outrun declining gravity. Attitude smoothing alone was not a fix.
 
 Interplanetary flight has no ambient hover drag or speed clamp that deletes launch
-momentum: releasing thrust coasts. Ordinary engines still cannot add horizontal
-speed beyond their configured cap; the pickup bypasses that engine limit.
-Powered acceleration is **100 yd/s² extra**, scaled by the analog trigger,
-on top of the ordinary configured engine (72 yd/s² airborne at full default boost).
+momentum: releasing thrust coasts. Ordinary orbital engines cannot add energy above their configured airspeed cap;
+the pickup bypasses that engine limit.
+Powered acceleration is **172 yd/s² total**, scaled by the analog trigger,
+**replacing** both ordinary throttle and boost thrust during powered use.
+This keeps the previous default powered launch acceleration (72 + 100) without
+stacking engines; custom ordinary thrust no longer increases the powered total.
 No gravity, ordinary thrust, ordinary boost duration or speed default was retuned.
-Its charge also protects against heat damage during the powered fraction of a
-tick. Ordinary heat/durability still advance outside that fraction and survive
-world handoff. Holds spend neither charge nor engine time.
+Heat always rises normally (cold to full in 7.5 s), and overheat damage is
+unchanged during powered use. Current damage is 0.15/s at full heat split 60/40:
+a cold 15 s burn is survivable, so no additional damage headroom is necessary.
+With default durability enabled, a cold 15 s burn leaves **29.0875% / 52.7232%**
+engine health; normal cooldown leaves **24.55% / 49.6982%** (including one extra
+ordinary-boost tick). No thermal immunity or damage scaling is applied.
+The existing durability-off setting disables health damage, not the heat gauge;
+its legacy overheat-wreck toggle still applies and can wreck at full heat.
+Engine state survives world handoff. Holds spend neither charge nor engine time.
+At exactly 15 consumed boost-seconds the active thrust downgrades even if the
+button remains held. The orbital ordinary-engine governor checks total relative
+airspeed, not just its horizontal component; above its regular speed limit it
+cannot add energy along the velocity. Gravity can still accelerate the pod and
+the governor never deletes launch momentum. Reverse/decelerating thrust remains
+available. A final partial tick blends replacement and ordinary thrust by time.
 
 Terrain is queried even at high altitude; no guessed terrain-height cutoff.
 Unloaded samples hold, known empty air does not. Destination scenery is checked
 before the first accepted step there. Inertial state and engine health transfer
 unchanged, then the old worker releases its journey.
+
+The worker also carries an orthonormal forward/up frame. Confirmed telemetry
+includes its full quaternion, so SOI handoff no longer drops roll or reconstructs
+attitude against the destination's radial up. After charge exhaustion attitude
+eases within the retained launch control frame; changing renderer parent does not
+change that reference frame. Camera offsets are metric vectors in this frame,
+recharted without resetting their orbit. Both chase and cockpit keep their
+physical eye and orientation across a swap.
+
+Craft geometry is rigid: f64 CPU subtraction/rotation produces one camera-relative
+matrix before f32 upload, bypassing per-vertex equirectangular bending. Camera
+offsets use the same physical frame instead of treating chart increments as yards
+at altitude. Terrain sampling and polar caps are deliberately unchanged.
 
 ### Placement and lifecycle
 
@@ -103,6 +130,10 @@ Their directional guide is entered from the front, not the side/back.
 Pickups fill, not stack, and remain consumed until reset/restore/reopen. Reset
 clears charge and the journey, not saved placements. In-progress orbital journeys
 and charge are not persisted across browser reloads.
+Manual map teleports cancel charge/journey in both resident workers and refresh
+their cached snapshots before switching bodies. A completed automatic handoff
+also clears the old world's snapshot, so returning there cannot resurrect the
+old destination and immediately swap back.
 
 Load Azeroth from local Data first so both world workers are warm before going
 to Elune. Standalone Elune without an available Azeroth worker cannot complete a
@@ -133,11 +164,38 @@ placement/rotation/deletion and cockpit view. Ramp entrance `[-300,16.25,0]`,
 pickup `[-300,14.4813,60]`, heading 0, approach from z=220:
 entry about **113.9 yd/s**, departure **103.4 yd/s**, 15 boost-seconds,
 SOI crossing about **16.15 s** after departure, then ordinary-physics landing in
-Azeroth after about **38.53 s** wall time. Both engines remain healthy; charge
-is zero and the journey is cleared. Moving p99 **7.1 ms**, zero page/world errors.
+Azeroth after about **38.53 s** wall time. That original run used the former heat
+exemption; the normal-heat follow-up is recorded below. Charge was zero and the
+journey cleared. Moving p99 **7.1 ms**, zero page/world errors.
 Run `node browser\pod-launch-smoke.mjs` with read-only `WOW_DATA` and `SWE1R_DATA`;
 it owns its ephemeral port and the heavy-job lock. Screenshots/traces are ignored
 under `browser\test-results\pod-launch`, not shipped as game assets.
+
+### Normal-heat and presentation follow-up
+
+The rebuilt-Wasm follow-up holds boost for **16 s after departure**, deliberately
+one second past charge exhaustion. With a 104.35 yd/s departure it exhausts the
+15 s budget while the button remains down, crosses the SOI at about **16.09 s**
+and reaches Azeroth's surface at about **38.3 s**, approaching at **2769 yd/s**.
+Heat reaches 1 during powered use; landing health is **15.55% / 43.70%** after
+the extra ordinary burn and cooldown. Charge is zero and normal ground physics
+resumes. Chase and cockpit runs both complete with zero page/world errors.
+Returning to Elune through the actual map adds exactly one swap and stays there
+in drive mode with no journey or charge.
+
+Renderer CPU p99 is **7.8 ms chase / 7.9 ms cockpit**. RAF p99 is **48.7 / 34.7 ms**
+(an earlier chase run was 76.4 ms), so the strict 20 ms RAF assertion did **not**
+pass. The coordinator explicitly accepted functional/render-CPU evidence with
+this scheduling caveat because the machine is shared with the user's games;
+these measurements alone do not prove the spikes are external contention.
+No performance retry or weakened assertion conceals that result.
+
+`pod-presentation-smoke.mjs` captures the supplied 37,466.55 yd-high pose against
+immutable `645d4891` and the candidate. Before/after PNGs are under ignored
+`test-results/pod-presentation`; the candidate preserves rigid dimensions and
+aligned engine effects with zero page/world errors. This is a frozen renderer
+diagnostic, not trajectory evidence. Planet terrain/polar-ripple work remains
+outside this patch.
 
 ## Evidence required before claiming completion
 

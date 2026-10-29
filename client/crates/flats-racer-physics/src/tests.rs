@@ -8,9 +8,9 @@ fn powered_thrust_scales_with_trigger_pitch_and_partial_tick_budget() {
             let mut state=State::new([0.0,30.0,0.0],0.0).unwrap();
             state.pitch=PITCH_LIMIT;
             state.step_with_tuning(Input{throttle,pitch:1.0,boost:true,powered,..Input::default()},[None;4],FIXED_DT,&tuning).unwrap();
-            let thrust=throttle*((tuning.acceleration+tuning.boost_acceleration)*tuning.air_control+POWERED_THRUST*powered);
+            let thrust=throttle*((tuning.acceleration+tuning.boost_acceleration)*tuning.air_control*(1.0-powered)+POWERED_THRUST*powered);
             assert!((state.velocity[1]-(thrust*PITCH_LIMIT.sin()-tuning.gravity)*FIXED_DT).abs()<1e-5);
-            assert!((state.heat-HEAT_RISE_PER_SEC*FIXED_DT*(1.0-powered)).abs()<1e-6);
+            assert!((state.heat-HEAT_RISE_PER_SEC*FIXED_DT).abs()<1e-6);
         }
     }
 }
