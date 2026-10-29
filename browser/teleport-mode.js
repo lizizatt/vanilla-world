@@ -35,11 +35,13 @@ export const POLE_STANDOFF=600;
 export function polePlan(icon,activeId,driving) {
   const body=icon.body??'azeroth',anchor=POLE_ANCHORS[icon.pole];
   if(!anchor)throw new Error(`Unknown pole ${icon.pole}`);
-  const x=anchor[0],z=anchor[1]-POLE_STANDOFF,flight=[x,POLE_FLY_ALTITUDE,z,0,0];
+  const x=anchor[0],z=anchor[1]-POLE_STANDOFF,flight=[x,POLE_FLY_ALTITUDE,z,POLE_FACING_YAW,0];
   const plan={body,swap:body!==activeId,pose:undefined,frame:icon.pole};
-  return driving?{...plan,mode:'drive',flight,seat:[x,0,z,0]}:{...plan,mode:'fly',flight,pose:flight};
+  return driving?{...plan,mode:'drive',flight,seat:[x,0,z,POLE_FACING_YAW]}:{...plan,mode:'fly',flight,pose:flight};
 }
 export const POLE_FLY_ALTITUDE=40;
+/** Arrival stands POLE_STANDOFF north of the pole in its chart, so facing the flag means heading south (yaw PI; yaw 0 = north). */
+export const POLE_FACING_YAW=Math.PI;
 
 /** Drive pose (restore request) for the n-th attempt at seating on a ground of unknown height. */
 export const seatPose=(seat,attempt)=>[seat[0],seat[1]+SEAT_LADDER[Math.min(attempt,SEAT_LADDER.length-1)],seat[2],seat[3]];

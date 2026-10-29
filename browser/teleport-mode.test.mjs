@@ -11,7 +11,8 @@ test('pole teleports: both bodies, drive seats the pod short of the pole, fly ca
     assert.equal(drive.mode,'drive');assert.equal(fly.mode,'fly');
     assert.equal(drive.frame,pole);assert.equal(fly.frame,pole);
     assert.equal(drive.swap,body!==active);
-    assert.deepEqual(drive.seat,[a[0],0,a[1]-POLE_STANDOFF,0]);
+    assert.deepEqual(drive.seat,[a[0],0,a[1]-POLE_STANDOFF,Math.PI]);
+    assert.equal(fly.flight[3],Math.PI,'fly arrival faces the pole');
     assert.deepEqual(fly.pose,fly.flight);assert.equal(fly.flight[2],a[1]-POLE_STANDOFF);
   }
   assert.throws(()=>teleportModePlan({body:'azeroth',pole:'X'},'azeroth',true));
