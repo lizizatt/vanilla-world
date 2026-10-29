@@ -138,7 +138,11 @@ There is no app invert-Y toggle; this default applies only to held space aim.
 Ground pod pitch and ordinary camera/free-flight conventions are unchanged.
 
 On hold, seed the aim from the displayed camera, including existing look offset
-and roll. Yaw is about that fixed hold-start up; pitch is about the yawed right.
+and roll. Merely pressing RMB/LB preserves both that aim and the pod attitude:
+slewing starts only after mouse displacement or nonzero right-stick input.
+After that first movement it continues settling while held, even when input
+returns to zero. A new hold waits for movement again. Yaw is about that fixed
+hold-start up; pitch is about the yawed right.
 Angles are accumulated from the hold-start frame, not extracted from a changing
 Euler pose. Up travels continuously through vertical (including upside down);
 there is no horizon flip, added roll input or incremental roll drift from repeated
@@ -329,6 +333,23 @@ Handler p99 **0.8 ms** over **6194 samples**, renderer **3.8 ms**, RAF **7.1 ms*
 all below 20 ms. Zero page/world/unexpected HTTP errors; the four optional
 NPC companion-pack 404s remain explicitly recorded. No physical controller
 hardware was used.
+
+### Engage without steering input
+
+The offset-camera regression covers chase/cockpit with and without remaining
+charge: engaging and holding neutral for 60 physics ticks preserves camera aim,
+eye, nose and up; mouse/stick movement then enables slew. **31 targeted tests
+passed**. The real-data smoke holds RMB neutral for 300 ms before dragging:
+pod direction change **0**, camera-direction vector difference **2.15e-7**.
+It subsequently turns **90.06844 degrees**, burns **0.533333 boost-seconds**
+for **91.72273 yd/s** along camera centre with **0.00010590 yd/s** off-axis,
+and lands on Azeroth with charge zero and **51.76% / 67.84%** engine health.
+
+Handler p99 **4.6 ms** over **3072 samples**, renderer **9.3 ms**; zero
+page/world/unexpected HTTP errors (the four optional NPC-pack 404s remain
+separately recorded). RAF p99 **55.6 ms** did not meet 20 ms; this run passed
+the requested handler-time gate, not a strict RAF gate. No performance rerun
+was used. Physical controller hardware was not exercised.
 
 ## Evidence required before claiming completion
 

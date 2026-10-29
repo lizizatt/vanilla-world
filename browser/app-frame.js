@@ -45,7 +45,7 @@ function frame(now) {
     const aiming=space&&(right||controls.orient);
     app.podAim=aiming?movePodAim(app.podAim,app.renderer.podCameraAim??aimQuaternion(journey.direction,journey.up),
       app.podOrbit||[0,0],controls.orient?controls.look:[0,0],dt):undefined;
-    const orbital=space?{active:!!aiming,...(aiming?{aim:app.podAim.q}:{})}:undefined;
+    const orbital=space?{active:!!aiming,...(aiming?{aim:app.podAim.q,slew:app.podAim.moved}:{})}:undefined;
     app.podOrbit=[0,0];
     if(orbital?.active)controls.look=[0,0];
     if(right&&!orbital){controls.steer=Math.max(-1,Math.min(1,(app.renderer.chase?.[0]||0)*4));if(app.mouseButtons&1)controls.throttle=1;}
