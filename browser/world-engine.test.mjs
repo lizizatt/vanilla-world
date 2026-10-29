@@ -36,6 +36,60 @@ test('detail preprocessing never blocks physics and coalesces at most one pendin
   jobs[2].resolve(prepareDetail(jobs[2].data));await settle();
   assert.equal(events.length,2,'A replaced source cannot publish its delayed geometry');
 });
+test('rebind cancels old detail ownership even when the asset source is unchanged',async()=>{
+  const events=[],context=boot(events),jobs=[];
+  context.dependencies={prepareDetail:data=>new Promise((resolve,reject)=>jobs.push({data,resolve,reject})),refresh(){}};
+  runInContext(`
+    source=dependencies;world={set_scene_parts(){}};
+    scene={clear(){},removeTile(){}};
+    terrain={clear(){},async init(){}};
+    globalThis.send=sendDetail;globalThis.rebind=rebindRenderer;
+  `,context);
+  const tile=index=>({index,placement:[0,0],vertices:new Float32Array()});
+  context.send({event:'detail',tiles:[tile(0)],removed:[],seams:[]});
+  await context.rebind(false);
+  context.send({event:'detail',tiles:[tile(1)],removed:[],seams:[]});
+  context.send({event:'detail',tiles:[tile(2)],removed:[],seams:[]});
+  jobs[0].resolve(prepareDetail(jobs[0].data));await settle();
+  assert.equal(events.length,0,'Old consumer must never publish to the new renderer');
+  assert.equal(jobs.length,2,'Old finally must not release the current detail guard');
+  jobs[1].resolve(prepareDetail(jobs[1].data));await settle();
+  assert.equal(jobs.length,3);
+  jobs[2].resolve(prepareDetail(jobs[2].data));await settle();
+  assert.deepEqual(events.filter(e=>e.event==='detail').map(e=>Array.from(e.tiles,t=>t.index)),[[1],[2]]);
+});
+test('demotion closes far work and invalidates scene demand before refreshing source cancellation',async()=>{
+  const context=boot(),steps=[];
+  context.steps=steps;
+  runInContext(`
+    source={refresh(){steps.push('refresh');}};world={set_scene_parts(){}};
+    far={active:true,close(){this.active=false;steps.push('far');}};
+    scene={clear(){steps.push('scene');},removeTile(){}};
+    terrain={clear(){steps.push('terrain');},async init(){steps.push('init');}};
+    globalThis.rebind=rebindRenderer;globalThis.farActive=()=>far.active;
+  `,context);
+  await context.rebind(false);
+  assert.equal(context.farActive(),false);
+  assert(steps.indexOf('scene')>=0&&steps.indexOf('scene')<steps.indexOf('refresh'));
+  assert(!steps.includes('init'),'A parked engine must not restart optional terrain IO');
+});
+test('late material completion cannot rearm work after demotion',async()=>{
+  const f=materialFixture();let complete;
+  f.context.finishMaterial=()=>new Promise(resolve=>complete=resolve);
+  runInContext(`
+    source.refresh=()=>{};world.remove_tile=()=>{};
+    scene.removeTile=()=>{};scene.clear=()=>{};
+    terrain.init=async()=>{};terrain.removeTile=()=>{};
+    terrain.prepareTile=finishMaterial;
+    globalThis.rebind=rebindRenderer;
+  `,f.context);
+  f.context.admissions.push(1);
+  await f.frame(1);await f.frame(2);
+  assert(complete);
+  await f.context.rebind(false);
+  complete();await settle();
+  assert.equal(f.context.timers.size,0,'Old material must not enqueue new timers on the parked engine');
+});
 test('terrain collision admission completes before separately yielded render geometry and seams',async()=>{
   const f=fixture([0,1]),work=[];
   f.context.dependencies.world.geometry=i=>{work.push(`geometry:${i}`);return new Float32Array();};

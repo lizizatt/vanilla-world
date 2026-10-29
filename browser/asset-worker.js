@@ -30,6 +30,7 @@ async function pump() {
   active=job.id;
   const defer=()=>cancelled.has(job.id)||job.background&&jobs.some(j=>!j.background);
   try {
+    if(cancelled.has(job.id))throw Object.assign(Error('Obsolete resource cancelled'),{code:'DEFERRED'});
     if(job.action==='open') {
       if(source)throw Error('Asset source already open');
       wasm=await init();

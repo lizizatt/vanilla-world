@@ -100,7 +100,7 @@ export class ActorService {
   async load(instance) {
     const retry = ms => this.models.set(instance.key, { until: this.now() + ms });
     try {
-      const bytes = await this.source.read(instance.path, { background: true });
+      const bytes = await this.source.read(instance.path, { background: true, shouldDefer:()=>this.closed });
       if (this.closed) return;
       const actor = this.wasm.SceneActor.create(bytes, instance.path, JSON.stringify(instance.skins || []), instance.geosets && JSON.stringify(instance.geosets));
       const duration = actor.duration(0);
@@ -109,6 +109,7 @@ export class ActorService {
       this.models.set(instance.key, { actor, duration, walk, walkSpeed, bytes: actor.vertex_count() * 48, used: this.now() });
       this.stats.models = [...this.models.values()].filter(e => e.actor).length;
     } catch (error) {
+      if(this.closed)return;
       if (error?.code === 'DEFERRED') retry(ACTOR.retryMs);
       else { retry(Infinity); this.stats.failed++; this.stats.last = `${instance.path} skins=${JSON.stringify(instance.skins)}: ${error?.message ?? error}`; }
     }

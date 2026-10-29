@@ -721,7 +721,8 @@ export class SceneStream {
         let result;
         try {
           result = await this.load(request);
-          if (generation !== this.generation || !this.requests.has(request.key)) {
+          if (generation !== this.generation) {result.dispose?.();return;}
+          if (!this.requests.has(request.key)) {
             result.dispose?.(); continue;
           }
           if(this.visualOnly&&request.kind==='m2')this.discovered?.set(request.key,{bounds:result.value.bounds});
@@ -752,7 +753,7 @@ export class SceneStream {
           if (request.kind === 'wmo') { loadedRoot = true; break; }
         } catch (error) {
           result?.dispose?.();
-          if (generation !== this.generation) continue;
+          if (generation !== this.generation) return;
           if (error.code === 'DEFERRED') { if (!isCritical(request)) break; skipped.add(request.key); job--; continue; }
           const failure = { path: request.path, code: error.code || 'CORRUPT', message: String(error.message || error) };
           this.failures.set(request.key, failure);
@@ -799,10 +800,12 @@ export class SceneStream {
       } finally {this.timings.readMs+=performance.now()-readStart;}
     }
     let bytes;
-    try { bytes = await this.source.read(request.path,{background,shouldDefer:background?()=>
+    const obsolete=()=>generation!==this.generation || !this.requests.has(request.key);
+    try { bytes = await this.source.read(request.path,{background,shouldDefer:()=>
       generation!==this.generation || !this.requests.has(request.key)
-      || !!(this.foregroundKey&&!this.cache.has(this.foregroundKey)):undefined}); }
+      || background&&!!(this.foregroundKey&&!this.cache.has(this.foregroundKey))}); }
     finally { this.timings.readMs += performance.now()-readStart; }
+    if(obsolete())throw Object.assign(Error('Obsolete scene resource'),{code:'DEFERRED'});
     if (bytes.length > 64 * 1024 * 1024) throw new Error('Encoded scene resource exceeds 64 MiB');
     const decodeStart = performance.now();
     try {
@@ -889,8 +892,8 @@ export class SceneStream {
     this.errors=[];
     this.revision++;this.collisionRevision++;
   }
-  clear() {
-    this.generation++; for (const key of this.cache.keys()) this.evict(key);
+  clear(keepCache=false) {
+    this.generation++; if(!keepCache)for (const key of this.cache.keys()) this.evict(key);
     this.tiles.clear(); this.distantTiles.clear(); this.requests.clear(); this.failures.clear();
     this.placementLists.clear();
     this.discovered?.clear();
@@ -899,6 +902,7 @@ export class SceneStream {
     this.visualInstances=undefined;
     this.collisionIndex=undefined;this.placementRevision++;
     this.instances = []; this.collisionCandidates = []; this.errors = [];
+    this.position=undefined;this.predicted=undefined;
     this.revision++;this.collisionRevision++;
   }
 }

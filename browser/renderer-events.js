@@ -102,7 +102,8 @@ export function event(r,data) {
   }
   else if(data.event==='craft-error')r.craftError=data.error;
   else if(data.event==='horizon-index'){
-    r.indices.set(data.region,r.buffer(data.indices,GPUBufferUsage.INDEX));
+    const indices=r.buffer(data.indices,GPUBufferUsage.INDEX);
+    r.indices.get(data.region)?.destroy();r.indices.set(data.region,indices);
     r.terrainBundle=undefined;
   }
   else if(data.event==='horizon'){trimRimSpikes(data.vertices);const chartBody=activeBody();splatHeights(r.heightGrid,data.vertices,data.placement,chartBody.centre,chartBody.radius);r.heightDirty=true;
