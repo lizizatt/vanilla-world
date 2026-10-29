@@ -12,6 +12,7 @@ import {nearestFlag} from './race-flags.js';
 import {tracksFor,skinOf} from './vehicles.js';
 import {hitFlash,boostFx} from './swe1r/hud.js';
 import {gibTrigger,healthTrigger,overheatTrigger} from './wreck.js';
+import {podControl} from './pod-attitude.js';
 export function installFrame(app) {
 const {canvas,keys,input,audio,cameraCollision,evidence,settings,gib,gibMem,music,client}=app;
 const $=id=>document.getElementById(id);
@@ -39,7 +40,10 @@ function frame(now) {
     if(controls.cockpit)app.cockpit();
     if(controls.zoom)app.zoom(controls.zoom);
     const cameraOrbit=app.orbit;app.orbit=[0,0];const keyDrive=!!(controls.throttle||controls.steer),right=!app.flight&&!!(app.mouseButtons&2);
-    if(right){controls.steer=Math.max(-1,Math.min(1,(app.renderer.chase?.[0]||0)*4));if(app.mouseButtons&1)controls.throttle=1;}
+    const orbital=podControl(client.state.pod?.journey,accepts&&!app.flight&&app.choice.vehicle==='podracer',right,controls.look,app.podOrbit||[0,0],controls.orient);
+    app.podOrbit=[0,0];
+    if(orbital?.active)controls.look=[0,0];
+    if(right&&!orbital){controls.steer=Math.max(-1,Math.min(1,(app.renderer.chase?.[0]||0)*4));if(app.mouseButtons&1)controls.throttle=1;}
     const locked=app.wreckLocked();if(locked){Object.assign(controls,{throttle:0,steer:0,pitch:0,flags:0});client.pendingHop=0;}else if(app.wasLocked&&!app.flight)void app.respawn();app.wasLocked=locked;
     if(app.flight) {
       let swap;const before=app.flight,[yaw,pitch]=app.flight.length>=9?toEuler(app.flight.slice(5,9),app.flight[3]):[0,0];
@@ -65,12 +69,12 @@ function frame(now) {
     if(app.editor.isOpen)app.flight=app.editor.pose();
     app.syncGates();
     app.renderer.warpCap=app.flight&&app.space&&app.renderer.sharedSpace?warpClamp(nearestAltitude(app.space,app.renderer.timeOfDay??0)):undefined;
-    if(!app.frozenPresentation&&!locked&&!app.swapHold)client.frame(dt,controls.throttle,controls.steer,controls.flags,app.flight?.slice(0,3),settings.distant,app.renderer.view,controls.pitch,(app.renderer.timeOfDay??720)+simEpoch.days*DAY_PERIOD,app.choice.vehicle==='podracer');
+    if(!app.frozenPresentation&&!locked&&!app.swapHold)client.frame(dt,controls.throttle,controls.steer,controls.flags,app.flight?.slice(0,3),settings.distant,app.renderer.view,controls.pitch,(app.renderer.timeOfDay??720)+simEpoch.days*DAY_PERIOD,app.choice.vehicle==='podracer',orbital);
     cameraCollision.frame(client.state,app.renderer.sceneRegion ?? client.state.telemetry[10]);
     app.renderer.fxInput={throttle:Math.max(0,controls.throttle),boosting:(controls.flags&2)!==0,heat:app.dial?client.state.telemetry[6]:0,health:[client.state.telemetry[15]??1,client.state.telemetry[16]??1],drifting:(controls.flags&4)!==0};
     // During a gravity-well swap the renderer still holds the old body's chart; keep presenting the last frame instead of drawing the new pose on it.
     setActiveFrame(app.flight?(app.flightFrame??'E'):['E','N','S'][client.state.frame?.[0]??0]);const stats=app.swapHold&&app.lastStats?app.lastStats:app.renderer.draw(app.frozenPresentation || app.flight?client.state.telemetry:client.presentation(),app.flight,dt,app.frozenPresentation?0:now/1000,
-      {...settings,cameraLook:controls.look,cameraOrbit,cameraSteer:right,cameraRecentre:keyDrive&&!app.dragging},keys.has('KeyV')&&!keys.has('AltLeft')&&!keys.has('AltRight'));
+      {...settings,cameraLook:controls.look,cameraOrbit,cameraSteer:right&&!orbital,cameraRecentre:keyDrive&&!app.dragging&&!orbital?.active},keys.has('KeyV')&&!keys.has('AltLeft')&&!keys.has('AltRight'));
     app.lastStats=stats;
     app.editor.frame();
     updateTimeHud(app);

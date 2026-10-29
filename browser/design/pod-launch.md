@@ -115,6 +115,43 @@ change that reference frame. Camera offsets are metric vectors in this frame,
 recharted without resetting their orbit. Both chase and cockpit keep their
 physical eye and orientation across a swap.
 
+### Manual attitude control in space
+
+For a drive-mode podracer, **space** means an unsupported `orbit` journey with
+radial altitude strictly above the current body's atmosphere edge: **1711 yd on
+Azeroth, 0 yd on airless Elune**. Ground/hover, ramp guides, ordinary local jumps,
+other vehicles and free-flight retain their existing controls.
+
+Hold **right mouse and drag** to yaw/pitch the pod about its own up/right axes
+(0.004 rad/pixel). Drag right turns right; drag up raises the nose. Controller:
+hold **LB/L1 (standard button 4)** and use the **right stick**, with the existing
+0.18 look deadzone and a maximum **90 degrees/s** per axis. Without the hold, the
+right stick and left-mouse drag still orbit the camera. No new roll binding is
+added: the existing roll is carried in the full quaternion, with no horizon
+leveling or vertical Euler singularity.
+
+The first manual hold takes over launch stabilization. Release preserves the
+new inertial attitude, including after charge exhaustion and across SOI changes;
+it does not resume the old +/-20-degree automatic target. Landing/reset/manual
+teleport ends this attitude mode with the journey. Accelerate, reverse and boost
+all use the new nose direction; rotating alone does not rotate velocity. Heat,
+damage, boost-use budget and gravity are unchanged. The ordinary full-airspeed
+governor still forbids positive engine work above its cap, so at interplanetary
+speed use remaining powered charge or aim thrust against motion to brake.
+
+Mouse deltas are assigned to the vehicle at the pointer event, not at a later
+frame: releasing RMB before a frame cannot turn the final movement into camera
+orbit. Client coalescing sums deltas; the worker retains them across zero-tick
+frames and collision holds, consuming them exactly once after an accepted step.
+Controller rates integrate at the fixed physics timestep. Only confirmed
+quaternion telemetry drives the existing rigid f64-relative craft/camera path;
+there is no main-thread physics predictor.
+
+The interaction uses pointer capture rather than introducing pointer lock.
+The cursor becomes a grabbing hand during RMB control and returns on release,
+cancel or focus loss; the context menu remains suppressed. No cursor trapping
+or new Escape behavior is introduced.
+
 Craft geometry is rigid: f64 CPU subtraction/rotation produces one camera-relative
 matrix before f32 upload, bypassing per-vertex equirectangular bending. Camera
 offsets use the same physical frame instead of treating chart increments as yards
@@ -200,6 +237,36 @@ immutable `645d4891` and the candidate. Before/after PNGs are under ignored
 aligned engine effects with zero page/world errors. This is a frozen renderer
 diagnostic, not trajectory evidence. Planet terrain/polar-ripple work remains
 outside this patch.
+
+### Manual orbital attitude follow-up
+
+Run the attitude-specific production smoke with `ORIENT=1` and
+`node browser\pod-launch-smoke.mjs` (same read-only asset variables). It launches
+from the real ramp/pickup, performs an actual RMB drag, releases and verifies the
+retained direction, burns sideways, then restores the launch heading and
+continues to Azeroth. The measured velocity increment is compared to a matched
+unthrusted production-solver continuation to separate engine impulse from
+gravity. Its **20 ms p99 gate is worker handler time**, measured at the real
+protocol handler entry/reply boundary by the diagnostic server, not RAF time;
+RAF and renderer CPU values are still reported. Outputs are ignored under
+`browser\test-results\pod-attitude`.
+
+The final real-data run turned **90.069 degrees** with a 393-pixel RMB drag.
+After release, **0.516667 boost-seconds** produced **88.8522 yd/s** along the new
+nose and only **0.00011145 yd/s** off-axis versus the matched coast. Measured
+acceleration was **171.972 yd/s²**, matching the unchanged 172 yd/s² powered
+thrust. Turning back and completing the 15 boost-use seconds reached Azeroth
+and returned to ground physics with zero charge and **33.81% / 55.87%** engine
+health. Heat reached 1 normally; release restored the cursor without pointer lock.
+
+Worker handler p99 was **1.5 ms over 5906 samples**; renderer CPU p99 was
+**4.8 ms**, RAF p99 **7.1 ms**. There were zero page/world errors or unexpected
+HTTP failures. Four optional NPC-pack probes returned 404 (private
+`/local/npc-spawns.json` and public `/npc-pack.json`, once per world); population
+loading explicitly permits absent companion packs, and the report retains those
+misses separately rather than hiding them. The browser suite passed **985 tests,
+0 failures, 8 skips**. Controller mapping/rates are covered by deterministic
+tests; this smoke uses real pointer events, not physical controller hardware.
 
 ## Evidence required before claiming completion
 
