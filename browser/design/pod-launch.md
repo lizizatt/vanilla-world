@@ -119,6 +119,10 @@ Craft geometry is rigid: f64 CPU subtraction/rotation produces one camera-relati
 matrix before f32 upload, bypassing per-vertex equirectangular bending. Camera
 offsets use the same physical frame instead of treating chart increments as yards
 at altitude. Terrain sampling and polar caps are deliberately unchanged.
+Cockpit eye translation stays f64 rather than reading the GPU matrix's f32
+translation. Globe regressions compare the physical seat and basis across
+altitude/latitude/rebases; unbounded planar-coordinate fixtures explicitly disable
+planet projection, since an arbitrary billion-yard Z is not a valid globe latitude.
 
 ### Placement and lifecycle
 

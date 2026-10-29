@@ -112,8 +112,8 @@ function flatCameraView(rig,state,flight,dt,origin,settings={},lookBack=false) {
     rig.lookBack=lookBack;
     const matrix=craftMatrix(state,origin,rig.craft.metadata.scale),anchor=rig.craft.anchor;
     const transform=v=>[0,1,2].map(i=>matrix[i]*v[0]+matrix[4+i]*v[1]+matrix[8+i]*v[2]);
-    const eye=transform(anchor).map((n,i)=>n+matrix[12+i]);
     const pivot=[state[0]-origin[0],state[1],state[2]-origin[1]];
+    const eye=transform(anchor).map((n,i)=>n+pivot[i]);
     const clear=rig.clipCamera?.(pivot,eye,origin);
     if(!clear)rig.cameraBlocked='pending';
     else if(Math.hypot(...clear.map((n,i)=>n-eye[i]))>1e-5)
