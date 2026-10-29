@@ -8,7 +8,7 @@ import {loadTracks} from './race-flags.js';
 import {loadGateKit} from './race-gates.js';
 import {getSwe1r} from './swe1r/ui.js';
 import {classifyPickError} from './swe1r/attach.js';
-import {loadPodModel} from './swe1r/skin.js';
+import {loadPartModel} from './swe1r/skin.js';
 import {BODIES,bodiesEnabled,podGravityFor} from './bodies.js';
 import {activeBody,setActiveBody} from './body-shaders.js';
 import {weightedSplit} from './engine-pair.js';
@@ -132,7 +132,7 @@ async function open(selection,remember=false) {
     app.renderer.configure(result.info.manifest);client.sky();client.animate(settings.animateNpcs);mapPanel.configure(result.info.manifest,result.info.id);
     void loadTracks().then(async found=>{if(new URLSearchParams(location.search).get('poleFrame'))found=[];// pole frames carry no tracks or gates in v1 (design/poles.md)
       app.shipped=found;app.tracks=await app.withOverrides(found);app.gateKey=undefined;});
-app.gateKit=undefined;void loadGateKit((a,p)=>client.request(a,p),()=>getSwe1r()&&loadPodModel(getSwe1r(),{index:309,scale:1/600})).then(kit=>{app.gateKit=kit;app.gateKey=undefined;});
+app.gateKit=undefined;void loadGateKit((a,p)=>client.request(a,p),()=>getSwe1r()&&loadPartModel(getSwe1r(),309)).then(kit=>{app.gateKit=kit;app.gateKey=undefined;});
     cameraCollision.configure(result.info.manifest);
     app.tuningValues=Array.isArray(result.info.tuning)?result.info.tuning.slice():TUNING_FIELDS.map(f=>f[1]);
     opened=true;

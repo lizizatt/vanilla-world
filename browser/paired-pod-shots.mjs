@@ -5,11 +5,12 @@ import assert from 'node:assert/strict';
 import {openLab} from './race-gate-lab.mjs';
 import {podSkinList} from './swe1r/skin.js';
 
-const out=path.resolve('..','runtime','paired-pods');
+const out=path.resolve('..','runtime','paired-pods','default');
 fs.mkdirSync(out,{recursive:true});
 const {ctx,page,errors}=await openLab({width:1000,height:700});
 const report=[];
 try {
+  await page.waitForFunction(()=>!worldEvidence.loading?.active);
   await page.evaluate(async()=>{
     const p=worldEvidence.state.telemetry;
     await worldTest.restore([p[0],p[1]+150,p[2],0]);
@@ -17,26 +18,28 @@ try {
     worldTest.timeLock(1440);
     worldTest.settings({cockpit:false,scenery:false,clouds:false,farClouds:false,shadows:false,particles:'off',music:false,sound:false});
     worldTest.showCraft(true);
+    worldTest.mockGates([]);
+    worldTest.props([]);
     const sheet=new CSSStyleSheet();sheet.replaceSync('*{visibility:hidden!important}canvas{visibility:visible!important}');
     document.adoptedStyleSheets=[...document.adoptedStyleSheets,sheet];
   });
   await page.waitForTimeout(1000);
   for (const skin of podSkinList()) {
     const row={id:skin.id,name:skin.name};
-    for (const full of [false,true]) {
-      const variant=full?'after':'before';
-      row[variant]=await page.evaluate(async({skin,full})=>{
-        history.replaceState(null,'',`?test&fullPods=${full?1:0}`);
+    {
+      const variant='after';
+      row[variant]=await page.evaluate(async(skin)=>{
         const payload=await worldTest.swe1rModel(skin.index,skin.scale);
         const r=worldTest.renderer();r.setCraftOverride(payload);r.intakeAngle=0;
-        if(!full) {
+        {
           const v=payload.asset.vertices,lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];
           for(let i=0;i<v.length;i+=12)for(let a=0;a<3;a++){lo[a]=Math.min(lo[a],v[i+a]*skin.scale);hi[a]=Math.max(hi[a],v[i+a]*skin.scale);}
           window.podShotBounds={lo,hi};
         }
         return {assembly:payload.assembly,fallback:payload.fallback,triangles:payload.asset.indices.length/3,
           fans:payload.asset.batches.filter(b=>b.intake).map(b=>b.intake),anchor:payload.metadata.posedAttachment0};
-      },{skin,full});
+      },skin);
+      assert.equal(row[variant].assembly,'paired',skin.name);
       for (const view of ['front','side']) {
         await page.evaluate(view=>{
           const {lo,hi}=window.podShotBounds,s=worldEvidence.state.telemetry;
@@ -52,9 +55,7 @@ try {
         await page.screenshot({path:path.join(out,`${skin.id}-${variant}-${view}.png`)});
       }
     }
-    assert.deepEqual(row.after.anchor,row.before.anchor);
-    assert.deepEqual(row.after.fans,row.before.fans);
-    report.push(row);console.log(skin.name,row.before.triangles,'->',row.after.triangles,row.after.assembly,row.after.fallback||'');
+    report.push(row);console.log(skin.name,row.after.triangles,row.after.assembly);
   }
   assert.deepEqual(errors,[]);
   assert.deepEqual(await page.evaluate(()=>worldEvidence.errors),[]);

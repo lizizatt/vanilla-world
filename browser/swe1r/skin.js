@@ -1,17 +1,10 @@
-// Garage skins from the user's own SWE1R install. Lod1 is the complete default
-// and fallback; paired Podd/MAlt detail is an opt-in static preview.
+// Garage/race/flight skins from the user's own paired SWE1R Podd/MAlt models.
 // No game assets are shipped, and the hosted build never lists these skins.
 import { readBlock } from './block.js';
 import { decodeTexture, buildPod } from './pod.js';
 import { MODEL_NAMES } from './names.js';
-import {parseModel} from './model.js';
 import {assemblePod} from './assembly.js';
-import {exhaustPoints} from '../particles.js';
-
-// Visual gate: paired race models still need authored rest-pose calibration.
-export const FULL_PODS_DEFAULT = false;
-export const fullPodsEnabled = () => typeof location !== 'undefined' && new URLSearchParams(location.search).has('fullPods')
-  ? new URLSearchParams(location.search).get('fullPods') === '1' : FULL_PODS_DEFAULT;
+import {POD_POSES} from './poses.js';
 
 export function podPair(index) {
   const name=MODEL_NAMES[index-NAME_DRIFT]?.replace(/^Part_Racer_Lod1_/,'');
@@ -62,30 +55,38 @@ export function toCraft(asset, bounds, fwd = FORWARD) {
   return asset;
 }
 
-export async function loadPodModel(reader, skin, {full = fullPodsEnabled()} = {}) {
+export async function loadPodModel(reader, skin) {
   const { models, textures } = await load(reader);
-  const [mask, body] = models[skin.index] ?? [];
-  if (!body || String.fromCharCode(...body.subarray(0, 4)) !== 'Part') throw new Error('model is not a racer pod in this install');
+  const pair=podPair(skin.index),pose=POD_POSES[skin.index];
+  if (!pair || !pose) throw new Error('no calibrated Podd/MAlt pair');
+  const [mask,body]=models[pair.pod]??[],alternate=models[pair.alternate]?.[1];
+  if (!body||!alternate) throw new Error('paired model unavailable');
   const texture = t => { try { return decodeTexture(textures[t.index], t); } catch { return null; } };
-  const reference = buildPod(body, mask, {texture});
-  let pod=reference, assembly='lod1', fallback;
-  if (full) {
-    try {
-      const pair=podPair(skin.index);
-      if (!pair) throw new Error('no named Podd/MAlt pair');
-      const [pairMask,pairBody]=models[pair.pod]??[], alternate=models[pair.alternate]?.[1];
-      if (!pairBody||!alternate) throw new Error('paired model unavailable');
-      const meshes=assemblePod(pairBody,pairMask,alternate,parseModel(body,mask).meshes);
-      pod=buildPod(pairBody,pairMask,{texture,meshes});
-      if (!pod.asset.indices.length || !pod.asset.vertices.every(Number.isFinite)) throw new Error('invalid paired geometry');
-      assembly='paired';
-    } catch (error) { pod=reference; fallback=error.message; }
+  const meshes=assemblePod(body,mask,alternate,pose);
+  const pod=buildPod(body,mask,{texture,meshes});
+  if (!pod.asset.indices.length || !pod.asset.vertices.every(Number.isFinite)) throw new Error('invalid paired geometry');
+  toCraft(pod.asset,{lo:[0,0,pose.z]});
+  const fans=(pose.fans??[]).map(p=>[...p]);
+  for (const batch of pod.asset.batches.filter(b=>b.intake)) {
+    let nearest=0;
+    for (let i=1;i<fans.length;i++)
+      if (Math.hypot(...fans[i].map((v,a)=>v-batch.intake[a]))<Math.hypot(...fans[nearest].map((v,a)=>v-batch.intake[a]))) nearest=i;
+    const anchor=fans.splice(nearest,1)[0];
+    if (!anchor || Math.hypot(...anchor.map((v,a)=>v-batch.intake[a]))>10) throw new Error('pod fan calibration mismatch');
+    batch.intake=anchor;
   }
-  if (!pod.asset.indices.length) throw new Error('pod model has no geometry');
-  toCraft(reference.asset, reference.bounds);
-  if (pod!==reference) toCraft(pod.asset, reference.bounds);
-  const exhausts=exhaustPoints(reference.asset.vertices,reference.asset.indices);
-  const top = reference.bounds.hi[2] - reference.bounds.lo[2];
-  return { asset: pod.asset, textures: pod.textures, flame: undefined, key: `swe1r:${skin.index}:${assembly}`, assembly, fallback,
-    metadata: { display: 0, scale: skin.scale, pose: 'swe1r', exhausts, posedAttachment0: { space: 'model-local', pose: 'stand-frame-0', position: [0, 0, top] } } };
+  if (fans.length) throw new Error('missing pod fan');
+  return { asset: pod.asset, textures: pod.textures, flame: undefined, key: `swe1r:${skin.index}:paired`, assembly:'paired',
+    metadata: { display: 0, scale: skin.scale, pose: 'swe1r', exhausts:pose.exhausts.map(p=>[...p]), posedAttachment0: { space: 'model-local', pose: 'stand-frame-0', position: [0, 0, pose.top] } } };
+}
+
+// Race scenery uses a Part lens, not a racer or a missing-pod fallback.
+export async function loadPartModel(reader,index) {
+  const {models,textures}=await load(reader);
+  const [mask,body]=models[index]??[];
+  if (podPair(index) || !body || String.fromCharCode(...body.subarray(0,4))!=='Part') throw new Error('model is not a scenery part');
+  const pod=buildPod(body,mask,{texture:t=>{try{return decodeTexture(textures[t.index],t);}catch{return null;}}});
+  if (!pod.asset.indices.length) throw new Error('empty scenery part');
+  toCraft(pod.asset,pod.bounds);
+  return {asset:pod.asset,textures:pod.textures};
 }

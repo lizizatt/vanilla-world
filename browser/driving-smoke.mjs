@@ -184,7 +184,8 @@ if(process.env.COAST_WATER==='0')await context.route('**/water-stream.js',async 
     replace("if(objectWait.length){accumulator=0;",'if(objectWait.length){drivingClock.objects+=message.dt+accumulator;accumulator=0;');
     replace('accumulator+=Math.min(Math.max(message.dt,0),.1);','drivingClock.dropped+=Math.max(0,message.dt-.1);accumulator+=Math.min(Math.max(message.dt,0),.1);');
     replace('advanced=true;accumulator-=1/120;','drivingClock.steps++;drivingClock.batch++;advanced=true;accumulator-=1/120;');
-    replace('return {telemetry:pod.telemetry(world),','return {physicsStats:Array.from(world.physics_stats()),drivingClock:{...drivingClock,remainder:accumulator},drivingWork:globalThis.drivingWork.splice(0),telemetry:pod.telemetry(world),');
+    replace(/return \{(arrival,)?telemetry:pod.telemetry\(world\),/,(_,arrival='')=>
+      `return {${arrival}physicsStats:Array.from(world.physics_stats()),drivingClock:{...drivingClock,remainder:accumulator},drivingWork:globalThis.drivingWork.splice(0),telemetry:pod.telemetry(world),`);
     replace('function prepareTerrainMaterial() {',
       "function prepareTerrainMaterial() {if(terrainMaterials.size)drivingWork.push({kind:'material-preparation-frame',ms:0,frame:timings.frames,steps:drivingClock.batch,loads,index:terrainMaterials.values().next().value});");
     replace('const result=await handle(data),start=performance.now();','const begin=performance.timeOrigin+performance.now();const result=await handle(data),start=performance.now();if(result.telemetry)result.transport={begin,end:performance.timeOrigin+start};');
@@ -236,7 +237,6 @@ if(process.env.COAST_WATER==='0')await context.route('**/water-stream.js',async 
     await route.fulfill({response,body});
   });
   await page.goto(process.env.WORLD_URL || 'http://127.0.0.1:4185/?test');
-  assert.deepEqual([...hooks.wanted].filter(h=>!hooks.applied.has(h)),[],'Missing worker profiling hooks');
   await page.waitForFunction(()=>!document.getElementById('select').disabled);
   if(process.env.POD_SKIN){
     assert(process.env.SWE1R_DATA,'POD_SKIN requires SWE1R_DATA');
@@ -245,6 +245,7 @@ if(process.env.COAST_WATER==='0')await context.route('**/water-stream.js',async 
   }
   await page.locator('#files').setInputFiles(process.env.WOW_DATA);
   await page.waitForFunction(()=>worldEvidence.ready || worldEvidence.errors.length,{},{timeout:180000});
+  assert.deepEqual([...hooks.wanted].filter(h=>!hooks.applied.has(h)),[],'Missing worker profiling hooks');
   assert.deepEqual(await page.evaluate(()=>worldEvidence.errors),[]);
   if(process.env.POD_SKIN){
     await page.evaluate(skin=>{
@@ -252,8 +253,8 @@ if(process.env.COAST_WATER==='0')await context.route('**/water-stream.js',async 
       worldTest.settings({cockpit:false});
     },process.env.POD_SKIN);
     await page.waitForFunction(()=>worldTest.renderer().craft?.metadata.pose==='swe1r',null,{timeout:30000});
-    if(process.env.POD_FULL==='1')assert.ok(await page.evaluate(()=>worldTest.renderer().craft.instance.key.endsWith(':paired')),
-      'Paired performance gate must not silently use Lod1 fallback');
+    assert.ok(await page.evaluate(()=>worldTest.renderer().craft.instance.key.endsWith(':paired')),
+      'Pod performance gate must render the default paired craft');
     if(process.env.POD_BASELINE!=='1'){
       assert.ok(await page.evaluate(()=>worldTest.renderer().craft.asset.batches.some(b=>b.intake)),
         'Performance gate must render an animated intake, not a fallback craft');
@@ -548,7 +549,7 @@ await writeFile(new URL('raw.json',output),JSON.stringify(data));
   await writeFile(new URL('trace.json',output),JSON.stringify({summary,freezes,resets,...data},null,2));
   console.log(JSON.stringify(summary,null,2));
   assert.deepEqual(summary.errors,[]);
-  if(process.env.POD_FULL==='1')assert.ok(summary.handlerMs.p99<20,`Paired handler p99 ${summary.handlerMs.p99} ms must be <20 ms`);
+  if(process.env.POD_SKIN)assert.ok(summary.handlerMs.p99<20,`Paired handler p99 ${summary.handlerMs.p99} ms must be <20 ms`);
   if(presentation==='raw')assert.deepEqual(data.draws,data.rawDraws,'Raw comparison must read the current, not previous, client state');
   if(pulses){
     assert.equal(inputLatency.length,seconds/5,'Every requested throttle pulse must be captured');

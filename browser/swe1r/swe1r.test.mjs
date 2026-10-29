@@ -129,7 +129,7 @@ test('runtime skins are replaced wholesale and removable', () => {
   assert.equal(normalizeChoice({ vehicle: 'podracer', skin: 'swe1r-255' }).skin, 'rocket');
 });
 
-test('real install: Lod1 pod loads as a textured craft payload', { skip: !process.env.SWE1R_DATA && 'SWE1R_DATA not set' }, async () => {
+test('real install: paired pod loads as a textured craft payload', { skip: !process.env.SWE1R_DATA && 'SWE1R_DATA not set' }, async () => {
   const lev = findLev(process.env.SWE1R_DATA);
   const reader = { read: async n => new Uint8Array(fs.readFileSync(path.join(lev, n))) };
   const skin = podSkinList().find(s => s.name === 'Anakin Skywalker');
@@ -150,7 +150,7 @@ test('real install: texture UVs are normalised by 4096, so a 16x128 strip is not
   }
 });
 
-test('real install: every listed pod is a Part model with plausible size (name table lags the model block by one)', { skip: !process.env.SWE1R_DATA && 'SWE1R_DATA not set' }, async () => {
+test('real install: every paired pod keeps its stable skin ID and plausible size', { skip: !process.env.SWE1R_DATA && 'SWE1R_DATA not set' }, async () => {
   const lev = findLev(process.env.SWE1R_DATA);
   const reader = { read: async n => new Uint8Array(fs.readFileSync(path.join(lev, n))) };
   for (const skin of podSkinList()) {

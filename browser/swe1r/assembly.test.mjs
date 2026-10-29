@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import {parseModel,modelHeader} from './model.js';
-import {loadPodModel,podSkinList,podPair,FULL_PODS_DEFAULT} from './skin.js';
+import {parseModel,modelHeader,applyMat} from './model.js';
+import {loadPodModel,loadPartModel,podSkinList,podPair} from './skin.js';
 import {readBlock} from './block.js';
-import {exhaustPoints} from '../particles.js';
+import {POD_POSES} from './poses.js';
+import {assemblePod,tetherMatrix} from './assembly.js';
 
 function fixture(tag) {
   const body=new Uint8Array(0x600),dv=new DataView(body.buffer);
@@ -76,7 +77,7 @@ test('headers skip counted Data and terminated Anim, reject truncation and wrong
   assert.deepEqual(modelHeader(c.body),{roots:[0x80],alt:[]});
 });
 
-test('pair indices use exact early names and only apply drift to late names; default stays gated',()=>{
+test('pair indices use exact early names and only apply drift to late names',()=>{
   const pair=name=>podPair(podSkinList().find(s=>s.name===name).index);
   assert.deepEqual(pair('Anakin Skywalker'),{pod:2,alternate:0});
   assert.deepEqual(pair('Sebulba'),{pod:6,alternate:5});
@@ -84,31 +85,49 @@ test('pair indices use exact early names and only apply drift to late names; def
   assert.deepEqual(pair('Neva Kee'),{pod:30,alternate:29});
   assert.deepEqual(pair('Jinn Reeso'),{pod:299,alternate:298});
   assert.equal(podPair(309),null);
-  assert.equal(FULL_PODS_DEFAULT,false);
+  assert.equal(Object.keys(POD_POSES).length,podSkinList().length);
+  for(const skin of podSkinList())assert.ok(POD_POSES[skin.index]);
 });
 
-test('real data: all paired payloads render more detail without moving anchors, fans or exhausts; corrupt pair falls back',
+test('tether transforms keep both endpoints attached, including vertical runs',()=>{
+  for(const [a,b] of [[[120,300,10],[-40,-100,60]],[[0,0,10],[0,0,-10]]]){
+    const matrix=tetherMatrix(a,b);
+    for(const [p,want] of [[[5,0,5],a],[[5,-100,5],b]])
+      assert.ok(Math.hypot(...applyMat(matrix,...p).map((v,i)=>v-want[i]))<1e-10);
+    assert.ok(matrix.every(Number.isFinite));
+  }
+  assert.throws(()=>tetherMatrix([0,0,0],[0,0,0]),/zero length/);
+});
+
+test('real data: all default payloads use only paired source geometry and fixed attachment/exhaust anchors',
   {skip:!process.env.SWE1R_DATA},async()=>{
     const root=path.join(process.env.SWE1R_DATA,'lev01');
     const reader={read:async name=>fs.readFileSync(path.join(root,name))};
     for(const skin of podSkinList()){
-      const before=await loadPodModel(reader,skin,{full:false}),after=await loadPodModel(reader,skin,{full:true});
-      assert.equal(after.assembly,'paired',`${skin.name}: ${after.fallback}`);
-      assert.ok(after.asset.indices.length>before.asset.indices.length,skin.name);
+      const after=await loadPodModel(reader,skin),pose=POD_POSES[skin.index];
+      assert.equal(after.assembly,'paired',skin.name);
+      assert.ok(after.asset.indices.length>0,skin.name);
       assert.ok(after.asset.vertices.every(Number.isFinite));
-      assert.deepEqual(after.metadata,before.metadata);
-      assert.deepEqual(after.metadata.exhausts,exhaustPoints(before.asset.vertices,before.asset.indices));
-      const fans=p=>p.asset.batches.filter(b=>b.intake).map(b=>({at:b.intake,texture:b.texture,u:b.addressU,v:b.addressV}));
-      assert.deepEqual(fans(after),fans(before),skin.name);
-      const glow=p=>p.asset.batches.filter(b=>b.texture==='swe1r\\117').flatMap(b=>Array.from(p.asset.vertices.slice(b.firstIndex*12,(b.firstIndex+b.indexCount)*12)));
-      assert.deepEqual(glow(after),glow(before),skin.name);
+      assert.deepEqual(after.metadata.exhausts,pose.exhausts);
+      assert.deepEqual(after.metadata.posedAttachment0.position,[0,0,pose.top]);
+      assert.deepEqual(after.asset.batches.filter(b=>b.intake).map(b=>b.intake).sort(),[...(pose.fans??[])].sort());
+      const models=readBlock(await reader.read('out_modelblock.bin'),'model'),pair=podPair(skin.index);
+      const [mask,body]=models[pair.pod],alternate=models[pair.alternate][1];
+      const meshes=assemblePod(body,mask,alternate,pose);
+      assert.ok(meshes.every(m=>m.body===body||m.body===alternate||m.texture?.index===815));
+      assert.equal(after.asset.batches.some(b=>b.beam),pose.binder!==false);
     }
     const corrupt=Buffer.from(await reader.read('out_modelblock.bin'));
     readBlock(corrupt,'model')[0][1].fill(0,0,4);
     const bad={read:async name=>name==='out_modelblock.bin'?corrupt:reader.read(name)};
     const skin=podSkinList().find(s=>s.name==='Anakin Skywalker');
-    const fallback=await loadPodModel(bad,skin,{full:true});
-    assert.equal(fallback.assembly,'lod1');
-    assert.match(fallback.fallback,/invalid Podd/);
-    assert.deepEqual(fallback.asset,(await loadPodModel(reader,skin,{full:false})).asset);
+    await assert.rejects(loadPodModel(bad,skin),/invalid Podd/);
+    // Historical skin IDs are retained, but their old model entries are never read.
+    const removed=Buffer.from(await reader.read('out_modelblock.bin'));
+    const items=readBlock(removed,'model');
+    for(const s of podSkinList())items[s.index][1].fill(0);
+    const noLegacy={read:async name=>name==='out_modelblock.bin'?removed:reader.read(name)};
+    for(const s of podSkinList())assert.equal((await loadPodModel(noLegacy,s)).assembly,'paired');
+    assert.ok((await loadPartModel(reader,309)).asset.indices.length>0);
+    await assert.rejects(loadPartModel(reader,skin.index),/not a scenery part/);
   });
