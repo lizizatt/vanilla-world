@@ -116,6 +116,13 @@ try{
       return {direction,camera:cameraCentre()};
     });
     await page.mouse.move(300,300);await page.mouse.down({button:'right'});
+    await page.waitForTimeout(300);
+    const engage=await page.evaluate(original=>({
+      cameraError:Math.hypot(...cameraCentre().map((v,i)=>v-original.camera[i])),
+      attitudeError:Math.hypot(...worldEvidence.state.pod.journey.direction.map((v,i)=>v-original.direction[i])),
+    }),original);
+    assert(engage.cameraError<1e-5,`Engage must preserve displayed camera offset: ${engage.cameraError}`);
+    assert(engage.attitudeError<1e-8,`Engage without movement must not turn the pod: ${engage.attitudeError}`);
     await page.mouse.move(693,300,{steps:24});
     await page.waitForFunction(()=>worldEvidence.state.pod.journey.freeAttitude&&Math.hypot(...cameraCentre().map((v,i)=>v-worldEvidence.state.pod.journey.direction[i]))<1e-5);
     const turned=await page.evaluate(()=>worldEvidence.state.pod.journey.direction);
@@ -137,6 +144,7 @@ try{
         aimError:Math.hypot(...camera.map((v,i)=>v-after.direction[i]))};
     },before);
     attitude.angle=angle;
+    attitude.engage=engage;
     assert(Math.abs(attitude.along/attitude.used-172)<.1,'Powered impulse must follow the new nose at 172 yd/s²');
     assert(attitude.offAxis<.05,`Off-axis engine impulse ${attitude.offAxis}`);
     assert(attitude.aimError<1e-5,`Camera-centre/engine misalignment ${attitude.aimError}`);

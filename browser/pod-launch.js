@@ -93,8 +93,10 @@ export function stepLaunch(state,input,dt=LAUNCH.step) {
   let direction=state.direction,carriedUp=state.up;
   const control=input.podControl;
   if(podInSpace(state)&&control?.active){
-    const aimed=basis(slewAim(aimQuaternion(direction,carriedUp),control.aim,dt));
-    direction=aimed.look;carriedUp=aimed.up;
+    if(control.slew!==false){
+      const aimed=basis(slewAim(aimQuaternion(direction,carriedUp),control.aim,dt));
+      direction=aimed.look;carriedUp=aimed.up;
+    }
     next.freeAttitude=true;
   }
   if(state.remaining<=0&&!next.freeAttitude){

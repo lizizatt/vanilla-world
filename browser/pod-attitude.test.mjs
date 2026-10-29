@@ -53,6 +53,37 @@ test('space controls require an unsupported inertial journey outside the body at
   validatePodControl({active:false});validatePodControl(control([0,0,0,1]));
   for(const value of [null,{},control([NaN,0,0,1]),control([0,0,0,2]),control([0,0,0])])
     assert.throws(()=>validatePodControl(value),/Invalid orbital/);
+  assert.throws(()=>validatePodControl({...control([0,0,0,1]),slew:1}),/Invalid orbital/);
+});
+
+test('engaging an offset space camera preserves aim and attitude until mouse or stick movement',()=>{
+  try{
+    setActiveBody(bodyOf('elune'));
+    for(const cockpit of [false,true])for(const remaining of [15,0]){
+      const old={...orbit(),remaining},origin=[0,0],rig={clipCamera:(_,eye)=>eye,orbitalLook:[.7,.25],
+        craft:{anchor:[-2,0,1],metadata:{scale:1}}};
+      const settings={cockpit,podTime:old.time},state=launchTelemetry(old,Array(18).fill(0));
+      const view=cameraView(rig,state,null,0,origin,settings),eye=rig.camera.slice(),seed=rig.podCameraAim;
+      assert(Math.abs(dot(basis(seed).look,old.direction))<.95,'Fixture has a real camera/nose offset');
+      let held=movePodAim(undefined,seed,[0,0],[0,0],1/120),next=old;
+      for(let i=0;i<60;i++){
+        assert.equal(held.moved,false);near(basis(held.q).look,basis(seed).look);
+        next=stepLaunch(next,{throttle:0,podControl:{active:true,aim:held.q,slew:held.moved}});
+        near(next.direction,old.direction);near(next.up,old.up);
+        held=movePodAim(held,seed,[0,0],[0,0],1/120);
+      }
+      const engaged=cameraView(rig,state,null,0,origin,{...settings,podAim:held.q});
+      near(engaged.look,view.look);near(engaged.up,view.up);near(rig.camera,eye);
+      for(const [mouse,stick] of [[[2,0],[0,0]],[[0,0],[0,1]]]){
+        const moved=movePodAim(held,seed,mouse,stick,1/120);
+        assert(moved.moved);
+        assert(movePodAim(moved,seed,[0,0],[0,0],1/120).moved,'Slew can finish after movement stops');
+        const turned=stepLaunch(next,{throttle:0,podControl:{active:true,aim:moved.q,slew:moved.moved}});
+        assert(Math.hypot(...turned.direction.map((v,i)=>v-next.direction[i]))>1e-4);
+      }
+      assert.equal(movePodAim(undefined,seed,[0,0],[0,0],1/120).moved,false,'A fresh hold waits for input again');
+    }
+  }finally{setActiveBody(bodyOf('azeroth'));}
 });
 
 test('LB/L1 gates the pod right stick without changing free-flight/other-vehicle bindings',()=>{

@@ -13,6 +13,7 @@ export function composeAim(frame,q){
 export function validatePodControl(control){
   if(control===undefined)return;
   if(!control||typeof control.active!=='boolean'||
+    (control.slew!==undefined&&typeof control.slew!=='boolean')||
     (control.active&&(!Array.isArray(control.aim)||control.aim.length!==4||
       !control.aim.every(Number.isFinite)||Math.abs(Math.hypot(...control.aim)-1)>1e-8)))
     throw Error('Invalid orbital pod control');
@@ -23,7 +24,8 @@ export function movePodAim(previous,seed,mouse,stick,dt){
   const base=previous?.base??seed;
   const yaw=(previous?.yaw??0)-mouse[0]*POD_TURN.mouse-stick[0]*POD_TURN.stick*dt;
   const pitch=(previous?.pitch??0)+mouse[1]*POD_TURN.mouse-stick[1]*POD_TURN.stick*dt;
-  return {base,yaw,pitch,q:composeAim(base,fromEuler(yaw,pitch))};
+  const moved=!!previous?.moved||mouse.some(Boolean)||(dt>0&&stick.some(Boolean));
+  return {base,yaw,pitch,moved,q:composeAim(base,fromEuler(yaw,pitch))};
 }
 
 /** Shortest quaternion arc, bounded angular speed, exponential arrival and exact settling. */
