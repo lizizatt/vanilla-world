@@ -85,7 +85,14 @@ function orbitalCamera(rig,state,dt,origin,settings,lookBack){
     :look.map((v,i)=>up[i]*3-v*Math.max(0,(settings.cameraDistance??15)-.15));
   const frame=settings.planet===false?{eye:state.slice(0,3).map((v,i)=>v+offset[i]),look,up}:podCameraFrame(activeFramedBody(),state,offset,look,up);
   const collisionReady=placePodCamera(rig,state,origin,frame,cockpit);
-  return {look:frame.look,up:frame.up,near:.1,collisionReady};
+  return {look:frame.look,up:frame.up,near:orbitalNear(frame.eye[1],cockpit,settings.cameraDistance),collisionReady};
+}
+
+/** Near plane for the pod camera. A fixed 0.1 leaves a 24-bit depth buffer ~800 yd of resolution at 37 kyd, so far terrain layers z-fight (shimmer at speed);
+ *  scale with altitude like the fly camera, but keep a chase pod (about cameraDistance away) inside the frustum. The cockpit view does not draw the craft. */
+export function orbitalNear(altitude,cockpit,cameraDistance=15){
+  const cap=cockpit?100:Math.max(.1,cameraDistance*.2);
+  return Math.max(.1,Math.min(cap,Math.abs(altitude)*.01));
 }
 
 function flatCameraView(rig,state,flight,dt,origin,settings={},lookBack=false) {

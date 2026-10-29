@@ -135,7 +135,7 @@ export class WorldRenderer {
     const {right,up}=cameraAxes(look,cameraUp);
     this.cameraLook=look;
     const aspect=width/height;
-    this.view={eye:[this.camera[0]+origin[0],this.camera[1],this.camera[2]+origin[1]],right,up,look,aspect};
+    this.view={eye:[this.camera[0]+origin[0],this.camera[1],this.camera[2]+origin[1]],right,up,look,aspect,near};
     const planetOn=(!!flight||BEND_ALWAYS)&&settings.planet!==false,pf=this.planet=planetFactorsFor(activeBody(),planetOn?this.view.eye[1]:0,planetOn);pf.mesh=planetOn&&!!settings.globeMesh;pf.registry=planetOn&&!!settings.globeRegistry;
     const clock=this.clock??=new SimClock(DAY,1);
     clock.scale=flight?Math.min(sanitiseScale(settings.timeScale),this.warpCap??Infinity):1;

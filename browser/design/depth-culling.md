@@ -25,3 +25,6 @@ Extra clear cost; seam artefacts at the pass boundary; cloud depth mismatch. Gat
 
 ## Success
 All depth state defined in one module, no per-system duplicated culling math, no visual regressions, stable p99.
+
+## Update: pod camera near plane (space shimmer)
+The pod orbital camera used a fixed near of 0.1, giving about 800 yd of 24-bit depth resolution at 37.5 kyd, so far terrain layers z-fought (shimmer at speed). \orbitalNear\ (world-camera.js) now scales near with altitude (chase capped at 0.2 x camera distance so the pod stays unclipped; cockpit capped at 100, craft not drawn). Measured with \space-shimmer-probe.mjs\ (40 yd steps at 37.5 kyd): near 0.1 -> mean frame diff 1.78 / 2.4% pixels >24; near 3-100 -> 0.69-0.75 / 0.8-0.9% (geometric parallax floor). Reversed-Z stays deferred.
