@@ -1,7 +1,9 @@
-import {basis} from './orient.js';
+import {basis,stepOrient,ORIENT} from './orient.js';
 import {wrapAngle as wrap} from './math.js';
 import {activeFramedBody} from './body-shaders.js';
 import {podCameraFrame} from './pod-render-frame.js';
+import {chartAxes} from './shared-flight.js';
+import {aimQuaternion,composeAim,inverseAim,slewAim} from './pod-attitude.js';
 const unit=v=>{const length=Math.hypot(...v);return length?v.map(n=>n/length):[0,0,-1];};
 // Tuning: cockpit look pitch limit (rad), mouse-orbit sensitivity (rad/px), return-to-centre rate (1/s).
 export const CAMERA=Object.freeze({pitchLimit:89*Math.PI/180,orbitSense:.004,recentre:7});
@@ -47,6 +49,7 @@ export const floorLift=(floor,eyeY,cap=Infinity)=>floor===undefined?0:Math.max(0
 export function cameraView(rig,state,flight,dt,origin,settings={},lookBack=false) {
   if(!flight&&state.length===22)return orbitalCamera(rig,state,dt,origin,settings,lookBack);
   rig.orbitalLook=undefined;
+  rig.podCameraAim=undefined;rig.podAimHeld=false;rig.podAimFollow=undefined;
   const aim=flatCameraView(rig,state,flight,dt,origin,settings,lookBack);
   if(flight||settings.planet===false)return aim;
   const offset=[rig.camera[0]+origin[0]-state[0],rig.camera[1]-state[1],rig.camera[2]+origin[1]-state[2]];
@@ -73,17 +76,38 @@ function orbitalCamera(rig,state,dt,origin,settings,lookBack){
   rig.cameraMode=cockpit?'cockpit':'chase';
   rig.orbitalLook??=[0,0];
   const input=settings.cameraLook||[0,0],orbit=settings.cameraOrbit||[0,0];
-  if(input.some(Boolean)||orbit.some(Boolean)){
+  if(!settings.podAim&&!rig.podAimHeld&&!rig.podAimFollow&&(input.some(Boolean)||orbit.some(Boolean))){
     rig.orbitalLook[0]=wrap(rig.orbitalLook[0]-input[0]*Math.PI*dt-orbit[0]*CAMERA.orbitSense);
     rig.orbitalLook[1]=Math.max(-PITCH_LIMIT,Math.min(PITCH_LIMIT,rig.orbitalLook[1]+input[1]*Math.PI/2*dt-orbit[1]*CAMERA.orbitSense));
-  }else if(cockpit||settings.cameraRecentre)rig.orbitalLook=rig.orbitalLook.map(n=>n*Math.exp(-CAMERA.recentre*dt));
+  }else if(!settings.podAim&&(cockpit||settings.cameraRecentre))rig.orbitalLook=rig.orbitalLook.map(n=>n*Math.exp(-CAMERA.recentre*dt));
   const {look:forward,right,up}=basis(state.slice(18));
   const heading=rig.orbitalLook[0]+(lookBack?Math.PI:0),pitch=rig.orbitalLook[1]+(cockpit?0:-Math.atan(.3));
-  const look=forward.map((v,i)=>v*Math.cos(heading)*Math.cos(pitch)-right[i]*Math.sin(heading)*Math.cos(pitch)+up[i]*Math.sin(pitch));
+  let look=forward.map((v,i)=>v*Math.cos(heading)*Math.cos(pitch)-right[i]*Math.sin(heading)*Math.cos(pitch)+up[i]*Math.sin(pitch)),cameraUp=up;
+  const axes=settings.planet===false?[[1,0,0],[0,1,0],[0,0,1]]:chartAxes(activeFramedBody(),state,settings.podTime??rig.timeOfDay??0);
+  const inertial=v=>[0,1,2].map(i=>axes.reduce((sum,a,k)=>sum+a[i]*v[k],0));
+  const chart=v=>axes.map(a=>a.reduce((sum,n,i)=>sum+n*v[i],0));
+  const craftAim=aimQuaternion(inertial(forward),inertial(up));
+  let aim=aimQuaternion(inertial(look),inertial(up));
+  if(settings.podAim){
+    aim=settings.podAim;rig.podAimHeld=true;rig.podAimFollow=undefined;
+  }else if(rig.podAimHeld){
+    // Capture the exact displayed frame on release; only subsequent frames ease back to follow.
+    rig.podAimFollow=composeAim(inverseAim(craftAim),rig.podCameraAim);
+    rig.podAimHeld=false;rig.orbitalLook=[0,0];aim=rig.podCameraAim;
+  }else if(rig.podAimFollow){
+    const target=composeAim(inverseAim(craftAim),aim);
+    rig.podAimFollow=input.some(Boolean)||orbit.some(Boolean)
+      ?stepOrient(rig.podAimFollow,{yaw:-input[0]*Math.PI*dt-orbit[0]*CAMERA.orbitSense,pitch:input[1]*Math.PI/2*dt-orbit[1]*CAMERA.orbitSense},ORIENT.levelAlt[1])
+      :slewAim(rig.podAimFollow,target,dt,Math.PI,CAMERA.recentre);
+    aim=composeAim(craftAim,rig.podAimFollow);
+    if(Math.abs(rig.podAimFollow.reduce((sum,v,i)=>sum+v*target[i],0))>1-1e-14)rig.podAimFollow=undefined;
+  }
+  rig.podCameraAim=aim;
+  const aimed=basis(aim);look=chart(aimed.look);cameraUp=chart(aimed.up);
   const anchor=rig.craft?.anchor,scale=rig.craft?.metadata.scale??1;
   const offset=cockpit?forward.map((v,i)=>(v*anchor[0]-right[i]*anchor[1]+up[i]*anchor[2])*scale)
     :look.map((v,i)=>up[i]*3-v*Math.max(0,(settings.cameraDistance??15)-.15));
-  const frame=settings.planet===false?{eye:state.slice(0,3).map((v,i)=>v+offset[i]),look,up}:podCameraFrame(activeFramedBody(),state,offset,look,up);
+  const frame=settings.planet===false?{eye:state.slice(0,3).map((v,i)=>v+offset[i]),look,up:cameraUp}:podCameraFrame(activeFramedBody(),state,offset,look,cameraUp);
   const collisionReady=placePodCamera(rig,state,origin,frame,cockpit);
   return {look:frame.look,up:frame.up,near:.1,collisionReady};
 }

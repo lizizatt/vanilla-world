@@ -85,9 +85,8 @@ export class WorldClient {
     if(hop&&!this.hopHeld)this.pendingHop=++this.hopSequence;
     this.hopHeld=hop;
     this.elapsed=Math.min(.1,this.elapsed+dt);
-    const pendingMouse=this.pendingFrame?.podControl?.mouse;
     this.pendingFrame={throttle,steer,pitch:focus?0:pitch,flags,focus,distant,sampleTime:performance.now()};
-    if(!focus&&podControl)this.pendingFrame.podControl={...podControl,mouse:podControl.mouse.map((v,i)=>v+(pendingMouse?.[i]||0))};
+    if(!focus&&podControl)this.pendingFrame.podControl=podControl;
     if(this.farOnly&&focus)this.pendingFrame.farOnly=true;
     if(view!==undefined)this.pendingFrame.view=view;
     if(simTime!==undefined)this.pendingFrame.simTime=simTime;

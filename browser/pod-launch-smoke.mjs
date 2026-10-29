@@ -7,7 +7,7 @@ import {chromium} from 'playwright';
 import {acquireHeavyLock} from './heavy-lock.mjs';
 assert(process.env.WOW_DATA&&process.env.SWE1R_DATA,'Set WOW_DATA and SWE1R_DATA');
 const orient=process.env.ORIENT==='1';
-const release=await acquireHeavyLock('pod-launch-real-data'),root=new URL('./',import.meta.url),out=new URL(orient?'./test-results/pod-attitude/':'./test-results/pod-launch/',root);
+const release=await acquireHeavyLock('pod-launch-real-data'),root=new URL('./',import.meta.url),out=new URL(orient?'./test-results/pod-camera-aim/':'./test-results/pod-launch/',root);
 const mime={'.html':'text/html','.js':'text/javascript','.wasm':'application/wasm','.css':'text/css','.json':'application/json','.svg':'image/svg+xml'};
 const server=createServer(async(req,res)=>{
   const name=new URL(req.url,'http://localhost').pathname,file=new URL(name==='/'?'index.html':'.'+name,root);
@@ -106,17 +106,21 @@ try{
     await page.waitForFunction(()=>worldEvidence.state.pod.journey?.pose[1]>1000);
     await page.evaluate(()=>{window.launchOverride={throttle:0,boost:false};});
     await page.waitForFunction(()=>worldEvidence.input.throttle===0&&!(worldEvidence.input.flags&2));
-    const original=await page.evaluate(()=>worldEvidence.state.pod.journey.direction);
+    const original=await page.evaluate(async()=>{
+      const {inertialDir}=await import('./shared-flight.js'),{bodyOf}=await import('./bodies.js');
+      window.cameraCentre=()=>{
+        const j=worldEvidence.state.pod.journey,v=worldTest.renderer().view;
+        return inertialDir(bodyOf(j.parent),v.eye,v.look,j.time);
+      };
+      const direction=worldEvidence.state.pod.journey.direction;
+      return {direction,camera:cameraCentre()};
+    });
     await page.mouse.move(300,300);await page.mouse.down({button:'right'});
     await page.mouse.move(693,300,{steps:24});
-    await page.waitForFunction(()=>worldEvidence.state.pod.journey.freeAttitude);
-    await page.mouse.up({button:'right'});await page.waitForTimeout(250);
+    await page.waitForFunction(()=>worldEvidence.state.pod.journey.freeAttitude&&Math.hypot(...cameraCentre().map((v,i)=>v-worldEvidence.state.pod.journey.direction[i]))<1e-5);
     const turned=await page.evaluate(()=>worldEvidence.state.pod.journey.direction);
-    const angle=Math.acos(Math.max(-1,Math.min(1,original.reduce((sum,v,i)=>sum+v*turned[i],0))));
+    const angle=Math.acos(Math.max(-1,Math.min(1,original.camera.reduce((sum,v,i)=>sum+v*turned[i],0))));
     assert(Math.abs(angle-393*.004)<.03,`RMB drag angle ${angle}`);
-    await page.waitForTimeout(300);
-    const stable=await page.evaluate(()=>worldEvidence.state.pod.journey.direction);
-    assert(Math.hypot(...stable.map((v,i)=>v-turned[i]))<1e-8,'Releasing RMB must retain attitude');
     await page.screenshot({path:fileURLToPath(new URL('turned.png',out))});
     const before=await page.evaluate(()=>{window.launchOverride={throttle:1,boost:true};return worldEvidence.state.pod.journey;});
     await page.waitForFunction(remaining=>worldEvidence.state.pod.remaining<remaining-.5,before.remaining);
@@ -124,23 +128,30 @@ try{
     await page.waitForFunction(()=>worldEvidence.input.throttle===0&&!(worldEvidence.input.flags&2));
     await page.waitForTimeout(100);
     attitude=await page.evaluate(async before=>{
-      const after=worldEvidence.state.pod.journey,{stepLaunch}=await import('./pod-launch.js');
+      const after=worldEvidence.state.pod.journey,{stepLaunch}=await import('./pod-launch.js'),camera=cameraCentre();
       let coast=before;
       const ticks=Math.round((after.time-before.time)*60);
       for(let i=0;i<ticks;i++)coast=stepLaunch(coast,{throttle:0});
-      const delta=after.velocity.map((v,i)=>v-coast.velocity[i]),along=delta.reduce((sum,v,i)=>sum+v*after.direction[i],0);
-      return {before,after,ticks,used:before.remaining-after.remaining,along,offAxis:Math.hypot(...delta.map((v,i)=>v-along*after.direction[i])),
-        cursor:document.getElementById('world').style.cursor,locked:!!document.pointerLockElement};
+      const delta=after.velocity.map((v,i)=>v-coast.velocity[i]),along=delta.reduce((sum,v,i)=>sum+v*camera[i],0);
+      return {before,after,camera,ticks,used:before.remaining-after.remaining,along,offAxis:Math.hypot(...delta.map((v,i)=>v-along*camera[i])),
+        aimError:Math.hypot(...camera.map((v,i)=>v-after.direction[i]))};
     },before);
     attitude.angle=angle;
     assert(Math.abs(attitude.along/attitude.used-172)<.1,'Powered impulse must follow the new nose at 172 yd/s²');
     assert(attitude.offAxis<.05,`Off-axis engine impulse ${attitude.offAxis}`);
-    assert.equal(attitude.cursor,'');assert.equal(attitude.locked,false);
-    await page.mouse.move(693,300);await page.mouse.down({button:'right'});
-    await page.mouse.move(300,300,{steps:24});await page.mouse.up({button:'right'});
-    await page.waitForTimeout(250);
+    assert(attitude.aimError<1e-5,`Camera-centre/engine misalignment ${attitude.aimError}`);
+    // Undo the yaw and the normal chase-camera depression so the nose regains the ramp launch axis.
+    await page.mouse.move(300,300-(cockpit?0:Math.atan(.3)/.004),{steps:24});
+    await page.waitForFunction(direction=>Math.hypot(...worldEvidence.state.pod.journey.direction.map((v,i)=>v-direction[i]))<.003,original.direction);
     const restored=await page.evaluate(()=>worldEvidence.state.pod.journey.direction);
-    assert(Math.hypot(...restored.map((v,i)=>v-original[i]))<.03,'Opposite drag restores the launch heading');
+    assert(Math.hypot(...restored.map((v,i)=>v-original.direction[i]))<.003,'Camera aim restores the launch heading');
+    await page.mouse.up({button:'right'});await page.waitForTimeout(100);
+    const releaseDirection=await page.evaluate(()=>worldEvidence.state.pod.journey.direction);
+    await page.waitForTimeout(300);
+    const stable=await page.evaluate(()=>worldEvidence.state.pod.journey.direction);
+    assert(Math.hypot(...stable.map((v,i)=>v-releaseDirection[i]))<1e-8,'Releasing RMB must retain attitude');
+    Object.assign(attitude,await page.evaluate(()=>({cursor:document.getElementById('world').style.cursor,locked:!!document.pointerLockElement})));
+    assert.equal(attitude.cursor,'');assert.equal(attitude.locked,false);
     await page.evaluate(()=>{window.launchOverride=undefined;});
   }
   await page.waitForFunction(()=>worldEvidence.state?.pod?.journey?.parent==='azeroth'||worldEvidence.errors.length,null,{timeout:180000});
@@ -177,7 +188,7 @@ try{
   if(orient)assert(result.handlers.length>100&&result.handlerP99<=20,`handler p99=${result.handlerP99}ms`);
   else assert(result.p99<=20,`p99=${result.p99}ms`);
   if(orient)assert.deepEqual(result.httpErrors,[]);
-  console.log(JSON.stringify({swaps:result.swaps,p99:result.p99,handlerP99:result.handlerP99,renderP99:result.renderP99,attitude:attitude&&{degrees:attitude.angle*180/Math.PI,used:attitude.used,along:attitude.along,offAxis:attitude.offAxis},arrival:result.pose.slice(0,6),health:result.pose.slice(15,17),remaining:result.state.remaining,samples:result.samples.length}));
+  console.log(JSON.stringify({swaps:result.swaps,p99:result.p99,handlerP99:result.handlerP99,renderP99:result.renderP99,attitude:attitude&&{degrees:attitude.angle*180/Math.PI,used:attitude.used,along:attitude.along,offAxis:attitude.offAxis,aimError:attitude.aimError},arrival:result.pose.slice(0,6),health:result.pose.slice(15,17),remaining:result.state.remaining,samples:result.samples.length}));
 }catch(error){
   if(page)await writeFile(new URL('failure.json',out),JSON.stringify(await page.evaluate(()=>({state:worldEvidence.state,input:worldEvidence.input,errors:worldEvidence.errors,samples:window.launchSamples})),null,2));
   throw error;
