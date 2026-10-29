@@ -315,3 +315,22 @@ Code: `frames.js`, `pole-cap.js`, `pole-source.js`, `pole-flag.js`, `polar-light
 - Pose: optional 5th element = frame (pole-chart x,z when >0); older 4-element poses mean E.
 - Frame state (L3 inputs): separate wasm ``frame_state()`` = [frame, wraps, hops, chart x, chart z]. It is NOT appended to ``telemetry()`` (18 values; JS already appends a 4-value quaternion and ``recordPose`` requires length 18 or 22).
 
+
+## 20. L3 results (JS only, no wasm)
+
+The frame rides on the chart centre: `frameCentre(id, centre)` (frames.js) returns the base centre for E and a `[ax, az]` array carrying `.q` (the frame's rotation) for N/S, so every existing `(centre, radius)` consumer is frame-aware with no signature change. `setActiveFrame(id)` / `activeFramedBody()` (body-shaders.js) hold the active frame; `app-frame.js` sets it each frame from `frame_state()[0]` (drive) or `app.flightFrame` (fly, L4). In E `activeFramedBody()` is the base body object, so output is unchanged.
+
+- `planetFrame`, `toPlanet`/`fromPlanet`, `bodyPoint`, `patchesAt` rotate through `centre.q`.
+- Bend shader unchanged; the eye z uniform gets `+ (baseCentre.z - frameCentre.z)` (0 in E).
+- Framed body feeds: local sun, rigid pod matrix, particle frame, pod camera, globe patches, clouds (`clouds.js`, `cloud-march.js`).
+- Engine: `with_poles(manifest, spec)` is applied for every real body world (`?poles=false`/`poles:false` opts out); `POLE_FRAME_SPEC` holds the per-body values; `withPoleTiles` (pole-source.js) synthesises `PoleN/PoleS` tiles, minimaps and the ice texture in the asset worker. Pole regions have no WDL, so `buildHorizon` skips them (far globe caps come with L5).
+- Snapshot carries `frame: frame_state()`.
+- Gates: JS suite 963 pass / 0 fail; driving-smoke on Azeroth with poles: 0 errors, handler p99 2.2 ms.
+
+## 21. L4 results (JS only, no wasm change)
+
+- Fly hop via `stepShared` frame tracking replaces the wrapFlat pole flip (shared path); hop pre-stream (`hopPrefetch`) ahead of bulk tiles.
+- Pose links: optional `f` (N/S) / 5th drive element; old links = E. `restorePose` converts global poses inside a pole region to local frame poses; one retry for pole poses.
+- Pod landings poleward of the handoff land in the pole frame (`poleLanding`, speed preserved).
+- Gates (real data, heavy-lock, ephemeral port, muted, LAB_NO_RESTORE=1): JS suite 973 pass / 0 fail; audit-culling 0/30 failures; drive+fly pole crossings on both bodies 0 errors, handler p99 <= 0.7 ms; Elune antimeridian drive wraps; driving-smoke both bodies 0 errors; pose shots lat 60/70/85/89.9 (N and S) both bodies.
+- Notes: Azeroth has no tiles at lon 165 (E chart) so an Azeroth antimeridian drive is only meaningful in pole frames; pod-launch-smoke and body-swap-stress need SWE1R_DATA (not available here); the ice shelf at the cap edge briefly stalls the pod (~3 s) - design note.

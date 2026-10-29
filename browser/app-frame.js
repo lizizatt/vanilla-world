@@ -3,7 +3,7 @@ import {basis,fromEuler,fromBasis,toEuler,stepOrient,turnAround} from './orient.
 import {stepShared} from './shared-flight.js';
 import {nearestAltitude} from './space-flight.js';
 import {warpClamp} from './sky-coupling.js';
-import {activeBody} from './body-shaders.js';
+import {activeBody,setActiveFrame} from './body-shaders.js';
 import {domeLevel} from './dome-shell.js';
 import {istText,daylightAt,sanitiseScale,simEpoch,DAY_PERIOD} from './sim-clock.js';
 import {gpuBytesOf} from './memory-budget.js';
@@ -51,9 +51,9 @@ function frame(now) {
       const aim=basis(q);
       if(app.renderer.sharedSpace){
         const down=k=>Number(keys.has(k));
-        if(app.flight!==app.spacePose)app.space=undefined;// pose set from outside (teleport, overview, test focus): restart inertial state there
-        const r=stepShared(app.space,app.flight,aim,{forward:down('KeyW')-down('KeyS'),strafe:down('KeyD')-down('KeyA'),lift:down('KeyE')-down('KeyQ'),fast:keys.has('ShiftLeft')||keys.has('ShiftRight')        },dt,app.renderer.timeOfDay??0,(app.renderer.timeLock!==undefined?0:2*Math.min(sanitiseScale(settings.timeScale),app.renderer.warpCap??Infinity)),activeBody().id);
-        app.space=r.space;app.flight=r.pose;app.spacePose=r.pose;
+        if(app.flight!==app.spacePose){app.space=undefined;app.flightFrame=app.pendingFrame??'E';app.pendingFrame=undefined;}// pose set from outside (teleport, overview, test focus): restart inertial state there
+        const r=stepShared(app.space,app.flight,aim,{forward:down('KeyW')-down('KeyS'),strafe:down('KeyD')-down('KeyA'),lift:down('KeyE')-down('KeyQ'),fast:keys.has('ShiftLeft')||keys.has('ShiftRight')        },dt,app.renderer.timeOfDay??0,(app.renderer.timeLock!==undefined?0:2*Math.min(sanitiseScale(settings.timeScale),app.renderer.warpCap??Infinity)),        activeBody().id,app.flightFrame??'E');
+                app.flightFrame=r.frame;app.space=r.space;app.flight=r.pose;app.spacePose=r.pose;
                 if(r.swapped&&r.parent!==activeBody().id)swap=r.parent;
         if(r.aim)q=fromBasis(r.aim.right,r.aim.up,r.aim.look);// same physical attitude in the new parent's chart (no orientation reset at the swap)
       } else app.flight=moveFlight(app.flight,keys,dt,aim);if(app.flight.poleFlip)q=turnAround(q);const [ny,np]=toEuler(q,app.flight[3]);app.flightSpeed=dt>0?Math.hypot(app.flight[0]-before[0],app.flight[1]-before[1],app.flight[2]-before[2])/dt:0;
@@ -69,7 +69,7 @@ function frame(now) {
     cameraCollision.frame(client.state,app.renderer.sceneRegion ?? client.state.telemetry[10]);
     app.renderer.fxInput={throttle:Math.max(0,controls.throttle),boosting:(controls.flags&2)!==0,heat:app.dial?client.state.telemetry[6]:0,health:[client.state.telemetry[15]??1,client.state.telemetry[16]??1],drifting:(controls.flags&4)!==0};
     // During a gravity-well swap the renderer still holds the old body's chart; keep presenting the last frame instead of drawing the new pose on it.
-    const stats=app.swapHold&&app.lastStats?app.lastStats:app.renderer.draw(app.frozenPresentation || app.flight?client.state.telemetry:client.presentation(),app.flight,dt,app.frozenPresentation?0:now/1000,
+    setActiveFrame(app.flight?(app.flightFrame??'E'):['E','N','S'][client.state.frame?.[0]??0]);const stats=app.swapHold&&app.lastStats?app.lastStats:app.renderer.draw(app.frozenPresentation || app.flight?client.state.telemetry:client.presentation(),app.flight,dt,app.frozenPresentation?0:now/1000,
       {...settings,cameraLook:controls.look,cameraOrbit,cameraSteer:right,cameraRecentre:keyDrive&&!app.dragging},keys.has('KeyV')&&!keys.has('AltLeft')&&!keys.has('AltRight'));
     app.lastStats=stats;
     app.editor.frame();

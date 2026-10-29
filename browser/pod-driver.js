@@ -2,6 +2,10 @@ import {LAUNCH,validateLaunchObjects,rampCrossing,pickupCrossing,spendCharge,beg
 import {bodyOf,podGravityScale,toInertial} from './bodies.js';
 import {chartAxes} from './shared-flight.js';
 import {validateTuningRecord} from './world-tuning.js';
+import {POLE_FRAME_SPEC} from './pole-source.js';
+import {poleLanding} from './pole-prefetch.js';
+/** Land at pose facing yaw; poleward of the frame handoff the pose and velocity are re-expressed in the pole chart (the journey itself is flown in E). */
+const land=(world,body,pose,yaw,v)=>{const p=poleLanding(POLE_FRAME_SPEC[body],pose,yaw,v);world.pod_land(new Float64Array(p?p.pose:[...pose,yaw]),new Float32Array(p?p.velocity:v));};
 
 export class PodRuntime {
   constructor(){this.objects=[];this.remaining=0;this.spent=new Set();this.journey=null;this.time=720;this.hold=0;}
@@ -62,11 +66,11 @@ export class PodRuntime {
       const inertial=old.mode==='orbit'?old.velocity.map((v,i)=>v-(b[i]-a[i])*1000):[0,0,0];
       const v=collision===3?[0,0,0]:old.mode==='local'?old.velocity.slice():axes.map(axis=>axis.reduce((n,x,i)=>n+x*inertial[i],0));
       v[1]=Math.max(0,v[1]);
-      world.pod_land(new Float64Array([...pose,Math.atan2(-old.look[0],-old.look[2])]),new Float32Array(v));
+      land(world,body,pose,Math.atan2(-old.look[0],-old.look[2]),v);
       this.journey=null;this.hold=collision===3?3:0;return;
     }
     if(next.mode==='ramp'&&next.speed<=0){
-      world.pod_land(new Float64Array([...next.pose,next.ramp.yaw]),new Float32Array(3));
+      land(world,body,next.pose,next.ramp.yaw,[0,0,0]);
       this.journey=null;return;
     }
     world.pod_engine_step(input.throttle,input.flags,(old.remaining-next.remaining)/dt);

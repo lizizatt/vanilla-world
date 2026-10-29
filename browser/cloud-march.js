@@ -6,6 +6,7 @@ import {sphereAt,vnoise3,bandCoverage,flowShift,flowPhase,FLOW,maskAt,landCovera
 import {CLOUD_ALTITUDE,CLOUD_THICKNESS,CLOUD_HALF_SIZE,MAELSTROM as M,tier} from './cloud-config.js';
 import {sunDirection,shellCurvatureAt,shellBendFromCurvature} from './clouds.js';
 import {PLANET_RADIUS,WORLD_CENTRE,planetFrame} from './space.js';
+import {activeFramedBody} from './body-shaders.js';
 import {smoothstep} from './math.js';
 import {dirLatLon,flatOf} from './equirect.js';
 
@@ -96,7 +97,7 @@ export function worldAt(eye,rel) {
   const k=shellCurvatureAt(eye[1]),u=rel[1]+eye[1],hd2=rel[0]*rel[0]+rel[2]*rel[2],ry=1+k*u,qs=Math.sqrt(k*k*hd2+ry*ry);
   const h=(k*hd2+u*(2+k*u))/(qs+1),hd=Math.sqrt(hd2),thetaE=Math.atan2(k*hd,ry);
   if(hd<=1e-3)return [eye[0],h,eye[2]];
-  const hx=[rel[0]/hd,rel[2]/hd],theta=thetaE/(k*PLANET_RADIUS),f=planetFrame(eye[0],eye[2]),s=Math.sin(theta),c=Math.cos(theta);
+  const hx=[rel[0]/hd,rel[2]/hd],theta=thetaE/(k*PLANET_RADIUS),f=planetFrame(eye[0],eye[2],activeFramedBody().centre),s=Math.sin(theta),c=Math.cos(theta);
   const n=[s*hx[0],c,s*hx[1]],pv=[0,1,2].map(i=>f.east[i]*n[0]+f.up[i]*n[1]+f.south[i]*n[2]);
   const {lat,lon}=dirLatLon(pv),g=flatOf(lat,lon,WORLD_CENTRE,PLANET_RADIUS),b=shellBendFromCurvature(k),arc=thetaE/k;
   return [mix(eye[0]+hx[0]*arc,g[0],b),h,mix(eye[2]+hx[1]*arc,g[1],b)];

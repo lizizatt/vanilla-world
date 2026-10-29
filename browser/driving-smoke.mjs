@@ -31,7 +31,7 @@ const page=await context.newPage(),errors=[];
 // Service-worker-owned fetches bypass route instrumentation; offline behavior has a separate smoke test.
 await context.addInitScript(()=>{delete Navigator.prototype.serviceWorker;navigator.getGamepads=()=>[];});
 if(process.env.BUDGET_SETTING)await context.addInitScript(v=>localStorage.setItem('racer.memoryBudget',v),process.env.BUDGET_SETTING);
-page.on('pageerror',e=>errors.push(e.message));
+page.on('pageerror',e=>{errors.push(e.message);if(process.env.ERR_STACK)console.log('PAGEERR '+e.stack);});
 if(process.env.MEM_SAMPLE)page.on('console',m=>{if(m.type()==='error')console.log('CONSOLE '+m.text());});
 const distribution=values=>{
   if(!values.length)return null;

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {bodyOf,centreAt,toInertial} from './bodies.js';
 import {basis} from './orient.js';
-import {stepShared,chartAxes} from './shared-flight.js';
+import {stepShared,chartAxes,framedBody} from './shared-flight.js';
 import {relativeCentre} from './body-sky.js';
 import {planetFrame} from './space.js';
 
@@ -26,17 +26,17 @@ test('chart axes are the renderer eye frame (the shader places Elune where the c
 });
 
 test('flying away from Elune keeps it in the same screen direction across the swap to Azeroth', () => {
-  let pose=A.pose,aim=basis(A.q),space,t=A.t,swapped=false,prev;
-  const screen=(r,t)=>chartDirToElune(bodyOf(r.parent),r.pose,r.space.pos,t);
+  let pose=A.pose,aim=basis(A.q),space,t=A.t,swapped=false,prev,frame='E';
+  const screen=(r,t)=>chartDirToElune(framedBody(bodyOf(r.parent),r.frame),r.pose,r.space.pos,t);
   const startLook=chartDirToElune(elune,pose,toInertial(elune,pose,t),t);
   assert.ok(dot(startLook,aim.look)>.99,`pose A looks at Elune (${dot(startLook,aim.look)})`);
   for(let i=0;i<4000&&!swapped;i++){
-    const r=stepShared(space,pose,aim,{forward:-1,fast:true},1/30,t,2,'elune');
+    const r=stepShared(space,pose,aim,{forward:-1,fast:true},1/30,t,2,'elune',frame);
     const here=screen(r,t),aligned=dot(here,r.aim.look);
     // Elune stays on the view axis every frame, including the swap frame.
     assert.ok(aligned>.99,`frame ${i} (${r.parent}): Elune ${aligned} aligned with the look axis`);
     if(prev&&r.swapped)assert.ok(Math.abs(dot(prev.here,prev.look)-aligned)<1e-3,'no screen jump at the swap');
-    prev={here,look:r.aim.look};space=r.space;pose=r.pose;aim=r.aim;swapped=r.swapped;t+=2/30;
+    prev={here,look:r.aim.look};space=r.space;pose=r.pose;aim=r.aim;frame=r.frame;swapped=r.swapped;t+=2/30;
   }
   assert.ok(swapped,'reached the swap');
 });

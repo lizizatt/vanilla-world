@@ -14,6 +14,8 @@ import {FarChannel} from './far-channel.js';
 import {splitBudget,effectiveBudget,residentTileCap,bodyTileCap,nearRadius} from './memory-budget.js';
 import {FAR_LIMITS} from './far-stream.js';
 import {BODIES} from './bodies.js';
+import {poleFrameSpec} from './pole-source.js';
+import {hopTargets,frameOfPoint} from './pole-prefetch.js';
 import {viewChanged} from './world-view.js';
 import {ActorService,ACTOR} from './actors.js';
 import {maelstromCentre,WHIRLPOOL_DIP} from './clouds.js';
@@ -234,12 +236,15 @@ function prepareDistant(focus,enabled,flying=false,view) {
 function recordTerrainFailure(index,error) {
   failures.set(index,`${manifest.tiles[index].file}: ${error?.code || 'PARSE'} ${error?.message || String(error)}`);
 }
-let lastNearby=[];
+let lastNearby=[],poleBody;
+/** Global points just across the nearest frame boundary, so the atomic hop always lands on resident terrain (see pole-prefetch.js). */
+const hopPrefetch=p=>poleBody&&manifest.regions.some(r=>r.frame)?hopTargets(poleFrameSpec(poleBody),frameOfPoint(manifest,p),p,2500/poleFrameSpec(poleBody).radius):[];
 async function stream(p,pin,fill=false) {
   const required=pin?Array.from(world.required_tiles()):[];
   if(required.length>LIMIT)throw new Error('Support footprint exceeds the bounded terrain collision budget.');
   const nearby=nearbyTerrain(p);lastNearby=nearby;
-  const wanted=[...required,...nearby.filter(i=>!required.includes(i))].slice(0,LIMIT);
+  const across=hopPrefetch(p).flatMap(g=>nearbyTerrain(g).slice(0,4));
+  const wanted=[...new Set([...required,...across,...nearby])].slice(0,LIMIT);
   const tiles=[],removed=[];
   if(terrainRead?.ready && !wanted.includes(terrainRead.index)) {
     if('error' in terrainRead)recordTerrainFailure(terrainRead.index,terrainRead.error);
@@ -311,10 +316,12 @@ async function stream(p,pin,fill=false) {
     report(failures.size?`${failures.size} unavailable terrain tiles; retry after correcting access/data.`:`Detailed terrain ready: ${resident.size}/${LIMIT} tiles.`);
   }
 }
+/** Pole frame regions are procedural and have no WDL, so they carry no horizon patches or exterior water. */
+const horizonRegionCount=()=>manifest.regions.filter(r=>!r.frame).length;
 async function buildHorizon(wdls) {
   horizon={patches:0,vertices:0,gpuBytes:0,cpuParsedBound:0,wasmPeakBytes:0,regions:[]};
   const start=performance.now();
-  const regionCount=manifest.regions.length;
+  const regionCount=horizonRegionCount();
   for(let region=0;region<regionCount;region++)world.add_horizon(region,wdls[region]);
   const patchesByRegion=wdls.map((_,region)=>world.horizon_patches(region));
   const total=patchesByRegion.reduce((n,p)=>n+p.length/5,0);
@@ -345,7 +352,7 @@ async function buildHorizon(wdls) {
 function focusRegion(p) {return focusRegionOf(manifest,p);}
 /** Re-post the static horizon (index buffers and patch vertices) to a fresh consumer; the world already holds it, so this only reads. */
 async function replayHorizon(token) {
-  const regionCount=manifest.regions.length;
+  const regionCount=horizonRegionCount();
   for(let region=0;region<regionCount;region++) {
     if(token!==rebindToken)return;
     if(manifest.version!==4){const exterior=world.exterior_geometry(region);water?.setExterior(region,exterior);postMessage({event:'exterior-water',region,placement:manifest.regions[region].placement,vertices:exterior},[exterior.buffer]);}
@@ -546,13 +553,18 @@ async function preparePoseScene(pose) {
       throw new Error('Saved location collision cannot fit the available scene budget');
   }
 }
-async function restorePose(pose) {
+async function restorePose(given) {
+  // Telemetry-derived poses (unstuck, respawn, saves) are global: inside a pole region they must restore into that pole frame, not E.
+  const pole=given.length===4?manifest?.regions?.find(r=>r.frame&&given[0]>=r.placement[0]&&given[0]<r.placement[0]+r.tile_count[0]*TILE&&given[2]>=r.placement[1]&&given[2]<r.placement[1]+r.tile_count[1]*TILE):undefined;
+  const pose=pole?[given[0],given[1],given[2]-(pole.frame===1?-200000:200000),given[3],pole.frame]:given;
+  const anchor=[[0,0],[0,-200000],[0,200000]][pose[4]|0]??[0,0];// frames.js POLE_ANCHORS (inlined: this function is evaluated stand-alone by its tests)
+  const view=[pose[0]+anchor[0],pose[1],pose[2]+anchor[1],pose[3]];// streaming and scene prep work in global coordinates
   const previous=Array.from(world.telemetry()).slice(0,4);
   const previousRequired=Array.from(world.required_tiles()).filter(i=>resident.has(i));
   try {
-    await stream([pose[0],pose[2]],false,true);
-    await preparePoseScene(pose);
-    world.restore(new Float64Array(pose));
+    await stream([view[0],view[2]],false,true);
+    await preparePoseScene(view);
+    try{world.restore(new Float64Array(pose));}catch(e){if(!(pose[4]>0))throw e;await stream([view[0],view[2]],false,true);world.restore(new Float64Array(pose));}// one retry: a frame restore can land before its destination tiles commit
     accumulator=0;poseTime=undefined;
   } catch(error) {
     try {
@@ -692,7 +704,7 @@ export function snapshot() {
   const terrainState=terrain.snapshot();
   const clock=performance.now();
   if(clock-areaTime>500){areaTime=clock;areaId=flightFocus&&world.area_at?world.area_at(flightFocus[0],flightFocus[1]):world.area();}
-  return {telemetry:pod.telemetry(world),pod:pod.snapshot(world),area:areaId,poseTime,hopConsumed,resident:Array.from(resident),nearTerrain:{total:lastNearby.length,resident:lastNearby.filter(i=>resident.has(i)).length},required:Array.from(world.required_tiles()),
+  return {telemetry:pod.telemetry(world),frame:Array.from(world.frame_state?.()??[0,0,0,0,0]),pod:pod.snapshot(world),area:areaId,poseTime,hopConsumed,resident:Array.from(resident),nearTerrain:{total:lastNearby.length,resident:lastNearby.filter(i=>resident.has(i)).length},required:Array.from(world.required_tiles()),
     failures:Array.from(failures.values()),loads,evictions,peak,limit:LIMIT,horizon,source:source.stats,
     scene:sceneState?{instances:sceneState.instances.length,assets:sceneState.cachedAssets,bytes:sceneState.cachedBytes,
       pending:sceneState.pending,errors:sceneState.errors,population:sceneState.populationStatus,
@@ -731,7 +743,7 @@ export async function openWorld(message) {
     const previousSource=source;source=undefined;
     previousSource?.close();
     source=await openAssetSource(message.folder,undefined,data=>postMessage(data,data.rgba?[data.rgba.buffer]:[]),
-      {loadingArt:true,map:message.loadingMap,graft:message.dataFolder,poleFrame:message.poleFrame});
+      {loadingArt:true,map:message.loadingMap,graft:message.dataFolder,poleFrame:message.poleFrame,poles:polesFor(message)});
     report('World and archive workers ready');
     const moon=typeof message.folder==='string'&&!!BODIES[message.folder]?.rail;
     moonBody=moon;if(moon){LIMIT=bodyTileCap(memoryBudget,true);nearRadiusNow=nearRadius(LIMIT);}
@@ -742,7 +754,8 @@ export async function openWorld(message) {
       report(`Reading ${map} topology and terrain`,{stage:'topology',completed:wdts.length+wdls.length,total:moon?2:4});
       wdls.push(await source.read(`World\\Maps\\${map}\\${map}.wdl`));
     }
-    const json=moon?pkg.moon_manifest(wdts[0],wdls[0]):world_manifest(wdts[0],wdls[0],wdts[1],wdls[1]);
+    let json=moon?pkg.moon_manifest(wdts[0],wdls[0]):world_manifest(wdts[0],wdls[0],wdts[1],wdls[1]);
+    poleBody=polesFor(message);if(poleBody)json=pkg.with_poles(json,JSON.stringify(poleFrameSpec(poleBody)));
     manifest=JSON.parse(json); manifest.landmarks=!moon;// skyline landmarks (landmarks.js) belong to Azeroth's maps only
     world=new Voyage(json);
     if(manifest.world_bounds){const [x,z]=maelstromCentre(manifest);world.set_whirlpool(x,z,WHIRLPOOL_DIP.radius,WHIRLPOOL_DIP.depth);}
@@ -778,6 +791,8 @@ export async function openWorld(message) {
 export function requireWorld() {
   if(!world)throw new Error('Local world is not open');
 }
+/** Body whose N/S pole regions are appended to the manifest (design/poles.md 19): every real body world unless the pole-frame harness or `poles:false` is in use. */
+const polesFor=message=>message.poleFrame||message.poles===false?undefined:(typeof message.folder==='string'&&BODIES[message.folder]?.rail?message.folder:'azeroth');
 export async function runFrame(message) {
     {
     if(pod.journey&&pod.journey.parent!==(moonBody?'elune':'azeroth'))return;

@@ -1,6 +1,6 @@
 // Whole-planet lat/lon patch tree (M4 spike). Selects quadtree patches [lat0,lat1,lon0,lon1] (radians) around the eye so the
 // globe is a real mesh whose detail rises near the camera, instead of one analytic sphere. Rendered behind settings.globeMesh.
-import {PLANET_RADIUS,subPoint} from './space.js';
+import {PLANET_RADIUS,bodyPoint} from './space.js';
 import {wrapAngle} from './math.js';
 
 export const PATCH_GRID=16,MAX_PATCHES=768,MAX_LEVEL=9,SPLIT_RATIO=.5,MIN_LEVEL=2;
@@ -72,7 +72,7 @@ function stitch(leaves,limit) {
 
 /** Patches for a flat eye position (x,z) and altitude. */
 export function patchesAt(x,z,altitude,options) {
-  const {lat,lon}=subPoint(x,z,options?.centre,options?.radius);
+  const {lat,lon}=bodyPoint(x,z,options?.centre,options?.radius);
   // Longitude is periodic: wrap the sub-point into [-pi,pi) so the tree sees the nearest copy.
   return selectPatches(lat,wrapAngle(lon),altitude,options);
 }

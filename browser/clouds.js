@@ -1,6 +1,7 @@
 // Procedural cumulus slab: one camera-following quad whose fragments march a short ray through a layer of
 // analytic noise density, with a maelstrom (eye, eye wall, spiral arms) around a vortex centre. No textures or extra passes.
 import {PLANET_RADIUS,WORLD_CENTRE,planetFrame} from './space.js';
+import {activeFramedBody} from './body-shaders.js';
 import {cloudShellRadius,cloudAltitudeAt,CLOUD_RADIUS_GROUND_SCALE} from './terrain-transition.js';
 import {flowWGSL,FLOW,MASK,bakeLandMask} from './cloud-flow.js';
 import {createRegistry,defaultManifest} from './tile-registry.js';
@@ -33,7 +34,7 @@ export const shellBendFromCurvature=k=>{const g=1/CLOUD_RADIUS_GROUND_SCALE;retu
 export function cloudUniform(view,time,daylight,manifest,near,game,out=new Float32Array(60),timeOfDay=1440,planet={bend:0,space:0}) {
   const [x,z]=maelstromCentre(manifest),sun=sunDirection(timeOfDay);
   out.set([...view.eye,200000,...view.right,view.aspect,...view.up,time,...view.look,daylight,x,z,cloudAltitudeAt(view.eye[1],PLANET_RADIUS),CLOUD_HALF_SIZE,near]);
-  const f=planetFrame(view.eye[0],view.eye[2]);
+  const f=planetFrame(view.eye[0],view.eye[2],activeFramedBody().centre);
   out.set([shellCurvatureAt(view.eye[1]),planet.space,planet.flowScale??1,planet.flowCycles??(time/FLOW.period)%1],44);
   out.set([...f.east,WORLD_CENTRE[0],...f.up,WORLD_CENTRE[1],...f.south,PLANET_RADIUS],48);
   out.set([...sun,sun[1]],32);out.set([1,.96,.88,0],36);out.set([.55,.6,.7,0],40);
