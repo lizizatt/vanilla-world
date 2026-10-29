@@ -1,7 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {teleportModePlan,seatPose,flyFromDrive,SEAT_LADDER} from './teleport-mode.js';
+import {teleportModePlan,seatPose,flyFromDrive,SEAT_LADDER,POLE_STANDOFF} from './teleport-mode.js';
+import {POLE_ANCHORS} from './frames.js';
+
+test('pole teleports: both bodies, drive seats the pod short of the pole, fly carries the frame',()=>{
+  for(const body of ['azeroth','elune'])for(const pole of ['N','S']) {
+    const active=body==='azeroth'?'azeroth':'azeroth',a=POLE_ANCHORS[pole];
+    const drive=teleportModePlan({body,pole},active,true),fly=teleportModePlan({body,pole},active,false);
+    assert.equal(drive.mode,'drive');assert.equal(fly.mode,'fly');
+    assert.equal(drive.frame,pole);assert.equal(fly.frame,pole);
+    assert.equal(drive.swap,body!==active);
+    assert.deepEqual(drive.seat,[a[0],0,a[1]-POLE_STANDOFF,0]);
+    assert.deepEqual(fly.pose,fly.flight);assert.equal(fly.flight[2],a[1]-POLE_STANDOFF);
+  }
+  assert.throws(()=>teleportModePlan({body:'azeroth',pole:'X'},'azeroth',true));
+});
 import {podGravityFor,podGravityScale} from './bodies.js';
 
 test('driving to Elune seats the pod on the site ground, flying stays flying',()=>{

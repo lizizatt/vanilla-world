@@ -24,7 +24,7 @@ test('ice shelf stands 1..10 m (1.09..10.94 yd) above sea; open ocean beyond the
 
 test('icebergs only exist inside the 547 yd belt, at a plausible density and size',()=>{
   let bergs=0,total=0,tallest=0;
-  const band=CAP.bergBand/R;
+  const band=(CAP.bergBand+CAP.rampRun)/R;
   for(let i=0;i<60000;i++){const lon=i*.3711,u=(i%250)/250,col=CAP.edge+CAP.edgeJitter+u*(band+.01),d=dirAt(col,lon);
     const e=edgeColat(d),inBelt=col>e&&col<e+band,h=capHeight(d);
     if(col>e+band)assert.equal(h,CAP.seabed);
@@ -33,10 +33,12 @@ test('icebergs only exist inside the 547 yd belt, at a plausible density and siz
   assert.ok(cover>.001&&cover<.25,`berg coverage ${cover}`);assert.ok(tallest<=CAP.bergTop[1]+.1);
 });
 
-test('shelf edge is a steep ramp that a pod can drive off',()=>{
+test('shelf edge is a gentle ice foot a pod can drive onto and off',()=>{
   const lon=.4,e=edgeColat(dirAt(.17,lon));
   const a=capHeight(dirAt(e-1/R,lon)),b=capHeight(dirAt(e+CAP.rampRun/R,lon));
   assert.ok(a>1&&b<=CAP.seabed+.02);
+  let steepest=0,prev=capHeight(dirAt(e-1/R,lon));for(let s=0.5;s<=CAP.rampRun;s+=.5){const h=capHeight(dirAt(e+s/R,lon));steepest=Math.max(steepest,Math.abs(h-prev)/.5);prev=h;}
+  assert.ok(steepest<.5,`ice foot slope ${steepest}`);
 });
 
 test('albedo is ice white on the shelf, bluer on low faces and dark over seabed',()=>{

@@ -8,7 +8,7 @@ export const CAP={
   seed:0x501a2,
   edge:10*deg,edgeJitter:1.5*deg,// ice edge colatitude +- jitter (rad)
   shelfMin:1.09,shelfMax:10.94,// 1..10 m in yd
-  seabed:-12,rampRun:1.5,// yd: steep shelf edge so a pod can drive off it
+  seabed:-12,rampRun:110,// yd: gentle ice foot (<= ~13 deg) so a pod can drive onto and off the shelf
   bergBand:547,bergCell:250,bergChance:.3,bergRadius:[6,25],bergTop:[1,6],// yd
   sastrugi:.15,
 };
@@ -25,7 +25,7 @@ export const edgeColat=(d,seed=CAP.seed)=>{
 const BERG_FACES=5,TAU=Math.PI*2;
 /** Highest iceberg top (yd above sea) at `d`, or -Infinity when no berg covers it. Bergs live on a (colat, lon) grid (cells ~bergCell yd) and only inside the berg belt; the grid is mirrored for the south pole. */
 function bergHeight(d,colat,edge,seed) {
-  const band=CAP.bergBand/R;
+  const band=(CAP.bergBand+CAP.rampRun)/R;
   if(colat<=edge||colat>edge+band+CAP.bergRadius[1]/R)return -Infinity;
   const lon=Math.atan2(d[2],d[0]),cellA=CAP.bergCell/R,row=Math.floor(colat/cellA),y=Math.abs(d[1]);
   let top=-Infinity;
@@ -40,7 +40,7 @@ function bergHeight(d,colat,edge,seed) {
       const c=[Math.sin(cc)*Math.cos(cl),Math.cos(cc),Math.sin(cc)*Math.sin(cl)];
       const radius=CAP.bergRadius[0]+(CAP.bergRadius[1]-CAP.bergRadius[0])*hash(seed+15,r,jj,n);
       const ce=edgeColat(c,seed);
-      if(cc<ce+radius/R+4/R||cc>ce+band)continue;// berg centre inside the belt, clear of the shelf
+      if(cc<ce+(radius+CAP.rampRun)/R||cc>ce+band-radius/R)continue;// berg centre inside the belt, clear of the shelf
       const dx=(d[0]-c[0])*R,dy=(y-c[1])*R,dz=(d[2]-c[2])*R;
       if(Math.hypot(dx,dy,dz)>radius*1.05)continue;
       const e1=[-Math.sin(cl),0,Math.cos(cl)],e2=[Math.cos(cc)*Math.cos(cl),-Math.sin(cc),Math.cos(cc)*Math.sin(cl)];// east, toward the pole
