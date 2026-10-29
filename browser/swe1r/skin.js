@@ -1,9 +1,25 @@
-// Garage skins from the user's own SWE1R install. Each racer's `Part_Racer_Lod1_*` model is the whole pod
-// (cockpit pod + engines + cables, ~400 tris) in one scene graph, so no assembly is needed. Built at runtime
-// from the user's folder only; nothing here is shipped, and the hosted build never lists these skins.
+// Garage skins from the user's own SWE1R install. Lod1 is the complete default
+// and fallback; paired Podd/MAlt detail is an opt-in static preview.
+// No game assets are shipped, and the hosted build never lists these skins.
 import { readBlock } from './block.js';
 import { decodeTexture, buildPod } from './pod.js';
 import { MODEL_NAMES } from './names.js';
+import {parseModel} from './model.js';
+import {assemblePod} from './assembly.js';
+import {exhaustPoints} from '../particles.js';
+
+// Visual gate: paired race models still need authored rest-pose calibration.
+export const FULL_PODS_DEFAULT = false;
+export const fullPodsEnabled = () => typeof location !== 'undefined' && new URLSearchParams(location.search).has('fullPods')
+  ? new URLSearchParams(location.search).get('fullPods') === '1' : FULL_PODS_DEFAULT;
+
+export function podPair(index) {
+  const name=MODEL_NAMES[index-NAME_DRIFT]?.replace(/^Part_Racer_Lod1_/,'');
+  if (!MODEL_NAMES[index-NAME_DRIFT]?.startsWith('Part_Racer_Lod1_')) return null;
+  const resolve=prefix=>{const i=MODEL_NAMES.indexOf(prefix+name);return i<0?-1:i+(i>=230?NAME_DRIFT:0);};
+  const pod=resolve('Podd_'),alternate=resolve('MAlt_');
+  return pod>=0&&alternate>=0?{pod,alternate}:null;
+}
 
 // Model units -> yards. Pods are ~4800 units long (~8 yd); the Rocket is ~5 yd wide.
 export const POD_SCALE = 1 / 600;
@@ -12,7 +28,8 @@ export const FORWARD = 1;
 
 const label = n => n.replace(/^Part_Racer_Lod1_/, '').replaceAll('_', ' ');
 
-// The community name table lags the real model block by one from ~230 on (Podd_Anakin's textures belong to the model after the one named Anakin; the model named Jinn Reeso is a Podd), so the id stays the name's index but the model is the next one.
+// The community name table lags the real model block by one from ~230 on.
+// Early Podd/MAlt names are exact; only late names and Lod1 use this drift.
 // Every skin is still re-checked against its model tag when loaded.
 export const NAME_DRIFT = 1;
 export function podSkinList() {
@@ -45,14 +62,30 @@ export function toCraft(asset, bounds, fwd = FORWARD) {
   return asset;
 }
 
-export async function loadPodModel(reader, skin) {
+export async function loadPodModel(reader, skin, {full = fullPodsEnabled()} = {}) {
   const { models, textures } = await load(reader);
   const [mask, body] = models[skin.index] ?? [];
   if (!body || String.fromCharCode(...body.subarray(0, 4)) !== 'Part') throw new Error('model is not a racer pod in this install');
-  const pod = buildPod(body, mask, { texture: t => { try { return decodeTexture(textures[t.index], t); } catch { return null; } } });
+  const texture = t => { try { return decodeTexture(textures[t.index], t); } catch { return null; } };
+  const reference = buildPod(body, mask, {texture});
+  let pod=reference, assembly='lod1', fallback;
+  if (full) {
+    try {
+      const pair=podPair(skin.index);
+      if (!pair) throw new Error('no named Podd/MAlt pair');
+      const [pairMask,pairBody]=models[pair.pod]??[], alternate=models[pair.alternate]?.[1];
+      if (!pairBody||!alternate) throw new Error('paired model unavailable');
+      const meshes=assemblePod(pairBody,pairMask,alternate,parseModel(body,mask).meshes);
+      pod=buildPod(pairBody,pairMask,{texture,meshes});
+      if (!pod.asset.indices.length || !pod.asset.vertices.every(Number.isFinite)) throw new Error('invalid paired geometry');
+      assembly='paired';
+    } catch (error) { pod=reference; fallback=error.message; }
+  }
   if (!pod.asset.indices.length) throw new Error('pod model has no geometry');
-  toCraft(pod.asset, pod.bounds);
-  const top = pod.bounds.hi[2] - pod.bounds.lo[2];
-  return { asset: pod.asset, textures: pod.textures, flame: undefined, key: `swe1r:${skin.index}`,
-    metadata: { display: 0, scale: skin.scale, pose: 'swe1r', exhausts: [], posedAttachment0: { space: 'model-local', pose: 'stand-frame-0', position: [0, 0, top] } } };
+  toCraft(reference.asset, reference.bounds);
+  if (pod!==reference) toCraft(pod.asset, reference.bounds);
+  const exhausts=exhaustPoints(reference.asset.vertices,reference.asset.indices);
+  const top = reference.bounds.hi[2] - reference.bounds.lo[2];
+  return { asset: pod.asset, textures: pod.textures, flame: undefined, key: `swe1r:${skin.index}:${assembly}`, assembly, fallback,
+    metadata: { display: 0, scale: skin.scale, pose: 'swe1r', exhausts, posedAttachment0: { space: 'model-local', pose: 'stand-frame-0', position: [0, 0, top] } } };
 }

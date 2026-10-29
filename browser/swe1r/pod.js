@@ -57,22 +57,23 @@ export const BEAM_TEXTURE = 815;
 // opts.texture(t) -> { width, height, rgba } | null. Returns { asset, textures, bounds }; coordinates are the model's own
 // (callers map axes and scale).
 export function buildPod(body, mask, opts = {}) {
-  const meshes = parseModel(body, mask).meshes;
+  const meshes = opts.meshes ?? parseModel(body, mask, opts).meshes;
   const vertices = [], indices = [], batches = [], textures = new Map();
   const lo = [1e9, 1e9, 1e9], hi = [-1e9, -1e9, -1e9];
   const groups = new Map();
   for (const mesh of meshes) {
-    const t = meshTexture(body, mesh);
+    const source = mesh.body ?? body;
+    const t = meshTexture(source, mesh);
     let tex = t && opts.texture ? opts.texture(t) : null;
     if (tex && !textures.has(`swe1r\\${t.index}`) && textures.size >= (opts.maxTextures ?? 64)) tex = null; // renderer's craft payload limit; the rest stay untextured
     const key = tex ? `swe1r\\${t.index}` : null;
     if (tex && !textures.has(key)) textures.set(key, { key, width: tex.width, height: tex.height, rgba: tex.rgba });
-    const tris=decodeTriangles(body,mesh).map(tri=>({tri,P:tri.map(v=>applyMat(mesh.matrix,v.x,v.y,v.z))}));
+    const tris=decodeTriangles(source,mesh).map(tri=>({tri,P:tri.map(v=>applyMat(mesh.matrix,v.x,v.y,v.z))}));
     const parts=tex&&INTAKE_TEXTURES.has(t.index)?intakeIslands(tris):[{tris,pivot:null}];
     for(let i=0;i<parts.length;i++){
       const {tris,pivot}=parts[i],address=textureAddress(0);
       if(t){address.addressU=t.addressU;address.addressV=t.addressV;}
-      const groupKey=`${key}|${address.addressU}|${address.addressV}|${pivot?`${mesh.off}:${i}`:''}`;
+      const groupKey=`${key}|${address.addressU}|${address.addressV}|${pivot?pivot.join(','):''}`;
       if(!groups.has(groupKey))groups.set(groupKey,{key,address,pivot,list:[]});
       groups.get(groupKey).list.push({tris,textured:!!tex});
     }

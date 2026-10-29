@@ -252,6 +252,8 @@ if(process.env.COAST_WATER==='0')await context.route('**/water-stream.js',async 
       worldTest.settings({cockpit:false});
     },process.env.POD_SKIN);
     await page.waitForFunction(()=>worldTest.renderer().craft?.metadata.pose==='swe1r',null,{timeout:30000});
+    if(process.env.POD_FULL==='1')assert.ok(await page.evaluate(()=>worldTest.renderer().craft.instance.key.endsWith(':paired')),
+      'Paired performance gate must not silently use Lod1 fallback');
     if(process.env.POD_BASELINE!=='1'){
       assert.ok(await page.evaluate(()=>worldTest.renderer().craft.asset.batches.some(b=>b.intake)),
         'Performance gate must render an animated intake, not a fallback craft');
@@ -511,7 +513,9 @@ await writeFile(new URL('raw.json',output),JSON.stringify(data));
     return [{at:r.t-data.start,step,expected,ratio:expected>0?step/expected:null}];
   });
   if(population)assert(populationRequests>0,'The isolated private population override must be consumed');
-  const summary={settings,populationOverride:population?{
+  const pod=process.env.POD_SKIN?await page.evaluate(()=>({key:worldTest.renderer().craft.instance.key,
+    triangles:worldEvidence.render.craftTriangles,rotors:worldTest.renderer().craft.asset.batches.filter(b=>b.intake).length})):undefined;
+  const summary={settings,pod,populationOverride:population?{
     requests:populationRequests,spawns:JSON.parse(population).spawns.length}:undefined,
     water:{enabled:process.env.COAST_WATER!=='0',before:before.water,after:data.after.water},
     sourceBefore:before.source,sourceAfter:data.after.source,environment:{...environment,final:data.environmentEnd,
@@ -544,6 +548,7 @@ await writeFile(new URL('raw.json',output),JSON.stringify(data));
   await writeFile(new URL('trace.json',output),JSON.stringify({summary,freezes,resets,...data},null,2));
   console.log(JSON.stringify(summary,null,2));
   assert.deepEqual(summary.errors,[]);
+  if(process.env.POD_FULL==='1')assert.ok(summary.handlerMs.p99<20,`Paired handler p99 ${summary.handlerMs.p99} ms must be <20 ms`);
   if(presentation==='raw')assert.deepEqual(data.draws,data.rawDraws,'Raw comparison must read the current, not previous, client state');
   if(pulses){
     assert.equal(inputLatency.length,seconds/5,'Every requested throttle pulse must be captured');

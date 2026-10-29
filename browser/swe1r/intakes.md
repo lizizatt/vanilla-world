@@ -1,9 +1,76 @@
 # Pod intake audit
 
-The 25 selectable SWE1R skins use the user's `Part_Racer_Lod1_*` models, not the
-full animated `Podd` assemblies. Front shots and per-mesh positions, UVs,
+The 25 selectable SWE1R skins default to the user's `Part_Racer_Lod1_*` models,
+not the full animated `Podd` assemblies. Front shots and per-mesh positions, UVs,
 materials and texture-child records were inspected on the local install.
 No game geometry, textures or screenshots are shipped in this repository.
+
+## Paired-detail preview (default OFF)
+
+`?fullPods=1` opts the garage into a static Podd/MAlt preview; `fullPods=0`
+forces Lod1. This is intentionally **not** a claim of original-game animation
+or a fully reconstructed race pose. Failure to resolve or build a pair returns
+the complete Lod1 model, with the reason in the payload's `fallback` field.
+The same loader is used by the garage and test hook; unrelated Part props
+without a named racer pair remain Lod1.
+
+Early names use their exact table indices (Anakin 2/0, Sebulba 6/5,
+Ben 40/39, Neva 30/29); the one-item drift applies only to late names.
+Podd AltN entries address **child-pointer slots**; paired MAlt entries supply
+replacement nodes. They are not additional scene roots. Each engine instance
+and the cockpit take the finest drawable LOD branch, skipping the initial
+empty pilot skeleton where necessary. Lower alternatives are not summed.
+Path-local cycle detection preserves genuine shared-mesh instances, and
+flagged pivot transforms rotate about their authored centers.
+
+The race model's engine-instance translations are zero on disk: the original
+game supplies their live poses. The preview approximates a static rest pose
+using matching Lod1 texture envelopes, not arbitrary summation of model roots.
+This calibration is **not exact**, especially for multi-engine arrangements
+and cockpit/body joins. Audited Lod1 fan cards, binder, rear glow 117 and
+untextured details remain at their original coordinates; all samplers retain
+their original addressing. Camera attachment, model origin, vertical offset,
+scale and particle exhaust positions are taken from Lod1 (the existing exhaust
+classifier's result is saved explicitly so new body geometry cannot move it).
+No new fans are
+guessed from high-detail atlases.
+
+Reproduce the private visual gate with `node heavy-lock.mjs --label paired-shots
+-- node paired-pod-shots.mjs` from `browser`, with `PORT`, `WOW_DATA`,
+`SWE1R_DATA` and optionally `LAB_PROFILE` set. It uses muted Edge, freezes the
+craft, captures matched front **and** side cameras for every skin, and writes
+only ignored `runtime/paired-pods` images/report. Counts are checked against
+the renderer's `craftTriangles`, not stored meshes or all LODs. The paired
+preview must remain OFF unless those shots show complete, clearly better
+assemblies and a real-data driving run has worker-handler p99 below 20 ms with
+zero errors. `POD_FULL=1` in `driving-smoke.mjs` verifies an actual paired craft
+(not Lod1 fallback) and enforces that budget; set `WORLD_URL` to
+`http://127.0.0.1:PORT/?test&fullPods=1`, `POD_SKIN=swe1r-273` and
+`DRIVE_MODE=drive`. Frame scheduling and maximum stalls are reported separately.
+
+### Local gate result (2026-10-29)
+
+All 25 pairs loaded, with 100 before/after front/side captures and renderer-
+verified counts in the private `runtime/paired-pods/report.json`. Examples:
+
+| Pod | Lod1 triangles | Paired-preview triangles |
+|---|---:|---:|
+| Anakin | 309 | 951 |
+| Sebulba | 305 | 1,062 |
+| Neva Kee | 251 | 662 |
+| Ben Quadinaros | 253 | 910 |
+
+These are drawn payloads, including retained Lod1 details, not sums of stored
+LODs. The 40-second Ben run rendered 910 triangles with four animated fans:
+worker-handler p99 **5.70 ms**, errors **0**. Frame-interval p99 was **26 ms**
+(a separate scheduling metric, not a sub-20-ms frame-time claim). The 51
+targeted parser, real-data assembly, intake and particle tests passed.
+
+**Decision: OFF.** The extra detail is real, but the shots are not uniformly
+better or complete: Ben's fitted engine housings are oversized and obscure
+the preserved fans; other pods show body/fan alignment and join differences.
+Do not promote this preview until authored rest poses replace the envelope
+approximation. No game-derived images or meshes are included in the commit.
 
 ## Findings and implementation
 
