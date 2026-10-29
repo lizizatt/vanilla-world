@@ -13,7 +13,7 @@ fs.mkdirSync(out, { recursive: true });
 export async function openLab({ swe1r = true, width = 1280, height = 720, clouds = false } = {}) {
   const { WOW_DATA, SWE1R_DATA } = process.env;
   if (!WOW_DATA) throw new Error('WOW_DATA required');
-  const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(os.tmpdir(), 'edge-gatelab-')),
+  const ctx = await chromium.launchPersistentContext(process.env.LAB_PROFILE || fs.mkdtempSync(path.join(os.tmpdir(), 'edge-gatelab-')),
     { channel: process.env.LAB_CHANNEL || 'msedge', headless: !process.env.LAB_HEADED, args: ['--mute-audio', ...(process.env.LAB_UNCAPPED ? ['--disable-frame-rate-limit', '--disable-gpu-vsync'] : [])], ignoreDefaultArgs: ['--autoplay-policy=no-user-gesture-required'], viewport: { width, height }, serviceWorkers: 'block' });
   const page = ctx.pages()[0] || await ctx.newPage();
   const errors = [];

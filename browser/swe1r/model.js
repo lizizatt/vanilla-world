@@ -15,7 +15,23 @@ export function mulMat(parent, local) {
   return o;
 }
 export const applyMat = (m, x, y, z) => [m[0] * x + m[1] * y + m[2] * z + m[3], m[4] * x + m[5] * y + m[6] * z + m[7], m[8] * x + m[9] * y + m[10] * z + m[11]];
-export function parseModel(body, mask) {
+export function modelHeader(body) {
+  const dv = new DataView(body.buffer, body.byteOffset, body.byteLength), roots = [], alt = [];
+  let o = 4;
+  const word = () => { if (o + 4 > body.length) throw new Error('truncated model header'); const v = dv.getUint32(o); o += 4; return v; };
+  while (true) { const v = word(); if (v === 0xffffffff) break; roots.push(v); }
+  while (true) {
+    const tag = word();
+    if (tag === 0x48456e64) break;
+    if (tag === 0x44617461) { const size = word(); o += size * 4; }
+    else if (tag === 0x416e696d || tag === 0x416c744e) {
+      while (true) { const v = word(); if (!v) break; if (tag === 0x416c744e) alt.push(v); }
+    } else throw new Error('unknown model header section');
+  }
+  return { roots, alt };
+}
+
+export function parseModel(body, mask, opts = {}) {
   const dv = new DataView(body.buffer, body.byteOffset, body.byteLength);
   const u32 = o => dv.getUint32(o), s16 = o => dv.getInt16(o), f32 = o => dv.getFloat32(o);
   const ok = o => o > 0 && o + 4 <= body.length;
@@ -27,31 +43,58 @@ export function parseModel(body, mask) {
     roots.push(v);
   }
   const meshes = [];
-  const seen = new Set();
+  const active = new Set();
+  const replacements = new Map();
+  if (opts.alternate) {
+    const main = modelHeader(body), alternate = modelHeader(opts.alternate);
+    if (tag !== 'Podd' || String.fromCharCode(...opts.alternate.subarray(0, 4)) !== 'MAlt' || main.alt.length !== alternate.alt.length) throw new Error('invalid Podd/MAlt pair');
+    main.alt.forEach((slot, i) => {
+      if (!ok(slot) || slot % 4 || alternate.alt[i] + 0x1c > opts.alternate.length) throw new Error('invalid AltN reference');
+      replacements.set(slot, alternate.alt[i]);
+    });
+  }
   // On disk: 3x3 rotation rows then translation (identity = 1,0,0, 0,1,0, 0,0,1, 0,0,0); converted to 3 rows of 4.
   const readMatrix = o => { const f = Array.from({ length: 12 }, (_, i) => f32(o + 4 * i)); return [f[0], f[1], f[2], f[9], f[3], f[4], f[5], f[10], f[6], f[7], f[8], f[11]]; };
   function mesh(o, m, path) {
+    if (!ok(o) || o + 0x3c > body.length) return;
     const matPtr = u32(o), cl = u32(o + 0x30), vt = u32(o + 0x34), nv = s16(o + 0x3a);
     if (!ok(cl) || !ok(vt) || nv < 1 || vt + nv * 16 > body.length) return;
-    meshes.push({ off: o, matrix: m, path, matPtr, cl, vt, nv, prim: s16(o + 0x22) });
+    meshes.push({ off: o, matrix: m, path, matPtr, cl, vt, nv, prim: s16(o + 0x22), body });
   }
   function walk(o, m, path) {
-    if (!ok(o) || seen.has(o + ':' + path.length) || path.length > 24) return;
-    seen.add(o + ':' + path.length);
+    if (!ok(o) || o + 0x1c > body.length || active.has(o) || path.length > 48) return;
     const flags = u32(o) & 0xffff, count = u32(o + 0x14), kids = u32(o + 0x18);
+    if (opts.visibleOnly && !(u32(o + 4) & 2)) return;
     let mat = m, take = count;
-    if (flags === NODE.TRANSFORMED || flags === NODE.PIVOT) mat = mulMat(m, readMatrix(o + 0x1c));
-    else if (flags === NODE.LOD) take = Math.min(count, 1);
-    else if (flags === NODE.SELECTOR) { const sel = dv.getInt32(o + 0x1c); take = sel >= 0 ? sel + 1 : 1; } // unset (-1): the children are alternate detail levels of one body, first is the finest
-    else if (flags !== NODE.MESH_GROUP && flags !== NODE.BASIC && flags !== NODE.COMPUTED) return;
-    if (!ok(kids) && count) return;
-    for (let i = 0; i < take && i < count; i++) {
-      const c = u32(kids + 4 * i);
-      if (flags === NODE.SELECTOR && i !== Math.max(0, dv.getInt32(o + 0x1c))) continue;
-      if (flags === NODE.MESH_GROUP) mesh(c, mat, path.concat(i));
-      else walk(c, mat, path.concat(i));
+    if (flags === NODE.TRANSFORMED || flags === NODE.PIVOT) {
+      const local = readMatrix(o + 0x1c);
+      if (flags === NODE.PIVOT && (s16(o + 0xc) & 0x10)) {
+        const pivot = [f32(o + 0x4c), f32(o + 0x50), f32(o + 0x54)];
+        const rotated = applyMat(local, ...pivot);
+        for (let a = 0; a < 3; a++) local[a * 4 + 3] += pivot[a] - (rotated[a] - local[a * 4 + 3]);
+      }
+      mat = mulMat(m, local);
     }
+    else if (flags === NODE.LOD) take = opts.finest ? count : Math.min(count, 1);
+    else if (flags === NODE.SELECTOR) { const sel = opts.finest ? 0 : dv.getInt32(o + 0x1c); take = sel >= 0 ? sel + 1 : 1; }
+    else if (flags !== NODE.MESH_GROUP && flags !== NODE.BASIC && flags !== NODE.COMPUTED) return;
+    if (count && (!ok(kids) || kids + count * 4 > body.length)) throw new Error('invalid model children');
+    active.add(o);
+    for (let i = 0; i < take && i < count; i++) {
+      const before = meshes.length;
+      const c = u32(kids + 4 * i);
+      if (flags === NODE.SELECTOR && i !== (opts.finest ? 0 : Math.max(0, dv.getInt32(o + 0x1c)))) continue;
+      if (flags === NODE.MESH_GROUP) mesh(c, mat, path.concat(i));
+      else if (replacements.has(kids + 4 * i)) {
+        const sub = parseModel(opts.alternate, null, { root: replacements.get(kids + 4 * i), finest: true, visibleOnly: opts.visibleOnly });
+        for (const mesh of sub.meshes) meshes.push({ ...mesh, matrix: mulMat(mat, mesh.matrix), path: path.concat(i, ...mesh.path) });
+      }
+      else walk(c, mat, path.concat(i));
+      // The first cockpit slot can contain only the pilot's empty skeleton.
+      if (flags === NODE.LOD && opts.finest && meshes.length > before) break;
+    }
+    active.delete(o);
   }
-  if (roots.length) walk(roots[0], IDENT, [0]);
+  if (roots.length) walk(opts.root ?? roots[0], IDENT, [0]);
   return { tag, roots, meshes };
 }
