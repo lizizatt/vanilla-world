@@ -298,3 +298,10 @@ Code: `frames.js`, `pole-cap.js`, `pole-source.js`, `pole-flag.js`, `polar-light
 1. Elune poles: keep the Horde/Alliance pair (assumed), or plain poles?
 2. Elune tile synthesis (200 ms) is the pre-stream bottleneck at speed: accept speed-scaled lookahead (recommended), or move heavy octaves/craters to a lower LOD near the poles?
 3. North polar night: is "existing night look plus a flag lamp" the right amount of light, or do you want a visible aurora/moonlight boost?
+## 18. L1 results (JS only, no wasm)
+
+- Elune tile synthesis speedup (1a4bd88d): p50 ~225 -> ~135 ms, heights bit-identical (golden sha256 test). Still above the Azeroth cap (48/72 ms); the noise lattice is the floor.
+- Pole frames open as one-region "Elune"-named body-worlds (`?body=elune&poleFrame=elune:N|elune:S|azeroth:N|azeroth:S`), served by `poleBodySource`; wasm `moon_manifest` accepts all four. Tracks/gates are suppressed in pole frames (v1).
+- Real-engine drive across the pole (`pole-drive-smoke.mjs`, 25 s, 0 errors): open 3.1-4.5 s, arrival-to-first-resident-tile 0.9-2.1 s, handler p50 0.2-0.3 / p99 1.7-2.2 ms, ~3.3-3.7 kyd travelled with no stall.
+- Caveat: Azeroth caps run through the Elune body stand-in (Elune bend/shaders), so they are valid for timing, not for Azeroth visuals.
+- Multi-region hops between E/N/S frames need Rust (L2).
