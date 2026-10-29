@@ -35,12 +35,13 @@ fn admission_now() -> f64 {
 }
 
 mod collision;
+mod frames;
 mod math;
 mod types;
 pub use math::whirlpool_dip;
 use math::{contains, swept_box, swept_triangle};
 use collision::CollisionTree;
-pub use types::{HorizonEntry, Manifest, Region, TileEntry};
+pub use types::{FrameSpec, HorizonEntry, Manifest, Region, TileEntry};
 
 /// Detailed terrain/water plus authored WMO/M2 collision surfaces.
 #[derive(Clone, Copy, Debug)]
@@ -112,6 +113,10 @@ pub struct Voyage {
     pub(crate) tuning: Tuning,
     origin: [f64; 2],
     rebases: u32,
+    /// Active frame (0 E, 1 N, 2 S), E longitude wraps (signed) and completed hops.
+    frame: u8,
+    wraps: i32,
+    hops: u32,
     hold: u8,
     dur: Durability,
     physics_stats: [u32; 8],
@@ -124,7 +129,7 @@ pub struct Voyage {
 impl Voyage {
     pub fn from_manifest(manifest: Manifest) -> Result<Self, String> {
         manifest.validate()?;
-        let mut grid = vec![None; 8192];
+        let mut grid = vec![None; 4096 * manifest.regions.len().max(2)];
         for (index, tile) in manifest.tiles.iter().enumerate() {
             let cell = tile.region * 4096 + tile.y as usize * 64 + tile.x as usize;
             if grid[cell].replace(index).is_some() {
@@ -160,6 +165,9 @@ impl Voyage {
             wreck: None,
             scene_parts: HashMap::new(),
             rebases: 0,
+            frame: 0,
+            wraps: 0,
+            hops: 0,
             hold: 1,
             dur: Durability::default(),
             physics_stats: [0; 8],
@@ -236,6 +244,7 @@ impl Voyage {
             self.state.position[2] = (p[1] - self.origin[1]) as f32;
             self.rebases += 1;
         }
+        self.wrap_longitude();
     }
 
     /// Open-ocean surface height: sea level minus the whirlpool dip. Only the unauthored ocean branches use it.
@@ -248,6 +257,7 @@ impl Voyage {
     }
 
     fn sample_at(&self, p: [f64; 2], body_y: f32) -> Surface {
+        let p = self.canon(p);
         let mut result = Surface {
             ground: None,
             water: None,
@@ -432,9 +442,24 @@ impl Voyage {
     }
 
     fn restore_pose(&mut self, pose: &[f64]) -> Result<(), String> {
-        if pose.len() != 4 || pose.iter().any(|v| !v.is_finite()) {
+        if !(4..=5).contains(&pose.len()) || pose.iter().any(|v| !v.is_finite()) {
             return Err("Save requires a finite global pose".into());
         }
+        let frame = pose.get(4).copied().unwrap_or(0.0);
+        if !matches!(frame as i64, 0..=2) || frame.fract() != 0.0 {
+            return Err("Saved frame is not E, N or S".into());
+        }
+        let frame = frame as u8;
+        let mut pose = pose[..4].to_vec();
+        if frame != 0 {
+            let spec = self
+                .manifest
+                .frames
+                .ok_or("Saved frame is unavailable in this world")?;
+            let g = frames::global_of(&spec, frame, [pose[0], pose[2]]);
+            (pose[0], pose[2]) = (g[0], g[1]);
+        }
+        let pose = &pose[..];
         let mut state =
             State::new([0.0, pose[1] as f32, 0.0], pose[3] as f32).map_err(|e| e.to_string())?;
         // Teleporting (unstuck, load) does not cool the engines.
@@ -458,6 +483,8 @@ impl Voyage {
         }
         self.origin = [pose[0], pose[2]];
         self.state = state;
+        self.frame = frame;
+        self.wraps = 0;
         self.hold = 0;
         Ok(())
     }
@@ -477,6 +504,7 @@ impl Voyage {
         self.physics_stats[0] = self.physics_stats[0].saturating_add(1);
         self.physics_stats[7] = self.physics_stats[7].max(steps);
         let (state, origin, rebases, hold) = (self.state, self.origin, self.rebases, self.hold);
+        let (frame, wraps, hops) = (self.frame, self.wraps, self.hops);
         for _ in 0..steps {
             self.physics_stats[1] = self.physics_stats[1].saturating_add(1);
             let result = self.advance_substep(input, FIXED_DT / steps as f32);
@@ -484,6 +512,9 @@ impl Voyage {
                 self.state = state;
                 self.origin = origin;
                 self.rebases = rebases;
+                self.frame = frame;
+                self.wraps = wraps;
+                self.hops = hops;
                 if result.is_err() {
                     self.hold = hold;
                 } else {
@@ -517,8 +548,9 @@ impl Voyage {
                     return Ok(());
                 }
             };
+        let m = self.ramp(p[1]);
         let projected = [
-            p[0] + f64::from(before.velocity[0] * dt),
+            p[0] + f64::from(before.velocity[0] * dt) * m,
             p[1] + f64::from(before.velocity[2] * dt),
         ];
         let rise = self
@@ -547,7 +579,7 @@ impl Voyage {
             )
             .map_err(|e| e.to_string())?;
         let next = [
-            p[0] + f64::from(self.state.velocity[0] * dt),
+            p[0] + f64::from(self.state.velocity[0] * dt) * m,
             p[1] + f64::from(self.state.velocity[2] * dt),
         ];
         let swept_start = [p[0], f64::from(before.position[1]), p[1]];
@@ -599,7 +631,8 @@ impl Voyage {
                     return Ok(());
                 }
                 for i in 0..3 {
-                    self.state.position[i] += self.state.velocity[i] * dt;
+                    let scale = if i == 0 && m != 1.0 { m as f32 } else { 1.0 };
+                    self.state.position[i] += self.state.velocity[i] * dt * scale;
                 }
                 if self.state.position[1] < floor {
                     self.physics_stats[6] = self.physics_stats[6].saturating_add(1);
@@ -608,6 +641,7 @@ impl Voyage {
                 }
                 self.hold = 0;
                 self.rebase();
+                self.maybe_hop();
             }
             result => {
                 let reason = result.as_ref().err().copied().unwrap_or(3);
@@ -1112,6 +1146,22 @@ impl Voyage {
         ]
     }
 
+    /// [frame (0 E, 1 N, 2 S), E longitude wraps, completed hops, chart x, chart z]; kept out of telemetry(), whose tail JS extends.
+    pub fn frame_state(&self) -> Vec<f64> {
+        let p = self.global();
+        let chart = self
+            .manifest
+            .frames
+            .map_or(p, |s| frames::chart_of(&s, self.frame, p));
+        vec![
+            f64::from(self.frame),
+            f64::from(self.wraps),
+            f64::from(self.hops),
+            chart[0],
+            chart[1],
+        ]
+    }
+
     /// The `AreaTable` id under the car, or 0 when no resident terrain covers it (open ocean).
     pub fn area(&self) -> u32 {
         self.area_at(self.global()[0], self.global()[1])
@@ -1295,6 +1345,9 @@ impl Voyage {
         )
         .expect("validated spawn");
         self.hold = 1;
+        self.frame = 0;
+        self.wraps = 0;
+        self.hops = 0;
     }
 
     /// Local positions, normal or water [ramp, 1, 1], then material (0 ground, 2 water).

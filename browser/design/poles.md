@@ -305,3 +305,13 @@ Code: `frames.js`, `pole-cap.js`, `pole-source.js`, `pole-flag.js`, `polar-light
 - Real-engine drive across the pole (`pole-drive-smoke.mjs`, 25 s, 0 errors): open 3.1-4.5 s, arrival-to-first-resident-tile 0.9-2.1 s, handler p50 0.2-0.3 / p99 1.7-2.2 ms, ~3.3-3.7 kyd travelled with no stall.
 - Caveat: Azeroth caps run through the Elune body stand-in (Elune bend/shaders), so they are valid for timing, not for Azeroth visuals.
 - Multi-region hops between E/N/S frames need Rust (L2).
+
+## 19. L2 / R1 (Rust) and the L3 frame interface
+
+- Manifest: optional `frames` (FrameSpec: radius, centre, anchors N/S, handoff, hysteresis, ramp_start, wrap) and `Region.frame` (0 E, 1 N, 2 S); pole regions are the last two (maps PoleN/PoleS, tile files `Pole{N,S}_x_y.adt`). Absent = unchanged v1-4 behaviour. wasm `with_poles(manifest, spec)` appends them (anchors N=[0,-200000], S=[0,200000]).
+- Wrap: E positions fold into [centre-wrap/2, centre+wrap/2) in `locate`/`sample_at`; `rebase` shifts the origin by wrap (`wraps` counts).
+- Ramp: E-W displacement x m(lat), m=1 up to ramp_start, 1/cos(handoff) at hand-off (smoothstep); bit-identical below.
+- Hop: exact rotation of position, heading and velocity (true speed conserved), deferred onto unresident tiles, rolled back with the substep.
+- Pose: optional 5th element = frame (pole-chart x,z when >0); older 4-element poses mean E.
+- Frame state (L3 inputs): separate wasm ``frame_state()`` = [frame, wraps, hops, chart x, chart z]. It is NOT appended to ``telemetry()`` (18 values; JS already appends a 4-value quaternion and ``recordPose`` requires length 18 or 22).
+

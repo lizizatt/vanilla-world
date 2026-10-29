@@ -1376,6 +1376,7 @@ pub fn fixture(shift: f64) -> Manifest {
                 tile_origin: [41, 33],
                 tile_count: [1, 1],
                 placement: [shift, 0.0],
+                frame: 0,
             },
             Region {
                 id: "east".into(),
@@ -1383,6 +1384,7 @@ pub fn fixture(shift: f64) -> Manifest {
                 tile_origin: [28, 51],
                 tile_count: [1, 1],
                 placement: [shift + 2000.0, 0.0],
+                frame: 0,
             },
         ],
         tiles: vec![],
@@ -1392,6 +1394,7 @@ pub fn fixture(shift: f64) -> Manifest {
         sea_level: 0.0,
         spawn: [shift + 200.0, 1.1, 64.0, 0.0],
         destination: [shift + 2200.0, 64.0],
+        frames: None,
     };
     for (region, r) in m.regions.iter().enumerate() {
         m.tiles.push(TileEntry {
