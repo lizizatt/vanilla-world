@@ -1,6 +1,8 @@
 // Chart-pose adapter for inter-body flight (design/elune.md step D4): the fly camera keeps its chart pose and aim, while motion runs through space-flight.js in inertial space.
 import {bodyOf,toInertial,fromInertial,axesAt} from './bodies.js';
-import {planetFrame} from './space.js';
+import {planetFrame,bodyPoint} from './space.js';
+import {frameCentre,frameFor} from './frames.js';
+import {poleFrameSpec} from './pole-source.js';
 import {createFlight,stepFlight} from './space-flight.js';
 
 const unit=a=>{const n=Math.hypot(...a)||1;return a.map(v=>v/n);};
@@ -45,16 +47,29 @@ function carryAim(from,fromPose,to,toPose,aim,t,transport) {
   return {look:conv(aim.look),right:conv(aim.right),up:conv(aim.up)};
 }
 
-/** One fly-camera step. `flight` is the chart pose [x,y,z,yaw,pitch,...q]; `aim` the chart basis {look,right,up}; `input` {forward,strafe,lift,fast}. Returns {pose,space,parent,swapped}; on a swap also `aim`, the same attitude in the new parent's chart. */
-export function stepShared(space,flight,aim,input,dt,t,rate=2,home='azeroth') {
-  const body=bodyOf(space?.parent??home);
-  const state=space??createFlight(toInertial(body,flight,t),t,body.id,rate);
-  const pose=flight.slice(0,3),dir=d=>inertialDir(body,pose,d,t);
+/** The body with its chart centre carried into frame `id` ('E' or absent: the body itself). */
+export const framedBody=(body,id)=>!id||id==='E'?body:{...body,centre:frameCentre(id,body.centre)};
+const POLE_BODIES=new Set(['azeroth','elune']);
+
+/** One fly-camera step. `flight` is the chart pose [x,y,z,yaw,pitch,...q] in frame `frame` ('E', 'N' or 'S'); `aim` the chart basis {look,right,up}; `input` {forward,strafe,lift,fast}.
+ *  Returns {pose,space,parent,swapped,frame}; on a swap or a frame hop also `aim`, the same attitude in the new chart. A hop is a pure re-expression (the inertial state is untouched), so it is seamless at any altitude. */
+export function stepShared(space,flight,aim,input,dt,t,rate=2,home='azeroth',frame='E') {
+  const body=bodyOf(space?.parent??home),bodyF=framedBody(body,frame);
+  const state=space??createFlight(toInertial(bodyF,flight,t),t,body.id,rate);
+  const pose=flight.slice(0,3),dir=d=>inertialDir(bodyF,pose,d,t);
   const next=stepFlight(state,{...input,look:dir(aim.look),right:dir(aim.right),up:dir(aim.up),simRate:rate},dt,t);
   const parent=bodyOf(next.parent);
   const swapped=next.parent!==state.parent;
-  // A new chart's longitude must be unwrapped around its own centre; the old chart's x is meaningless there (it would land a whole circumference away from the tiles).
+  if(swapped) {
+    // A new chart's longitude must be unwrapped around its own centre; the old chart's x is meaningless there (it would land a whole circumference away from the tiles).
+    const chart=fromInertial(parent,next.pos,t,parent.centre[0]);
+    return {space:next,parent:next.parent,swapped,frame:'E',pose:chart,aim:rechartAim(bodyF,pose,parent,chart,aim,t)};
+  }
   // next.pos is carried to the end of the step, so the chart pose is read at the sim time the renderer will draw (t+rate*dt), not at the start.
-  const chart=fromInertial(parent,next.pos,swapped?t:t+rate*dt,swapped?parent.centre[0]:flight[0]);
-  return {space:next,parent:next.parent,swapped,pose:chart,aim:swapped?rechartAim(body,pose,parent,chart,aim,t):transportAim(body,pose,chart,aim,t)};
+  const te=t+rate*dt,chart=fromInertial(bodyF,next.pos,te,flight[0]);
+  const spec=POLE_BODIES.has(parent.id)?poleFrameSpec(parent.id):undefined;
+  const {lat}=bodyPoint(chart[0],chart[2],bodyF.centre,parent.radius),to=spec?frameFor([0,Math.sin(lat),0],frame,spec):frame;
+  if(to===frame)return {space:next,parent:next.parent,swapped,frame,pose:chart,aim:transportAim(bodyF,pose,chart,aim,t)};
+  const bodyT=framedBody(parent,to),hopped=fromInertial(bodyT,next.pos,te,bodyT.centre[0]);
+  return {space:next,parent:next.parent,swapped,frame:to,pose:hopped,aim:rechartAim(bodyF,pose,bodyT,hopped,aim,t)};
 }

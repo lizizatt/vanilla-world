@@ -39,6 +39,8 @@ export function createTerrainIndex() {
   }};
 }
 export function focusRegionOf(manifest,p) {
+  // A pole frame region owns the square its anchor sits in; E regions keep the legacy east/west split.
+  for(let i=manifest.regions.length-1;i>=0;i--){const r=manifest.regions[i];if(r.frame&&p[0]>=r.placement[0]&&p[0]<r.placement[0]+r.tile_count[0]*TILE&&p[2]>=r.placement[1]&&p[2]<r.placement[1]+r.tile_count[1]*TILE)return i;}
   if(p[0]<manifest.ocean[0])return 0;
   if(p[0]>=manifest.ocean[2])return 1;
   return p[0]<(manifest.ocean[0]+manifest.ocean[2])/2?0:1;

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {bodyOf,fromInertial,toInertial} from './bodies.js';
-import {stepShared,inertialDir,transportAim} from './shared-flight.js';
+import {stepShared,inertialDir,transportAim,framedBody} from './shared-flight.js';
 
 const t=1000,dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
 const ang=(a,b)=>Math.acos(Math.max(-1,Math.min(1,dot(a,b))));
@@ -9,13 +9,13 @@ const ang=(a,b)=>Math.acos(Math.max(-1,Math.min(1,dot(a,b))));
 // Fly straight over each pole of a body, looking along the surface normal and then along the path; the physical attitude must never jump.
 for(const id of ['elune','azeroth']) test(`${id}: flight across the pole keeps a continuous roll-free attitude`, () => {
   const body=bodyOf(id),r=body.radius??5093;
-  let pose=[body.centre[0],1500,-r*(Math.PI/2-.02)],aim={look:[0,0,-1],right:[1,0,0],up:[0,1,0]},space;
+  let pose=[body.centre[0],1500,-r*(Math.PI/2-.02)],aim={look:[0,0,-1],right:[1,0,0],up:[0,1,0]},space,frame='E';
   const angular=[];let prevLook,prevUp;
   for(let i=0;i<600;i++){
-    const s=stepShared(space,pose,aim,{forward:1,fast:true},1/30,t,2,id);
+    const s=stepShared(space,pose,aim,{forward:1,fast:true},1/30,t,2,id,frame);
     if(s.parent!==id)break;
-    space=s.space;pose=s.pose;aim=s.aim;
-    const look=inertialDir(body,pose,aim.look,t),up=inertialDir(body,pose,aim.up,t);
+    space=s.space;pose=s.pose;aim=s.aim;frame=s.frame;
+    const fb=framedBody(body,frame),look=inertialDir(fb,pose,aim.look,t),up=inertialDir(fb,pose,aim.up,t);
     if(prevLook){angular.push(Math.max(ang(look,prevLook),ang(up,prevUp)));}
     prevLook=look;prevUp=up;
   }
