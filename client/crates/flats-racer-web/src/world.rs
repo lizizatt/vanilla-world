@@ -1,5 +1,5 @@
 //! Live archive topology and layout; WDT presence is independent of asynchronous ADT residency.
-use crate::voyage::{FLOOR_CLEARANCE, HorizonEntry, Manifest, Region, TILE, TileEntry, Voyage};
+use crate::voyage::{FLOOR_CLEARANCE, FrameSpec, HorizonEntry, Manifest, Region, TILE, TileEntry, Voyage};
 use benilla_formats::WdlFile;
 use benilla_wdt::{WdtReader, WowVersion};
 use std::{collections::VecDeque, io::Cursor};
@@ -112,6 +112,7 @@ fn build_world(wdts: [&[u8]; 2], wdls: [&[u8]; 2]) -> Result<Manifest, String> {
                 tile_origin: [0, 0],
                 tile_count: [64, 64],
                 placement: west_origin,
+                frame: 0,
             },
             Region {
                 id: "eastern-kingdoms".into(),
@@ -119,6 +120,7 @@ fn build_world(wdts: [&[u8]; 2], wdls: [&[u8]; 2]) -> Result<Manifest, String> {
                 tile_origin: [0, 0],
                 tile_count: [64, 64],
                 placement: east_origin,
+                frame: 0,
             },
         ],
         tiles,
@@ -136,6 +138,7 @@ fn build_world(wdts: [&[u8]; 2], wdls: [&[u8]; 2]) -> Result<Manifest, String> {
             east_origin[0] + 28.0 * TILE + 256.0,
             east_origin[1] + 51.0 * TILE + 160.0,
         ],
+        frames: None,
     };
     manifest.validate()?;
     Ok(manifest)
@@ -172,6 +175,7 @@ fn build_moon(wdt: &[u8], wdl: &[u8]) -> Result<Manifest, String> {
             tile_origin: [origin[0], origin[1]],
             tile_count: count,
             placement,
+            frame: 0,
         }],
         tiles,
         horizons: vec![HorizonEntry {
@@ -186,6 +190,7 @@ fn build_moon(wdt: &[u8], wdl: &[u8]) -> Result<Manifest, String> {
         sea_level: -1.0e6,
         spawn: [0.0, 0.0, 0.0, 0.0],
         destination: [0.0, 0.0],
+        frames: None,
     };
     manifest.validate()?;
     Ok(manifest)
@@ -209,9 +214,84 @@ pub fn world_manifest(
     serde_json::to_string(&m).map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
+/// Pole-chart origins in global space, far outside every authored region.
+const POLE_ANCHORS: [[f64; 2]; 2] = [[0.0, -200_000.0], [0.0, 200_000.0]];
+
+/// Opt-in: append the N and S pole-frame regions (and their tiles) to a manifest.
+/// `spec` is `{radius, centre, handoff, hysteresis, ramp_start, wrap, tiles}`; the manifest is returned re-validated.
+pub(crate) fn add_poles(mut m: Manifest, spec: &PoleSpec) -> Result<Manifest, String> {
+    if m.frames.is_some() || m.regions.iter().any(|r| r.frame != 0) {
+        return Err("Manifest already has pole frames".into());
+    }
+    if spec.tiles.iter().any(|&n| n == 0 || n > 64 || n % 2 != 0) {
+        return Err("Pole tile count must be even and at most 64".into());
+    }
+    m.frames = Some(FrameSpec {
+        radius: spec.radius,
+        centre: spec.centre,
+        anchors: POLE_ANCHORS,
+        handoff: spec.handoff,
+        hysteresis: spec.hysteresis,
+        ramp_start: spec.ramp_start,
+        wrap: spec.wrap,
+    });
+    for (i, (map, anchor)) in [("PoleN", POLE_ANCHORS[0]), ("PoleS", POLE_ANCHORS[1])]
+        .into_iter()
+        .enumerate()
+    {
+        let region = m.regions.len();
+        m.regions.push(Region {
+            id: map.to_lowercase(),
+            map: map.into(),
+            tile_origin: [0, 0],
+            tile_count: spec.tiles,
+            placement: [
+                anchor[0] - f64::from(spec.tiles[0]) * TILE / 2.0,
+                anchor[1] - f64::from(spec.tiles[1]) * TILE / 2.0,
+            ],
+            frame: i as u8 + 1,
+        });
+        for y in 0..spec.tiles[1] {
+            for x in 0..spec.tiles[0] {
+                m.tiles.push(TileEntry {
+                    region,
+                    x,
+                    y,
+                    file: format!("{map}_{x}_{y}.adt"),
+                    bytes: 0,
+                    sha256: "0".repeat(64),
+                });
+            }
+        }
+    }
+    m.validate()?;
+    Ok(m)
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PoleSpec {
+    pub(crate) radius: f64,
+    pub(crate) centre: [f64; 2],
+    pub(crate) handoff: f64,
+    pub(crate) hysteresis: f64,
+    pub(crate) ramp_start: f64,
+    pub(crate) wrap: f64,
+    pub(crate) tiles: [u32; 2],
+}
+
+#[wasm_bindgen]
+pub fn with_poles(manifest_json: &str, spec_json: &str) -> Result<String, JsValue> {
+    let fail = |e: String| JsValue::from_str(&e);
+    let m: Manifest = serde_json::from_str(manifest_json).map_err(|e| fail(e.to_string()))?;
+    let spec: PoleSpec = serde_json::from_str(spec_json).map_err(|e| fail(e.to_string()))?;
+    let m = add_poles(m, &spec).map_err(fail)?;
+    serde_json::to_string(&m).map_err(|e| fail(e.to_string()))
+}
+
 pub(crate) fn exterior_cells(grid: &[Option<usize>]) -> Vec<bool> {
-    let mut exterior = vec![false; 8192];
-    for region in 0..2 {
+    let mut exterior = vec![false; grid.len()];
+    for region in 0..(grid.len() / 4096).min(2) {
         let base = region * 4096;
         let mut queue = VecDeque::new();
         for i in 0..4096 {
@@ -254,6 +334,7 @@ impl Voyage {
         Some(region * 4096 + y as usize * 64 + x as usize)
     }
     pub(crate) fn locate(&self, p: [f64; 2]) -> Option<usize> {
+        let p = self.canon(p);
         (0..self.manifest.regions.len()).find_map(|r| self.cell(r, p).and_then(|c| self.grid[c]))
     }
     pub(crate) fn exterior_ocean(&self, p: [f64; 2]) -> Option<usize> {
@@ -568,6 +649,7 @@ pub(crate) mod tests {
                 tile_origin: [0, 0],
                 tile_count: [60, 30],
                 placement: [-30.0 * TILE, -15.0 * TILE],
+                frame: 0,
             }],
             tiles,
             horizons: vec![HorizonEntry {
@@ -582,6 +664,7 @@ pub(crate) mod tests {
             sea_level: -1.0e6,
             spawn: [0.0, 0.0, 0.0, 0.0],
             destination: [0.0, 0.0],
+            frames: None,
         };
         let world = Voyage::from_manifest(m.clone()).unwrap();
         assert_eq!(world.locate([0.0, 0.0]), Some(15 * 60 + 30));
