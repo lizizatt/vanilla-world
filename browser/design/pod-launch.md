@@ -122,16 +122,27 @@ radial altitude strictly above the current body's atmosphere edge: **1711 yd on
 Azeroth, 0 yd on airless Elune**. Ground/hover, ramp guides, ordinary local jumps,
 other vehicles and free-flight retain their existing controls.
 
-Hold **right mouse and drag** to yaw/pitch the pod about its own up/right axes
-(0.004 rad/pixel). Drag right turns right; drag up raises the nose. Controller:
+Hold **right mouse and drag** to move the camera-centred aim (0.004 rad/pixel);
+the pod nose smoothly slews to that aim, not relative to its own current axes.
+Drag right looks right; drag up looks up. Controller:
 hold **LB/L1 (standard button 4)** and use the **right stick**, with the existing
-0.18 look deadzone and a maximum **90 degrees/s** per axis. Without the hold, the
-right stick and left-mouse drag still orbit the camera. No new roll binding is
-added: the existing roll is carried in the full quaternion, with no horizon
-leveling or vertical Euler singularity.
+0.18 look deadzone and a maximum aim rate of **90 degrees/s** per axis. Without
+the hold, the right stick and left-mouse drag still orbit the camera. The pod
+slews along the shortest full-quaternion arc at at most **180 degrees/s**, with
+**8/s exponential settling** and exact alignment below 1e-7 rad; it cannot
+overshoot. Thrust follows the nose during the turn and the camera centre once
+settled. Mouse uses the existing non-inverted camera convention; the inverted
+ground pod-pitch binding does not apply.
+
+On hold, seed the aim from the displayed camera, including existing look offset
+and roll. Yaw is about that fixed hold-start up; pitch is about the yawed right.
+Angles are accumulated from the hold-start frame, not extracted from a changing
+Euler pose. Up travels continuously through vertical (including upside down);
+there is no horizon flip, added roll input or incremental roll drift from repeated
+mouse loops. The craft follows the complete aim quaternion, including this up.
 
 The first manual hold takes over launch stabilization. Release preserves the
-new inertial attitude, including after charge exhaustion and across SOI changes;
+current inertial attitude immediately, including after charge exhaustion and across SOI changes;
 it does not resume the old +/-20-degree automatic target. Landing/reset/manual
 teleport ends this attitude mode with the journey. Accelerate, reverse and boost
 all use the new nose direction; rotating alone does not rotate velocity. Heat,
@@ -139,13 +150,20 @@ damage, boost-use budget and gravity are unchanged. The ordinary full-airspeed
 governor still forbids positive engine work above its cap, so at interplanetary
 speed use remaining powered charge or aim thrust against motion to brake.
 
-Mouse deltas are assigned to the vehicle at the pointer event, not at a later
-frame: releasing RMB before a frame cannot turn the final movement into camera
-orbit. Client coalescing sums deltas; the worker retains them across zero-tick
-frames and collision holds, consuming them exactly once after an accepted step.
-Controller rates integrate at the fixed physics timestep. Only confirmed
-quaternion telemetry drives the existing rigid f64-relative craft/camera path;
-there is no main-thread physics predictor.
+Mouse deltas belong to the held aim at the pointer event, never to a later
+ordinary camera-orbit frame. The main thread integrates the visual aim and sends
+an absolute inertial quaternion; client coalescing keeps the latest target/hold.
+Zero-tick frames and collision holds cannot replay mouse increments. The worker
+alone integrates the pod's rate-limited slew at 120 Hz. Only confirmed quaternion
+telemetry drives the existing rigid f64-relative craft path; visual aiming does
+not predict physics.
+
+While held, the camera uses this same inertial aim, independent of the turning
+pod and of the current SOI chart. On release it captures the exact displayed
+frame relative to the current pod before easing back to normal follow (180
+degrees/s maximum, 7/s settling). There is no release-edge eye/orientation snap.
+Releasing before alignment stops the pod at its current attitude; the camera
+returns smoothly to that attitude, not to the abandoned target.
 
 The interaction uses pointer capture rather than introducing pointer lock.
 The cursor becomes a grabbing hand during RMB control and returns on release,
@@ -238,7 +256,7 @@ aligned engine effects with zero page/world errors. This is a frozen renderer
 diagnostic, not trajectory evidence. Planet terrain/polar-ripple work remains
 outside this patch.
 
-### Manual orbital attitude follow-up
+### Original relative-attitude follow-up (superseded by camera-centred aim)
 
 Run the attitude-specific production smoke with `ORIENT=1` and
 `node browser\pod-launch-smoke.mjs` (same read-only asset variables). It launches
@@ -249,7 +267,7 @@ unthrusted production-solver continuation to separate engine impulse from
 gravity. Its **20 ms p99 gate is worker handler time**, measured at the real
 protocol handler entry/reply boundary by the diagnostic server, not RAF time;
 RAF and renderer CPU values are still reported. Outputs are ignored under
-`browser\test-results\pod-attitude`.
+`browser\test-results\pod-camera-aim` for the current camera-centred revision.
 
 The final real-data run turned **90.069 degrees** with a 393-pixel RMB drag.
 After release, **0.516667 boost-seconds** produced **88.8522 yd/s** along the new
@@ -267,6 +285,29 @@ loading explicitly permits absent companion packs, and the report retains those
 misses separately rather than hiding them. The browser suite passed **985 tests,
 0 failures, 8 skips**. Controller mapping/rates are covered by deterministic
 tests; this smoke uses real pointer events, not physical controller hardware.
+
+### Camera-centred aim revision
+
+The revised real-data smoke holds RMB through aim convergence and the sideways
+burn, measuring against the **actual renderer view's camera-centre direction**
+converted from the eye chart to inertial space. A 393-pixel drag gave
+**90.06863 degrees**. Consuming **0.516667 boost-seconds** added **88.85390 yd/s**
+along that direction and **0.00020162 yd/s** off-axis versus the matched coast
+(**171.9753 yd/s²** against 172 expected). Settled camera/nose vector error was
+**5.55e-17**. Restoring the launch aim and releasing retained the pod attitude,
+then completed the full charge, crossed the SOI at about **19.79 s** and reached
+Azeroth near ground at **43.27 s** after departure. Ground physics resumed,
+charge was zero, heat had reached 1 and engine health was **50.80% / 67.20%**.
+
+Handler p99 was **2.0 ms over 5905 samples**, renderer CPU **5.9 ms**; zero
+page/world/unexpected HTTP errors. The same four optional NPC-pack 404s were
+retained separately. RAF p99 was **20.8 ms**, above 20 ms: the existing
+worker-handler gate passed, not a strict RAF gate. No retry or metric substitution
+hides that shared-machine scheduling caveat. Full browser regression suite:
+**987 passed, 0 failed, 8 skipped**. Deterministic tests also cover exact
+camera eye/look continuity on release in chase/cockpit, physical held-camera
+continuity at SOI, shortest-arc/no-overshoot convergence, rate bounds, pole
+crossing and no accumulated roll. No physical controller hardware was used.
 
 ## Evidence required before claiming completion
 

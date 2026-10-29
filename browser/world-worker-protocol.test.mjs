@@ -4,7 +4,7 @@ import {collisionFixture,frameFixture,runInContext} from './world-worker-fixture
 
 test('invalid orbital controls fail at the worker boundary before physics',async()=>{
   const f=frameFixture();
-  await f.dispatch({id:1,action:'frame',dt:.025,throttle:0,steer:0,flags:0,podControl:{active:true,mouse:[NaN,0],stick:[0,0]}});
+  await f.dispatch({id:1,action:'frame',dt:.025,throttle:0,steer:0,flags:0,podControl:{active:true,aim:[NaN,0,0,1]}});
   assert.match(f.events.find(e=>e.id===1).error,/Invalid orbital pod control/);
   assert.equal(f.events.filter(e=>e.event==='tick').length,0);
 });

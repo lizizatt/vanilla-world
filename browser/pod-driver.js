@@ -12,10 +12,7 @@ export class PodRuntime {
   constructor(){this.objects=[];this.remaining=0;this.spent=new Set();this.journey=null;this.time=720;this.hold=0;this.control=undefined;}
   reset(){this.remaining=0;this.spent.clear();this.journey=null;this.hold=0;this.control=undefined;}
   queueControl(control){
-    if(!podInSpace(this.journey)){this.control=undefined;return;}
-    const pending=this.control?.mouse||[0,0];
-    this.control={active:control?.active??false,stick:control?.stick||[0,0],
-      mouse:pending.map((v,i)=>v+(control?.mouse[i]||0))};
+    this.control=podInSpace(this.journey)?control:undefined;
   }
   setObjects(objects){this.objects=structuredClone(validateLaunchObjects(objects));}
   telemetry(world){const p=this.journey?launchTelemetry(this.journey,world.telemetry()):Array.from(world.telemetry());if(this.hold)p[8]=this.hold;return p;}
@@ -82,7 +79,6 @@ export class PodRuntime {
       this.journey=null;return;
     }
     world.pod_engine_step(input.throttle,input.flags,(old.remaining-next.remaining)/dt);
-    if(this.control)this.control={...this.control,mouse:[0,0]};
     this.journey=next;this.remaining=next.remaining;this.time=next.time;
   }
 }

@@ -2,8 +2,8 @@
 import {bodyOf,centreAt,toInertial,fromInertial,parentOf,BODIES,podGravityScale} from './bodies.js';
 import {chartAxes} from './shared-flight.js';
 import {TUNING_FIELDS} from './world-tuning.js';
-import {fromBasis} from './orient.js';
-import {podInSpace,turnPod,validatePodControl} from './pod-attitude.js';
+import {fromBasis,basis} from './orient.js';
+import {podInSpace,aimQuaternion,slewAim,validatePodControl} from './pod-attitude.js';
 
 export const LAUNCH={angles:[15,25,45,90],radius:48,width:16,charge:15,power:172,step:1/120};
 const dot=(a,b)=>a.reduce((n,v,i)=>n+v*b[i],0);
@@ -92,8 +92,9 @@ export function stepLaunch(state,input,dt=LAUNCH.step) {
   }
   let direction=state.direction,carriedUp=state.up;
   const control=input.podControl;
-  if(podInSpace(state)&&control&&(control.active||control.mouse.some(Boolean))){
-    ({direction,up:carriedUp}=turnPod(direction,carriedUp,control.mouse,control.active?control.stick:[0,0],dt));
+  if(podInSpace(state)&&control?.active){
+    const aimed=basis(slewAim(aimQuaternion(direction,carriedUp),control.aim,dt));
+    direction=aimed.look;carriedUp=aimed.up;
     next.freeAttitude=true;
   }
   if(state.remaining<=0&&!next.freeAttitude){
