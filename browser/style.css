@@ -35,6 +35,13 @@ canvas { display: block; width: 100%; height: 100%; outline-offset: -4px; }
 .speed-dial span { display: none; }
 .state-note { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 8px; text-align: center; font-size: 11px; letter-spacing: .7px; color: #edf5f7; white-space: nowrap; }
 .state-note strong { color: #ffb34d; margin-right: 6px; }
+#boost-bar { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 30px; display: flex; align-items: center; gap: 6px; padding: 3px 8px; border: 2px solid #7fe3e8; border-radius: 4px; background: #0c2a3a; box-shadow: 0 0 6px #7fe3e8aa, inset 0 0 8px rgba(255,255,255,.15); color: #bff4ff; font-size: 11px; font-weight: 800; font-style: italic; letter-spacing: .7px; white-space: nowrap; pointer-events: none; }
+#boost-bar[hidden] { display: none; }
+#boost-bar .bb-track { display: block; width: clamp(70px, 9vw, 120px); height: 9px; background: rgba(180,230,240,.22); border-radius: 5px; overflow: hidden; }
+#boost-bar .bb-track b { display: block; height: 100%; background: #b04ad8; border-radius: 5px; }
+#boost-bar[data-low=true] .bb-track b { background: #ff4a3a; }
+#boost-bar[data-low=true] { animation: engine-blink .6s steps(2) infinite; }
+#boost-bar output { min-width: 3.4em; text-align: right; font-variant-numeric: tabular-nums; }
 .meters[data-held=false]:not([data-flight=true]) .state-note { visibility: hidden; }
 .meters[data-sprites=true] .heat-twin, .meters[data-sprites=true] .speed-dial { visibility: hidden; }
 #swe1r-heat { position: absolute; bottom: max(14px, env(safe-area-inset-bottom)); left: max(14px, env(safe-area-inset-left)); width: var(--hud-w, 96px); height: auto; pointer-events: none; image-rendering: pixelated; }
