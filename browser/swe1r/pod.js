@@ -63,12 +63,12 @@ export function buildPod(body, mask, opts = {}) {
   const groups = new Map();
   for (const mesh of meshes) {
     const source = mesh.body ?? body;
-    const t = meshTexture(source, mesh);
+    const t = mesh.texture ?? meshTexture(source, mesh);
     let tex = t && opts.texture ? opts.texture(t) : null;
     if (tex && !textures.has(`swe1r\\${t.index}`) && textures.size >= (opts.maxTextures ?? 64)) tex = null; // renderer's craft payload limit; the rest stay untextured
     const key = tex ? `swe1r\\${t.index}` : null;
     if (tex && !textures.has(key)) textures.set(key, { key, width: tex.width, height: tex.height, rgba: tex.rgba });
-    const tris=decodeTriangles(source,mesh).map(tri=>({tri,P:tri.map(v=>applyMat(mesh.matrix,v.x,v.y,v.z))}));
+    const tris=(mesh.triangles ?? decodeTriangles(source,mesh)).map(tri=>({tri,P:tri.map(v=>applyMat(mesh.matrix,v.x,v.y,v.z))}));
     const parts=tex&&INTAKE_TEXTURES.has(t.index)?intakeIslands(tris):[{tris,pivot:null}];
     for(let i=0;i<parts.length;i++){
       const {tris,pivot}=parts[i],address=textureAddress(0);

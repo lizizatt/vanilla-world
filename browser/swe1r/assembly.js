@@ -1,61 +1,80 @@
-// Static preview of the paired race model. Runtime engine poses are not stored in
-// Podd's instance transforms; use the installed Lod1 surfaces as the rest pose.
-import {parseModel, modelHeader, applyMat, mulMat} from './model.js';
-import {meshTexture, decodeTriangles, BEAM_TEXTURE} from './pod.js';
-import {INTAKE_TEXTURES} from './intakes.js';
+import {parseModel, modelHeader, mulMat, applyMat} from './model.js';
+import {decodeTriangles,meshTexture,BEAM_TEXTURE} from './pod.js';
 
-const median = values => values.sort((a,b)=>a-b)[Math.floor(values.length/2)];
-function surfaces(meshes, accept = () => true) {
-  const out = new Map();
+const IDENTITY=[1,0,0,0,0,1,0,0,0,0,1,0];
+function points(meshes) {
+  const unique=new Map();
   for (const mesh of meshes) {
-    const texture = meshTexture(mesh.body, mesh)?.index;
-    if (texture === undefined || INTAKE_TEXTURES.has(texture) || texture === BEAM_TEXTURE) continue;
-    for (const tri of decodeTriangles(mesh.body, mesh)) for (const v of tri) {
-      const p = applyMat(mesh.matrix,v.x,v.y,v.z);
-      if (!accept(p)) continue;
-      if (!out.has(texture)) out.set(texture,{lo:[Infinity,Infinity,Infinity],hi:[-Infinity,-Infinity,-Infinity]});
-      const box = out.get(texture);
-      for (let a=0;a<3;a++) { box.lo[a]=Math.min(box.lo[a],p[a]); box.hi[a]=Math.max(box.hi[a],p[a]); }
+    if ([116,117].includes(meshTexture(mesh.body,mesh)?.index)) continue;
+    for (const tri of decodeTriangles(mesh.body,mesh)) for (const v of tri) {
+      const p=applyMat(mesh.matrix,v.x,v.y,v.z);
+      unique.set(p.join(','),p);
     }
   }
-  return out;
+  return [...unique.values()];
 }
 
-function restPose(source, target) {
-  const pairs=[...source].filter(([key])=>target.has(key)).map(([key,box])=>[box,target.get(key)]);
-  const scales=[];
-  for (const [a,b] of pairs) {
-    const axis=[0,1,2].sort((x,y)=>(a.hi[y]-a.lo[y])-(a.hi[x]-a.lo[x]))[0];
-    if(a.hi[axis]-a.lo[axis]>.1)scales.push((b.hi[axis]-b.lo[axis])/(a.hi[axis]-a.lo[axis]));
+function closest(a,b) {
+  let distance=Infinity,pair;
+  for (const p of a) for (const q of b) {
+    const d=p.reduce((n,x,i)=>n+(x-q[i])**2,0);
+    if (d<distance) {distance=d;pair=[p,q];}
   }
-  if (scales.length<3) throw new Error('insufficient Lod1 rest-pose anchors');
-  const scale=median(scales);
-  if (!(scale>10 && scale<2000)) throw new Error('unrecognised Podd rest-pose scale');
-  const t=[0,1,2].map(axis=>median(pairs.map(([a,b])=>(b.lo[axis]+b.hi[axis]-scale*(a.lo[axis]+a.hi[axis]))/2)));
-  return [scale,0,0,t[0],0,scale,0,t[1],0,0,scale,t[2]];
+  return pair;
 }
 
-export function assemblePod(body, mask, alternate, reference) {
+// The Podd tether template runs from y=0 to y=-100, with a 10-unit square section.
+export function tetherMatrix(a,b) {
+  const y=a.map((v,i)=>(v-b[i])/100),length=Math.hypot(...y);
+  if (!(length>0)) throw new Error('zero length pod tether');
+  const h=Math.hypot(y[0],y[1]),x=h?[y[1]/h,-y[0]/h,0]:[1,0,0];
+  const z=[-y[2]*x[1]/length,y[2]*x[0]/length,(y[0]*x[1]-y[1]*x[0])/length];
+  return [x[0],y[0],z[0],a[0]-5*(x[0]+z[0]),x[1],y[1],z[1],a[1]-5*(x[1]+z[1]),x[2],y[2],z[2],a[2]-5*(x[2]+z[2])];
+}
+
+function binder(a,b) {
+  const v=(p,z,u,w)=>({x:p[0],y:p[1],z:p[2]+z,u,v:w,r:1,g:1,b:1,a:1});
+  const p=[v(a,-80,0,4096),v(b,-80,4096,4096),v(b,80,4096,0),v(a,80,0,0)];
+  return {body:new Uint8Array(),matrix:IDENTITY,texture:{index:BEAM_TEXTURE,format:3,width:64,height:16,addressU:'repeat',addressV:'repeat'},
+    triangles:[[p[0],p[1],p[2]],[p[0],p[2],p[3]]],path:[0]};
+}
+
+export function assemblePod(body, mask, alternate, pose) {
   const {roots}=modelHeader(body);
-  const meshes=[], replaced=new Set();
-  // Header references are real engine instances (including Ben's extra pair),
-  // unlike the hidden template subtree underneath MainModel.
+  if (!pose || pose.parts.length!==5) throw new Error('missing pod pose calibration');
+  const meshes=[],parts=[];
   for (let part=1;part<=5;part++) {
-    if (!roots[part]) continue;
-    const branch=parseModel(body,mask,{alternate,root:roots[part],finest:true,visibleOnly:true}).meshes;
-    const side=part===1||part===3?-1:1;
-    const target=surfaces(reference,p=>part===5 || (p[0]*side>0 && (!roots[3] || (part<=2?p[2]>=0:p[2]<0))));
-    // shortcut: texture envelopes approximate the game's dynamic engine poses;
-    // keep the feature opt-in until every racer's authored pose is understood.
-    const matrix=restPose(surfaces(branch),target);
-    for (const mesh of branch) {
-      const texture=meshTexture(mesh.body,mesh)?.index;
-      // Keep the audited fans, binder and rear glow at their exact Lod1 positions.
-      if (INTAKE_TEXTURES.has(texture)||texture===BEAM_TEXTURE||texture===117) continue;
-      if (texture!==undefined) replaced.add(texture);
-      meshes.push({...mesh,matrix:mulMat(matrix,mesh.matrix),path:[part,...mesh.path]});
-    }
+    const position=pose.parts[part-1];
+    if (!roots[part] && !position) continue;
+    if (!roots[part] || !position?.every(Number.isFinite)) throw new Error('incomplete pod assembly');
+    // The existing particle renderer owns exhaust plumes, at the preserved anchors.
+    const branch=parseModel(body,mask,{alternate,root:roots[part],finest:true,visibleOnly:true}).meshes
+      .filter(mesh=>meshTexture(mesh.body,mesh)?.index!==116);
+    if (!branch.length) throw new Error('empty pod instance');
+    const [x,y,z]=position;
+    // Fans and housings must share the same transform. Fitting material envelopes
+    // separately inflated Ben's housings and left the borrowed fans behind them.
+    const matrix=[250,0,0,x,0,250,0,y,0,0,250,z];
+    const instance=branch.map(mesh=>({...mesh,matrix:mulMat(matrix,mesh.matrix),path:[part,...mesh.path]}));
+    parts[part]=points(instance);
+    meshes.push(...instance);
   }
   if (!meshes.length) throw new Error('empty paired model');
-  return [...reference.filter(mesh=>!replaced.has(meshTexture(mesh.body,mesh)?.index)),...meshes];
+  for (let part=1;part<=4;part++) {
+    if (!parts[part] || !roots[part+9]) continue;
+    const [a,b]=closest(parts[part],parts[5]);
+    // Integrated bodies already meet the cockpit; they do not need a free tether.
+    if (Math.hypot(...a.map((v,i)=>v-b[i]))<50) continue;
+    const matrix=tetherMatrix(a,b);
+    for (const mesh of parseModel(body,mask,{root:roots[part+9],finest:true,visibleOnly:true}).meshes)
+      meshes.push({...mesh,matrix:mulMat(matrix,mesh.matrix),path:[part+9,...mesh.path]});
+  }
+  if (pose.binder!==false) {
+    for (const [left,right] of [[1,2],[3,4]]) {
+      if (!parts[left] || !parts[right]) continue;
+      const [a,b]=closest(parts[left],parts[right]);
+      meshes.push(binder(a,b));
+    }
+  }
+  return meshes;
 }

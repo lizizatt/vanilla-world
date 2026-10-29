@@ -1,4 +1,4 @@
-// Radial intake art verified in the user's Lod1 models. Not exhaust glows (117),
+// Radial intake art verified in the user's paired Podd/MAlt models. Not exhaust glows (117),
 // rectangular grilles, body panels or engine housings: those must remain stationary.
 export const INTAKE_TEXTURES = new Set([112,152,198,276,305,324,352,470,500,551,577]);
 
