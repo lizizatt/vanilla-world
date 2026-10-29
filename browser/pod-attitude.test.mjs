@@ -60,6 +60,12 @@ test('LB/L1 gates the pod right stick without changing free-flight/other-vehicle
   pad.buttons[4]={pressed:true,value:1};
   const input=new WorldInput(),pod=input.sample(new Set(),[pad],true,'native',true,true);
   assert(pod.orient);assert(pod.look[0]>0&&pod.look[1]>0);assert.equal(pod.flags,0);
+  const seed=[0,0,0,1];
+  assert(basis(movePodAim(undefined,seed,[0,0],pod.look,.1).q).look[1]<0,'Physical stick up uses flipped space pitch');
+  pad.axes[3]=.8;
+  const down=input.sample(new Set(),[pad],true,'native',true,true);
+  assert(basis(movePodAim(undefined,seed,[0,0],down.look,.1).q).look[1]>0,'Physical stick down raises the space aim');
+  assert.equal(new WorldInput().sample(new Set(['ArrowUp']),[],true,'native',true,true).pitch,-1,'Ground keyboard pitch remains inverted as before');
   assert.equal(input.sample(new Set(),[pad],false,'native',true,true).orient,false);
   const other=input.sample(new Set(),[pad],true,'native',true,false);
   assert.equal(other.orient,false);assert.equal(other.flags,4);
@@ -71,7 +77,9 @@ test('camera aim uses fixed hold-start up, crosses poles continuously and accumu
   for(let i=0;i<120;i++)a=movePodAim(a,seed,[0,0],[1,0],1/120);
   for(let i=0;i<240;i++)b=movePodAim(b,seed,[0,0],[1,0],1/240);
   near(basis(a.q).look,basis(b.q).look);near(basis(a.q).look,[1,0,0]);
-  const up=movePodAim(undefined,seed,[0,-100],[0,0],0);assert(basis(up.q).look[1]>0);
+  const up=movePodAim(undefined,seed,[0,-100],[0,0],0);assert(basis(up.q).look[1]<0);
+  const down=movePodAim(undefined,seed,[0,100],[0,0],0);assert(basis(down.q).look[1]>0);
+  near(basis(up.q).look,basis(movePodAim(undefined,seed,[0,0],[0,1],.4/(Math.PI/2)).q).look);
   let pole;
   for(let i=0;i<400;i++){
     const next=movePodAim(pole,seed,[0,-2],[0,0],0);

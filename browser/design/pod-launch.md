@@ -124,15 +124,18 @@ other vehicles and free-flight retain their existing controls.
 
 Hold **right mouse and drag** to move the camera-centred aim (0.004 rad/pixel);
 the pod nose smoothly slews to that aim, not relative to its own current axes.
-Drag right looks right; drag up looks up. Controller:
+Drag right looks right; vertical input is flipped from the original camera-aim
+release: drag up lowers the aim relative to the hold-start frame, drag down
+raises it. Controller:
 hold **LB/L1 (standard button 4)** and use the **right stick**, with the existing
 0.18 look deadzone and a maximum aim rate of **90 degrees/s** per axis. Without
 the hold, the right stick and left-mouse drag still orbit the camera. The pod
 slews along the shortest full-quaternion arc at at most **180 degrees/s**, with
 **8/s exponential settling** and exact alignment below 1e-7 rad; it cannot
 overshoot. Thrust follows the nose during the turn and the camera centre once
-settled. Mouse uses the existing non-inverted camera convention; the inverted
-ground pod-pitch binding does not apply.
+settled. Right-stick up likewise lowers the space aim, and down raises it.
+There is no app invert-Y toggle; this default applies only to held space aim.
+Ground pod pitch and ordinary camera/free-flight conventions are unchanged.
 
 On hold, seed the aim from the displayed camera, including existing look offset
 and roll. Yaw is about that fixed hold-start up; pitch is about the yawed right.
@@ -308,6 +311,24 @@ hides that shared-machine scheduling caveat. Full browser regression suite:
 camera eye/look continuity on release in chase/cockpit, physical held-camera
 continuity at SOI, shortest-arc/no-overshoot convergence, rate bounds, pole
 crossing and no accumulated roll. No physical controller hardware was used.
+
+### Flipped vertical space aim
+
+The user-requested vertical reversal changes only `movePodAim`'s mouse/stick
+pitch signs. Deterministic checks cover both directions on both devices, actual
+controller axis mapping, and unchanged ground keyboard pitch: **30 tests passed**.
+The real-data smoke also uses the reversed vertical drag to restore launch aim.
+It rounds that requested drag to a whole pixel rather than relying on browser
+fractional-pointer truncation; the existing direction tolerance is unchanged.
+
+The repeated flight turned **90.06846 degrees**, then **0.516667 boost-seconds**
+added **88.85505 yd/s** along camera centre with **0.00020506 yd/s** off-axis
+(**171.9775 yd/s²**). Settled camera/nose error was **4.74e-16**. It completed
+the charge and landed on Azeroth with **47.43% / 64.95%** engine health.
+Handler p99 **0.8 ms** over **6194 samples**, renderer **3.8 ms**, RAF **7.1 ms**:
+all below 20 ms. Zero page/world/unexpected HTTP errors; the four optional
+NPC companion-pack 404s remain explicitly recorded. No physical controller
+hardware was used.
 
 ## Evidence required before claiming completion
 
