@@ -731,7 +731,7 @@ export async function openWorld(message) {
     const previousSource=source;source=undefined;
     previousSource?.close();
     source=await openAssetSource(message.folder,undefined,data=>postMessage(data,data.rgba?[data.rgba.buffer]:[]),
-      {loadingArt:true,map:message.loadingMap,graft:message.dataFolder});
+      {loadingArt:true,map:message.loadingMap,graft:message.dataFolder,poleFrame:message.poleFrame});
     report('World and archive workers ready');
     const moon=typeof message.folder==='string'&&!!BODIES[message.folder]?.rail;
     moonBody=moon;if(moon){LIMIT=bodyTileCap(memoryBudget,true);nearRadiusNow=nearRadius(LIMIT);}

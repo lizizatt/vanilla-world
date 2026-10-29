@@ -77,9 +77,10 @@ async function open(selection,remember=false) {
     const loadingMap=app.renderer.manifest?.regions[app.renderer.sceneRegion]?.map;
     app.renderer.reset();app.renderer.clipCamera=undefined;app.renderer.cameraFloor=undefined;cameraCollision.reset();app.flight=undefined;app.pauseAudio();music.stop();Object.assign(settings,defaults);app.syncSettings();
     app.applyMemoryBudget();
-    const result=await client.open(selection,loadingMap);client.bodyId=activeBody().id;
+    const result=await client.open(selection,loadingMap,selection==='elune'&&new URLSearchParams(location.search).get('poleFrame')?{poleFrame:new URLSearchParams(location.search).get('poleFrame')}:{});client.bodyId=activeBody().id;
     app.renderer.configure(result.info.manifest);client.sky();client.animate(settings.animateNpcs);mapPanel.configure(result.info.manifest,result.info.id);
-    void loadTracks().then(async found=>{app.shipped=found;app.tracks=await app.withOverrides(found);app.gateKey=undefined;});
+    void loadTracks().then(async found=>{if(new URLSearchParams(location.search).get('poleFrame'))found=[];// pole frames carry no tracks or gates in v1 (design/poles.md)
+      app.shipped=found;app.tracks=await app.withOverrides(found);app.gateKey=undefined;});
 app.gateKit=undefined;void loadGateKit((a,p)=>client.request(a,p),()=>getSwe1r()&&loadPodModel(getSwe1r(),{index:309,scale:1/600})).then(kit=>{app.gateKit=kit;app.gateKey=undefined;});
     cameraCollision.configure(result.info.manifest);
     app.tuningValues=Array.isArray(result.info.tuning)?result.info.tuning.slice():TUNING_FIELDS.map(f=>f[1]);
