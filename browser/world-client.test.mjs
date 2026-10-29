@@ -1,6 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {WorldClient} from './world-client.js';
+import {basis} from './orient.js';
+
+test('confirmed orbital attitude interpolates shortest quaternion arc and preserves roll',()=>{
+  const client=new WorldClient(()=>true,()=>{}),q=[.2,.3,.4,.7].map(v=>v/Math.sqrt(.78));
+  for(const [poseTime,sign] of [[100,1],[120,-1]]){
+    const telemetry=[...Array(18).fill(0),...q.map(v=>v*sign)];
+    client.recordPose({poseTime,telemetry});
+  }
+  const presented=client.presentation(140).slice(18),look=basis(presented).look;
+  assert(Math.abs(Math.hypot(...presented)-1)<1e-12);
+  assert(Math.hypot(...look.map((v,i)=>v-basis(q).look[i]))<1e-12);
+  assert.throws(()=>client.recordPose({poseTime:130,telemetry:[...Array(18).fill(0),0,0,0,0]}),/Invalid confirmed vehicle pose/);
+});
 
 test('pitch coalesces with continuous inputs, is neutral in flight and uses confirmed pose interpolation',()=>{
   const sent=[],client=new WorldClient(()=>true,()=>{});

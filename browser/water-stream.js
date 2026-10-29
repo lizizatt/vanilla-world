@@ -203,7 +203,7 @@ export class WaterStream {
             this.cacheMisses.add(index);
           } catch(error){this.cacheFailure(error);}
         }
-        if(!this.closed)read.bytes=await this.source.read(`World\\Maps\\${region.map}\\${tile.file}`,{background:true});
+        if(!this.closed)read.bytes=await this.source.read(`World\\Maps\\${region.map}\\${tile.file}`,{background:true,shouldDefer:()=>this.closed});
       })().catch(error=>{read.error=error;}).finally(()=>{read.ready=true;});
       break;
     }

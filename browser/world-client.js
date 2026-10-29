@@ -1,12 +1,15 @@
 import {RpcTable} from './worker-rpc.js';
+const renderEvents=new Set(['detail','terrain-material','horizon','horizon-index','horizon-material',
+  'scene','far-scene','pose','npc-moves','craft','craft-error','exterior-water','coast-water']);
 export class WorldClient {
   constructor(onEvent,onError,canFrame=()=>true) {
     this.onEvent=onEvent;this.onError=onError;this.requests=new RpcTable();
-    this.elapsed=0;this.inFlight=false;this.canFrame=canFrame;
+    this.elapsed=0;this.inFlight=false;this.canFrame=canFrame;this.roleGeneration=0;
     this.poseSamples=[];this.poseFlying=false;
     this.hopSequence=0;this.pendingHop=0;this.hopHeld=false;
   }
   stop() {
+    this.roleGeneration++;
     this.worker?.terminate();this.worker=undefined;
     this.requests.rejectAll(new DOMException('World closed','AbortError'));
     this.inFlight=false;this.discardFrame();
@@ -22,6 +25,7 @@ export class WorldClient {
     if(action==='reset' || action==='restore')this.discardFrame();
     return new Promise((resolve,reject)=>{
       const id=this.requests.open({resolve,reject,action});
+      if(action==='rebind'){this.worker.rendererRequest=id;this.worker.rendererReady=false;}
       try{this.worker.postMessage({id,action,...fields});}
       catch(error){this.requests.take(id);reject(error);}
     });
@@ -38,7 +42,10 @@ export class WorldClient {
    * every module holding `app.client` keeps working; only the worker, its RPC table, info/state and body id move (farOnly is a role and stays). */
   swap(other) {
     for(const key of ['worker','requests','info','state','bodyId']){const t=this[key];this[key]=other[key];other[key]=t;}
-    for(const c of [this,other]){c.inFlight=false;c.discardFrame();c.poseFlying=false;if(c.worker)c.bind(c.worker);}
+    for(const c of [this,other]){
+      c.roleGeneration++;c.inFlight=false;c.discardFrame();c.poseFlying=false;
+      if(c.worker){c.worker.rendererRequest=undefined;c.worker.rendererReady=false;c.bind(c.worker);}
+    }
   }
   bind(worker) {
     worker.onerror=event=>{
@@ -48,11 +55,16 @@ export class WorldClient {
     };
     worker.onmessage=({data})=>{
       if(this.worker!==worker)return;
+      if(data.event==='renderer-bound'){worker.rendererReady=data.id===worker.rendererRequest;return;}
       if(data.event==='world-error'){
         this.discardFrame();this.onError(new Error(data.error));return;
       }
       if(data.event) {
         const receipt={token:data.token,producer:data.producer};
+        if(worker.rendererReady===false&&renderEvents.has(data.event)){
+          if(data.event==='far-scene')worker.postMessage({action:'far-ack',...receipt});
+          return;
+        }
         let accepted;
         try {accepted=this.onEvent(data);}
         catch(error) {
@@ -90,7 +102,8 @@ export class WorldClient {
     this.state=state;
     const p=state.telemetry,time=state.poseTime,previous=this.poseSamples.at(-1);
     if(time!==undefined && (!Number.isFinite(time) || !Array.isArray(p) || p.length<15
-      || !p.slice(0,15).every(Number.isFinite) || (p.length>17&&!Number.isFinite(p[17]))))throw new Error('Invalid confirmed vehicle pose');
+      || !p.slice(0,15).every(Number.isFinite) || (p.length>17&&!Number.isFinite(p[17])) ||
+      (p.length>18&&(p.length!==22||!p.slice(18).every(Number.isFinite)||Math.abs(Math.hypot(...p.slice(18))-1)>1e-6))))throw new Error('Invalid confirmed vehicle pose');
     if(time===undefined || this.poseFlying || p[8] || state.scene?.waitingCollision) {
       this.clearPose();
     } else {
@@ -123,6 +136,11 @@ export class WorldClient {
     out[3]=a.p[3]+Math.atan2(Math.sin(yaw),Math.cos(yaw))*alpha;
     out[4]=a.p[4]+(b.p[4]-a.p[4])*alpha;
     if(p.length>17)out[17]=(a.p[17]??0)+((b.p[17]??0)-(a.p[17]??0))*alpha;
+    if(a.p.length===22&&b.p.length===22){
+      const sign=a.p.slice(18).reduce((sum,v,i)=>sum+v*b.p[18+i],0)<0?-1:1;
+      const q=a.p.slice(18).map((v,i)=>v+(b.p[18+i]*sign-v)*alpha),length=Math.hypot(...q);
+      out.splice(18,4,...q.map(v=>v/length));
+    }
     this.lastPoseTime=time;
     return out;
   }
@@ -132,20 +150,21 @@ export class WorldClient {
       this.discardFrame();return;
     }
     if(this.inFlight || !this.pendingFrame)return;
-    const worker=this.worker,fields=this.pendingFrame,elapsed=this.elapsed;
+    const worker=this.worker,generation=this.roleGeneration,fields=this.pendingFrame,elapsed=this.elapsed;
+    const current=()=>this.worker===worker&&this.roleGeneration===generation;
     this.pendingFrame=undefined;this.elapsed=0;this.inFlight=true;
     this.request('frame',{dt:elapsed,...fields,hop:this.pendingHop}).then(state=>{
-      if(this.worker===worker){
+      if(current()){
         if(state.hopConsumed===this.pendingHop)this.pendingHop=0;
         this.recordPose(state);
       }
     }).catch(error=>{
-      if(this.worker===worker){
+      if(current()){
         this.discardFrame();
         if(error.name!=='AbortError')this.onError(error);
       }
     }).finally(()=>{
-      if(this.worker===worker){this.inFlight=false;this.flushFrame();}
+      if(current()){this.inFlight=false;this.flushFrame();}
     });
   }
 }

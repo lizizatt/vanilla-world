@@ -6,6 +6,7 @@ import {depthAttachment,depthTexture} from './render-passes.js';
 import {sceneReady} from './scene-stream.js';
 import {MINIMAP_SIZE} from './terrain-stream.js';
 import {cameraView,craftMatrix} from './world-camera.js';
+import {rigidPodMatrix,podParticleFrame} from './pod-render-frame.js';
 import {partMatrix,wreckFrame,WRECK_SECONDS} from './wreck.js';
 import {maelstromCentre,resolveCloudQuality,SlowFrameGuard,sunDirection} from './clouds.js';
 import {exhaustPoints,emitPlumes,emitDebris,emitHeatSmoke,emitGroundDust,emitWaterFx,overWater,QUALITY,INSTANCE_FLOATS,particleUniform,emitLamps,emitDomeMist} from './particles.js';
@@ -188,8 +189,10 @@ const lamps=[],draws=[],selection=this.cameraBlocked?{selected:[],omitted:0}:
         (!i.distant||sceneReady(i,this.assets,this.textures))),this.assets,(instance,asset)=>
         sceneVisible(asset.bounds,this.sceneMatrix(instance,this.manifest.regions[this.sceneRegion],origin),
           this.camera,right,up,look,aspect));
-    const append=(asset,instance,m,textures,items)=>{
-        const distance=Math.hypot(m[12]-this.camera[0],m[13]-this.camera[1],m[14]-this.camera[2]);
+    const append=(asset,instance,m,textures,items,rigid=false)=>{
+        if(rigid&&pf.bend>0)m=rigidPodMatrix(m,state,this.view.eye,activeBody(),Array.isArray(rigid)?rigid:undefined);
+        if(rigid&&instance===this.craft?.instance)this.rigidCraftMatrix=Array.from(m);
+        const distance=rigid&&pf.bend>0?Math.hypot(m[12],m[13],m[14]):Math.hypot(m[12]-this.camera[0],m[13]-this.camera[1],m[14]-this.camera[2]);
         this.admissionFade??=new AdmissionFade();
         const coverage=instance.craft?1:this.admissionFade.opacity(instance.id,fadeTime);
         const cached=instance.drawItems || (instance.drawItems=[]);
@@ -213,6 +216,7 @@ const lamps=[],draws=[],selection=this.cameraBlocked?{selected:[],omitted:0}:
             cached[b]=item;
           }
           const base=writeUniform(item);
+          if(rigid&&pf.bend>0){u.fill(0,base,base+3);u[base+60]=0;}
           u[base+16]=aspect;u[base+17]=time;u[base+18]=batch.water?1:0;u[base+19]=near;u.set(m,base+20);
           if(batch.intake&&instance===this.craft?.instance)writeIntakeMatrix(u,base+20,m,batch.intake,this.intakeAngle||0);
           u[base+36]=batch.alphaCutoff||0;u[base+37]=batch.emissive?1:batch.sidn?2+(batch.sidn[0]>>4<<8|batch.sidn[1]>>4<<4|batch.sidn[2]>>4):0;u[base+38]=instance.distant&&!instance.landmark?1:0;
@@ -235,7 +239,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
     const wreckFrameNow=this.wreck&&wreckFrame(this.wreck,wreckAge);
     if(wreckFrameNow)this.wreck.parts.forEach((p,i)=>append(p.asset,p.instance,partMatrix(wreckFrameNow.subarray(i*7,i*7+7),p.center,this.wreck.scale,origin),this.craft.textures,this.craft.items));
     else if((!flight||this.showCraftInFlight)&&this.craft&&this.cameraMode!=='cockpit')append(this.craft.asset,this.craft.instance,
-      craftMatrix(state,origin,this.craft.metadata.scale),this.craft.textures,this.craft.items);
+      craftMatrix(state,origin,this.craft.metadata.scale),this.craft.textures,this.craft.items,true);
     for(const p of [...(this.props||[]),...(this.launchProps||[]),...[domeDraw(this,activeBody().id,time)].filter(Boolean)]){const c=Math.cos(p.yaw),s=Math.sin(p.yaw),k=p.scale;
       append(p.craft.asset,p.craft.instance,p.space==='craft'?craftMatrix([p.pos[0],p.pos[1],p.pos[2],p.yaw,0],origin,k):
         new Float32Array([c*k,0,-s*k,0,0,k,0,0,s*k,0,c*k,0,p.pos[0]-origin[0],p.pos[1],p.pos[2]-origin[1],1]),p.craft.textures,p.craft.items);}
@@ -244,7 +248,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
       for(const part of this.craft.flame.parts) {
         const [x,y,z]=part.at,f=new Float32Array(m);
         for(let i=0;i<3;i++){f[i]=m[i]*k;f[12+i]=m[12+i]+m[i]*x+m[4+i]*y+m[8+i]*z;}
-        append(this.craft.flame.asset,part.instance,f,this.craft.textures,this.craft.items);
+        append(this.craft.flame.asset,part.instance,f,this.craft.textures,this.craft.items,[0,1,2].map(i=>m[i]*x+m[4+i]*y+m[8+i]*z));
       }
     }
     draws.sort((a,b)=>a.batch.transparent-b.batch.transparent || (a.batch.transparent?b.distance-a.distance:0));
@@ -295,19 +299,21 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
     const craft=this.craft;
     if(fx&&quality>0&&craft?.source&&!this.wreck&&!this.cameraBlocked&&(!flight||this.showCraftInFlight)&&this.cameraMode!=='cockpit') {
       const input=this.fxInput||{},speed=Math.abs(state[5]),scale=craft.metadata.scale;
+      fx.frame=pf.bend>0?podParticleFrame(activeBody(),state):undefined;
       craft.fx??={points:exhaustPoints(craft.source.vertices,craft.source.indices,craft.metadata),length:craft.size[0]};
       emitPlumes(fx,{points:craft.fx.points,matrix:craftMatrix(state,origin,scale),origin,scale,length:craft.fx.length,speed,
         thrust:input.throttle??Math.min(1,speed/150),boosting:!!input.boosting,dt:Math.min(dt,.1)});
       const wet=overWater(state[1],craft.fx.length),fxArgs={matrix:craftMatrix(state,origin,scale),origin,scale,length:craft.fx.length,speed,drift:!!input.drifting,grounded:state[7]>0,dt:Math.min(dt,.1),time:performance.now()/1000};
       if(wet)emitWaterFx(fx,fxArgs);else emitGroundDust(fx,fxArgs);
       if(input.heat)emitHeatSmoke(fx,{points:craft.fx.points,matrix:craftMatrix(state,origin,scale),origin,length:craft.fx.length,heat:input.heat,dt:Math.min(dt,.1)});
+      fx.frame=undefined;
     }
     if(fx&&quality>0&&!this.cameraBlocked){
       emitLamps(fx,lamps,origin,Math.min(dt,.1),1-daylight);
       const dome=this.dome?.craft&&domePlacement(activeBody().id);
       if(dome)emitDomeMist(fx,{eye:this.view.eye,level:domeMask(activeBody().id,this.view.eye[0],this.view.eye[2],30,15,this.view.eye[1]-dome.pos[1]),ground:dome.pos[1],dt:Math.min(dt,.1)});
     fx.update(Math.min(dt,.1));
-      const count=fx.fill(this.particleInstances,this.view.eye);
+      const count=fx.fill(this.particleInstances,this.view.eye,activeBody());
       if(count){
         this.device.queue.writeBuffer(this.particleBuffer,0,this.particleInstances,0,count*INSTANCE_FLOATS);
         this.device.queue.writeBuffer(this.particleUniformBuffer,0,particleUniform(this.view,near));

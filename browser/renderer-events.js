@@ -54,6 +54,7 @@ export function reset(r,{keepPlanet=false}={}) {
   r.terrainBundle=undefined;r.terrainBundleBuilds=0;
   r.sceneBundle=undefined;r.sceneBundleBuilds=0;
   r.releaseCraft();
+  if(r.particles){r.particles.data.fill(0);r.particles.physical.fill(0);r.particles.frame=undefined;}
   r.setLaunchProps?.([]);r.launchProps=undefined;
   r.craftError=undefined;
   for(const item of [...r.tiles.values(),...r.seams.values(),...r.horizon,...r.water,...r.flags,...r.gates,...r.coast.values()])r.release(item);
@@ -101,7 +102,8 @@ export function event(r,data) {
   }
   else if(data.event==='craft-error')r.craftError=data.error;
   else if(data.event==='horizon-index'){
-    r.indices.set(data.region,r.buffer(data.indices,GPUBufferUsage.INDEX));
+    const indices=r.buffer(data.indices,GPUBufferUsage.INDEX);
+    r.indices.get(data.region)?.destroy();r.indices.set(data.region,indices);
     r.terrainBundle=undefined;
   }
   else if(data.event==='horizon'){trimRimSpikes(data.vertices);const chartBody=activeBody();splatHeights(r.heightGrid,data.vertices,data.placement,chartBody.centre,chartBody.radius);r.heightDirty=true;

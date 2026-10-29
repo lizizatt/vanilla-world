@@ -23,6 +23,32 @@ uncontrolled. This is a bounded driving gate, not a universal 20 ms guarantee.
 The independently reproduced authored ocean gap predates this async regression
 and is not fixed by material ordering.
 
+## Body-swap loading stress
+
+After building the browser, set `WOW_DATA` and `SWE1R_DATA` to your own local
+Data directories, then run `node browser\body-swap-stress.mjs` from the repository
+root. The harness acquires `heavy-lock.mjs` itself (do not wrap it in another
+lease), uses muted headless Edge on an ephemeral loopback port, and creates a
+fresh browser context without touching existing saves or port 4173.
+
+The default three cycles mix real map pod teleports with rapid swaps during
+loading, followed by four immediate swaps without awaiting worker replies.
+Set `SWAP_FLIGHT=1` to also exercise the Elune ramp/powerup flight to
+Azeroth and map back. A local NPC pack is served from
+`runtime\browser\npc-spawns.json`, or the explicit `NPC_PACK` path; without one,
+NPC stress coverage is unavailable. `SWAP_CYCLES` accepts 1–10 and `RUN_LABEL`
+names the ignored `browser\test-results\body-swap\<label>\results.json` report.
+`SOURCE_REF` optionally serves committed browser JS/HTML/CSS for a baseline;
+it still uses the locally built Wasm, so only compare compatible Wasm builds.
+
+Reports include per-phase live worker queues, outstanding RPCs, unresolved
+scene demand (not concurrent IO), main-message-handler timing, long tasks,
+heap/Wasm high-water sizes, renderer resource estimates, worker targets and
+ground readiness. They do not measure driver GPU memory, OS file caches, or
+abort an already synchronous decoder. Parked engines retain bounded model
+caches but cancel obsolete demand and retire their far/actor/water work;
+rebind generations prevent late results from publishing to a new consumer.
+
 ## Run locally
 
 Use a current hardware-accelerated Edge or Chrome. Every Edge test/probe script launches with
@@ -411,7 +437,8 @@ Thus unsupported Azeroth boost still accelerates downward by 23.375 yd/s²;
 Elune boost accelerates upward by 0.625. There is no artificial altitude ceiling.
 The existing bar measures **heat, not finite boost energy**: cold-to-full is 7.5 s,
 boost remains available afterward, and default durability wrecks continuously
-overheated engines at approximately 13.8 s. Disabling durability/overheat changes
+overheated engines at approximately 18.2 s from cold (0.15/s damage split 60/40,
+not the earlier 13.8 s estimate). Disabling durability/overheat changes
 that safety assumption; this change does not add a cutoff or retune it.
 
 Deterministic 120 Hz trajectories (`voyage/tests.rs`, 60 s observation) measure:
@@ -441,8 +468,17 @@ use**, then rotate/delete saved objects independently of the track. Placements
 persist per body/installation. Reset/restore/reopen clears charge and respawns
 pickups, but keeps placed objects. ArrowDown / stick down raises the nose.
 With charge, launch attitude remains stabilized until the charge is exhausted,
-then eases to normal +/-20-degree input. Boost adds 100 yd/s² beyond ordinary
-airborne engine thrust; coast is ballistic, not free-camera movement.
+then eases to normal +/-20-degree input in the retained launch control frame.
+Powered boost supplies **172 yd/s² total**, replacing ordinary thrust/boost,
+not stacking with them. Heat and overheat damage build normally; the current
+60/40 engine-damage split lets a cold full burn survive without an exemption.
+When the charge runs out, the held button uses ordinary boost under its
+regular engine speed governor. Coasting momentum and gravitational acceleration
+are not speed-clamped; coast is ballistic, not free-camera movement.
+SOI transitions retain the full attitude and metric chase/cockpit frame; the pod
+and engine effects render rigidly in camera-relative coordinates, not through
+per-vertex globe bending. Manual map teleports clear both workers' journey/charge
+and cached snapshots, preventing a stale automatic handoff from swapping back.
 
 Load local Azeroth Data before traveling to Elune, so both resident worlds are
 available. A 90-degree launch just outside the base reaches Azeroth on a full

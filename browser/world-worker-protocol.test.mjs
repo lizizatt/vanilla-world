@@ -2,6 +2,14 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {collisionFixture,frameFixture,runInContext} from './world-worker-fixtures.mjs';
 
+test('releasing a journey returns a fresh snapshot without stale charge or SOI authority',async()=>{
+  const f=frameFixture();
+  runInContext("pod.journey={parent:'azeroth'};pod.remaining=9;pod.hold=1;",f.context);
+  await f.dispatch({id:1,action:'pod-release'});
+  const state=f.events.find(e=>e.id===1).result;
+  assert.equal(state.pod.journey,null);assert.equal(state.pod.remaining,0);assert.equal(state.pod.hold,0);
+});
+
 test('frame pitch reaches every fixed tick and invalid pitch is rejected before physics',async()=>{
   const f=frameFixture(),pitches=[];
   f.context.dependencies.world.tick=(_throttle,_steer,_flags,pitch)=>pitches.push(pitch);

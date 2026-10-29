@@ -51,7 +51,22 @@ export function installLaunch(app) {
       ...(kind==='ramp'?{angle}:{})};
     await save([...list,object]);return object;
   };
-  app.launch={ready,save,place,list:()=>list,swap:async target=>{
+  const release=async client=>{
+    client.discardFrame();
+    client.state=await client.request('pod-release');
+    client.clearPose();
+  };
+  const cancel=()=>{
+    if(app.podCancel)return app.podCancel;
+    app.swapHold=true;
+    app.podCancel=(async()=>{
+      if(app.podSwap)await app.podSwap;
+      await Promise.all([app.client,...Object.values(app.engines||{})].filter(c=>c.worker).map(release));
+      app.renderer.podTime=undefined;
+    })().finally(()=>{app.swapHold=false;app.podCancel=undefined;});
+    return app.podCancel;
+  };
+  app.launch={ready,save,place,cancel,list:()=>list,swap:async target=>{
     await app.prepareEngines;
     if(!await app.soiSwap(target))throw Error(`The ${target} world is not ready; load local Data before interplanetary travel`);
     await ready();
@@ -63,6 +78,7 @@ export function installLaunch(app) {
     rotate:(id,yaw)=>save(list.map(o=>o.id===id?{...o,yaw}:o)),
   };
   app.launchFrame=()=>{
+    if(app.podCancel)return true;
     if(!app.client.info)return false;
     if(`${app.client.info.id}:${body()}`!==key)void ready().catch(app.fail);
     const state=app.client.state?.pod,j=state?.journey;
@@ -77,7 +93,7 @@ export function installLaunch(app) {
         await app.launch.swap(j.parent);
         const adopted=await app.client.request('pod-adopt',{pod:state});
         app.client.state=adopted;app.client.clearPose();
-        await app.engines[previousBody].request('pod-release');
+        await release(app.engines[previousBody]);
       })().catch(error=>{app.running=false;app.fail(error);}).finally(()=>{app.swapHold=false;app.podSwap=undefined;});
       return true;
     }

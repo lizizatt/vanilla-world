@@ -11,7 +11,7 @@ pub mod wreck;
 
 pub const FIXED_DT: f32 = 1.0 / 120.0;
 pub const PITCH_LIMIT: f32 = 20.0 * std::f32::consts::PI / 180.0;
-pub const POWERED_THRUST: f32 = 100.0;
+pub const POWERED_THRUST: f32 = 172.0;
 const PITCH_RESPONSE: f64 = 8.0;
 /// Engine heat per second while boosting (7.5 s from cold to 1.0) and while cooling (10 s from full). Boost has no
 /// reserve: it is always available and heat is the only limiter.
@@ -442,14 +442,14 @@ impl State {
             && authority > 0.0;
         let boost_fraction = if boosting { 1.0 } else { 0.0 };
         if boosting {
-            self.heat = (self.heat + HEAT_RISE_PER_SEC * dt * (1.0-input.powered)).min(1.0);
+            self.heat = (self.heat + HEAT_RISE_PER_SEC * dt).min(1.0);
         } else if !input.boost {
             self.heat = (self.heat - HEAT_COOL_PER_SEC * dt).max(0.0);
         }
         let thrust = throttle
             * (tuning.acceleration as f64
                 + tuning.boost_acceleration as f64 * boost_fraction as f64)
-            * authority
+            * authority * if boosting {1.0-f64::from(input.powered)} else {1.0}
             * dt64
             + if boosting { f64::from(POWERED_THRUST * input.powered) * throttle * dt64 } else { 0.0 };
         let (pitch_sin, pitch_cos) = f64::from(self.pitch).sin_cos();

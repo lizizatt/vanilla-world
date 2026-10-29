@@ -3,6 +3,15 @@ import assert from 'node:assert/strict';
 import {TerrainStream,minimapCatalog,resizeRgba,terrainMips,TERRAIN_CACHE_LIMIT} from './terrain-stream.js';
 import {WorldRenderer,terrainEdgeMask} from './world-renderer.js';
 
+test('a replaced horizon index releases the old GPU allocation',()=>{
+  const renderer=Object.create(WorldRenderer.prototype),next={};let destroyed=0;
+  Object.assign(renderer,{manifest:{},indices:new Map([[0,{destroy(){destroyed++;}}]]),buffer:()=>next});
+  const old=globalThis.GPUBufferUsage;globalThis.GPUBufferUsage={INDEX:1};
+  try{renderer.event({event:'horizon-index',region:0,indices:new Uint32Array([0])});}
+  finally{if(old===undefined)delete globalThis.GPUBufferUsage;else globalThis.GPUBufferUsage=old;}
+  assert.equal(destroyed,1);assert.equal(renderer.indices.get(0),next);
+});
+
 test('initial worker geometry waits for manifest and atlas configuration without dropping events',()=>{
   const renderer=Object.create(WorldRenderer.prototype);
   renderer.pendingEvents=[];
@@ -312,13 +321,24 @@ test('late reads cannot resurrect evicted tiles and errors stay explicit',async(
 });
 
 test('source reset cancels an in-flight material read without publishing or requesting an idle continuation',async()=>{
-  let resolve;
-  const messages=[],stream=new TerrainStream({read:()=>new Promise(r=>resolve=r)},{SceneTexture:Texture},
+  let resolve,shouldDefer;
+  const messages=[],stream=new TerrainStream({read:(_path,options)=>{shouldDefer=options.shouldDefer;return new Promise(r=>resolve=r);}},{SceneTexture:Texture},
     message=>messages.push(message));
   stream.setTile(0,fixture());const pending=stream.pump();
-  stream.clear();resolve(new Uint8Array(1));
+  assert.equal(shouldDefer(),false);stream.clear();assert.equal(shouldDefer(),true);resolve(new Uint8Array(1));
   assert.equal(await pending,undefined);assert.equal(messages.length,0);
   assert.equal(stream.tiles.size,0);assert.equal(stream.snapshot().cache,0);
+});
+
+test('a late minimap catalog cannot repopulate a demoted terrain stream',async()=>{
+  let resolve,shouldDefer;
+  const stream=new TerrainStream({read:(_path,options)=>{
+    shouldDefer=options.shouldDefer;return new Promise(done=>resolve=done);
+  }},{},()=>{});
+  const pending=stream.init({});
+  assert.equal(shouldDefer(),false);stream.clear();assert.equal(shouldDefer(),true);
+  resolve(new TextEncoder().encode('bad stale catalog'));await pending;
+  assert.equal(stream.catalog,undefined);assert.equal(stream.errors.size,0);
 });
 
 test('failed material extraction frees its handle without replacing the previous ready-to-load tile',()=>{

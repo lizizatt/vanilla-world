@@ -35,9 +35,11 @@ test('a chase camera clipped to its pivot retains a valid basis during suspensio
   const rig={camera:[0,100,15],chase:[0,0],chaseGrounded:true,chaseY:100,chaseBounce:.2,
     clipCamera:pivot=>pivot};
   const state=[0,100,0,0,0,0,1,1,0];
-  const {look}=cameraView(rig,state,undefined,.016,[0,0]);
+  const {look}=cameraView(rig,state,undefined,.016,[0,0],{planet:false});
   assert.deepEqual(look,[0,1,0]);
   validateView({...view,look,...cameraAxes(look)});
+  const globe=cameraView(rig,state,undefined,.016,[0,0],{planet:true});
+  validateView({...view,look:globe.look,...cameraAxes(globe.look,globe.up)});
   for(const pole of [[0,-1,0],[0,0,1],[1,0,0]]){
     const axes=cameraAxes(pole,pole);
     validateView({...view,look:pole,...axes});

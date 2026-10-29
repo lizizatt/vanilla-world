@@ -1,6 +1,7 @@
 // Shared particle layer: a CPU ring buffer of billboards drawn in one instanced pass. Colours are premultiplied, so one
 // blend state (one, one-minus-src-alpha) gives both additive fire (alpha 0) and normal smoke/dust (alpha > 0).
 import { classifyTriangles } from './wreck.js';
+import {planetRelativeFrame} from './pod-render-frame.js';
 export const CAPACITY = 2048;
 export const QUALITY = { off: 0, low: .35, medium: .7, high: 1 };
 export const INSTANCE_FLOATS = 8;
@@ -23,7 +24,8 @@ const KIND_IDS = Object.keys(KINDS);
 
 export class ParticlePool {
   constructor(capacity = CAPACITY, rand = Math.random) {
-    this.capacity = capacity; this.rand = rand; this.data = new Float32Array(capacity * STRIDE);
+    this.capacity = capacity; this.rand = rand; this.data = new Float64Array(capacity * STRIDE);
+    this.physical=new Uint8Array(capacity);
     this.head = 0; this.quality = QUALITY.medium; this.carry = new Map(); this.data.fill(0);
     for (let i = 0; i < capacity; i++) this.data[i * STRIDE + 6] = 1, this.data[i * STRIDE + 7] = 1; // age == life: dead
   }
@@ -35,6 +37,8 @@ export class ParticlePool {
   /** Spawn one particle, overwriting the oldest slot when full. scale multiplies size; spread jitters position. */
   emit(kind, x, y, z, vx = 0, vy = 0, vz = 0, scale = 1, spread = 0) {
     const k = KINDS[kind], r = this.rand, o = this.head * STRIDE, d = this.data;
+    this.physical[this.head]=this.frame?1:0;
+    if(this.frame){[x,y,z]=this.frame.point([x,y,z]);[vx,vy,vz]=this.frame.vector([vx,vy,vz]);}
     this.head = (this.head + 1) % this.capacity;
     d[o] = x + (r() - .5) * spread; d[o + 1] = y + (r() - .5) * spread; d[o + 2] = z + (r() - .5) * spread;
     d[o + 3] = vx; d[o + 4] = vy; d[o + 5] = vz; d[o + 6] = 0;
@@ -47,18 +51,23 @@ export class ParticlePool {
       const o = i * STRIDE; if (d[o + 6] >= d[o + 7]) continue;
       const k = KINDS[KIND_IDS[d[o + 10]]], damp = Math.exp(-k.drag * dt);
       d[o + 6] += dt;
-      d[o + 3] *= damp; d[o + 4] = d[o + 4] * damp + k.lift * dt; d[o + 5] *= damp;
+      const up=this.physical[i]?Array.from(d.slice(o,o+3)).map(v=>v/Math.hypot(d[o],d[o+1],d[o+2])):[0,1,0];
+      for(let axis=0;axis<3;axis++)d[o+3+axis]=d[o+3+axis]*damp+up[axis]*k.lift*dt;
       d[o] += d[o + 3] * dt; d[o + 1] += d[o + 4] * dt; d[o + 2] += d[o + 5] * dt;
     }
   }
   get count() { let n = 0; for (let i = 0; i < this.capacity; i++) if (this.data[i * STRIDE + 6] < this.data[i * STRIDE + 7]) n++; return n; }
   /** Write live particles (eye-relative position, size, premultiplied rgba) into out; returns how many. */
-  fill(out, eye) {
+  fill(out, eye, body) {
     const d = this.data; let n = 0;
+    const relative=body?planetRelativeFrame(body,eye):undefined;
     for (let i = 0; i < this.capacity; i++) {
       const o = i * STRIDE; if (d[o + 6] >= d[o + 7]) continue;
       const k = KINDS[KIND_IDS[d[o + 10]]], u = d[o + 6] / d[o + 7], c = gradient(k.stops, u), q = n * INSTANCE_FLOATS;
-      out[q] = d[o] - eye[0]; out[q + 1] = d[o + 1] - eye[1]; out[q + 2] = d[o + 2] - eye[2];
+      if(this.physical[i]){
+        if(!relative)throw Error('Physical particles require the active body frame');
+        out.set(relative(Array.from(d.slice(o,o+3))),q);
+      }else{out[q] = d[o] - eye[0]; out[q + 1] = d[o + 1] - eye[1]; out[q + 2] = d[o + 2] - eye[2];}
       out[q + 3] = d[o + 8] + (d[o + 9] - d[o + 8]) * u;
       out[q + 4] = c[0] * c[3]; out[q + 5] = c[1] * c[3]; out[q + 6] = c[2] * c[3]; out[q + 7] = c[3] * (1 - c[4]);
       n++;

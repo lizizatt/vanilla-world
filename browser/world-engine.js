@@ -56,9 +56,10 @@ let craft={ready:false,pending:false};
 function startCraft() {
   if(craft.ready || craft.pending || craft.error)return;
   craft.pending=true;
-  void loadCraft(source,wasmTypes,(message,transfers)=>postMessage(message,transfers))
-    .then(result=>{craft={...result,pending:false};})
-    .catch(error=>{craft={ready:false,pending:false,error:`Authored craft: ${error.message || error}`};});
+  const owner=source,token=rebindToken,current=()=>source===owner&&token===rebindToken;
+  void loadCraft(owner,wasmTypes,(message,transfers)=>{if(current())postMessage(message,transfers);},()=>!current())
+    .then(result=>{if(current())craft={...result,pending:false};})
+    .catch(error=>{if(current())craft={ready:false,pending:false,error:`Authored craft: ${error.message || error}`};});
 }
 let resident=new Set(),failures=new Map(),loads=0,evictions=0,peak=0,horizon;
 let terrainRead;
@@ -76,7 +77,7 @@ function prepareTerrain(read, decode=true) {
   read.ready=false;
   return (async()=>{
     try {
-      if(decode)read.bytes=await owner.read(assetPath(manifest.tiles[read.index]));
+      if(decode)read.bytes=await owner.read(assetPath(manifest.tiles[read.index]),{shouldDefer:()=>!current()});
       const steps=(function*(){
         if(decode){
           target.begin_tile(read.index,read.bytes);yield;
@@ -158,14 +159,14 @@ function publishDetail(data,transfers) {
 }
 function flushDetail() {
   if(detailBusy||!detailPending)return;
-  const pending=detailPending,owner=source;
+  const pending=detailPending,owner=source,token=rebindToken,current=()=>source===owner&&token===rebindToken;
   detailPending=undefined;detailBusy=true;
   void owner.prepareDetail({event:'detail',tiles:[...pending.tiles.values()],
-    removed:[...pending.removed],seams:pending.seams}).then(data=>{
-    if(source===owner)publishDetail(data,[...data.tiles.flatMap(t=>[t.vertices.buffer,t.liquid.buffer,
+    removed:[...pending.removed],seams:pending.seams},()=>!current()).then(data=>{
+    if(current())publishDetail(data,[...data.tiles.flatMap(t=>[t.vertices.buffer,t.liquid.buffer,
       t.camera.vertices.buffer,t.camera.offsets.buffer,t.camera.triangles.buffer]),...data.seams.map(t=>t.vertices.buffer)]);
-  }).catch(error=>{if(source===owner)sceneFault(error);}).finally(()=>{
-    if(source===owner){detailBusy=false;flushDetail();}
+  }).catch(error=>{if(current())sceneFault(error);}).finally(()=>{
+    if(current()){detailBusy=false;flushDetail();}
   });
 }
 const terrainMaterials=new Set();
@@ -197,6 +198,7 @@ function startFarWorker() {
     (message,transfers)=>postMessage(message,transfers),
     ()=>!!objectWait.length ||
       (!farFlight&&!Array.from(world.required_tiles()).every(i=>resident.has(i))));
+  if(memoryBudget)far.budget(splitBudget(effectiveBudget(memoryBudget,rendererBytes)).far);
   if(sceneState)far.near(readyNearIds());
 }
 let objectWait=[],cameraUnknown=[],lastHoldTime=0,lastHold='clear',holdRun=0;
@@ -346,12 +348,13 @@ async function replayHorizon(token) {
   const regionCount=manifest.regions.length;
   for(let region=0;region<regionCount;region++) {
     if(token!==rebindToken)return;
-    if(manifest.version!==4){const exterior=world.exterior_geometry(region);postMessage({event:'exterior-water',region,placement:manifest.regions[region].placement,vertices:exterior},[exterior.buffer]);}
+    if(manifest.version!==4){const exterior=world.exterior_geometry(region);water?.setExterior(region,exterior);postMessage({event:'exterior-water',region,placement:manifest.regions[region].placement,vertices:exterior},[exterior.buffer]);}
     const patches=world.horizon_patches(region),indices=world.horizon_indices(region);
     postMessage({event:'horizon-index',region,indices},[indices.buffer]);
     for(let i=0;i<patches.length;i+=5) {
       if(token!==rebindToken)return;
       const vertices=world.horizon_vertices(region,i/5);
+      if(vertices.some((v,index)=>index%7===1&&v<=manifest.sea_level))water?.coastalTile(patches[i+4]);
       terrain.addHorizon(region,patches[i],patches[i+1]);
       postMessage({event:'horizon',region,source:Array.from(patches.slice(i,i+2)),placement:Array.from(patches.slice(i+2,i+4)),near:patches[i+4],vertices},[vertices.buffer]);
       if(i%20===15){
@@ -365,15 +368,24 @@ let rebindToken=0;
 /** The renderer consuming this engine changed (gravity-well swap): drop all near residency and everything "already sent" so streaming re-emits it in full, then (for the new near engine) replay the horizon in the background and restart the far channel. */
 export async function rebindRenderer(replay=true) {
   const token=++rebindToken;
-  cancelMaterialTimer();discardTerrainRead();
+  materialGeneration++;materialBusy=false;materialFrameReady=false;
+  cancelMaterialTimer();discardTerrainRead();far?.close();
+  actors?.close();actorFocus=undefined;water?.clear();
   for(const index of resident) {world.remove_tile(index);scene.removeTile(tileKey(index));terrain.removeTile(index);terrainErrors.delete(index);evictions++;}
   resident.clear();tileVersions.clear();detailReady.clear();terrainMaterials.clear();
   detailPending=undefined;detailBusy=false;geometryJob=undefined;geometryRevision++;geometryDirty=false;geometryPending.clear();geometryRemoved.clear();
   sentAssets=new Set();sentTextures=new Set();sentInstances=new Map();sentSceneRegion=undefined;sceneSignature='';
-  collisionSignature='';sceneState=undefined;sceneFocus=undefined;sceneSubmissionPending=true;objectWait=[];unresolvedWindow=undefined;
+  collisionSignature='';collisionFocus=undefined;collisionParts.clear();collisionInstances.clear();collisionBounds.clear();collisionCount=0;
+  world.set_scene_parts(new Uint32Array(),new Uint32Array(),new Float64Array());
+  sceneState=undefined;sceneFocus=undefined;scenePump=undefined;sceneSubmissionPending=true;objectWait=[];cameraUnknown=[];unresolvedWindow=undefined;
   craft={ready:false,pending:false};
-  terrain.clear();await terrain.init(manifest);
-  if(replay){startFarWorker();void replayHorizon(token);}
+  scene.clear(true);terrain.clear();source.refresh();
+  if(replay){
+    actors=new ActorService(source,wasmTypes,(message,transfers)=>postMessage(message,transfers));actors.enabled=actorsOn;
+    water=new WaterStream(source,wasmTypes,manifest,(message,transfers)=>postMessage(message,transfers));
+    await terrain.init(manifest);
+    startFarWorker();void replayHorizon(token).catch(error=>{if(token===rebindToken)sceneFault(error);});
+  }
 }
 function sourcePosition(region,p) {return sourcePositionOf(manifest,region,p);}
 function nearUnresolved(p,region,radius=84,vertical=84) {
@@ -391,10 +403,10 @@ export function sceneFault(error) {
   if(postFrameVisuals)postMessage({event:'world-error',error:`${error.code?`${error.code}: `:''}${error.message || error}`});
 }
 function startScenePump() {
-  const owner=scene,visual=scene.prepareVisuals?.();
-  if(visual)void visual.catch(error=>{if(scene===owner)sceneFault(error);});
+  const owner=scene,token=rebindToken,current=()=>scene===owner&&token===rebindToken,visual=scene.prepareVisuals?.();
+  if(visual)void visual.catch(error=>{if(current())sceneFault(error);});
   if(!scenePump) {
-    const pump=scene.pump(true).catch(sceneFault);
+    const pump=scene.pump(true).catch(error=>{if(current())sceneFault(error);});
     scenePump=pump;
     void pump.finally(()=>{if(scenePump===pump)scenePump=undefined;});
   }
@@ -632,7 +644,7 @@ function pumpTerrainMaterials() {
   const generation=materialGeneration;
   void terrain.pump().then(pending=>{
     if(pending && generation===materialGeneration)scheduleTerrainMaterials(true);
-  }).catch(sceneFault);
+  }).catch(error=>{if(generation===materialGeneration)sceneFault(error);});
 }
 export function scheduleTerrainMaterials(pending=false) {
   if(!postFrameVisuals || materialTimer!==undefined || (!terrainMaterials.size&&!pending))return;

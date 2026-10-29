@@ -50,7 +50,7 @@ export async function handle(message) {
   requireWorld();
   if(message.action==='launch-objects'){pod.setObjects(message.objects);return true;}
   if(message.action==='pod-adopt'){pod.adopt(message.pod,world);return snapshot();}
-  if(message.action==='pod-release'){pod.journey=null;pod.remaining=0;pod.hold=0;return true;}
+  if(message.action==='pod-release'){pod.journey=null;pod.remaining=0;pod.hold=0;return snapshot();}
   if(message.action==='frame') {
     validateHop(message.hop);
     validateSampleTime(message.sampleTime);
@@ -65,6 +65,7 @@ export async function handle(message) {
   } else if(message.action==='reset') {
     await resetWorld();
   } else if(message.action==='rebind') {
+    postMessage({event:'renderer-bound',id:message.id});
     await rebindRenderer(message.replay!==false);
   } else if(message.action==='retry') {
     await retryWorld();

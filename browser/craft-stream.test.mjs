@@ -11,7 +11,7 @@ test('pitched craft forward axis and cockpit match engine direction at every yaw
     const expected=[-Math.sin(yaw)*Math.cos(state[17]),Math.sin(state[17]),-Math.cos(yaw)*Math.cos(state[17])];
     assert(expected.every((n,i)=>Math.abs(n-m[i])<1e-7),'Bank must not change the pitched thrust direction');
     const rig={craft:{metadata:{scale:1},anchor:[0,0,.75]},clipCamera:(_a,b)=>b};
-    const view=cameraView(rig,state,undefined,0,[1e9,-1e9],{cockpit:true});
+    const view=cameraView(rig,state,undefined,0,[1e9,-1e9],{cockpit:true,planet:false});
     assert(view.look.every((n,i)=>Math.abs(n-expected[i])<1e-7));
     assert(rig.camera.every(Number.isFinite));
   }
@@ -70,6 +70,16 @@ test('missing craft texture fails explicitly without publishing a partial model'
   assert.equal(messages.length,1);
   assert.equal(messages[0].event,'craft-error');
   assert.match(messages[0].error,/missing local texture/);
+});
+test('cancelled craft loading stops before the next database read and emits no stale craft error',async()=>{
+  const f=fixture(),messages=[],reads=[];let resolve,obsolete=false,defer;
+  const source={read:(path,{shouldDefer})=>{
+    reads.push(path);defer=shouldDefer;return new Promise(done=>resolve=done);
+  }};
+  const load=loadCraft(source,f.wasm,message=>messages.push(message),()=>obsolete);
+  obsolete=true;assert.equal(defer(),true);resolve(new Uint8Array(1));
+  await assert.rejects(load,{code:'DEFERRED'});
+  assert.equal(reads.length,1);assert.equal(f.freed,0);assert.deepEqual(messages,[]);
 });
 test('an unsupported Stand rig fails rather than publishing the old sideways bind pose',async()=>{
   const f=fixture(),messages=[];

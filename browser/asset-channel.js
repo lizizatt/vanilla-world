@@ -37,8 +37,8 @@ export class AssetSource {
   readTexture(path,output='rgba',shouldDefer) {
     return this.request('texture',{path,background:true,output},shouldDefer);
   }
-  prepareDetail(detail) {
-    return this.request('detail',{detail,background:true},undefined,
+  prepareDetail(detail,shouldDefer) {
+    return this.request('detail',{detail,background:true},shouldDefer,
       [...detail.tiles,...detail.seams].map(t=>t.vertices.buffer));
   }
   refresh() {
