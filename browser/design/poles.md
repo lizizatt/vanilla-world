@@ -137,7 +137,7 @@ edge    = EDGE0 + A*fbm(lon-only noise)      // shelf edge colatitude, ~10 deg +
 inIce   = colat < edge
 shelfH  = 1.09 + (10.94-1.09)*smoothnoise(d*k)   // yd above sea, 1-10 m
 iceH    = shelfH                              // flat plane, tiny sastrugi (+-0.15 yd) for texture only
-bergs:  grid cells ~300 yd on the sphere, hash -> 12% occupied, jittered centre,
+bergs:  (colat, lon) grid, cells ~250 yd, hash -> 30% occupied (measured: ~48 bergs, 0.3% belt coverage), jittered centre,
         radius 6-25 yd, faceted top (max of 3-5 planes), top 1-6 yd above water,
         only for  edge < colat < edge + 547 yd/R  (0.5 km band)
 ground  = max(iceH if inIce else -inf, berg top)
@@ -148,7 +148,7 @@ Details and rules:
 
 - The ice **shelf edge** is a short steep ramp (1-2 yd run) so the hover pod can drive off it and fall into the water, and so the edge is a clean silhouette in the minimap. Bergs only in the 0.5 km band, so the open ocean stays open.
 - Beyond the band to the seam: plain ocean (same analytic ocean as today, sea level 0).
-- The **flagpole** is a placed doodad at the chart origin of N and S (and on Elune): a procedural mesh instance (pole ~14 yd, flag ~4x3 yd), with collision via `set_scene_bounds` (`voyage.rs:918`), the same path other scenery boxes use. It stands at the exact pole in the pole frame, so no seam logic is needed.
+- The **flagpole** is a placed doodad at the chart origin of N and S (and on Elune): a procedural pole (~14 yd, pole-flag.js) carrying a **WoW flag model loaded at runtime** through the normal doodad path (Horde north: world\generic\pvp\battlefieldbanners\battlefieldbannerhorde.mdx, Alliance south: ...battlefieldbanneralliance.mdx; fallbacks hordebanner02/stormwindlionbanner; all verified present in the 1.12.1 data). Nothing WoW-derived is committed or baked; tests use stand-ins. Collision via `set_scene_bounds` (`voyage.rs:918`), the same path other scenery boxes use. It stands at the exact pole in the pole frame, so no seam logic is needed.
 - Surface colours (snow white/ice blue for Azeroth, with slight blue in shadow; none for Elune, which keeps regolith) are produced from the **same function** for near tiles, the minimap, and the globe colour grid, so far/near/map agree.
 - **Elune**: pole frames call `moonHeightDir`/`moonAlbedo` with the pole-chart direction (`chartDir` gains the rotation Q). No fade, no cap. Flagpole only.
 
@@ -266,10 +266,35 @@ Order: L0 -> SPIKE -> L1 -> **R1 (L2)** -> L3 -> L4 -> L5 -> L6. L0/L1/L3/L4/L5 
 - **Moonglade graft / tracks in E only**: pole frames have no graft; teleports from a pole to Moonglade hop to E.
 - Chart stretch inside a pole frame reaches 1.15x at the cap rim for Elune (30 deg); acceptable for regolith, check in shots; if not, shrink the cap radius or use the azimuthal chart.
 
-## 15. Open questions for the user
+## 15. Decisions (user review) and remaining questions
 
-1. **Pole frame mapping**: rotated-equirect pole frames (recommended: stretch <= 1.15 at the rim, reuses every shader) or azimuthal-equidistant pole frames (exact metric to the rim, needs a new shader branch)?
-2. **Polar day/night**: Azeroth uses a global clock curve and has no axial tilt, so every point, including the poles, gets the same day/night; Elune's position-based sun leaves the poles in permanent grazing light. Do you want **axial tilt and seasons** (true midnight sun / polar night, shadows sweep around the flagpole) or keep "no tilt" and just have long shadows at the pole? Recommendation: add a small tilt only to the **sun direction used near the poles** later (L6); keep the global clock until then.
-3. **Pole tracks**: should v1 forbid placing tracks/gates in pole frames and the ramp zone (recommended), or support them immediately?
-4. **Ice cap extent**: cap edge ~80 deg (colat ~10 deg, ~2.5 kyd radius) with a ~548-yd berg belt; is that the scale you want, or a larger/smaller ice cap?
-5. **Flagpole**: one tall pole with a flag at each pole, plain procedural, or a landmark prop (e.g. a banner/obelisk) with an area/zone name ("The Pole")?
+Answered:
+
+1. **Pole frames: rotated equirect** (implemented in `frames.js`; azimuthal stays the fallback only if shots show 1.15x on Elune is visible).
+2. **Polar light: tilt imitation, no seasons.** `polar-light.js`: weight `smoothstep(60 deg, 80 deg, |lat|)` nudges the *local* sun vector toward -Y by 0.16 (about 9 deg), so the **north pole is eternal night, the south pole eternal day** (low golden sun, shadows sweep around the pole), and anything below 60 deg is bit-identical (golden shots unchanged). Azeroth, whose light is the global clock curve, blends the scalar daylight toward 0 (north; keep the existing night look: stars, moon, ambient floor, a lamp on the Horde flag so north is legible, not black) or 0.78 (south) with the same weight (`polarDaylight`). **Elune** has a position-based sun and its poles already graze; apply the same 0.16 nudge to the local sun used for Elune lighting only (the shared orbit and the sky/Azeroth-phase are untouched, a known cosmetic inconsistency at the pole), so Elune's north is also night (earthlight/Azeroth-light fills in) and south day. Wired in L6; the pure functions and tests land in L0.
+3. **Tracks/gates in pole frames and the ramp zone: forbidden in v1** (validation rejects them); pole tracks are v2.
+4. **Ice cap about 2.5 kyd radius with a ~548 yd berg belt: yes.**
+5. **Flags: Horde at the north pole, Alliance at the south pole**, WoW banner models at runtime (see 5), procedural pole. Elune poles use the same pair (**assumption**: the user only asked for flagpoles there; easy to drop).
+
+## 16. L0 + spike results (JS only, no cargo/wasm)
+
+Code: `frames.js`, `pole-cap.js`, `pole-source.js`, `pole-flag.js`, `polar-light.js`, tests `frames.test.mjs`, `pole-cap.test.mjs`, `pole-spike.mjs` (shots in `runtime\pole-spike\`, not committed). Measured on the dev machine:
+
+| | p50 | p99 |
+|---|---|---|
+| Azeroth cap tile synthesis (259x259 lattice + ADT) | 48 ms | ~72 ms |
+| Azeroth tile in the berg belt | 78 ms | ~142 ms |
+| Elune pole tile (existing moon terrain, rotated chart) | 204 ms | ~300 ms |
+| Elune equator tile (baseline, existing) | 218 ms | ~256 ms |
+
+- **Arrival to first resident tile**: with pre-streaming from ramp start this is 0 (no wait at the hop). Azeroth's 25-tile window costs about 1.2 s of worker time against a 2.5 kyd ramp (41 s at 60 yd/s). Elune's 25-tile window is about 5 s against a 1.8 kyd ramp (30 s at 60 yd/s): fine at pod speed, **tight for fast fly-cam**; Elune needs lookahead scaled by speed (L1). Real-engine resident time (worker round trip) is not measured here; that is L1.
+- **Seam visibility**: tile borders agree exactly (max diff 0 yd over 10 pairs); the grid rim (4267 yd) is open seabed/ocean with 0 yd step and lies inside the hop circle (4480 yd colat 18 deg), so the hop is over open ocean. Hop is exact: round-trip error 0 yd, true-speed ratio 1.000000. Stretch: E chart 2.13x at 62 deg and 3.24x at 72 deg (the ramp handles this, R1); the rotated pole chart is 1.04x at the Azeroth grid rim and 1.155x at Elune's 30 deg rim. The wave/ocean-normal stretch across the ramp zone is still unmeasured (needs the renderer, L1/L3).
+- **Shelf silhouette**: ice edge 9.0 to 11.3 deg colat (about 2.2 to 2.8 kyd), shelf 3.5 to 8.5 yd (3.2 to 7.8 m, inside the 1 to 10 m spec), a 1.5 yd steep ramp at the edge; the coastline is smooth and slightly blobby, so **add a finer fbm octave to the edge** (tuning, not structural). Shots: `azeroth-cap-topdown.png`, `azeroth-cap-shelf-closeup.png`, `azeroth-shelf-profile.png`, `elune-pole-topdown.png`.
+- **Berg density**: 48 bergs in the 547 yd belt, 0.28% belt coverage, tallest 5.7 yd (spec 1 to 6), faceted pentagons 6 to 25 yd; reads as "occasional". Cells are 250 yd with 30% occupancy (the earlier 300 yd / 12% gave about 6 bergs).
+- **Go/no-go: GO on rotated equirect.** Stretch is small, handoffs are exact, the cap is cheap (48 ms/tile). The main open cost is Elune's existing 200 ms tile synthesis, not the pole frames.
+
+## 17. Remaining open questions
+
+1. Elune poles: keep the Horde/Alliance pair (assumed), or plain poles?
+2. Elune tile synthesis (200 ms) is the pre-stream bottleneck at speed: accept speed-scaled lookahead (recommended), or move heavy octaves/craters to a lower LOD near the poles?
+3. North polar night: is "existing night look plus a flag lamp" the right amount of light, or do you want a visible aurora/moonlight boost?
