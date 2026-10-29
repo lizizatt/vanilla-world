@@ -180,11 +180,11 @@ if(process.env.COAST_WATER==='0')await context.route('**/water-stream.js',async 
     }
     replace(/(?:export )?let world,source,manifest,/,m=>'const drivingClock={input:0,steps:0,dropped:0,objects:0,batch:0};globalThis.drivingWork=[];\n'+m);
     replace('world=new Voyage(json);','world=new Voyage(json);world.set_admission_profiling(true);');
-    replace(/const started=performance.now\(\);\r?\n    const p=world.telemetry\(\)/, 'drivingClock.input+=message.dt;drivingClock.batch=0;\n    const started=performance.now();\n    const p=world.telemetry()');
+    replace(/const started=performance.now\(\);\r?\n    const p=(?:pod|world).telemetry\(/, 'drivingClock.input+=message.dt;drivingClock.batch=0;\n    const started=performance.now();\n    const p=pod.telemetry(');
     replace("if(objectWait.length){accumulator=0;",'if(objectWait.length){drivingClock.objects+=message.dt+accumulator;accumulator=0;');
     replace('accumulator+=Math.min(Math.max(message.dt,0),.1);','drivingClock.dropped+=Math.max(0,message.dt-.1);accumulator+=Math.min(Math.max(message.dt,0),.1);');
-    replace(/world.tick\(message.throttle,message.steer,tickFlags(?:,message.pitch\?\?0)?\);/,m=>m+'drivingClock.steps++;drivingClock.batch++;');
-    replace('return {telemetry:Array.from(world.telemetry()),','return {physicsStats:Array.from(world.physics_stats()),drivingClock:{...drivingClock,remainder:accumulator},drivingWork:globalThis.drivingWork.splice(0),telemetry:Array.from(world.telemetry()),');
+    replace('advanced=true;accumulator-=1/120;','drivingClock.steps++;drivingClock.batch++;advanced=true;accumulator-=1/120;');
+    replace('return {telemetry:pod.telemetry(world),','return {physicsStats:Array.from(world.physics_stats()),drivingClock:{...drivingClock,remainder:accumulator},drivingWork:globalThis.drivingWork.splice(0),telemetry:pod.telemetry(world),');
     replace('function prepareTerrainMaterial() {',
       "function prepareTerrainMaterial() {if(terrainMaterials.size)drivingWork.push({kind:'material-preparation-frame',ms:0,frame:timings.frames,steps:drivingClock.batch,loads,index:terrainMaterials.values().next().value});");
     replace('const result=await handle(data),start=performance.now();','const begin=performance.timeOrigin+performance.now();const result=await handle(data),start=performance.now();if(result.telemetry)result.transport={begin,end:performance.timeOrigin+start};');
