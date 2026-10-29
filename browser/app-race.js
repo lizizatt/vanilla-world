@@ -52,6 +52,7 @@ app.editor=createTrackEditor({
 });
 function toggleEditor() {
   if(app.race||!app.running||!client.state)return;
+  if((app.flight?(app.flightFrame??'E')!=='E':client.state.frame?.[0])&&!app.editor.isOpen){app.report('Tracks are not supported in the polar frames (v1).',true);return;}
   if(app.editor.isOpen){app.editor.close();return;}
   keys.clear();app.dragging=false;app.mouseButtons=0;editorFlight=app.flight;
   app.editor.open(client.state.telemetry.slice(0,3));
