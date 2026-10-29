@@ -141,7 +141,9 @@ dialog h2 { color: #ffb34d; margin-top: 0; }
 
 #race-delta { font-weight: 700; color: #ff6b6b; }
 #race-delta[data-ahead=true] { color: #6bff9a; }
-#race-arrow { display: inline-block; font-size: 16px; color: #ffd36a; }
+#race-arrow { display: inline-block; font-size: 22px; line-height: 1; color: #ffd36a; text-shadow: 0 0 4px rgba(0,0,0,.8); }
+#race-arrow[data-behind=true] { color: #ff6b6b; animation: engine-blink .6s steps(2) infinite; }
+#race-range { font-variant-numeric: tabular-nums; color: #bff4ff; }
 #race-board { position: fixed; right: 16px; top: 120px; min-width: 210px; padding: 10px 14px; background: rgba(0,0,0,.6); border: 1px solid rgba(255,200,60,.8); border-radius: 6px; color: #fff; font-variant-numeric: tabular-nums; pointer-events: none; }
 #race-board strong { display: block; margin-bottom: 4px; color: #ffd36a; }
 #race-board .this { color: #6bff9a; font-weight: 700; }

@@ -1,5 +1,6 @@
 import {raceScores,trackOverride} from './world-store.js';
-import {Race,unstuckPoses,formatTime,lapTimes,bearing,addScore,validScores,validateTrack,gateBody,trackBody} from './race.js';
+import {gateGuide} from './gate-guide.js';
+import {Race,unstuckPoses,formatTime,lapTimes,addScore,validScores,validateTrack,gateBody,trackBody} from './race.js';
 import {createTrackEditor} from './track-editor.js';
 import {clampTrack} from './track-edit.js';
 import {flagPosition} from './race-flags.js';
@@ -161,10 +162,12 @@ function raceHud(t) {
   else setText('race-delta','');
   setText('race-lap',lapCount(app.race.lap,app.race.track.laps));
   setText('race-laps',app.race.track.laps>1?lapTimesText(lapTimes(app.race.splits,app.race.track.gates.length),formatTime):'');
-  const gate=app.race.nextGate,away=gate&&gateBody(app.race.track,gate)!==activeBody().id,arrow=$('race-arrow');
-  setText('race-gate',`Gate ${Math.min(done+1,app.race.totalGates)}/${app.race.totalGates}${away?' ('+gateBody(app.race.track,gate)+')':''}`);
-  arrow.hidden=!gate||away;
-  if(gate){const p=client.state.telemetry;arrow.style.transform=`rotate(${bearing(p,p[3],gate.pos)}rad)`;}
+  const gate=app.race.nextGate,p=client.state.telemetry,arrow=$('race-arrow');
+  const guide=gateGuide({pos:p,yaw:p[3],gate,body:activeBody().id,gateBody:gate&&gateBody(app.race.track,gate)});
+  setText('race-gate',`Gate ${Math.min(done+1,app.race.totalGates)}/${app.race.totalGates}${guide.label}`);
+  arrow.hidden=!guide.visible;
+  setText('race-range',guide.visible?`${guide.range} ${guide.climb}`.trim():'');
+  if(guide.visible){arrow.style.transform=`rotate(${guide.angle}rad)`;arrow.dataset.behind=String(guide.behind);}
 }
 async function recordRun(track,run) {
   let record,rank;
