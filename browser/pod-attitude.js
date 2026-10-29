@@ -22,7 +22,7 @@ export function validatePodControl(control){
 export function movePodAim(previous,seed,mouse,stick,dt){
   const base=previous?.base??seed;
   const yaw=(previous?.yaw??0)-mouse[0]*POD_TURN.mouse-stick[0]*POD_TURN.stick*dt;
-  const pitch=(previous?.pitch??0)-mouse[1]*POD_TURN.mouse+stick[1]*POD_TURN.stick*dt;
+  const pitch=(previous?.pitch??0)+mouse[1]*POD_TURN.mouse-stick[1]*POD_TURN.stick*dt;
   return {base,yaw,pitch,q:composeAim(base,fromEuler(yaw,pitch))};
 }
 

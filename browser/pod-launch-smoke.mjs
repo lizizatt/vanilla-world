@@ -141,7 +141,7 @@ try{
     assert(attitude.offAxis<.05,`Off-axis engine impulse ${attitude.offAxis}`);
     assert(attitude.aimError<1e-5,`Camera-centre/engine misalignment ${attitude.aimError}`);
     // Undo the yaw and the normal chase-camera depression so the nose regains the ramp launch axis.
-    await page.mouse.move(300,300-(cockpit?0:Math.atan(.3)/.004),{steps:24});
+    await page.mouse.move(300,300+(cockpit?0:Math.round(Math.atan(.3)/.004)),{steps:24});
     await page.waitForFunction(direction=>Math.hypot(...worldEvidence.state.pod.journey.direction.map((v,i)=>v-direction[i]))<.003,original.direction);
     const restored=await page.evaluate(()=>worldEvidence.state.pod.journey.direction);
     assert(Math.hypot(...restored.map((v,i)=>v-original.direction[i]))<.003,'Camera aim restores the launch heading');
