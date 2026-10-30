@@ -19,6 +19,7 @@ export class WorldClient {
   hudArt(){this.worker?.postMessage({action:'hud-art'});}
   worldmap(names){this.worker?.postMessage({action:'worldmap',names});}
   animate(on){this.worker?.postMessage({action:'animate',on});}
+  waves(on){this.worker?.postMessage({action:'waves',on});}
   budget(bytes,gpu=0){this.worker?.postMessage({action:'budget',bytes,gpu});}
   music(fields){this.worker?.postMessage({action:'music',...fields});}
   request(action,fields={}) {

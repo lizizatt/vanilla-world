@@ -35,7 +35,7 @@ window.worldEvidence=evidence;
 app.choice=bootChoice();app.tracks=[];app.race=undefined;app.raceBest=undefined;app.promptTrack=undefined;app.goUntil=0;app.boardTimer=0;app.againTrack=undefined;app.againUntil=0;
 app.landmarkCache=undefined;app.flightSpeed=0;app.renderer=undefined;app.folder=undefined;app.flight=undefined;app.running=false;app.busy=false;app.last=0;app.frames=0;app.hudTime=0;app.hudFrames=0;app.permissionNeeded=false;
 app.orbit=[0,0];app.dragging=false;app.mouseButtons=0;app.soundAttempt=0;app.soundError='';app.soundTime=0;app.reportTimer=undefined;app.testPads=undefined;app.frozenPresentation=false;app.tuningValues=TUNING_FIELDS.map(f=>f[1]);
-const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:true,cockpit:false,clouds:true,planet:true,globeMesh:true,globeRegistry:true,cloudQuality:'auto',weather:true,weatherQuality:'auto',music:true,particles:'medium',animateNpcs:true,timeScale:1};
+const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:true,cockpit:false,clouds:true,planet:true,globeMesh:true,globeRegistry:true,cloudQuality:'auto',weather:true,weatherQuality:'auto',music:true,particles:'medium',animateNpcs:true,waves:true,timeScale:1};
 const settings={...defaults};
 const gib={on:true,speed:100,overheat:true};const gibMem={};
 const loading=$('loading-screen');

@@ -20,6 +20,7 @@ import {viewChanged} from './world-view.js';
 import {ActorService,ACTOR} from './actors.js';
 import {ARRIVAL,arrivalResources} from './loading-gate.js';
 import {maelstromCentre,WHIRLPOOL_DIP} from './clouds.js';
+import {waveParams} from './wave-config.js';
 import {TILE,createTerrainIndex,terrainDistance,tileKeyOf,assetPathOf,focusRegionOf,sourcePositionOf,
   nextUnresolvedWindow,isCameraUnknown,isObjectWaiting} from './world-worker-logic.js';
 
@@ -31,6 +32,10 @@ export let world,source,manifest,placements,scene,terrain,water,accumulator=0,qu
 export const enqueue=job=>{queue=queue.then(job);return queue;};
 let poseTime,flightFocus,areaTime=-1e9,areaId=0,actors,actorFocus,actorRegion=0,actorsOn=true;
 export const setActorsOn=on=>{actorsOn=on;if(actors)actors.enabled=on;};
+// Gerstner sea (wave-config.js): uploaded once after the world exists and re-sent on the settings toggle. An empty array is "off".
+let wavesOn=true,waveSea=false,waveMaelstrom;
+const applyWaves=()=>{if(world)world.set_waves(wavesOn&&waveSea?waveParams({maelstrom:waveMaelstrom}):new Float64Array(0));};
+export const setWavesOn=on=>{wavesOn=on;applyWaves();};
 // Total residency budget in bytes; each stream gets its share (memory-budget.js). Zero keeps the built-in defaults.
 let memoryBudget=0;
 let moonBody=false;
@@ -766,7 +771,8 @@ export async function openWorld(message) {
     poleBody=polesFor(message);if(poleBody)json=pkg.with_poles(json,JSON.stringify(poleFrameSpec(poleBody)));
     manifest=JSON.parse(json); manifest.landmarks=!moon;// skyline landmarks (landmarks.js) belong to Azeroth's maps only
     world=new Voyage(json);
-    if(manifest.world_bounds){const [x,z]=maelstromCentre(manifest);world.set_whirlpool(x,z,WHIRLPOOL_DIP.radius,WHIRLPOOL_DIP.depth);}
+    if(manifest.world_bounds){const [x,z]=maelstromCentre(manifest);world.set_whirlpool(x,z,WHIRLPOOL_DIP.radius,WHIRLPOOL_DIP.depth);waveMaelstrom=[x,z];}else waveMaelstrom=undefined;
+    waveSea=!moon;applyWaves();
     placements=manifest.tiles.map(t=>{
       const r=manifest.regions[t.region];
       return [r.placement[0]+(t.x-r.tile_origin[0])*TILE,r.placement[1]+(t.y-r.tile_origin[1])*TILE];
