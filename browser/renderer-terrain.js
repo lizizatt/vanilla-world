@@ -1,6 +1,7 @@
 import {bundleFormats} from './render-passes.js';
 import {TERRAIN_TEXTURE_SIZE} from './terrain-stream.js';
 import {oceanMeshCached} from './ocean-mesh.js';
+import {dropPlaceholderTriangles} from './land-rect.js';
 import {flagMesh,gateMesh} from './race-flags.js';
 
 export function buffer(r,data,usage) {
@@ -70,8 +71,9 @@ export function uploadMaterials(r) {
     pending.maskCursor=maskEnd;
     if(maskEnd<data.masks.length)return;
     const gpu=pending.gpu;
-    gpu.vertices=r.buffer(data.vertices,GPUBufferUsage.VERTEX);gpu.indices=r.buffer(data.indices,GPUBufferUsage.INDEX);
-    gpu.count=data.indices.length;gpu.bytes=data.vertices.byteLength+data.indices.byteLength+data.masks.byteLength+
+    const indices=dropPlaceholderTriangles(data.vertices,data.indices);
+    gpu.vertices=r.buffer(data.vertices,GPUBufferUsage.VERTEX);gpu.indices=r.buffer(indices,GPUBufferUsage.INDEX);
+    gpu.count=indices.length;gpu.bytes=data.vertices.byteLength+data.indices.byteLength+data.masks.byteLength+
       data.layers.reduce((n,l)=>n+l.mips.reduce((sum,m)=>sum+m.byteLength,0),0);
     gpu.group=r.device.createBindGroup({layout:r.splatPipeline.getBindGroupLayout(0),entries:[
       {binding:0,resource:{buffer:r.frameUniforms,size:224}},{binding:1,resource:gpu.layers.createView({dimension:'2d-array'})},
