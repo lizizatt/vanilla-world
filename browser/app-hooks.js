@@ -15,6 +15,9 @@ return {launch:app.launch,renderer:()=>app.renderer,restore:pose=>app.arrival(()
       request:async(action,fields)=>{const s=await client.request(action,fields);if(s.telemetry)client.state=s;return s;},
       gamepads:pads=>{app.testPads=pads;},
       weatherArea:area=>{app.weatherOverride=area;},
+      windStorm:v=>{app.renderer.windStormHook=v;},
+      windMael:()=>import('./clouds.js').then(m=>app.renderer.manifest?.world_bounds?m.maelstromCentre(app.renderer.manifest):undefined),
+      wind:()=>{const r=app.renderer,w=r.wind;return w&&{tier:r.weatherTier,on:w.on,character:w.character,speed:w.sample.speed,strength:w.sample.strength,dir:w.sample.dir,spray:w.spray,dust:w.dust,snow:w.snow,draws:r.windDraws,waveActive:r.waveActive};},
       weather:()=>{const r=app.renderer,w=r.weather;return w&&{tier:r.weatherTier,on:w.on,local:w.local,cover:w.cover,intensity:w.state.intensity,kind:w.state.kind,raining:w.state.raining,heavy:w.state.heavy,anyWet:w.anyWet,nearest:w.nearest,climate:w.climate,sampleMs:w.sampleMs,curtain:r.curtainDrawn,near:r.nearDrawn,bolts:r.boltsDrawn,flash:r.flashLevel,level:w.state.level,snowMix:w.state.snowMix};},
       strike:(dx,dz,hold)=>{const r=app.renderer,e=r.view.eye,d=Math.hypot(dx,dz),t=r.cloudTime??0;r.lightning.frozen=hold?t+.02:null;r.lightning.strike(t,e[0]+dx,e[2]+dz,d);return d;},
   weatherFind:(from,opts={})=>{const r=app.renderer,w=r.weather;if(!w)return;const ctx={time:r.cloudTime,centre:r.manifest?maelstromCentre(r.manifest):[1e9,1e9],mask:r.cloudMask?.mask,flow:r.planet&&{cycles:r.planet.flowCycles,scale:r.planet.flowScale}},min=opts.min??.9,rMax=opts.range??30000,step=opts.step??500;

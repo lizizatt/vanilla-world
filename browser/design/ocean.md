@@ -350,3 +350,4 @@ Answered in the physics phase (branch `lizizatt-ocean-wave-physics`; implementat
 **Green line root cause** (real data): not a shore band, fog or ring seam. The splat pipeline's y=-503/-516 "no data" placeholder ground showed through translucent open-sea water. Fixes: `trimRimSpikes` ignores water materials, `dropOpenSeaWater` skips open-sea tile liquid (`land-rect.js`), `dropPlaceholderTriangles` at splat upload. Thin cyan lines were tile-liquid hole edges.
 
 **Depth cues** (`waterColor`): slant-path absorption (grazing rays read deeper), a sandy-turquoise shoal tint in the first 22% of ramp depth, and distance haze toward the fog tint beyond ~1.5k yd. Beer-Lambert body, Fresnel and shore foam were already present.
+Wave-top spray follows the shared crests and is driven by the procedural wind; see [wind.md](wind.md). Render waves are unchanged.

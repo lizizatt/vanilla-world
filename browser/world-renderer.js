@@ -33,6 +33,7 @@ import {scenePipeline,prepareBatches,sceneMatrix,drawScene} from './renderer-sce
 import {zoneBlend,setSky,setSkyDome,horizonColour,planetRects,drawPlanet,sharedFrame,drawPatches,drawBodies,drawBodyClouds,drawLights,drawSkyDome,sampleSky,noteLitInstance} from './renderer-sky.js';
 import {drawShadow,enableHighClouds,highCloudGroup,maskEntries,drawClouds} from './renderer-clouds.js';
 import {seaState} from './sea-state.js';
+import {stepWind,drawWind} from './renderer-wind.js';
 import {waveItems,setWaveMask} from './renderer-waves.js';
 import {weatherGroups,stepWeather,drawCurtain,drawNearWeather,drawFlash,drawBolts} from './renderer-weather.js';
 import {initialize,prepareBody,useBody,bodyPrepared} from './renderer-init.js';
@@ -146,9 +147,9 @@ export class WorldRenderer {
     clock.scale=flight?Math.min(sanitiseScale(settings.timeScale),this.warpCap??Infinity):1;
     if(this.podTime!==undefined)clock.set(this.podTime);else clock.step(dt);
     const cc=this.cloudClock??=new CloudClock(time);cc.step(dt,clock.scale);pf.flowScale=cc.stretch;pf.flowCycles=cc.cycles;
-    this.cloudTime=cc.time;const waterTime=this.cloudTime%7200;stepWeather(this,dt,settings,flight);
+    this.cloudTime=cc.time;const waterTime=this.cloudTime%7200;    stepWeather(this,dt,settings,flight);stepWind(this,dt);
     this.timeOfDay=this.podTime??this.timeLock??clock.now();
-    const sea=seaState(this.view.eye[0],this.view.eye[2],this.weather?.on?this.weather.state.level:0,activeFramedBody().centre,activeFramedBody().radius);
+        const sea=seaState(this.view.eye[0],this.view.eye[2],this.weather?.on?this.weather.state.level:0,activeFramedBody().centre,activeFramedBody().radius,this.wind?.on?this.wind.sample.strength:undefined);
     const airless=activeBody().id==='elune',moonSky=airless?eluneSkyAt(state[0],state[2],this.timeOfDay):undefined;
     // Atmospheric bodies light from where the camera stands: the local sun and the clock reading that sun corresponds to drive every day/night and Light.dbc lookup.
     this.sunLocal=moonSky?moonSky.sun:localSunAt(activeFramedBody(),this.view.eye[0],this.view.eye[2],this.timeOfDay);
@@ -338,7 +339,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
       this.wreck.parts.forEach((p,i)=>{const f=wreckFrameNow.subarray(i*7,i*7+7);emitDebris(fx,p.memo??={},[f[0],f[1],f[2]],wreckAge,sdt,size,`w${i}`,WRECK_SECONDS);});
     }
     this.particleCount=fx?.count||0;
-    if(!this.cameraBlocked){drawNearWeather(this,encoder,near,dt,depthAttachment('fx',this.depth.createView()));drawBolts(this,encoder,near,depthAttachment('fx',this.depth.createView()));}
+    if(!this.cameraBlocked){drawNearWeather(this,encoder,near,dt,depthAttachment('fx',this.depth.createView()));drawBolts(this,encoder,near,depthAttachment('fx',this.depth.createView()));drawWind(this,encoder,near,origin,depthAttachment('fx',this.depth.createView()));}
     this.device.queue.submit([encoder.finish()]);
     return {horizonTiles:distant.length,detailedTiles:this.tiles.size,sceneInstances:this.instances.length,
       culledTerrainDraws:allTerrain.length-terrain.length,

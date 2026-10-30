@@ -1,5 +1,6 @@
 import {beltWind,FLOW} from './cloud-flow.js';
 import {subPoint} from './space.js';
+import {windSeaK} from './wind.js';
 
 // Visual sea state (design/ocean.md phase 1). Never read by physics; a pure function of latitude and the smoothed weather level.
 export const SEA={calm:.2,beltGain:.6,rainGain:.35};
@@ -13,7 +14,8 @@ export function seaWindK(lat,rain=0) {
 }
 
 /** [windK, rain] for the terrain/water uniform at a flat chart position. */
-export function seaState(x,z,rain=0,centre,radius) {
-  const r=clamp(rain,0,1);
-  return [seaWindK(subPoint(x,z,centre,radius).lat,r),r];
+export function seaState(x,z,rain=0,centre,radius,windStrength) {
+  const r=clamp(rain,0,1),k=seaWindK(subPoint(x,z,centre,radius).lat,r);
+  // The procedural wind (wind.js) can only raise the sea state (whitecaps, fine-normal gain); the physics waves never read it.
+  return [windStrength===undefined?k:Math.max(k,windSeaK(windStrength)),r];
 }

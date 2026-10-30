@@ -1,0 +1,36 @@
+// On-demand wind captures with real data (muted Edge): node wind-shots.mjs [scene ...] -> runtime/gate-preview/wind-<scene>.png
+// Scenes: spray, dust, snow. Needs WOW_DATA and a server on PORT (not 4173).
+import path from 'node:path';
+import { openLab, out, track, camera } from './race-gate-lab.mjs';
+const want = process.argv.slice(2);
+const { ctx, page, errors } = await openLab({ clouds: true });
+await page.waitForFunction(() => worldTest.windMael && worldTest.wind, null, { timeout: 60000 });
+await page.evaluate(() => worldTest.settings({ cloudQuality: 'high', weather: true, weatherQuality: 'high', music: false, sound: false }));
+page.on('console', m => { if (/error|warn/i.test(m.type())) console.log('console', m.text().slice(0, 300)); });
+const START = [track.start.pos[0], track.start.pos[2]];
+let pose;
+const hold = async ms => { for (let t = 0; t < ms; t += 1000) { if (pose) await page.evaluate(p => worldTest.focus(p), pose); await page.waitForTimeout(1000); } };
+const shot = async (name, wait = 4000) => { await hold(wait); await page.screenshot({ path: path.join(out, `wind-${name}.png`) }); console.log(name, JSON.stringify(await page.evaluate(() => worldTest.wind()))); };
+const scenes = {
+  async spray() {
+    let c; for (let i = 0; i < 60 && !c; i++) { c = await page.evaluate(() => worldTest.windMael()); if (!c) await page.waitForTimeout(1000); }
+    const [cx, cz] = c;
+    await page.evaluate(p => worldTest.focus(p), [START[0], 250, START[1], 0, 0]); await page.waitForTimeout(1500);
+    await page.evaluate(() => { worldTest.weatherArea({ name: 'The Maelstrom', cold: false }); worldTest.windStorm(1); worldTest.timeLock(720); });
+    pose = camera([cx, 0, cz], 0, 5200, 14, -.02); await page.evaluate(p => worldTest.focus(p), pose);
+    await shot('spray', 9000);
+  },
+  async dust() {
+    await page.evaluate(() => { worldTest.weatherArea({ name: 'Tanaris', cold: false }); worldTest.windStorm(.9); worldTest.timeLock(720); });
+    pose = [START[0], -52, START[1], 0, -.05]; await page.evaluate(p => worldTest.focus(p), pose);
+    await shot('dust', 8000);
+  },
+  async snow() {
+    await page.evaluate(() => { worldTest.weatherArea({ name: 'Winterspring', cold: true }); worldTest.windStorm(.9); worldTest.timeLock(720); });
+    pose = [START[0], -52, START[1], 0, -.05]; await page.evaluate(p => worldTest.focus(p), pose);
+    await shot('snow', 8000);
+  },
+};
+for (const name of want.length ? want : Object.keys(scenes)) { if (!scenes[name]) { console.log('skip', name); continue; } await scenes[name](); }
+console.log('errors', errors.length, errors.slice(0, 3));
+await ctx.close();
