@@ -38,6 +38,8 @@ try{
         const {MAELSTROM}=await import('./cloud-config.js');
         flight=[mx-MAELSTROM.radius,view.height??6,mz,view.yaw??0,view.pitch??-.05];
       }
+      if(view.coast){const r=worldEvidence.info.manifest.regions[view.coast[0]],o=32*1600/3;
+        flight=[-view.coast[2]+r.placement[0]+o,view.coast[3],-view.coast[1]+r.placement[1]+o,view.yaw??0,view.pitch??-.3];}
       worldTest.settings({waves:view.waves!==false,...view.settings});
       const box=document.getElementById('ocean-waves');if(box&&box.checked!==(view.waves!==false)){box.checked=view.waves!==false;box.dispatchEvent(new Event('change'));}
       if(view.probe)window.probe=view.probe;

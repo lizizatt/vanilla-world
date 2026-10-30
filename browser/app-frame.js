@@ -15,7 +15,7 @@ import {tracksFor,skinOf} from './vehicles.js';
 import {hitFlash,boostFx} from './swe1r/hud.js';
 import {gibTrigger,healthTrigger,overheatTrigger} from './wreck.js';
 import {podInSpace,movePodAim,aimQuaternion} from './pod-attitude.js';
-import {fetchWaveMask} from './renderer-waves.js';
+import {fetchWaveMask,fetchShoreField} from './renderer-waves.js';
 export function installFrame(app) {
 const {canvas,keys,input,audio,cameraCollision,evidence,settings,gib,gibMem,music,client}=app;
 const $=id=>document.getElementById(id);
@@ -80,7 +80,7 @@ function frame(now) {
     cameraCollision.frame(client.state,app.renderer.sceneRegion ?? client.state.telemetry[10]);
     app.renderer.waveSim=client.state.waves;
     if(app.renderer.waveRequest&&!app.waveBusy){app.waveBusy=true;fetchWaveMask(client,app.renderer.waveRequest).then(m=>app.renderer.setWaveMask(m),()=>{}).finally(()=>{app.waveBusy=false;});}
-    app.renderer.fxInput={throttle:Math.max(0,controls.throttle),boosting:(controls.flags&2)!==0,heat:app.dial?client.state.telemetry[6]:0,health:[client.state.telemetry[15]??1,client.state.telemetry[16]??1],drifting:(controls.flags&4)!==0};
+        if(app.renderer.shoreRequest&&!app.shoreBusy){app.shoreBusy=true;fetchShoreField(client,app.renderer.shoreRequest).then(f=>app.renderer.setShoreField(f),()=>{}).finally(()=>{app.shoreBusy=false;});}    app.renderer.fxInput={throttle:Math.max(0,controls.throttle),boosting:(controls.flags&2)!==0,heat:app.dial?client.state.telemetry[6]:0,health:[client.state.telemetry[15]??1,client.state.telemetry[16]??1],drifting:(controls.flags&4)!==0};
         app.climate??=new ClimateTracker(fields=>client.music(fields));app.climate.update(client.state.area);app.renderer.weatherArea=app.weatherOverride??app.climate.info;    // During a gravity-well swap the renderer still holds the old body's chart; keep presenting the last frame instead of drawing the new pose on it.
     setActiveFrame(app.flight?(app.flightFrame??'E'):['E','N','S'][client.state.frame?.[0]??0]);const stats=app.swapHold&&app.lastStats?app.lastStats:app.renderer.draw(app.frozenPresentation || app.flight?client.state.telemetry:client.presentation(),app.flight,dt,app.frozenPresentation?0:now/1000,
       {...settings,podAim:app.podAim?.q,podTime:journey?.time,cameraLook:controls.look,cameraOrbit,cameraSteer:right&&!orbital,cameraRecentre:keyDrive&&!app.dragging&&!orbital?.active},keys.has('KeyV')&&!keys.has('AltLeft')&&!keys.has('AltRight'));

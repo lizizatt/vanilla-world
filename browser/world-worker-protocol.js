@@ -6,7 +6,7 @@ import {SkyService} from './sky.js';
 import {WorldMapService} from './worldmap.js';
 import {HudArtService} from './hud-art.js';
 import {ready,source,world,timings,postFrameVisuals,openWorld,runFrame,restoreWorld,resetWorld,retryWorld,
-  requireWorld,setPopulation,setActorsOn,setWavesOn,waveMask,setMemoryBudget,stopLoadingArt,farAck,farReject,snapshot,settleAfterAction,rebindRenderer,
+  requireWorld,setPopulation,setActorsOn,setWavesOn,waveMask,shoreRows,setMemoryBudget,stopLoadingArt,farAck,farReject,snapshot,settleAfterAction,rebindRenderer,
   finishFrame,scheduleTerrainMaterials,sceneFault} from './world-engine.js';
 import {formatError,validateHop,validateSampleTime,validateParkedPose,validateTuning} from './world-worker-logic.js';
 import {pod} from './world-engine.js';
@@ -59,6 +59,7 @@ export async function handle(message) {
   if(message.action==='open')return openWorld(message);
   requireWorld();
   if(message.action==='wave-mask')return waveMask(message.center,message.rowStart,message.rowCount);
+  if(message.action==='shore-rows')return shoreRows(message.center,message.rowStart,message.rowCount);
   if(message.action==='launch-objects'){pod.setObjects(message.objects);return true;}
   if(message.action==='pod-adopt'){pod.adopt(message.pod,world);return snapshot();}
   if(message.action==='pod-release'){pod.journey=null;pod.remaining=0;pod.hold=0;return snapshot();}
