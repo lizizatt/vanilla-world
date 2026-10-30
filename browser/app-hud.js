@@ -3,12 +3,13 @@ import {memoryUsage,gpuBytesOf,RateMeter} from './memory-budget.js';
 import {maelstromCentre} from './clouds.js';
 import {hudModel,engineLevels,levelStage} from './hud-model.js';
 import {createRealDial,createRealEngines} from './swe1r/hud.js';
+import {FlightHud} from './flight-hud.js';
 export function installHud(app) {
 const {audio,gib,client}=app;
 const $=id=>document.getElementById(id);
 Object.assign(app,{layoutHud,syncDurability,ownHud,landmarks,syncHud,memoryLine});
 app.flashMem={};app.boostMem={};app.meters=document.querySelector('.meters');const ownLast={};
-app.realHud=undefined;
+app.realHud=undefined;app.flightHud=new FlightHud($('flight-hud'));
 // Each bottom HUD group is ~1/6 of the viewport width (96-320 px), at the Racer ratios: engine pair 67x62, dial 71x59.
 function layoutHud(){const w=Math.round(Math.min(320,Math.max(96,innerWidth/6)));document.documentElement.style.setProperty('--hud-w',w+'px');if(!app.realHud)return;const d=$('swe1r-hud'),e=$('swe1r-heat');d.width=w;d.height=Math.round(w*59/71);e.width=w;e.height=Math.round(w*62/67);for(const c of[d,e]){c.style.width=c.width+'px';c.style.height=c.height+'px';}app.dial=createRealDial(app.realHud,d);app.heatGauge=createRealEngines(app.realHud,e);}
 addEventListener('resize',layoutHud);

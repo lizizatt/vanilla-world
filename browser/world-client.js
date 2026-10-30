@@ -16,6 +16,7 @@ export class WorldClient {
   }
   stopLoadingArt(){this.worker?.postMessage({action:'stop-loading-art'});}
   sky(){this.worker?.postMessage({action:'sky'});}
+  hudArt(){this.worker?.postMessage({action:'hud-art'});}
   worldmap(names){this.worker?.postMessage({action:'worldmap',names});}
   animate(on){this.worker?.postMessage({action:'animate',on});}
   budget(bytes,gpu=0){this.worker?.postMessage({action:'budget',bytes,gpu});}
