@@ -6,7 +6,9 @@
 // physics Jacobian inverse. That is exactly the surface sampleWaves() inverts, so a pod at the contact height rides the drawn water.
 import {waveTime,paramsFromArray} from './wave-math.js';
 
-export const MASK_N=96,MASK_CELL=40,MASK_RANGE=10,MASK_EPS=.01,MASK_REFRESH=384;
+// The clipmap keeps lattice points with amp >= MASK_EPS, the flat tile/fill water yields only where amp >= MASK_FILL_EPS: the band between is drawn by both,
+// so the horizontal Gerstner displacement of the clip edge (and the coarse-level interpolation of it) cannot open a see-through gap along the wave-region boundary.
+export const MASK_N=96,MASK_CELL=40,MASK_RANGE=10,MASK_EPS=.01,MASK_FILL_EPS=.5,MASK_REFRESH=384;
 export const CLIP_LEVELS=5,CLIP_N=64,CLIP_BASE=2,CLIP_HOLE=15,SKIRT=4,MAX_COMPONENTS=6;
 export const clipSpacing=level=>CLIP_BASE*2**level;
 export const clipHalf=level=>CLIP_N/2*clipSpacing(level);

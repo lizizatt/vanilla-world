@@ -1,6 +1,6 @@
 import {waterShading,dayShading,localNightShadingFor} from './water-shader.js';
 import {shaderSetFor,activeBody} from './body-shaders.js';
-import {waveRenderShading,MASK_EPS} from './wave-render.js';
+import {waveRenderShading,MASK_EPS,MASK_FILL_EPS} from './wave-render.js';
 
 /** terrain/splat/scene shaders with a body's radius and bend baked in; Azeroth's set is the byte-identical default below. */
 export const surfaceShadersFor=body=>{
@@ -36,7 +36,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
 @fragment fn fs(v:V)->@location(0) vec4f {
   nightOver=localNight(v.p);
   if(v.material==9.0 && ((u.wave.z>0.0 && max(abs(v.w.x-u.wave.x),abs(v.w.y-u.wave.y))<u.wave.z) || waveAmp(v.w.xy)<${MASK_EPS})){discard;}
-  if(v.material==2.0 && v.n.z<.5 && wv.head.x>.5 && max(abs(v.p.x-wv.clip.x),abs(v.p.z-wv.clip.y))<wv.clip.z && waveAmp(v.p.xz)>=${MASK_EPS}){discard;}
+  if(v.material==2.0 && v.n.z<.5 && wv.head.x>.5 && max(abs(v.p.x-wv.clip.x),abs(v.p.z-wv.clip.y))<wv.clip.z && waveAmp(v.p.xz)>=${MASK_FILL_EPS}){discard;}
   let dx=dpdx(v.p.xz);let dy=dpdy(v.p.xz);let rampWidth=fwidth(v.n.x);
   let light=.35+.65*max(dot(normalize(v.n),normalize(vec3f(-.3,1.0,.4))),0.0);
   var color=vec3f(${groundBase})*light;
