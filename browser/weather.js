@@ -18,7 +18,7 @@ export class WeatherRuntime {
   }
   /** Precipitation intensity of the cloud column above (x, z), 0..1. */
   sample(x,z,ctx) {
-    return density([x,CLOUD_ALTITUDE,z],ctx.time,false,ctx.centre,undefined,ctx.mask,{wet:this.climate.wet,on:this.on,flow:ctx.flow})[4];
+    return density([x,CLOUD_ALTITUDE,z],ctx.time,false,ctx.centre,undefined,ctx.mask,{wet:this.climate.wet,on:this.on,flow:ctx.flow})[this.wantCover?5:4];
   }
   /**
    * One frame. ctx: {dt, eye:[x,y,z], time (cloud s), centre (storm [x,z]), mask, flow?:{cycles,scale}, enabled, regime, body, area:{name,cold}}.
@@ -29,6 +29,7 @@ export class WeatherRuntime {
     this.climate=climateOf({area:ctx.area,body:ctx.body,regime:ctx.regime});
     this.on=ctx.enabled&&ctx.regime!=='orbit'&&ctx.body!=='elune'?1:0;
     if(!this.on){this.local=0;this.polar.fill(0);this.nearest={distance:Infinity,bearing:0,intensity:0};this.state.step(ctx.dt,0,{wet:0,snow:0});this.sampleMs=0;return this;}
+    this.wantCover=true;this.cover=this.sample(ctx.eye[0],ctx.eye[2],ctx);this.wantCover=false;
     this.local=this.sample(ctx.eye[0],ctx.eye[2],ctx);
     this.state.step(ctx.dt,this.local,{wet:1,snow:this.climate.snow});
     const A=W.polar.azimuth,R=W.polar.rings;

@@ -17,7 +17,7 @@ test('shared emitter carries every weather constant the CPU field reads',()=>{
 test('both cloud tiers embed the emitter and couple the cell into the density and lighting',()=>{
   for(const s of [cloudShader,cloudShaderHigh]){
     assert(s.includes(src));
-    assert(s.includes('wxCellIntensity(Q,t)*wxCoverageGate(base)*c.near.y'));
+    assert(s.includes('wxCellIntensity(Q,t)*gate*c.near.y'));
     assert(s.includes('fn sheetDensity(pos:vec3f,t:f32)->vec4f'));
     assert(s.includes(`mix(1.0,${1-WEATHER_LOOK.dim},s.w)`));
   }

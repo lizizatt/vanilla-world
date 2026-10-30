@@ -16,6 +16,10 @@ const put = (pose) => page.evaluate(p => { worldTest.timeLock(720); worldTest.fo
 // Cells drift with the cloud flow, so chase the nearest intense cell while the camera settles inside it.
 const chase = async (x, z, yaw, y = 120, n = 8) => { for (let i = 0; i < n; i++) { await put([x, y, z, yaw, 0.02]); await page.waitForTimeout(1200); const c = await find([x, z], { min: .9, range: 2500 }); if (c) { x = c[0]; z = c[1]; } } return [x, z]; };
 const scenes = {
+  async spawn() {
+    await page.evaluate(() => worldTest.weatherArea(undefined));
+    await shot('spawn', 6000);
+  },
   async distant() {
     await put([START[0], 250, START[1], 0, 0]);await page.waitForTimeout(1500);
     const cell = await find([START[0], START[1]], { min: .9, range: 40000, edge: 3000 });

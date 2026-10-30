@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {density} from './cloud-march.js';
 import {WEATHER as W} from './weather-config.js';
+import {precipitation} from './weather-field.js';
 
 // Long deterministic space/time sample of the same CPU density path the renderer uses (synthetic land mask, no game data).
 const rng=seed=>{let s=seed;return()=>(s=(s*1664525+1013904223)>>>0)/4294967296;};
@@ -33,4 +34,11 @@ test('ground-time raining stays occasional when ~20% of the sky is dense cloud (
   const r=rng(29),pts=4000;let soft=0,hard=0,n=0;
   for(let i=0;i<pts;i++){const x=(r()-.5)*2e5,z=(r()-.5)*2e5,t=r()*1e5,cov=r()<.2?DENSE:.3,P=sample(x,z,t,mask(0,128),1,cov)[4];n++;if(P>=.1)soft++;if(P>=W.on)hard++;}
   assert(soft/n>.1&&soft/n<.2,`soft ${soft/n}`);assert(hard/n>.04&&hard/n<.12,`hard ${hard/n}`);
+});
+
+test('spawn regression: a clear sky inside the Maelstrom envelope (coverage .18, storm ~.3) never rains, even with wet climate',()=>{
+  const storm=.3,eye=1,clear=.18;
+  assert.equal(precipitation([0,0,0],0,clear,storm,eye),0);
+  for(let t=0;t<2e4;t+=250)assert.equal(precipitation([4e3,2e3,9e3],t,clear,storm,eye),0);
+  assert(precipitation([0,0,0],0,.95,.9,eye)>=W.heavy,'dense storm cloud still rains heavily');
 });
