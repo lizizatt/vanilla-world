@@ -89,6 +89,7 @@ const client=new WorldClient(data=>{
     else if(data.event==='sky')app.renderer.setSky(data);
     else if(data.event==='sky-dome')app.renderer.setSkyDome(data);
     else if(data.event==='worldmap'||data.event==='worldmap-tiles')mapPanel.event(data);
+    else if(data.event==='hud-art')app.flightHud?.art(data);
     else if(data.event==='loading-art')loadingArt.event(data);
     else if(data.event==='loading-art-warning'){
       console.warn(data.message);
