@@ -7,6 +7,8 @@ import {loadPodModel,loadPartModel,podSkinList,podPair} from './skin.js';
 import {readBlock} from './block.js';
 import {POD_POSES} from './poses.js';
 import {assemblePod,tetherMatrix} from './assembly.js';
+import {INTAKE_TEXTURES} from './intakes.js';
+import {meshTexture} from './pod.js';
 
 function fixture(tag) {
   const body=new Uint8Array(0x600),dv=new DataView(body.buffer);
@@ -99,6 +101,19 @@ test('tether transforms keep both endpoints attached, including vertical runs',(
   assert.throws(()=>tetherMatrix([0,0,0],[0,0,0]),/zero length/);
 });
 
+test('real data: assembled pods exclude deflected header-root flaps but keep fans',
+  {skip:!process.env.SWE1R_DATA},()=>{
+    const models=readBlock(fs.readFileSync(path.join(process.env.SWE1R_DATA,'lev01','out_modelblock.bin')),'model');
+    for(const skin of podSkinList()){
+      const pair=podPair(skin.index),[mask,body]=models[pair.pod],alt=models[pair.alternate][1];
+      const meshes=assemblePod(body,mask,alt,POD_POSES[skin.index]);
+      const nested=meshes.filter(m=>m.chain?.some(c=>c.header));
+      assert.ok(nested.every(m=>INTAKE_TEXTURES.has(meshTexture(m.body,m)?.index)),skin.name);
+    }
+    const sebulba=podSkinList().find(s=>s.name==='Sebulba'),pair=podPair(sebulba.index);
+    const all=parseModel(models[pair.alternate][1],null,{finest:true,visibleOnly:true,root:modelHeader(models[pair.alternate][1]).alt[0]}).meshes;
+    assert.ok(all.filter(m=>m.chain.some(c=>c.header)).length>=2);
+  });
 test('real data: all default payloads use only paired source geometry and fixed attachment/exhaust anchors',
   {skip:!process.env.SWE1R_DATA},async()=>{
     const root=path.join(process.env.SWE1R_DATA,'lev01');

@@ -55,17 +55,18 @@ export function parseModel(body, mask, opts = {}) {
   }
   // On disk: 3x3 rotation rows then translation (identity = 1,0,0, 0,1,0, 0,0,1, 0,0,0); converted to 3 rows of 4.
   const readMatrix = o => { const f = Array.from({ length: 12 }, (_, i) => f32(o + 4 * i)); return [f[0], f[1], f[2], f[9], f[3], f[4], f[5], f[10], f[6], f[7], f[8], f[11]]; };
-  function mesh(o, m, path) {
+  function mesh(o, m, path, chain) {
     if (!ok(o) || o + 0x3c > body.length) return;
     const matPtr = u32(o), cl = u32(o + 0x30), vt = u32(o + 0x34), nv = s16(o + 0x3a);
     if (!ok(cl) || !ok(vt) || nv < 1 || vt + nv * 16 > body.length) return;
-    meshes.push({ off: o, matrix: m, path, matPtr, cl, vt, nv, prim: s16(o + 0x22), body });
+    meshes.push({ off: o, matrix: m, path, chain, matPtr, cl, vt, nv, prim: s16(o + 0x22), body });
   }
-  function walk(o, m, path) {
+  function walk(o, m, path, chain = []) {
     if (!ok(o) || o + 0x1c > body.length || active.has(o) || path.length > 48) return;
     const flags = u32(o) & 0xffff, count = u32(o + 0x14), kids = u32(o + 0x18);
     if (opts.visibleOnly && !(u32(o + 4) & 2)) return;
     let mat = m, take = count;
+    const here = flags === NODE.TRANSFORMED || flags === NODE.PIVOT ? chain.concat({ type: flags, flags: s16(o + 0xc), header: tag === 'MAlt' && o !== opts.root && roots.includes(o), local: readMatrix(o + 0x1c) }) : chain;
     if (flags === NODE.TRANSFORMED || flags === NODE.PIVOT) {
       const local = readMatrix(o + 0x1c);
       if (flags === NODE.PIVOT && (s16(o + 0xc) & 0x10)) {
@@ -84,12 +85,12 @@ export function parseModel(body, mask, opts = {}) {
       const before = meshes.length;
       const c = u32(kids + 4 * i);
       if (flags === NODE.SELECTOR && i !== (opts.finest ? 0 : Math.max(0, dv.getInt32(o + 0x1c)))) continue;
-      if (flags === NODE.MESH_GROUP) mesh(c, mat, path.concat(i));
+      if (flags === NODE.MESH_GROUP) mesh(c, mat, path.concat(i), here);
       else if (replacements.has(kids + 4 * i)) {
         const sub = parseModel(opts.alternate, null, { root: replacements.get(kids + 4 * i), finest: true, visibleOnly: opts.visibleOnly });
-        for (const mesh of sub.meshes) meshes.push({ ...mesh, matrix: mulMat(mat, mesh.matrix), path: path.concat(i, ...mesh.path) });
+        for (const mesh of sub.meshes) meshes.push({ ...mesh, matrix: mulMat(mat, mesh.matrix), path: path.concat(i, ...mesh.path), chain: here.concat(mesh.chain) });
       }
-      else walk(c, mat, path.concat(i));
+      else walk(c, mat, path.concat(i), here);
       // The first cockpit slot can contain only the pilot's empty skeleton.
       if (flags === NODE.LOD && opts.finest && meshes.length > before) break;
     }
