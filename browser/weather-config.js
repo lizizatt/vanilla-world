@@ -24,7 +24,7 @@ near:{box:50,rainSpeed:30,snowSpeed:3.4,streak:.05,rainWidth:.07,snowSize:.1},
   // Slow-frame / tier switching: camera-effect fallback is the Low tier.
   effect:{streaks:26},
   // Lightning: only in cells at or above `heavy`; mean seconds between strikes at full intensity; speed of sound (yd/s).
-  lightning:{minIntensity:.8,meanGap:7,range:14000,flash:.35,soundSpeed:343},
+  lightning:{minIntensity:.8,meanGap:7,range:14000,flash:.35,veil:1,soundSpeed:343},
 };
 export const WEATHER_TIERS=Object.freeze(['off','low','standard','high']);
 /** Dry zones that never rain (decision 2), matched against the AreaTable zone name. */
