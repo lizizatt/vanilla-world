@@ -1,6 +1,6 @@
 # Design: ocean waves and an improved water shader
 
-Status: proposal (no code changed). Inputs read: `ocean-mesh.js` (+ test), `water-shader.js` (+ test), `water-stream.js`, `renderer-shaders.js`, `renderer-terrain.js`, `renderer-events.js`, `renderer-init.js`, `camera-collision.js`, `cloud-config.js`, `pole-cap.js`, `polar-light.js`, `space.js` (bend, globe sea), `particles.js` (wake/ripple), `weather-config.js`, `design/{weather,poles,elune,clouds,memory-budget}.md`, README "Authored distant water" / "Shared shoreline water shader", and Rust `voyage.rs`, `flats-racer-web/src/water.rs`. Game data is read at runtime only; nothing derived from it is committed. Numbers in yards (yd).
+Status: proposal, **revision 2 (gameplay waves)**. No code changed. Revision 2 supersedes the "visual-only sea" recommendation (B0/B1) and the phase table in 2(e): see section 3 (requirements and decisions) and sections 4-9. Sections 1-2 remain as the survey of what exists and of shading options. Inputs read: `ocean-mesh.js` (+ test), `water-shader.js` (+ test), `water-stream.js`, `renderer-shaders.js`, `renderer-terrain.js`, `renderer-events.js`, `renderer-init.js`, `camera-collision.js`, `cloud-config.js`, `pole-cap.js`, `polar-light.js`, `space.js` (bend, globe sea), `particles.js` (wake/ripple), `weather-config.js`, `design/{weather,poles,elune,clouds,memory-budget}.md`, README "Authored distant water" / "Shared shoreline water shader", and Rust `voyage.rs`, `flats-racer-web/src/water.rs`. Game data is read at runtime only; nothing derived from it is committed. Numbers in yards (yd).
 
 ## 1. What exists now
 
@@ -53,7 +53,7 @@ README tracks p99 handler < 20 ms and the frame; 64 MiB distant-water cap, 8 MiB
 **Buoyancy / physics.**
 | Choice | Pros | Cons |
 |---|---|---|
-| B0 Visual-only waves (recommended) | Physics stays the analytic `sea_height`, no time term, determinism/replay/ghost unaffected, no Rust change, shared-flight and saves unaffected, p99 unchanged. Pod already hovers; mismatch <= wave amplitude | Craft can visibly clip a crest by up to amplitude (~1-3 yd) or hover above a trough |
+| B0 Visual-only waves (**superseded in rev 2: waves must now collide; see section 4**) | Physics stays the analytic `sea_height`, no time term, determinism/replay/ghost unaffected, no Rust change, shared-flight and saves unaffected, p99 unchanged. Pod already hovers; mismatch <= wave amplitude | Craft can visibly clip a crest by up to amplitude (~1-3 yd) or hover above a trough |
 | B1 Render-side compensation | Pod *visual* model gets a smoothed vertical/pitch/roll offset from sampling the same Gerstner on CPU (JS `wave-math.js` shared with the shader), applied to the **rendered** pod pose only (like the existing chase-camera smoothing), physics untouched | Needs a CPU mirror (parity test, like `cloud-march.js`); small extra code. Good, cheap, and invisible to physics |
 | B2 Physics buoyancy | Real wave riding | Rust change (`sea_height(p,t)`), time into sample_at, desyncs saves/replays/shared flight, breaks the authored-water max rule (ground vs water), and flat chart units make wave steepness slope-forces dubious. Not worth it for a hover racer |
 
@@ -95,7 +95,7 @@ Shoreline: pod/shore interaction stays as today (authored shore, physics `water`
 - **WebGPU specifics**: FFT needs compute (workgroup memory, `rgba16float` storage textures); check features at init and drop to Gerstner otherwise. No `maxTextureDimension` or timestamp-query needs. Vertex texture fetch for FFT displacement is core WebGPU. Headless Edge SwiftShader paths run the Gerstner shader but FFT may be slow in CI: `water-smoke.mjs` should run at `standard` only.
 - **Parity needs**: (1) wave function shared CPU/WGSL: a `wave-math.js` that emits the WGSL (`waveWGSL()` like `flowWGSL()`) and a CPU mirror used for the pod visual (B1), the camera clearance and tests, with a parity test against sampled GPU readback in `water-smoke.mjs` (tolerance ~1e-3 yd); (2) `WHIRLPOOL_DIP` stays the only physics wave; (3) `validLiquidGeometry` unchanged because waves are displaced in the VS, not baked into liquid payloads; (4) the ocean-mesh test (crack-free, T-junction fans) stays untouched since the far mesh keeps its shape; add clipmap invariants (snapped lattice, no overlap, geomorph ends equal parent height); (5) floating-origin: `(u.right.w,u.up.w)` phase stability test across an origin change.
 
-### (e) Recommendation and phased plan
+### (e) Recommendation and phased plan (rev 1; the phase table below is superseded by section 8)
 
 Recommend **A1 + B0/B1 + S1 + F1 + SSS + wind/rain hooks**, tiered, with FFT (A2) and S2/R2 as later High-tier upgrades. Rationale: a racer at 100-300+ yd/s over a 0.4-scale world needs readable crests near the camera and a calm, alias-free horizon, not a simulated ocean; sums of 4-8 Gerstner waves give crest shape, analytic normals, analytic foam and a CPU mirror (cheap to keep in step with the pod render), while FFT adds a compute path and texture plumbing the engine lacks for modest extra realism at this speed and scale.
 
@@ -113,7 +113,7 @@ Each phase ships behind the quality tier and a settings flag (default `off` unti
 2. **Gerstner 4 waves**, crest spacing 25/60/130/300 yd, steepness .5: rolling swells with sharpening crests, foam only on crest tops in wind > .5; amplitude visibly 1-2 yd against a hover craft; the horizon stays smooth.
 3. **Maelstrom**: wave amplitude ramps to 2x within the storm radius, but inside the 1800 yd bowl the displaced walls are dominated by the analytic dip; white foam arms follow the existing log-spiral; rain ripples sparkle under the storm.
 
-### Open questions for the user
+### Open questions (rev 1; answered or superseded by section 9)
 1. Is a **visual-only** sea acceptable (pod/chase camera may clip or hover a few yards from a crest), or do you want a gameplay-affecting sea (Rust change, not recommended)?
 2. Preferred wave scale: calm stylised swells (<= 1.5 yd) vs dramatic storm seas (up to ~5 yd, would also need B1 bob and bigger camera clearance)?
 3. Is a High-tier **FFT/compute** path worth carrying (Phase 3), or stop after Gerstner?
@@ -121,3 +121,216 @@ Each phase ships behind the quality tier and a settings flag (default `off` unti
 5. Should lakes/canals/coast water also move (small amplitude) or stay perfectly flat as authored?
 6. Do you want waves on Standard tier by default, or opt-in until benchmarked?
 7. Moon/sun glint at night: do we have a trustworthy moon-direction/phase uniform in the time system to use?
+
+---
+
+# Revision 2: gameplay waves, water-contact foundation, swell flight, wake and splash
+
+## 3. New requirements and what they change
+
+1. **Waves collide.** Shader, JS and Rust physics evaluate the same deterministic analytic Gerstner field. This **reverses rev 1's B0/B1 (visual-only) and B2 (rejected) choices**: B2 is now the plan, made safe by determinism (no simulation state, only a pure function of position and a shared clock).
+2. **Foundation for a later sailboat mode:** a water-contact/buoyancy API (submerged samples, drag, wave normals). No boat is built.
+3. **Vision:** jump off swells with the pod; crash into the side of a big wave if you fly badly.
+4. **Higher-fidelity wake and splash** from podracer overflight.
+
+Facts from the code that shape this (read for rev 2): the physics crate `client/crates/flats-racer-physics` is pure Y-up hover dynamics ("collision detection and position integration belong to the caller", lib.rs:1) with `HOVER_HEIGHT` = 1.1 and a support probe reach of `max(hover+0.8, SUPPORT_REACH)`; the surface the pod rides comes from `flats-racer-web/src/voyage.rs` `sample_at(p: [f64;2], body_y)` (line 259) and `sea_height(p)` (251); positions there are `f64`. `wreck.rs` is a debug-only crash proof of concept ("nothing in `step` or the race flow calls it"); durability/heat damage exists in lib.rs:22. Because the pod hovers 1.1 above whatever the surface is, **a wave behaves exactly like terrain to the existing hover spring**, and the amplitude budget is measured against the cushion, not against the pod's size.
+
+## 4. Shared wave model (shader = JS = Rust)
+
+### 4.1 Function
+A sum of N = 4 (default; 6 max) Gerstner components i with direction `d_i` (unit, in chart xz), wavenumber `k_i`, amplitude `A_i`, steepness `Q_i`, angular frequency `w_i`, phase `phi_i`:
+
+```
+theta_i(x,z,t) = k_i (d_i . (x,z)) - w_i t + phi_i
+horizontal displacement  Dxz(p0,t) = sum Q_i A_i d_i cos theta_i
+height (at rest point p0) h(p0,t)  = sum A_i sin theta_i
+```
+Gerstner moves vertices horizontally, so the **surface height at a fixed world (x,z)** needs the rest position p0 with `p0 + Dxz(p0,t) = (x,z)`. Shader vertices are Lagrangian (they *are* p0, displaced), so the mesh needs no inversion. **Physics and the CPU mirror must invert**: fixed-point `p0 <- (x,z) - Dxz(p0,t)`, started at p0=(x,z), **exactly 3 iterations in all three implementations** (not "until converged", so results are bit-reproducible in structure). Convergence is guaranteed by the safety rule `sum Q_i k_i A_i <= 0.9` (the displacement map is a contraction, no looping crests), enforced when configs load and by test.
+Analytic normal from the same sums (partials of h and Dxz, `n = normalize(-dh/dx, 1, -dh/dz)` after the horizontal Jacobian correction), plus `dh/dt` (vertical surface speed) and orbital horizontal velocity for the contact API. The same Jacobian gives crest foam `J = det(I + dD/dp)`, so foam, collision slope and look agree.
+
+### 4.2 Parameters and single source
+- Wave set is data, in one place: new **`browser/wave-config.js`** (like `cloud-config.js` is for `WHIRLPOOL_DIP`): component table (wavelength, direction offset from wind, amplitude share, steepness share), `g_world` (deep-water dispersion `w^2 = g k`; recommend `g_world` = the physics `GRAVITY` so apparent speed feels right), master period, region table (below), caps. `wave-math.js` emits the WGSL (`waveWGSL()`, like `flowWGSL()`), a JS mirror, and **a JSON golden file** consumed by the Rust tests (Rust cannot import JS, so a generated `wave-params` constant block in `voyage.rs`/new module is produced by a script and diffed in CI like `WHIRLPOOL_DIP`'s mirror is checked today).
+- **Phase-exact clock.** Choose `w_i = 2 pi n_i / T_master` with integer `n_i` (e.g. `T_master` = 1024 s) and derive `k_i = w_i^2 / g` (so wavelengths are quantised to the dispersion, which is fine). The wave clock then **wraps at `T_master` with zero discontinuity**, so `t` is always kept small (f32-safe in WGSL) and the clock never degrades over a long session.
+- **Shared wave clock.** `t_wave` is derived from the **simulation tick count** (`tick * dt`, f64), not the wall clock: the worker passes the tick's `t_wave` into each wasm step (and `set_wave_time` for queries outside a step); the renderer interpolates the same value between ticks (render time = last tick time + alpha*dt) and writes it to a uniform. Replays/ghosts/shared flights reproduce waves because the clock is part of sim state. Pausing the sim pauses the waves (acceptable; a purely cosmetic `t_detail` uniform keeps ripple normals/foam animating if desired).
+- **Floating origin.** CPU computes `k_i d_i . origin mod 2 pi` per origin change in f64 and uploads it as a per-wave phase offset; the shader then evaluates `k_i d_i . local_xz` in f32 (smaller arguments, no precision loss at 40 km from the chart origin). Same trick for Rust being `f64` is not needed but the shared test must cover origins up to the planet size.
+- **Parity tolerance:** JS vs Rust (both f64 path): 1e-9 yd; WGSL f32 readback vs JS: 2e-3 yd height, 2e-3 normal. Golden vectors include extremes: large origins, `t` at 0 / `T_master - eps`, steep config, zero amplitude.
+
+### 4.3 Gameplay-safe amplitude and per-region settings
+Amplitude is the **most important gameplay knob**; the safe envelope is derived from the hover cushion (`HOVER_HEIGHT` 1.1, support reach ~1.9):
+- **Default sea (Hs ~ 1.0, crest-to-trough ~ 2.0 yd max component sum 1.6):** a craft at cushion height skims over crests without ever being driven into them by the spring alone; low flying is rewarded, not punished.
+- **Hard cap on slope** of the combined field at default regions: `|grad h| <= 0.25` (14 deg), so the hover model never sees a face steeper than a ramp it already handles. Steeper only in "swell set" and storm regions (4.4/5).
+- Config validation (load time + unit test): `sum A_i <= ampMax(region)`, `max slope <= slopeMax(region)`, `sum Q_i k_i A_i <= 0.9`.
+
+Region table (data in `wave-config.js`, mirrored to Rust, evaluated from a pure function `region(x,z)` + wind; no textures so Rust and shader agree):
+
+| Region | Amp scale | Slope cap | Notes |
+|---|---|---|---|
+| Open sea, calm | 0.5 | .15 | trade-wind belts, near-glass |
+| Open sea, default | 1.0 | .25 | wind from `beltWind` sets direction |
+| Storm sea (inside storm cells, Maelstrom radius 9600 yd) | up to 2.5 | .5 | big swell sets (5), wake breakers |
+| Maelstrom bowl (r < 1800) | 0.35 | .25 | the analytic dip dominates; waves must not obscure its walls |
+| Polar water | 0.15 beyond 80 deg lat | .1 | brash ice, near flat |
+| Lakes / canals / authored MCLQ/MLIQ water | **0** (default) | n/a | flat as authored (matches current physics, README 531) |
+| Elune / airless | 0 | n/a | no waves; Moonglade stays flat |
+
+### 4.4 Shore fade and the land/authored-water boundary
+Waves must be **zero where water is authored** and fade over the shallows:
+- `ampK = smoothstep(0, 1, ramp / ramp_full)` with `ramp_full` = 0.06 normalised ramp (about 20-40 yd of shelf, tune in smoke). Shader already has the authored `ramp` attribute (`v.n.x`). Rust builds `exterior_geometry` and the distant-water triangles from the **same** MCLQ/ramp data (`water.rs`), so Rust computes `ramp` per triangle (barycentric) with the identical function: **this is the one place shader/Rust can drift; parity test = sample N points in triangles on both sides and compare ampK**. Where ramp is unavailable (deep ocean backing, `coversLand` carved cells) ampK = 1 in the open sea and 0 on land cuts (hard stop at `coversLand` rects, including the raceway basin: never raise water into carved land).
+- Physics surface = `max(ground, sea_height + wave)`. A wave never covers ground that is above the mean sea level by more than `ampMax` (it simply sinks below); crests that would lap ground <= `ampMax` high are clipped by the fade, so the pod never sees water ridges climbing the beach.
+- Shader land-cut: unchanged from rev 1 (Phase 1).
+
+### 4.5 Flat-water preservation (non-negotiable test)
+With `A_i = 0` everywhere (setting `waves = off`) **`sample_at` must return bit-identical `Surface` values to today** and all existing flight/physics goldens must pass unmodified. The wave term is added in exactly one place (`sea_height`, voyage.rs:251: `sea_level - whirlpool_dip + wave(p,t)*ampK`), and the new `t_wave` argument defaults to 0 for existing callers. Add a test per surface type (open sea, whirlpool bowl, authored lake, canal, tile boundary, `coversLand` carve) that the flat path is unchanged.
+
+## 5. Waves vs the pod: swell flight and wave-face crashes
+
+### 5.1 Contact model (what changes in physics)
+No new force model is invented for the common case: the surface is just a height field, and the existing hover spring/skim contact reads `sample_at(...)` at the support rays. Additions:
+- **Surface normal** from the wave gradient is blended into the support normal so the pod banks with the slope (same path terrain slope uses).
+- **Moving surface:** the contact point velocity `dh/dt` (and orbital horizontal) is subtracted from the relative velocity for support/drag. It is small (`A w` ~ 0.3-1 yd/s) next to flight speed (100-300+), and is mainly relevant to a slow pod (hovering/low speed) and the future sailboat.
+- **Look-ahead lift (swell cushion):** probe 0.2-0.4 s ahead along velocity; if the surface rises toward the craft, add a smooth upward bias on the support (ground-effect cushion) so small face hits become ramps. This is what keeps default swells fair; it is *absent* above the crash threshold (below).
+
+### 5.2 Jumping off swells
+A swell crest is a launch ramp: the spring loses support as the surface falls away faster than the craft, and the craft goes ballistic. For a pod at horizontal speed `v` leaving a rising slope `s`, vertical launch speed is about `v s`, air time `2 v s / g`, apex `(v s)^2 / (2 g)`. With physics `g` = `GRAVITY` (use the real constant; numbers below assume 10.7 yd/s^2 as an illustration to be re-tuned):
+
+| Speed v (yd/s) | slope .10 | slope .20 | slope .35 |
+|---|---|---|---|
+| 60  | apex 1.7 yd, air 1.1 s | 6.7 yd, 2.2 s | 20 yd, 3.9 s |
+| 120 | 6.7 yd, 2.2 s | 27 yd, 4.5 s | 82 yd, 7.9 s |
+| 200 | 19 yd, 3.7 s | 75 yd, 7.5 s | 229 yd, 13 s |
+
+Design implications: (a) at race speeds a modest 0.2 slope already gives a long jump, so **default slope cap .25** and an **explicit "jump swell" region** (sets with slope up to .35-.4) rather than letting every sea be a launch pad; (b) speeds near the cap (200+) are where hits are costly, so the jump table is the tuning sheet: choose set slope so apex at cruise speed is 5-25 yd, a fun but survivable jump; (c) landing is just a normal water contact at the new face, with spray (section 7) and the skim response below the crash threshold.
+
+### 5.3 Wave-face impact model
+Treat the sea surface as a collision **mesh of height h(x,z,t)** with normal `n` (4.1). For each craft contact sample point `q` (nose, belly, both engine pods, tail; ~5-8 points) when `q.y <= h(q) + contact_eps`:
+- **Closing speed** `v_n = -(v_q - v_surf) . n` (surface motion included). **Incidence angle** `a = asin(v_n / |v|)`.
+- Classification (tunable constants in `wave-config.js`, mirrored to Rust):
+
+| Class | Condition | Result |
+|---|---|---|
+| **Skim / graze** | `v_n <= 8 yd/s` or `a <= 6 deg` | existing hover/skim response, wake + skim spray, no damage |
+| **Slap** | `8 < v_n <= 40` | inelastic bounce: remove normal velocity with restitution .25 (match `wreck.rs RESTITUTION` .3), tangential friction .08, drain 5-15% speed, splash, rumble, 0 damage; heat/durability untouched |
+| **Crash (wave-face impact)** | `v_n > 40` **and** `a > 20 deg` (the nose/engine sample hits the *face*, not the back) | see below |
+
+- **What "crash" does.** Recommended: a *wipeout*, not instant death. (1) Large impact splash (section 7), (2) speed multiplied by 0.35 along the face normal-removed velocity, (3) durability damage scaled by `v_n` (reuse the existing engine-health model, lib.rs:22) so a single bad hit hurts but a graze never does, (4) 0.8-1.5 s control-lockout/yaw-tumble impulse (torque from where the sample hit) and camera shake, (5) the pod is then re-seated on the surface in a recovery state (self-righting, regains control). Above a **catastrophic threshold** (`v_n > 90` or health 0) the race flow's existing crash outcome applies; promoting the debug `wreck.rs` PoC to be called is explicitly an **opt-in later step**, not part of this design. Open question 10 covers death vs wipeout.
+- **Swell size vs speed (when a face can crash you).** For level flight at speed `v` into a face of slope `s`: `v_n = v s / sqrt(1+s^2)`. Crash needs `v_n > 40`: at s=.25 that is v > 165; at s=.5 v > 90; at s=.8 v > 65. So the default sea is **crash-free below ~165 yd/s**, near-cap flyers can crash only by flying into a face at low altitude on defaults, and **only storm/"big wave" sets** (slope .5-.8) are dangerous at cruise speed. Big wave size: height (trough to crest) 8-14 yd, wavelength 150-400 yd, period gives phase speed ~ `sqrt(g L / 2 pi)` = 14-24 yd/s (nearly static to the pod, so the wave is a deterministic "wall" you can read and path around).
+- **Wave sets** (the "big wave" content): a 5th component with a travelling group envelope `e(x,t) = smoothstep` over a pulse train (period 90-180 s, set length 3-7 waves), analytic and deterministic, only in storm/set regions; steepness up to .8 but still obeying the contraction rule (so it does not loop/overturn, its look is a steep face with foam, not a barrel). No breaking-wave physics.
+
+### 5.4 Fairness and readability
+- **Readable ahead of time:** big faces are >= 8 yd tall and visible 3 s ahead (450+ yd at cruise); crest foam (Jacobian, F1), a dark trough/bright face lighting from the wind direction, whitecap lines on the crest, and distant-set silhouette are all required in Phase 1 shader output for a face to read at distance. Add a subtle audio cue (low surge) and an **optional** HUD "swell ahead" chevron (off by default).
+- **Deterministic, never surprise:** no random freak waves. Sets repeat on a fixed schedule, are region-bound, and are the same in every replay.
+- **Forgiveness:** (i) the look-ahead lift (5.1) turns most graze hits into ramps; (ii) crash requires *both* high closing speed and a face-on angle; (iii) hit grace: the first slap inside 2 s after a crash does not re-crash (invulnerability for recovery); (iv) the damage curve is continuous, never a cliff; (v) a "wave telegraph" setting scales amplitude down globally (assist) and is the same code path (`ampScale`).
+- **No hidden collisions:** physics and render surfaces agree to <= 0.002 yd (parity test), so you can never hit a wave you can't see or fly through one you can.
+- **Tunability:** the constants above live in one table, are verified by a flight test that scripts three flights (low pass, jump, face-on) at 60/120/200 yd/s and asserts outcome class.
+
+## 6. Water-contact / buoyancy API (foundation for sailboats)
+
+Goal: a **pure, boat-agnostic** API the pod uses now (skim contact) and a future hull will use. No boat model, no mesh, no sails; only the foundation and a test fixture.
+
+```
+trait WaterField { // Rust, in flats-racer-physics (new module `water.rs`), mirrored 1:1 in JS wave-math.js
+    fn sample(&self, x: f64, z: f64, t: f64) -> WaterSample;
+    fn sample_batch(&self, pts: &[[f64;2]], t: f64, out: &mut [WaterSample]);
+}
+struct WaterSample { height: f32, normal: [f32;3], surface_vel: [f32;3] /* dh/dt + orbital */, amp_k: f32, depth: f32 /* seabed distance, inf in deep sea */ }
+fn submerged(points: &[[f32;3]] /* hull sample points in world space */, field: &impl WaterField, t: f64) -> Submerged;
+struct Submerged { depth: Vec<f32> /* >0 = below surface */, normal: Vec<[f32;3]>, fraction: f32, volume: f32 /* from per-point cell volume */, centre: [f32;3] }
+fn buoyancy_force(sub: &Submerged, rho: f32, g: f32) -> ([f32;3] /* force */, [f32;3] /* torque about centre */);
+fn drag_force(sub: &Submerged, v_rel: [f32;3], cd: f32, area_per_point: f32) -> [f32;3];  // quadratic, along -v_rel, scaled by submerged fraction
+```
+- Pure functions, no state, no allocations on the hot path (caller-provided buffers), `f64` positions, `f32` outputs. Pod contact and the sailboat share the same code: the pod's support rays are 1 sample per ray with `depth = h - q.y`; a hull is the same call with N points.
+- **wasm exports** (cargo agent builds): `water_sample_batch(ptr,n,t,out_ptr)` for JS/worker, so JS never loops in JS for gameplay; JS mirror exposes the same names for renderer/camera/audio.
+- **Camera clearance:** `camera-collision.js waterSurface` becomes `sea_height + wave(x,z,t)` from the JS mirror plus clearance (no hand-tuned `ampMax` padding).
+- **Tests with no boat:** a Rust test fixture "buoy" (a few sample points and mass) must (a) float at equilibrium in flat water at the analytic displaced-volume depth, (b) heave/pitch with the swell with bounded amplitude, (c) damp via `drag_force`, and (d) the energy never grows; deterministic across runs.
+- Out of scope: hull model, rudder/keel, wind-on-sail force, anchoring, crew, water ingress.
+
+## 7. Wake and splash from podracer overflight
+
+### 7.1 Current state
+`particles.js` already has a `ripple` and a wake (CPU particles; ripple rings and spray), sized for the flat sea; they do not interact with the wave height (a ring floats at sea level) and cannot form a trail that persists in the water.
+
+### 7.2 Options survey
+
+| # | Option | Look | Cost (mid GPU, 1080p) | Fit |
+|---|---|---|---|---|
+| W1 | **Wake ribbon / foam trail**: a camera-near strip of quads sampled from the pod's path every ~2-4 yd while low over water; foam texture, alpha-decay over 6-12 s, widens with age; vertices snapped to the wave surface (`h(x,z,t)` from the shared model so the trail rides the swells) | clear V-wake + centre churn behind a skimming pod | <= 64 segments, 256 verts, ~0.05 ms GPU, trivial CPU | Easy; best value; needs surface height mirror (4) |
+| W2 | **Spray particles** (instanced billboards): emission from pod/engine points with velocity from pod velocity + normal + noise, lifetime 0.5-1.5 s, gravity; GPU storage buffer on WebGPU | rooster-tail and bow sheets | 500-2000 particles ~0.1-0.25 ms | `particles.js` extension; instanced draw is new |
+| W3 | **Ripple height-field interaction**: a camera-centred, toroidally addressed 256^2 (2 yd texel -> 512 yd window, tune) wave-equation sim (ping-pong rgba16float: height, velocity, foam, spare) in a WebGPU compute pass; pod drops impulse discs at contact points; water shader samples it for extra normal/height (VS fetch) and foam | real expanding wave rings and wake pattern that interact with real waves | 0.2-0.4 ms (1 compute dispatch + 1 texture) | Needs a compute path (does not exist); High tier |
+| W4 | **Skim spray when low** (continuous): emission rate = `speed * clamp(1 - alt/limit)` where `limit` ~ 2.5 yd; two side sheets + centre rooster tail; modulates W2 and W1 widths | the "I'm kissing the water" feedback loop that teaches low flight | rides W2 | Core feel feature |
+| W5 | **Impact splash**: on slap/crash (5.3) spawn crown + column + shock ring: sprite/particles scaled by `v_n`, an impulse in W3 (or a foam decal in W6), a short-lived foam ring ribbon on the surface, camera shake and audio | clear, satisfying consequence for jumps/crashes | burst of 100-400 particles, one frame | Simple, needs the impact event from physics |
+| W6 | **Foam map**: camera-centred RG8 256^2 foam/decay map written by W1/W5 as quads, sampled by water FS; cheaper stand-in for W3's foam channel | persistent foam without the sim | ~0.05 ms | Low tier substitute for W3 |
+
+### 7.3 Tiers (reusing `off/low/standard/high`)
+- **off:** today's rings/spray unchanged.
+- **low:** W5 sprite splash + W4 skim spray (existing CPU particles, wave-surface-aware origin) + W1 ribbon with 4 s lifetime.
+- **standard:** low + W2 instanced GPU-drawn spray (capped 1000) + W6 foam map + W1 8-12 s trail + audio hooks.
+- **high:** standard + W3 compute height-field (2 yd texel, window 512 yd, scrolls with the camera by toroidal offset) + higher spray counts (2000) + W5 shock rings driving W3.
+
+### 7.4 WebGPU plan
+1. **Particles:** a storage buffer of N particles (pos, vel, age, size, kind), CPU-updated at standard; compute-updated at high; one instanced draw (billboards, alpha-blended, depth-tested) in the water/terrain pass after water.
+2. **Ribbon:** dynamic vertex buffer rewritten each frame from a ring buffer of path samples; rendered with the shared wave height in the VS for vertical snap.
+3. **Height-field:** two `rgba16float` storage textures ping-ponged, compute shader 8x8 workgroups, damped wave equation (`h'' = c^2 laplace h - damp h'`, c ~ 20 yd/s so rings are readable vs flight speed), injection list as a small uniform buffer (<= 16 impulses/frame); window recentres in whole-texel steps (toroidal addressing, no clear) with the lattice snapped to world texel spacing (same snapping rule as the clipmap) so it never swims; water VS/FS sample it bilinearly.
+4. **Feature gate and fallback:** `storage rgba16float` write and compute availability check at init; failure drops `high` to `standard` silently. Headless Edge/SwiftShader smoke runs `standard`.
+5. **Origin/bend:** all effects live in chart space before `bend()`, like the waves; spray beyond ~2 km culled.
+
+### 7.5 Budgets
+Standard +0.15-0.25 ms GPU total (ribbon + spray + foam map); High +0.4-0.7 ms (adds W3). Particle count and ribbon length are caps, not targets, and drop on the existing slow-frame auto-downgrade.
+
+## 8. Revised phases, file lists, tests (supersedes 2(e) table)
+
+Phase 1 is **already underway in a separate session** (shader). Treat it as the shader foundation and **require it to satisfy the contract in 4** before Phase 2 is written, so shader and physics start from one definition.
+
+| Phase | Scope | Files (new = n) | Tests | Risk |
+|---|---|---|---|---|
+| **1 (in progress, other session): shader** | Water shading upgrade (real sun, glint, slope-variance roughness, Beer-Lambert, SSS, night), near clipmap + Gerstner VS, crest foam from the Jacobian, shore/land-cut fade, `waterQuality` tier (`off` = bit-identical to today). **Must consume `wave-config.js`/`wave-math.js` (n) as the single wave source, no private constants.** | `water-shader.js`, `renderer-shaders.js`, `renderer-terrain.js`, `ocean-clipmap.js` (n), `ocean-mesh.js`, `wave-math.js` (n, WGSL emitter), `wave-config.js` (n), `space.js` | `water-shader.test.mjs`, `ocean-clipmap.test.mjs` (n), `wave-math.test.mjs` (n; continuity, band limits, contraction), `water-smoke.mjs` | Medium: clipmap seams, floating-origin phase, bend; risk of drifting away from `wave-config.js` |
+| **2: shared wave model + Rust** | `wave-config.js` finalised; `wave-math.js` CPU mirror with inversion (3 iterations), golden vectors + generated Rust constants; Rust `waves` module (`flats-racer-physics`), `sea_height` gains `+ wave(p,t)*ampK`, `t_wave` plumbed through the wasm step API (default 0), shared sim-tick wave clock in the worker/renderer, **wasm rebuild via the cargo agent** | `wave-config.js`, `wave-math.js`, `client/crates/flats-racer-physics/src/waves.rs` (n), `client/crates/flats-racer-web/src/voyage.rs` (`sea_height`, `sample_at`, `set_wave_time`), `water.rs` (ramp -> ampK), worker/world messaging, `camera-collision.js`, generated `wave-params` consts script (n) | Rust: golden parity, flat-water bit-identical (4.5), contraction/slope cap, per-surface flat tests; JS: parity vs golden; smoke: shader readback vs JS 2e-3; determinism across origin and `t = T_master` wrap | **High**: sim clock/determinism, ghost/replay/save compat (wave term is additive, default off), ramp parity, wasm size and build time |
+| **3: region/shore/weather settings** | Region table active (calm/default/storm/Maelstrom/polar/lakes), wind direction from `beltWind`, amplitude scale per cell, shore fade parity, settings UI (`ampScale`, assist), `waves` flag cleared on body switch (Elune) | `wave-config.js`, `weather-field.js`/`weather-wgsl.js` (`windK`), `renderer-weather.js`, `renderer-events.js`, settings UI | region parity JS/Rust/WGSL, ampK parity on authored triangles, polar and Maelstrom cases, Elune flat | Medium; depends on weather.md phases for wind |
+| **4: contact API + gameplay** | `WaterField`/`submerged`/`buoyancy_force`/`drag_force` (6), pod hover/skim reading real waves with normal + surface velocity + look-ahead lift, swell flight tuning, wave-face impact classes + wipeout (5), wave sets, camera clearance | `flats-racer-physics/src/water.rs` (n), `lib.rs`, `voyage.rs`, wasm exports (`water_sample_batch`), `camera-collision.js`, pod visuals/shake/audio hooks, `wave-config.js` (impact constants) | buoy fixture (float/heave/damp/energy), flight scripts at 60/120/200 yd/s (skim/jump/face-on), crash class table, flat-water goldens unchanged, p99 handler | **High**: feel tuning, interaction with durability/race flow, determinism, p99 |
+| **5: wake and splash** | W1, W4, W5, W6, W2 (standard); wave-surface-aware origins | `particles.js`, new `wake-ribbon.js`, `splash-fx.js`, `renderer-terrain.js`/water pass, `water-shader.js` (foam map sample), audio | spawn/lifetime determinism (seeded), ribbon snap to `h`, perf cap tests, smoke screenshots, memory-budget row | Low-medium; pooling/overdraw |
+| **6 (optional, High tier): height-field + FFT** | W3 compute height-field; later FFT cascade, S2/R2 from rev 1 | compute module (n), `renderer-init.js` gate, water shaders | feature-gate fallback, perf gates | High: new compute path |
+| **Later (not scheduled): sailboat mode** | Hull, sails, rudder consuming section 6's API | n/a | n/a | n/a |
+
+Rust/wasm work goes through the **cargo agent** (wasm rebuild is a step in phases 2 and 4, not hand-run), per the repository workflow. Every phase ships behind `waves`/tier flags (default off until smoke + perf match baseline); Phase 2 keeps the flat path bit-identical.
+
+## 9. Performance budget (handler p99 ~ 20 ms is the constraint)
+
+- **Physics/worker:** a wave sample = 4 components x (sin, cos) x 3 inversion iterations ~ 24 sincos + a small amount of arithmetic ~ 0.3-0.6 us in wasm. Pod contact ~ 8 samples/tick, buoy API <= 64 samples/tick -> **< 50 us per tick**, i.e. < 0.25% of the 20 ms handler budget. Hard rules: no allocation, no per-tick region lookups beyond a handful of arithmetic ops, batch samples via one wasm call. CI gate: a micro-benchmark asserting `sample_batch(10_000)` under a ceiling and the existing p99 handler benchmark must not regress beyond noise (<= +0.5 ms).
+- **Main thread:** JS mirror <= 16 samples/frame (camera, pod visual, audio, wake ribbon); wave uniforms ~ 24 floats/frame; clipmap grid static (no per-frame mesh work), `refreshOcean` 1/s unchanged.
+- **GPU (mid, 1080p):** Standard: Gerstner VS (4 waves, ~60-100k verts) + normals + foam + SSS ~ +0.3 ms; wake/splash +0.15-0.25 ms. High: +0.4-0.7 ms for the height-field, FFT optional. Auto-downgrade via the existing slow-frame mechanism.
+- **Memory:** clipmap 2-3 MiB, foam/height-field textures 1-2 MiB, particles < 1 MiB, wasm growth ~tens of KiB; add rows to `memory-budget.js`.
+- **Bytes:** no shipped binary assets; wave tables are tiny config.
+
+## 10. Risks (rev 2 additions)
+
+| Risk | Mitigation |
+|---|---|
+| Shader (separate session) and Rust drift on the wave function | Single `wave-config.js` + `wave-math.js` source, generated Rust constants checked in CI, golden-vector tests on all three, Phase 1 must adopt before merge |
+| Time in physics breaks replays/ghosts/saves | Clock is the sim tick count; wave term additive and zero when off; bit-identical flat test; golden replays run with waves off and on |
+| Gerstner horizontal displacement makes collision height wrong | Mandated 3-iteration inversion in all three, contraction cap, parity tests |
+| Shore mismatch between shader ramp and Rust | Rust derives ampK from the same ramp data per triangle; parity sample test; fallback: fade to 0 at `coversLand` plus a conservative min over neighbours |
+| Waves make the race unfair or unreadable | Amplitude/slope caps by region, look-ahead lift, crash requires speed + angle, wave sets deterministic and telegraphed, `ampScale` assist, scripted flight tests |
+| Crash model conflicts with durability/race flow | Wipeout default, catastrophic outcome only above a high threshold, `wreck.rs` untouched; confirm with owner of race flow |
+| p99 handler regression | < 50 us/tick budget, batching, benchmark gate |
+| f32 precision / long sessions | Phase-exact master period, CPU-computed origin phase offsets |
+| Compute path (W3/FFT) unavailable | Feature gate, `standard` fallback, SwiftShader smoke runs `standard` |
+| Orbit/bend interplay | Waves disabled above the atmosphere regime; globe sea unchanged |
+| wasm size/build time | Small module (~KiB), built via cargo agent |
+
+## 11. Open questions with recommended answers
+
+1. **Crash severity:** wipeout (speed loss, damage, brief lockout) vs instant wreck? *Recommend wipeout; wreck only above `v_n` 90 or zero health; leave `wreck.rs` debug-only for now.*
+2. **Default amplitude/slope:** *Hs ~ 1.0 yd, slope cap .25; calm .5x; storm 2.5x; sets up to .5-.8 only in storm/set regions.*
+3. **Crash threshold constants** (`v_n` 40, angle 20 deg, slap 8): *start there; tune with the scripted flight tests.*
+4. **Do lakes/canals/coast move?** *No: flat as authored (physics today); waves fade to 0 via the ramp.*
+5. **Waves default on?** *Opt-in via `waves`/tier until Phase 2-4 benchmarks match baseline; then default on at standard.*
+6. **Wave clock tied to sim ticks (pause pauses waves)?** *Yes, with a cosmetic detail clock for ripples.*
+7. **Shared flight/ghost compatibility:** *waves must be a deterministic function of (x,z,tick); ghosts recorded with waves off remain valid with waves off; add a version flag to recordings.*
+8. **Sailboat scope now:** *API only (section 6) plus the buoy test fixture; no hull.*
+9. **Jump swells as content:** *dedicated jump-swell zones, not everywhere; slope .35-.4 and clear signposting.*
+10. **Should big waves be deadly in time trials/races or only a speed penalty?** *Speed penalty + damage only; no instant loss outside the existing durability rules.*
+11. **Telegraph HUD / audio cue for swell sets:** *audio on, HUD chevron off by default.*
+12. **Is the High-tier compute path (height-field/FFT) worth carrying?** *Defer; ship W1/W2/W4/W5/W6 first, then W3 if cost allows.*
+13. **Underwater view, caustics, bioluminescence:** *non-goals.*
+14. **Moon direction/phase uniform for night glints:** *confirm in the time system; if absent, use a fixed-direction moon term.*
+15. **Where should the wave config live for Rust (generated constants vs runtime upload)?** *Runtime upload via `set_waves(params)` at startup from the JS single source, validated in Rust; avoids a generated file and is a one-call wasm API; golden tests still lock parity.*
+16. **Amplitude vs `HOVER_HEIGHT` 1.1:** confirm the hover spring tracks waves without bouncing at the default slopes. *Recommend a Phase 2 physics spike (flat test + sinusoidal surface test) before gameplay tuning.*
