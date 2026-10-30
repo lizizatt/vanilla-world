@@ -133,3 +133,5 @@ Measured with weather-coverage.mjs (real land mask, 3000 points x 90 steps of 12
 ## Spawn fix
 Rain showed at the Steamwheedle spawn under a clear sky (coverage .18): the Maelstrom storm term bypassed both the coverage gate and the dry climate (storm ~.3 gave P=.158). It is now gated by the rendered cloud coverage (config storm.cover [.25,.4]) in the CPU density, the WGSL cloud body and weather-field. Land coverage after: visible 12.6%, hard 6.6% (before the fix 18.4% / 10.1%, which included that false storm rain). Regression: weather-coverage.test.mjs.
 
+
+Wind-driven dust and blowing snow share the weather tiers; see [wind.md](wind.md).
