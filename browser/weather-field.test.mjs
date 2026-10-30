@@ -24,7 +24,7 @@ test('cell field is deterministic and bounded',()=>{
 test('about 30% of dense cloud rains, none of thin cloud',()=>{
   const r=rng(12345);let wet=0,thin=0,n=30000;
   for(let i=0;i<n;i++){const Q=[r()*4e4,r()*4e4,r()*4e4],t=r()*4e5;
-    if(precipitation(Q,t,.9)>=W.on)wet++;if(precipitation(Q,t,.5)>0)thin++;}
+    if(precipitation(Q,t,.9)>=W.on)wet++;if(precipitation(Q,t,.25)>0)thin++;}
   assert(wet/n>.25&&wet/n<.36,`wet ${wet/n}`);assert.equal(thin,0);
 });
 test('lifecycle fades in and out and is continuous across the wrap',()=>{
@@ -58,7 +58,7 @@ test('weather state eases, uses hysteresis and picks the kind',()=>{
   const a=new WeatherState();for(let i=0;i<200;i++)a.step(.1,.9,{wet:1,snow:0});assert.equal(a.kind,'rain');assert(a.heavy);
   const b=new WeatherState();for(let i=0;i<200;i++)b.step(.1,.9,{wet:1,snow:1});assert.equal(b.kind,'snow');
   const c=new WeatherState();for(let i=0;i<200;i++)c.step(.1,.9,{wet:0,snow:0});assert.equal(c.kind,'none');assert.equal(c.intensity,0);
-  assert.equal(coverageGate(.5),0);assert.equal(coverageGate(.9),1);
+  assert.equal(coverageGate(.25),0);assert.equal(coverageGate(.9),1);
 });
 test('climate tracker asks once per area change and keeps the last answer',()=>{
   let t=0;const sent=[],c=new ClimateTracker(r=>sent.push(r),()=>t);

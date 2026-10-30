@@ -390,7 +390,7 @@ export class CloudMask {
     const key=JSON.stringify(rects);
     if(key===this.key)return;
     this.key=key;
-    const m=bakeLandMask(createRegistry(defaultManifest(undefined,rects)));
+    const m=this.mask=bakeLandMask(createRegistry(defaultManifest(undefined,rects)));
     this.device.queue.writeTexture({texture:this.texture},m.data,{bytesPerRow:m.w*4},[m.w,m.h]);
   }
 }

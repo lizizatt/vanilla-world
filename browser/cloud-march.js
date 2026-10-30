@@ -2,7 +2,7 @@
 // Monte Carlo sweep in clouds-sweep.test.mjs with no GPU. Keep it consistent with the WGSL: the sweep test checks the shared constants and
 // the extent/fade expressions appear verbatim in the shader. The High tier's 3D noise texture is replaced here by the Standard analytic
 // noise (the texture is baked from the same kind of value noise), so High geometry (towers, 28 steps, light tap) is covered, its noise is not.
-import {sphereAt,vnoise3,bandCoverage,flowShift,flowPhase,FLOW,maskAt,landCoverage,landDrag} from './cloud-flow.js';
+import {sphereAt,vnoise3,bandCoverage,flowShift,flowPhase,flowPhaseAt,FLOW,maskAt,landCoverage,landDrag} from './cloud-flow.js';
 import {CLOUD_ALTITUDE,CLOUD_THICKNESS,CLOUD_HALF_SIZE,MAELSTROM as M,tier} from './cloud-config.js';
 import {sunDirection,shellCurvatureAt,shellBendFromCurvature} from './clouds.js';
 import {PLANET_RADIUS,WORLD_CENTRE,planetFrame} from './space.js';
@@ -33,7 +33,7 @@ export function slab(high) {
 }
 
 /** Density at a world position: [body, storm, height fraction]; `coverage` may be forced to sweep storm values. */
-/** weather {wet, on} (climate wetness, weather enabled) adds the precipitation cell, returned as element 4 (0 when off); it mirrors cloudBody in clouds.js. */
+/** weather {wet, on, flow?:{cycles,scale}} (climate wetness, weather enabled, the renderer's CloudClock flow phase) adds the precipitation cell, returned as element 4 (0 when off); it mirrors cloudBody in clouds.js. */
 export function density(pos,t,high,centre=[0,0],coverageOverride,mask,weather) {
   const {ya,up,down}=slab(high);
   const dx=pos[0]-centre[0],dz=pos[2]-centre[1],r=Math.hypot(dx,dz);
@@ -59,7 +59,7 @@ export function density(pos,t,high,centre=[0,0],coverageOverride,mask,weather) {
     const top=(n-(1-coverage))*(2.2+1.6*wall);
     return [smoothstep(0,.3,top-hf*.9)*smoothstep(0,.1,hf+.05),hf,P];
   };
-  const fp=flowPhase(t),bh=fp.wA>=1?body(fp.tauA):fp.wA<=0?body(fp.tauB):(()=>{const b=body(fp.tauB),a2=body(fp.tauA);return [mix(b[0],a2[0],fp.wA),mix(b[1],a2[1],fp.wA),mix(b[2],a2[2],fp.wA)];})();
+  const fp=weather?.flow?flowPhaseAt(weather.flow.cycles,weather.flow.scale):flowPhase(t),bh=fp.wA>=1?body(fp.tauA):fp.wA<=0?body(fp.tauB):(()=>{const b=body(fp.tauB),a2=body(fp.tauA);return [mix(b[0],a2[0],fp.wA),mix(b[1],a2[1],fp.wA),mix(b[2],a2[2],fp.wA)];})();
   return [bh[0],storm*(.55+.45*smoothstep(M.eyeRadius,M.wallRadius*2,r)),bh[1],ya,bh[2]];
 }
 /**
