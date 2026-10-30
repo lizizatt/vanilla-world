@@ -49,7 +49,7 @@ export function density(pos,t,high,centre=[0,0],coverageOverride,mask,weather) {
   const body=tau=>{
     const s=flowShift(sp.lat,dx,dz,tau,drag),Q=[0,1,2].map(i=>sp.up[i]*PLANET_RADIUS+sp.east[i]*s[0]+sp.north[i]*s[1]);
     let coverage=baseCoverage,P=0;
-    if(weather?.on>0&&(baseCoverage>WEATHER.coverage[0]||sr>0)){P=Math.max(cellIntensity(Q,t)*coverageGate(baseCoverage)*weather.wet,sr)*weather.on;coverage=Math.min(baseCoverage+WEATHER_LOOK.coverage*P,.95);}
+    if(weather?.on>0&&(baseCoverage>WEATHER.coverage[0]||sr>0)){const gate=coverageGate(baseCoverage);P=Math.max(cellIntensity(Q,t)*gate*weather.wet,sr*smoothstep(WEATHER.storm.cover[0],WEATHER.storm.cover[1],baseCoverage))*weather.on;coverage=Math.min(baseCoverage+WEATHER_LOOK.coverage*P,.95);}
     const grow=smoothstep(.45,.95,coverage)*mix(.4,1,vnoise3(Q[0]/3800+t*.012,Q[1]/3800-t*.009,Q[2]/3800));
     const base=CLOUD_ALTITUDE-CLOUD_THICKNESS/2-down*grow;
     const hf=clamp((pos[1]-base)/(CLOUD_THICKNESS+(up+down)*grow),0,1);

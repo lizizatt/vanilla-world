@@ -24,8 +24,8 @@ export function cellIntensity(Q,t) {
 export const coverageGate=coverage=>smoothstep(W.coverage[0],W.coverage[1],coverage);
 /** Maelstrom: heavy rain wherever the storm envelope is strong, calm in the eye (eye = smoothstep over eyeRadius, 0 in the eye). */
 export const stormRain=(storm,eye)=>smoothstep(W.storm.from,W.storm.to,storm)*eye*W.storm.heavy;
-/** Precipitation intensity 0..1 for a sheet point: the cell under its coverage gate, or the storm term, whichever is higher. */
-export const precipitation=(Q,t,coverage,storm=0,eye=1)=>Math.max(cellIntensity(Q,t)*coverageGate(coverage),stormRain(storm,eye));
+/** Precipitation intensity 0..1 for a sheet point: the cell under its coverage gate, or the storm term (also gated: no rain without rendered cloud), whichever is higher. */
+export const precipitation=(Q,t,coverage,storm=0,eye=1)=>Math.max(cellIntensity(Q,t)*coverageGate(coverage),stormRain(storm,eye)*smoothstep(W.storm.cover[0],W.storm.cover[1],coverage));
 
 /**
  * Camera-side smoothed state with Schmitt hysteresis: `intensity` eases toward the sampled target, `raining` flips on above W.on and off below

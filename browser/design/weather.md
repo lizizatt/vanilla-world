@@ -128,3 +128,7 @@ Option A implemented (phases 0-5). Limits: climate is per current area, no occlu
 ## Coverage retune
 Measured with weather-coverage.mjs (real land mask, 3000 points x 90 steps of 120 s). Before (coverage [.3,.42], cell gate [.41,.61], period 1100): land soft(P>=.1) 31.8%, raining(P>=.5) 17.6%, 9% of time raining under cloud <.42, mean dry spell 27 min (sea: 18.2% / 6.3%). After (coverage [.4,.5], gate [.46,.62], period 450): land 18.5% / 10.1%, 30% of dense cloud rains, wet spell ~10 min, dry spell ~60 min, nothing under cloud <.4 (sea 5.6% / 2.6%). Unresolved climate (no area yet) is dry, not wet. Guarded by weather-coverage.test.mjs.
 
+
+## Spawn fix
+Rain showed at the Steamwheedle spawn under a clear sky (coverage .18): the Maelstrom storm term bypassed both the coverage gate and the dry climate (storm ~.3 gave P=.158). It is now gated by the rendered cloud coverage (config storm.cover [.25,.4]) in the CPU density, the WGSL cloud body and weather-field. Land coverage after: visible 12.6%, hard 6.6% (before the fix 18.4% / 10.1%, which included that false storm rain). Regression: weather-coverage.test.mjs.
+

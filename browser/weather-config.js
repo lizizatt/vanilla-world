@@ -12,7 +12,7 @@ export const WEATHER={
   // Camera smoothing time constant (s) and the heavy-rain (lightning) level.
   tau:3,heavy:.8,
   // Maelstrom storm: heavy rain inside this fraction of the storm envelope, calm in the eye.
-  storm:{from:.22,to:.45,heavy:1},
+  storm:{from:.22,to:.45,heavy:1,cover:[.25,.4]},
   fall:{rain:9,snow:1.6},
 // Near-camera particle box: side (yd), fall speeds (yd/s), streak time (s), rain width and flake size (yd).
 near:{box:50,rainSpeed:30,snowSpeed:3.4,streak:.05,rainWidth:.07,snowSize:.1},

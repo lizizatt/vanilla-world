@@ -37,7 +37,8 @@ test('cells drift with the cloud-advected sample point (same point, shifted time
 });
 test('Maelstrom is heavy rain except calm at the eye',()=>{
   const wall=Math.exp(-M.wallRadius/M.radius),eyeAt=r=>smoothstep(M.eyeRadius,M.eyeRadius*1.5,r);
-  assert(precipitation([0,0,0],0,.2,wall,eyeAt(M.wallRadius))>=W.heavy);
+  assert(precipitation([0,0,0],0,.95,wall,eyeAt(M.wallRadius))>=W.heavy);
+  assert.equal(precipitation([0,0,0],0,.18,wall,eyeAt(M.wallRadius)),0,'storm rain needs rendered cloud');
   assert.equal(precipitation([0,0,0],0,.95,1,eyeAt(M.eyeRadius*.5)),0);
   assert.equal(stormRain(0,1),0);
 });

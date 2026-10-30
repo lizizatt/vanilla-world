@@ -150,7 +150,7 @@ fn cloudBody(sp:Sph,d:vec2f,pos:vec3f,t:f32,tau:f32,drag:f32,base:f32,wall:f32,s
   let Q=sp.up*${PLANET_RADIUS}.0+sp.e*s.x+sp.n*s.y;
   // Precipitation cell at the same advected point: it rides the deck, swells the cover and darkens it (c.near.y = climate wetness, c.near.z = weather on).
   var P=0.0;var coverage=base;
-  if(c.near.z>0.0&&(base>${WEATHER.coverage[0]}||sr>0.0)){P=max(wxCellIntensity(Q,t)*wxCoverageGate(base)*c.near.y,sr)*c.near.z;coverage=min(base+${WEATHER_LOOK.coverage}*P,.95);}
+  if(c.near.z>0.0&&(base>${WEATHER.coverage[0]}||sr>0.0)){let gate=wxCoverageGate(base);P=max(wxCellIntensity(Q,t)*gate*c.near.y,sr*smoothstep(${WEATHER.storm.cover[0]},${WEATHER.storm.cover[1]},base))*c.near.z;coverage=min(base+${WEATHER_LOOK.coverage}*P,.95);}
   // Dense columns grow upward (towering tops) and a little downward, billowing slowly; low coverage keeps the flat sheet.
   let grow=smoothstep(.45,.95,coverage)*mix(.4,1.0,vnoise3(Q/3800.0+vec3f(t*.012,-t*.009,0.0)));
   let hf=clamp((pos.y-(c.cloud.z-THICK*.5-DOWN*grow))/(THICK+(UP+DOWN)*grow),0.0,1.0);
