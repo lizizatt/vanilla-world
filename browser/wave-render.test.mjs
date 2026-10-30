@@ -115,5 +115,5 @@ test('ocean fill overlaps the clipmap along the mask edge so no sea-floor tear o
   const {terrainShader}=await import('./renderer-shaders.js');
   assert.ok(MASK_FILL_EPS>MASK_EPS);
   assert.ok(terrainShader.includes(`waveAmp(v.p.xz)>=${MASK_FILL_EPS}`));
-  assert.ok(terrainShader.includes(`waveAmp(v.w.xy)<${MASK_EPS}`));
+  assert.ok(terrainShader.includes('!clipLive(v.w.xy)'));
 });
