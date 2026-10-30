@@ -35,6 +35,12 @@ export function windLevel(speed,altitude) {
   return {gain:WIND.airGain*v**1.3*air+WIND.rumbleGain*r*(1-air),cutoff:WIND.rumbleCutoff+(250-WIND.rumbleCutoff)*air+2200*v*air};
 }
 /** Idle throb (0..1 strength at rest) that fades as the pod speeds up or throttles. */
+// Weather bed: steady hiss that follows precipitation level; snow is nearly silent and darker. Joins at the analyser like wind.
+export const RAIN_AUDIO={rainGain:.2,snowGain:.025,rainCutoff:3200,snowCutoff:700};
+export function weatherLevel(level,snowMix=0,fade=1) {
+  const l=Math.min(1,Math.max(0,level||0))*Math.min(1,Math.max(0,fade)),s=Math.min(1,Math.max(0,snowMix||0));
+  return {gain:l*(RAIN_AUDIO.rainGain*(1-s)+RAIN_AUDIO.snowGain*s),cutoff:RAIN_AUDIO.rainCutoff*(1-s)+RAIN_AUDIO.snowCutoff*s};
+}
 export const IDLE_HZ=6.5;
 /** Ambient nature bed inside a druidic dome: a soft band-passed rustle scaled by dome membership (0..1). */
 export const NATURE={gain:.06,centre:1800};
@@ -123,6 +129,25 @@ export class WorldAudio {
     const level=on&&this.enabled&&this.context.state==='running'?windLevel(speed,altitude):{gain:0,cutoff:WIND.rumbleCutoff},now=this.context.currentTime;
     w.gain.gain.setTargetAtTime(level.gain,now,.15);w.filter.frequency.setTargetAtTime(level.cutoff,now,.15);
   }
+  setWeather(level,snowMix,fade,on) {
+    if(!this.weatherVoice&&on&&level>0&&this.enabled&&this.context&&this.context.state!=='closed') {
+      const buffer=this.context.createBuffer(2,48000,24000);fillEngineBuffer(buffer,2);
+      const source=this.context.createBufferSource(),gain=this.context.createGain(),filter=this.context.createBiquadFilter();
+      source.buffer=buffer;source.loop=true;gain.gain.value=0;filter.type='lowpass';filter.Q.value=.3;filter.frequency.value=RAIN_AUDIO.rainCutoff;
+      source.connect(filter);filter.connect(gain);gain.connect(this.analyser);source.start();this.weatherVoice={source,gain,filter};
+    }
+    const w=this.weatherVoice;if(!w)return;
+    const l=on&&this.enabled&&this.context.state==='running'?weatherLevel(level,snowMix,fade):{gain:0,cutoff:RAIN_AUDIO.rainCutoff},now=this.context.currentTime;
+    w.gain.gain.setTargetAtTime(l.gain,now,.5);w.filter.frequency.setTargetAtTime(l.cutoff,now,.5);
+  }
+  /** Synthesised thunder (fallback when the WoW cue has not loaded): a decaying low rumble with a crack. */
+  thunder(gain=.5,seconds=3) {
+    const ctx=this.context;if(!this.enabled||!ctx||ctx.state!=='running')return false;
+    const n=Math.floor(ctx.sampleRate*seconds),buffer=ctx.createBuffer(1,n,ctx.sampleRate),d=buffer.getChannelData(0);let s=12345,lp=0;
+    for(let i=0;i<n;i++){s=(s*1664525+1013904223)>>>0;const t=i/n,w=s/2147483648-1;lp+=(w-lp)*.04;d[i]=lp*Math.exp(-t*4.5)*(1+3*Math.exp(-t*60));}
+    const source=ctx.createBufferSource(),g=ctx.createGain();source.buffer=buffer;g.gain.value=gain*8;source.connect(g);g.connect(this.analyser);source.start();
+    source.onended=()=>{source.disconnect();g.disconnect();};return true;
+  }
   // Dome ambience (nature rustle) belongs to the place, not the engine: like wind it joins at the analyser.
   setNature(level) {
     if(!this.natureVoice&&level>0&&this.enabled&&this.context&&this.context.state!=='closed') {
@@ -136,7 +161,7 @@ export class WorldAudio {
     n.gain.gain.setTargetAtTime(this.enabled&&this.context.state==='running'?natureGain(level):0,this.context.currentTime,.4);
   }
   mute() {
-    this.activation++;this.setWind(0,0,false);this.setNature(0);
+    this.activation++;this.setWind(0,0,false);this.setNature(0);this.setWeather(0,0,0,false);
     this.enabled=false;this.active=false;this.setDrift(false);this.setHeat(0,false);
     clearTimeout(this.release);
     const context=this.context;

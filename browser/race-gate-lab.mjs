@@ -18,6 +18,7 @@ export async function openLab({ swe1r = true, width = 1280, height = 720, clouds
   const page = ctx.pages()[0] || await ctx.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
+  if (process.env.LAB_LOG) page.on('console', m => console.log('page', m.type(), m.text().slice(0, 400)));
   await page.goto(`http://127.0.0.1:${process.env.PORT || 4183}/?test`);
   await page.waitForFunction(() => !document.getElementById('select').disabled, null, { timeout: 60000 });
   if (swe1r && SWE1R_DATA) {

@@ -32,6 +32,7 @@ import {reset,configure,event,clearFar,swapPlanetState,bodyEvent} from './render
 import {scenePipeline,prepareBatches,sceneMatrix,drawScene} from './renderer-scene.js';
 import {zoneBlend,setSky,setSkyDome,horizonColour,planetRects,drawPlanet,sharedFrame,drawPatches,drawBodies,drawBodyClouds,drawLights,drawSkyDome,sampleSky,noteLitInstance} from './renderer-sky.js';
 import {drawShadow,enableHighClouds,highCloudGroup,maskEntries,drawClouds} from './renderer-clouds.js';
+import {weatherGroups,stepWeather,drawCurtain,drawNearWeather,drawFlash,drawBolts} from './renderer-weather.js';
 import {initialize,prepareBody,useBody,bodyPrepared} from './renderer-init.js';
 const OCEAN_MESH_CEILING=90000;
 const DAY_SKY=[.08,.15,.20],NIGHT_SKY=[.008,.016,.045];
@@ -127,7 +128,7 @@ export class WorldRenderer {
         entries:[{binding:0,resource:{buffer:this.shadowBuffer}},{binding:1,resource:this.depth.createView()}]});
       this.cloudGroup=this.device.createBindGroup({layout:this.cloudPipeline.getBindGroupLayout(0),
         entries:[{binding:0,resource:{buffer:this.cloudBuffer}},{binding:1,resource:this.depth.createView()},...this.maskEntries()]});
-      this.cloudHighGroup=this.cloudHigh&&this.highCloudGroup();
+      this.cloudHighGroup=this.cloudHigh&&this.highCloudGroup();weatherGroups(this);
     }
     const origin=flight?[Math.round(flight[0]),Math.round(flight[2])]:[state[11],state[12]];
     const p=[state[0]-origin[0],state[1],state[2]-origin[1]];
@@ -141,7 +142,7 @@ export class WorldRenderer {
     clock.scale=flight?Math.min(sanitiseScale(settings.timeScale),this.warpCap??Infinity):1;
     if(this.podTime!==undefined)clock.set(this.podTime);else clock.step(dt);
     const cc=this.cloudClock??=new CloudClock(time);cc.step(dt,clock.scale);pf.flowScale=cc.stretch;pf.flowCycles=cc.cycles;
-    this.cloudTime=cc.time;const waterTime=this.cloudTime%7200;
+    this.cloudTime=cc.time;const waterTime=this.cloudTime%7200;stepWeather(this,dt,settings,flight);
     this.timeOfDay=this.podTime??this.timeLock??clock.now();
     const airless=activeBody().id==='elune',moonSky=airless?eluneSkyAt(state[0],state[2],this.timeOfDay):undefined;
     // Atmospheric bodies light from where the camera stands: the local sun and the clock reading that sun corresponds to drive every day/night and Light.dbc lookup.
@@ -285,7 +286,8 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
     if(!this.cameraBlocked&&(settings.clouds!==false||settings.farClouds!==false)) {
       // Clouds read the finished scene depth to clip their ray march, so they never need a depth-test bias.
       const cloudPass=encoder.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}]});
-      if(settings.clouds!==false&&activeBody().clouds&&this.manifest?.world_bounds)this.drawClouds(cloudPass,this.cloudTime??time,daylight,near,highClouds);
+      if(settings.clouds!==false&&activeBody().clouds&&this.manifest?.world_bounds){this.drawClouds(cloudPass,this.cloudTime??time,daylight,near,highClouds);drawCurtain(this,cloudPass,this.lastCloudUniform);}
+      drawFlash(this,cloudPass);
       if(settings.farClouds!==false&&pf.globe>0)this.drawBodyClouds(cloudPass,this.cloudTime??time,daylight,near);cloudPass.end();
     }
     if(!this.cameraBlocked&&propDraws.length) {
@@ -331,6 +333,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
       this.wreck.parts.forEach((p,i)=>{const f=wreckFrameNow.subarray(i*7,i*7+7);emitDebris(fx,p.memo??={},[f[0],f[1],f[2]],wreckAge,sdt,size,`w${i}`,WRECK_SECONDS);});
     }
     this.particleCount=fx?.count||0;
+    if(!this.cameraBlocked){drawNearWeather(this,encoder,near,dt,depthAttachment('fx',this.depth.createView()));drawBolts(this,encoder,near,depthAttachment('fx',this.depth.createView()));}
     this.device.queue.submit([encoder.finish()]);
     return {horizonTiles:distant.length,detailedTiles:this.tiles.size,sceneInstances:this.instances.length,
       culledTerrainDraws:allTerrain.length-terrain.length,

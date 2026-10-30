@@ -39,6 +39,13 @@ export class MusicCatalog {
     }
     return 0;
   }
+  /** Zone name and ground-snow flag for weather: AreaTable flag 0x1 = cold, read from the area itself when it authors 0x2 or has no parent, else from its zone. */
+  climate(area) {
+    const row=this.areaRows.get(area);
+    if(row===undefined)return {name:'',cold:false};
+    const parent=this.areaRows.get(this.areas.u32(row,2)),own=parent===undefined||(this.areas.u32(row,4)&2)!==0,zone=own?row:parent;
+    return {name:this.areas.str(zone,11),cold:(this.areas.u32(zone,4)&1)!==0};
+  }
   /** The 'Battle' musical-moment files (Musical Moments\\battle\\battleNN.mp3); 1.12 Data has no Molten Core battle kit. */
   battle() {
     const paths=new Set();
@@ -71,7 +78,7 @@ export class MusicCatalog {
 }
 
 // Race cues: fixed interface sounds read at runtime from the user's Data, never stored.
-const CUES={click:'Sound\\interface\\iUiInterfaceButtonA.wav',quest:'Sound\\interface\\iQuestActivate.wav'};
+const CUES={click:'Sound\\interface\\iUiInterfaceButtonA.wav',quest:'Sound\\interface\\iQuestActivate.wav',thunder:'Sound\\Spells\\ThunderClap.wav'};
 const BATTLE_DIR=/^sound\\music\\musical moments\\battle$/i;
 
 export class MusicService {
@@ -83,9 +90,14 @@ export class MusicService {
     return this.catalog=new MusicCatalog(area,zone,sound);
   }
   /** Replies with the area's set; with `track`, also one random file not equal to `avoid`. */
-  async request({token,area,night,track,avoid,battle,cue},stopped=()=>false) {
+  async request({token,area,night,track,avoid,battle,cue,climate},stopped=()=>false) {
     const shouldDefer=stopped;
     try {
+      if(climate) {
+        const info=(await this.load(shouldDefer)).climate(area);
+        if(!stopped())this.emit({event:'climate',area,...info});
+        return;
+      }
       if(cue) {
         if(!CUES[cue])return;
         const bytes=await this.source.read(CUES[cue],{background:false,shouldDefer});

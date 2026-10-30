@@ -120,3 +120,7 @@ Cloud shader cost and parity drift (mitigate: shared emitter, tests, tier guard)
 5. Elune: stay weatherless, or add dust/mote effects in the Moonglade graft?
 6. Is rain through roofs/indoors acceptable for v1 (no occlusion map)?
 7. Should the Maelstrom storm always carry heavy rain (recommended, `storm` already marks it)?
+
+## Status
+Option A implemented (phases 0-5). Limits: climate is per current area, no occlusion, curtain assumes flat ground, Low tier is a small near box (not a screen overlay), flash is a screen veil, thunder has no distance low-pass, ThunderClap cue name unverified against the MPQ.
+
