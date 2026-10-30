@@ -106,6 +106,9 @@ pub struct Voyage {
     scene_water: CollisionTree,
     /// [centre x, centre z, radius, depth]; see whirlpool_dip.
     whirlpool: Option<[f64; 4]>,
+    /// Gerstner sea (None = waves off: flat water, bit-identical to before waves existed) and the sim tick clock it reads.
+    waves: Option<flats_racer_physics::waves::Params>,
+    wave_ticks: u64,
     /// Debug crash wreck and the global x/z its local coordinates are relative to.
     wreck: Option<(flats_racer_physics::wreck::Wreck, [f64; 2])>,
     scene_parts: HashMap<u32, CollisionTree>,
@@ -162,6 +165,8 @@ impl Voyage {
             scene_mesh: CollisionTree::default(),
             scene_water: CollisionTree::default(),
             whirlpool: None,
+            waves: None,
+            wave_ticks: 0,
             wreck: None,
             scene_parts: HashMap::new(),
             rebases: 0,
@@ -247,9 +252,51 @@ impl Voyage {
         self.wrap_longitude();
     }
 
-    /// Open-ocean surface height: sea level minus the whirlpool dip. Only the unauthored ocean branches use it.
+    /// Open-ocean surface height: sea level minus the whirlpool dip, plus the wave field when enabled. Only the
+    /// unauthored ocean branches use it, so authored tile and WMO water stay flat.
     fn sea_height(&self, p: [f64; 2]) -> f32 {
-        self.manifest.sea_level - self.whirlpool.map_or(0.0, |w| whirlpool_dip(p, w))
+        let base = self.manifest.sea_level - self.whirlpool.map_or(0.0, |w| whirlpool_dip(p, w));
+        match &self.waves {
+            Some(waves) => {
+                let t = waves.time_at(self.wave_ticks);
+                base + waves.height(p, t, &|q| self.land_distance(q)) as f32
+            }
+            None => base,
+        }
+    }
+
+    fn open_sea_at(&self, p: [f64; 2]) -> bool {
+        (self.manifest.version != 4 && contains(self.manifest.ocean, p))
+            || (self.manifest.version == 3 && self.exterior_ocean(p).is_some())
+    }
+
+    /// Distance (yd) from q to the nearest tile cell or non-ocean cell; infinite far from any. 1-Lipschitz.
+    fn land_distance(&self, q: [f64; 2]) -> f64 {
+        let mut best = f64::INFINITY;
+        for (region, r) in self.manifest.regions.iter().enumerate() {
+            let fx = (q[0] - r.placement[0]) / TILE + f64::from(r.tile_origin[0]);
+            let fy = (q[1] - r.placement[1]) / TILE + f64::from(r.tile_origin[1]);
+            let (cx, cy) = (fx.floor() as i64, fy.floor() as i64);
+            for y in cy - 1..=cy + 1 {
+                for x in cx - 1..=cx + 1 {
+                    if !(0..64).contains(&x) || !(0..64).contains(&y) {
+                        continue;
+                    }
+                    let (x0, z0) = (
+                        (x as f64 - f64::from(r.tile_origin[0])) * TILE + r.placement[0],
+                        (y as f64 - f64::from(r.tile_origin[1])) * TILE + r.placement[1],
+                    );
+                    let index = region * 4096 + y as usize * 64 + x as usize;
+                    if self.grid[index].is_none() && self.open_sea_at([x0 + TILE / 2.0, z0 + TILE / 2.0]) {
+                        continue;
+                    }
+                    let dx = (x0 - q[0]).max(q[0] - (x0 + TILE)).max(0.0);
+                    let dz = (z0 - q[1]).max(q[1] - (z0 + TILE)).max(0.0);
+                    best = best.min(dx.hypot(dz));
+                }
+            }
+        }
+        best
     }
 
     pub fn sample(&self, p: [f64; 2]) -> Surface {
@@ -501,6 +548,7 @@ impl Voyage {
             return Err("Configured motion exceeds 64 support substeps per physics tick".into());
         }
         let steps = steps as u32;
+        self.wave_ticks = self.wave_ticks.wrapping_add(1);
         self.physics_stats[0] = self.physics_stats[0].saturating_add(1);
         self.physics_stats[7] = self.physics_stats[7].max(steps);
         let (state, origin, rebases, hold) = (self.state, self.origin, self.rebases, self.hold);
@@ -789,6 +837,64 @@ impl Voyage {
         }
         self.whirlpool = (depth > 0.0).then_some([x, z, radius, depth]);
         Ok(())
+    }
+
+    /// Upload the wave table from browser/wave-config.js (`waveParams()`); validated here. An empty array turns
+    /// waves off, restoring flat water exactly. The wave clock (`wave_ticks`) is untouched so toggling never rewinds it.
+    pub fn set_waves(&mut self, params: &[f64]) -> Result<(), JsValue> {
+        self.waves = if params.is_empty() {
+            None
+        } else {
+            Some(flats_racer_physics::waves::Params::from_array(params).map_err(|e| JsValue::from_str(&e))?)
+        };
+        Ok(())
+    }
+
+    /// Sim ticks the wave clock has counted (advances with `advance` and `pod_engine_step`, never with wall time).
+    pub fn wave_ticks(&self) -> f64 {
+        self.wave_ticks as f64
+    }
+
+    /// Restore the wave clock, e.g. when a recording or ghost replays from tick N.
+    pub fn set_wave_ticks(&mut self, ticks: f64) -> Result<(), JsValue> {
+        if !ticks.is_finite() || !(0.0..9.0e15).contains(&ticks) || ticks.fract() != 0.0 {
+            return Err(JsValue::from_str("Invalid wave tick"));
+        }
+        self.wave_ticks = ticks as u64;
+        Ok(())
+    }
+
+    /// Water surface at each global (x, z): [height, nx, ny, nz, vx, vy, vz, amp_k] per point; NaN height where
+    /// there is no water. Same function the pod hover uses, so props and buoys agree with the physics.
+    pub fn water_sample_batch(&self, points: &[f64]) -> Result<Vec<f32>, JsValue> {
+        if points.len() % 2 != 0 || points.len() > 2 * 4096 || points.iter().any(|v| !v.is_finite()) {
+            return Err(JsValue::from_str("Invalid water sample points"));
+        }
+        let mut out = Vec::with_capacity(points.len() / 2 * 8);
+        for p in points.chunks_exact(2) {
+            let p = [p[0], p[1]];
+            let Some(height) = self.sample(p).water else {
+                out.extend([f32::NAN, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+                continue;
+            };
+            let w = match (&self.waves, self.canon(p)) {
+                (Some(waves), q) if self.locate(q).is_none() && self.open_sea_at(q) => {
+                    waves.sample(q, waves.time_at(self.wave_ticks), &|r| self.land_distance(r))
+                }
+                _ => flats_racer_physics::waves::FLAT,
+            };
+            out.extend([
+                height,
+                w.normal[0] as f32,
+                w.normal[1] as f32,
+                w.normal[2] as f32,
+                w.velocity[0] as f32,
+                w.velocity[1] as f32,
+                w.velocity[2] as f32,
+                w.amp_k as f32,
+            ]);
+        }
+        Ok(out)
     }
 
     /// Indexed WMO liquid-surface triangles (global east/up/south); replaces the previous set.
@@ -1290,6 +1396,7 @@ impl Voyage {
             self.state.heat = (self.state.heat - flats_racer_physics::HEAT_COOL_PER_SEC * FIXED_DT).max(0.0);
         }
         self.durability_step(self.hold);
+        self.wave_ticks = self.wave_ticks.wrapping_add(1);
         Ok(())
     }
 
@@ -1446,3 +1553,6 @@ impl Voyage {
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+#[cfg(test)]
+mod wave_tests;

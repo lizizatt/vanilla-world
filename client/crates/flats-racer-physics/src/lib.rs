@@ -6,6 +6,8 @@
 
 use std::{error::Error, fmt};
 
+pub mod water;
+pub mod waves;
 pub mod wreck;
 
 

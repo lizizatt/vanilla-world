@@ -316,21 +316,25 @@ Rust/wasm work goes through the **cargo agent** (wasm rebuild is a step in phase
 | Orbit/bend interplay | Waves disabled above the atmosphere regime; globe sea unchanged |
 | wasm size/build time | Small module (~KiB), built via cargo agent |
 
-## 11. Open questions with recommended answers
+## 11. Decisions and open questions (answered for the physics phase)
 
-1. **Crash severity:** wipeout (speed loss, damage, brief lockout) vs instant wreck? *Recommend wipeout; wreck only above `v_n` 90 or zero health; leave `wreck.rs` debug-only for now.*
-2. **Default amplitude/slope:** *Hs ~ 1.0 yd, slope cap .25; calm .5x; storm 2.5x; sets up to .5-.8 only in storm/set regions.*
-3. **Crash threshold constants** (`v_n` 40, angle 20 deg, slap 8): *start there; tune with the scripted flight tests.*
-4. **Do lakes/canals/coast move?** *No: flat as authored (physics today); waves fade to 0 via the ramp.*
-5. **Waves default on?** *Opt-in via `waves`/tier until Phase 2-4 benchmarks match baseline; then default on at standard.*
-6. **Wave clock tied to sim ticks (pause pauses waves)?** *Yes, with a cosmetic detail clock for ripples.*
-7. **Shared flight/ghost compatibility:** *waves must be a deterministic function of (x,z,tick); ghosts recorded with waves off remain valid with waves off; add a version flag to recordings.*
-8. **Sailboat scope now:** *API only (section 6) plus the buoy test fixture; no hull.*
-9. **Jump swells as content:** *dedicated jump-swell zones, not everywhere; slope .35-.4 and clear signposting.*
-10. **Should big waves be deadly in time trials/races or only a speed penalty?** *Speed penalty + damage only; no instant loss outside the existing durability rules.*
-11. **Telegraph HUD / audio cue for swell sets:** *audio on, HUD chevron off by default.*
-12. **Is the High-tier compute path (height-field/FFT) worth carrying?** *Defer; ship W1/W2/W4/W5/W6 first, then W3 if cost allows.*
-13. **Underwater view, caustics, bioluminescence:** *non-goals.*
-14. **Moon direction/phase uniform for night glints:** *confirm in the time system; if absent, use a fixed-direction moon term.*
-15. **Where should the wave config live for Rust (generated constants vs runtime upload)?** *Runtime upload via `set_waves(params)` at startup from the JS single source, validated in Rust; avoids a generated file and is a one-call wasm API; golden tests still lock parity.*
-16. **Amplitude vs `HOVER_HEIGHT` 1.1:** confirm the hover spring tracks waves without bouncing at the default slopes. *Recommend a Phase 2 physics spike (flat test + sinusoidal surface test) before gameplay tuning.*
+Answered in the physics phase (branch `lizizatt-ocean-wave-physics`; implementation in `flats-racer-physics/src/waves.rs`, `water.rs`, `browser/wave-config.js`, `wave-math.js`):
+
+1. **Crash severity: answered.** A wave face is just terrain. Crashes into wave faces use the *same logic and code paths as land collision* (`sea_height` feeds the existing `sample_at` support, so a face rising faster than `SUPPORT_RISE` per substep triggers the same rollback, `hold = 3`, velocity zero and `durability_step` damage). No new damage, wreck or wipeout modes; `wreck.rs` stays debug-only.
+2. **Default amplitude/slope: answered.** Amplitude 1 yd normal, 2.5x in storms, 10x near the Maelstrom (per-region discs in `waveParams`); the largest component slope is ~.038 at 1x, ~.094 at 2.5x and ~.38 at 10x. Default slopes stay gentle (cap .25 for the normal sea; .5 for storm and Maelstrom, enforced by Rust validation), so a face only becomes an impact rather than a ramp when it is very large: with the pod's `SUPPORT_RISE` 0.6 per 0.5 yd substep, rising faces up to the .5 cap are glided; the test that provokes a real hit bypasses validation with a ~3 slope.
+3. **Crash threshold constants: dropped.** No separate crash thresholds exist; the land-collision constants apply unchanged.
+4. **Do lakes/canals/coast move?** No: flat as authored. The shore fade (`shoreFade` 80 yd beyond a 16 yd `shoreMargin`) takes waves to exactly 0 at any tile cell, authored water or non-ocean cell edge, so no step appears at the shoreline.
+5. **Waves default on: answered.** On by default, with an "Ocean waves" Graphics setting (`settings.waves`, `racer.waves`) that sends `set_waves([])` (flat water, bit-identical to pre-wave behaviour).
+6. **Wave clock: answered.** Tied to sim ticks (`wave_ticks`, advanced by `advance` and `pod_engine_step`), wrapping exactly at the 1024 s master period; pause pauses the waves. No cosmetic detail clock.
+7. **Recordings/ghosts: answered.** `WAVE_VERSION` and `waveTag`/`waveTagCompatible` (wave-config.js): a waves-off recording (version 0) only replays with waves off. No recorder exists yet; `set_wave_ticks` restores the clock for a replay.
+8. **Sailboat scope: answered.** API plus buoy test fixture only (`water.rs`: `WaterField`, `query`, `buoyancy`, `drag`; `Voyage.water_sample_batch`); no hull.
+9. **Jump swells as content:** unchanged recommendation: dedicated jump-swell zones; still open.
+10. **Deadly waves in time trials?** Answered with 1: only the existing durability rules.
+11. **HUD chevron: skipped.**
+12. **FFT / height-field compute path: skipped.**
+13. **Underwater, caustics, bioluminescence: skipped (non-goals).**
+14. **Moon direction/phase uniform for night glints:** open (shader phase).
+15. **Rust config: answered.** Runtime `set_waves(params)` upload of `waveParams()` at world creation and on the setting toggle, validated in Rust (component count, unit directions, integer frequency multiples, whole-tick period, steepness, per-region slope caps and the contraction limit `max_scale * sum(Q k A) <= .9`). JS/Rust parity is locked by `browser/wave-golden.json` (1e-9).
+16. **Amplitude vs `HOVER_HEIGHT` 1.1: answered by the spike.** The hover spring (voyage tuning, spring 90, damping 18) tracks a moving surface at 1x, 2.5x and 10x without ever going through it; fed the surface velocity, some bounce on crest crossings is accepted as natural repulsorlift behaviour. Flat-water regression is bit-identical with waves off.
+
+**Hook for the later animated whirlpool (not implemented):** `Params::swirl(p, t)` in `waves.rs` is an identity warp applied to the query point before inversion; a real whirlpool will return a time-dependent offset there (and must fold the warp's Jacobian into the normal and velocity), while the Maelstrom disc already ramps amplitude to 10x around the same centre.
