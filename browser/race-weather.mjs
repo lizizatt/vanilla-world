@@ -20,7 +20,7 @@ const scenes = {
     await put([START[0], 250, START[1], 0, 0]);await page.waitForTimeout(1500);
     const cell = await find([START[0], START[1]], { min: .9, range: 40000, edge: 3000 });
     const [x, z, , a] = cell;
-    await put([x - Math.cos(a) * 9000, 250, z - Math.sin(a) * 9000, face(a), .05]);
+    await put([x - Math.cos(a) * 7000, 900, z - Math.sin(a) * 7000, face(a), -.03]);
     await shot('distant', 6000);
   },
   async envelop() {

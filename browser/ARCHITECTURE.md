@@ -94,3 +94,7 @@ flowchart TB
 - **Removed material:** the VMaNGOS C++ server, native Bevy client crates, runtime/, tools/ and bootstrap scripts are no longer in the tree; see the root README for the commit that last contained them.
 - **Next (rocket phase):** unified space physics per `SPACE-PHYSICS.md`; see `GLOBE-REFACTOR.md`, `CLOUD-FLOW.md`, `HARDENING.md`, `DEBT.md`.
 - **Flight instruments:** `flight-hud.js` (right-edge compass, drum altimeter, climb rate) is fed once per frame from `app-frame.js` with the active framed body, `renderer.view` and sim time. `compass.js` converts the camera's chart basis to inertial space (`chartAxes`), picks the nearest body (`nearestSurface`) and returns the north-pole bearing and altitude, so one formula covers orbit, Elune and the E/N/S pole charts. `altimeter.js` holds the pure drum/climb model. The optional WoW ring texture and FRIZQT font come from the worker (`hud-art.js`, action `hud-art` -> event `hud-art`); images are drawn to canvas because the CSP blocks blob/data image URLs.
+
+## Weather
+See README 'Weather' and design/weather.md. Modules: weather-*.js plus renderer-weather.js (curtain, near particles, bolts, flash), stepped from stepWeather; audio via world-audio setWeather/thunder.
+

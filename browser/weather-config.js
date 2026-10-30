@@ -20,7 +20,7 @@ near:{box:50,rainSpeed:30,snowSpeed:3.4,streak:.05,rainWidth:.07,snowSize:.1},
   box:{half:36,height:30},
   quality:{off:0,low:350,standard:1500,high:3200},
   // Curtain pass: polar sampling grid around the camera and its range (yd).
-  polar:{azimuth:64,rings:8,near:300,far:24000},curtain:{start:60,steps:20,fall:[250,1400],baseDrop:260,fade:300,streakXZ:140,streakY:900,density:.0014,maxAlpha:.72},
+  polar:{azimuth:64,rings:8,near:300,far:24000},curtain:{start:60,steps:20,fall:[250,1400],baseDrop:260,fade:300,streakXZ:140,streakY:900,density:.0025,maxAlpha:.85},
   // Slow-frame / tier switching: camera-effect fallback is the Low tier.
   effect:{streaks:26},
   // Lightning: only in cells at or above `heavy`; mean seconds between strikes at full intensity; speed of sound (yd/s).
