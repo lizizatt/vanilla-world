@@ -4,6 +4,9 @@ import {drumWheels,formatClimb,ClimbRate} from './altimeter.js';
 import {flightInstruments} from './compass.js';
 import {RING_CROP} from './hud-art.js';
 
+/** The one mode check: the instruments belong to driving; "fly mode" (app.flight set, the free camera) hides them. */
+export const flightHudVisible=flying=>!flying;
+
 const strip=()=>`<i>${[...'01234567890'].join('</i><i>')}</i>`;
 
 export class FlightHud {
@@ -22,6 +25,7 @@ export class FlightHud {
     if(this.shown.rate!==text){this.shown.rate=text;this.rate.textContent=text;this.rate.dataset.sign=text[0]==='+'?'up':text[0]==='0'?'zero':'down';}
     return r;
   }
+  setFlying(flying){this.set('fly',String(!flightHudVisible(flying)));}
   set(name,value){if(this.shown[name]!==value){this.shown[name]=value;this.root.dataset[name]=value;}}
   wheels(alt) {
     const w=drumWheels(alt);

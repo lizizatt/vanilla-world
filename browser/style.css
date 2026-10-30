@@ -255,7 +255,7 @@ details.welcome-help summary { cursor: pointer; } details.welcome-help p { margi
 
 /* Flight instruments (flight-hud.js): right edge, stacked above the SWE1R dial; the dial is ~0.83 x --hud-w tall. Clears the race board (top), boost bar (bottom centre) and gate guide (top centre). */
 #flight-hud { --fh-gold: #d9b24a; --fh-w: clamp(84px, calc(var(--hud-w, 96px) * .62), 132px); position: absolute; right: max(14px, env(safe-area-inset-right)); bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--hud-w, 96px) * .84 + 14px); width: var(--fh-w); display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; font-family: 'WoW Friz', 'Friz Quadrata TT', var(--serif, Georgia, serif); text-shadow: 0 1px 2px #000; z-index: 5; }
-#flight-hud[hidden] { display: none; }
+#flight-hud[hidden], #flight-hud[data-fly="true"] { display: none; }
 #flight-hud .fh-compass { position: relative; width: var(--fh-w); height: var(--fh-w); border-radius: 50%; background: radial-gradient(circle at 50% 45%, rgba(24,26,34,.82) 0 62%, rgba(10,10,14,.7) 100%); }
 #flight-hud .fh-card { position: absolute; inset: 0; border-radius: 50%; border: 3px solid var(--fh-gold); box-shadow: inset 0 0 0 1px #5a4513, 0 0 0 1px #000; box-sizing: border-box; will-change: transform; }
 #flight-hud[data-art="ring"] .fh-card { border: 0; box-shadow: none; }
