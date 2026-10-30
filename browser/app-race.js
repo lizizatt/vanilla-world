@@ -1,4 +1,5 @@
 import {raceScores,trackOverride} from './world-store.js';
+import {migrateOverride} from './track-chart.js';
 import {gateGuide} from './gate-guide.js';
 import {Race,unstuckPoses,formatTime,lapTimes,addScore,validScores,validateTrack,gateBody,trackBody} from './race.js';
 import {createTrackEditor} from './track-editor.js';
@@ -34,7 +35,7 @@ async function withOverrides(found) {
   let list=found;
   try {
     for(const id of (await trackOverride('~index'))||[]) {
-      try{list=mergeTrack(list,validateTrack(await trackOverride(id)));}catch{/* a bad override is skipped */}
+      try{list=mergeTrack(list,migrateOverride(validateTrack(await trackOverride(id)),found.find(t=>t.id===id)));}catch{/* a bad override is skipped */}
     }
   } catch {/* no override index: keep the built-in tracks */}
   return list;
