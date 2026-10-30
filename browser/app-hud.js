@@ -10,7 +10,7 @@ Object.assign(app,{layoutHud,syncDurability,ownHud,landmarks,syncHud,memoryLine}
 app.flashMem={};app.boostMem={};app.meters=document.querySelector('.meters');const ownLast={};
 app.realHud=undefined;
 // Each bottom HUD group is ~1/6 of the viewport width (96-320 px), at the Racer ratios: engine pair 67x62, dial 71x59.
-function layoutHud(){const w=Math.round(Math.min(320,Math.max(96,innerWidth/6)));document.documentElement.style.setProperty('--hud-w',w+'px');if(!app.realHud)return;const d=$('swe1r-hud'),e=$('swe1r-heat');d.width=w;d.height=Math.round(w*59/71);e.width=w;e.height=Math.round(w*62/67);for(const c of[d,e]){c.style.width=c.width+'px';c.style.height=c.height+'px';}app.dial=createRealDial(app.realHud,d);app.heatGauge=createRealEngines(app.realHud,e);}
+function layoutHud(){const w=Math.round(Math.min(320,Math.max(96,innerWidth/6)));document.documentElement.style.setProperty('--hud-w',w+'px');if(!app.realHud)return;const d=$('swe1r-hud'),e=$('swe1r-heat');const r=Math.min(Math.max(devicePixelRatio||1,1),3),dh=Math.round(w*59/71),eh=Math.round(w*62/67);d.width=Math.round(w*r);d.height=Math.round(dh*r);e.width=Math.round(w*r);e.height=Math.round(eh*r);d.style.width=e.style.width=w+'px';d.style.height=dh+'px';e.style.height=eh+'px';app.dial=createRealDial(app.realHud,d);app.heatGauge=createRealEngines(app.realHud,e);}
 addEventListener('resize',layoutHud);
 layoutHud();
 function syncDurability(){client.request('durability',{on:gib.durable,lethal:gib.on?gib.speed:400}).catch(()=>{});}
