@@ -33,6 +33,7 @@ import {scenePipeline,prepareBatches,sceneMatrix,drawScene} from './renderer-sce
 import {zoneBlend,setSky,setSkyDome,horizonColour,planetRects,drawPlanet,sharedFrame,drawPatches,drawBodies,drawBodyClouds,drawLights,drawSkyDome,sampleSky,noteLitInstance} from './renderer-sky.js';
 import {drawShadow,enableHighClouds,highCloudGroup,maskEntries,drawClouds} from './renderer-clouds.js';
 import {seaState} from './sea-state.js';
+import {waveItems,setWaveMask} from './renderer-waves.js';
 import {weatherGroups,stepWeather,drawCurtain,drawNearWeather,drawFlash,drawBolts} from './renderer-weather.js';
 import {initialize,prepareBody,useBody,bodyPrepared} from './renderer-init.js';
 const OCEAN_MESH_CEILING=90000;
@@ -93,6 +94,8 @@ export class WorldRenderer {
   bodyEvent(body,data){return bodyEvent(this,body,data);}
   configure(manifest){return configure(this,manifest);}
   event(data){return event(this,data);}
+  setWaveMask(mask){return setWaveMask(this,mask);}
+  waveStats(){return {active:!!this.waveActive,requested:!!this.waveRequest,rev:this.waveMask?.rev,ticks:this.waveSim?.ticks,levels:this.clipItems?.length??0};}
   clearFar(){return clearFar(this);}
   uploadMaterials(){return uploadMaterials(this);}
   scenePipeline(batch){return scenePipeline(this,batch);}
@@ -163,7 +166,7 @@ export class WorldRenderer {
     const coastal=[...this.coast].flatMap(([index,item])=>
       this.tiles.has(index)?item.backing?[item.backing]:[]:settings.horizon?[item]:[]);
     this.refreshOcean();
-    const allTerrain=this.cameraBlocked?[]:[...distant,...this.tiles.values(),...(settings.horizon?this.seams.values():[]),...(this.view.eye[1]>OCEAN_MESH_CEILING&&planetOn?this.water.filter(w=>w!==this.oceanFill):this.water),...coastal,...this.flags,...this.gates];
+    const allTerrain=this.cameraBlocked?[]:[...distant,...this.tiles.values(),...(settings.horizon?this.seams.values():[]),...(this.view.eye[1]>OCEAN_MESH_CEILING&&planetOn?this.water.filter(w=>w!==this.oceanFill):this.water),...coastal,...waveItems(this,this.view.eye,origin,pf.bend>0),...this.flags,...this.gates];
     if(!flight&&!this.craft&&!this.cameraBlocked)allTerrain.push(this.body);
     const cachedView=this.terrainView;
     if(!cachedView || cachedView.bent!==(pf.bend>0) || viewChanged(cachedView.view,this.view) ||
@@ -178,7 +181,7 @@ export class WorldRenderer {
     const writeUniform=item=>{
       if(uniformCount>=16384)throw Error('World draw uniform budget exceeded');
       const base=uniformCount++*64;
-      item.offset=base*4;u.set(view,base);u.set(skyFloats,base+40);u[base+28]=u[base+60]=pf.bend;u[base+30]=u[base+62]=this.view.eye[2]+(activeBody().centre[1]-activeFramedBody().centre[1]);u[base+29]=u[base+61]=pf.space;u.set(sunDir,base+32);u[base+36]=sea[0];u[base+37]=sea[1];return base;
+      item.offset=base*4;u.set(view,base);u.set(skyFloats,base+40);u[base+28]=u[base+60]=pf.bend;u[base+30]=u[base+62]=this.view.eye[2]+(activeBody().centre[1]-activeFramedBody().centre[1]);u[base+29]=u[base+61]=pf.space;u.set(sunDir,base+32);u[base+36]=sea[0];u[base+37]=sea[1];u[base+56]=u[base+57]=u[base+58]=u[base+59]=0;return base;
     };
     for(const item of terrain){
       const base=writeUniform(item),body=item===this.body;
@@ -186,7 +189,7 @@ export class WorldRenderer {
       if(item.material&&item.materialSince===undefined)item.materialSince=fadeTime;
       u[base+20]=aspect;u[base+21]=waterTime;
       u[base+22]=body?state[4]:Math.min(1,Math.max(0,(fadeTime-(item.materialSince??fadeTime))/.35));u[base+23]=near;
-      u[base+24]=body?0:item.placement[0]-origin[0];u[base+25]=0;
+      if(item.clipInner)u.set(item.clipInner,base+56);u[base+24]=body?0:item.placement[0]-origin[0];u[base+25]=0;
       u[base+26]=body?0:item.placement[1]-origin[1];u[base+27]=item.cell??-1;
     }
     const fxIn={...this.fxInput,...this.fxOverride},beam=beamState({throttle:fxIn.throttle,boosting:fxIn.boosting,heat:fxIn.heat,health:fxIn.health});

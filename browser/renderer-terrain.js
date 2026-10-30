@@ -24,8 +24,9 @@ export function drawable(r,vertices,placement,map=r.emptyMap) {
   return {buffer:r.buffer(vertices,GPUBufferUsage.VERTEX),count:vertices.length/7,placement,
     bounds:vertices.length?[low,high]:undefined,
     group:r.device.createBindGroup({layout:r.pipeline.getBindGroupLayout(0),entries:[
-      {binding:0,resource:{buffer:r.frameUniforms,size:224}},{binding:1,resource:map.createView()},{binding:2,resource:r.mapSampler},
-      {binding:3,resource:r.waterNormals.createView()},{binding:4,resource:r.waveSampler}]})};
+      {binding:0,resource:{buffer:r.frameUniforms,size:240}},{binding:1,resource:map.createView()},{binding:2,resource:r.mapSampler},
+      {binding:3,resource:r.waterNormals.createView()},{binding:4,resource:r.waveSampler},
+      {binding:5,resource:{buffer:r.waveUniforms}},{binding:6,resource:r.waveMaskTexture.createView()}]})};
 }
 export function setFlags(r,positions) {
   for(const item of r.flags)r.release(item);

@@ -86,7 +86,8 @@ const DIP_R=${WHIRLPOOL_DIP.radius.toFixed(1)};const DIP_D=${WHIRLPOOL_DIP.depth
 // Plug point for the shared analytic wave function (Gerstner, mirrored in JS and Rust later): replace the body of waveField;
 // h = height (yd), slope = d(h)/d(x,z), crest = 0..1 steepness/Jacobian foam driver. Phase 1 is flat, the normal map supplies detail.
 struct Wave {h:f32,slope:vec2f,crest:f32};
-fn waveField(world:vec2f,t:f32,wind:f32)->Wave {return Wave(0.0,vec2f(0.0),0.0);}
+var<private> waveIn:Wave;
+fn waveField(world:vec2f,t:f32,wind:f32)->Wave {return waveIn;}
 // Rain: one octave of expanding rings per 2 yd cell; returns a slope.
 fn rainRipples(world:vec2f,t:f32)->vec2f {
   let g=world/2.0;let c=floor(g);let f=fract(g)-.5;
@@ -133,7 +134,11 @@ fn waterColor(p:vec3f,ramp:f32,rampWidth:f32,dx:vec2f,dy:vec2f)->vec3f {
   let depth=mix(clamp(ramp,0.0,1.0),1.0,smoothstep(350.0,700.0,distance));
   // Beer-Lambert: bed/shore colour survives only through a short water column; per-channel absorption leaves the deep colour.
   let body=mix(${v3(WATER_LOOK.deep)},${v3(WATER_LOOK.shallow)},exp(-${v3(WATER_LOOK.sigma)}*depth*${WATER_LOOK.column.toFixed(1)}))*(1.0-.25*rain);
-  var color=mix(body,sky,fresnel);
+  // Depth cues: slanted rays cross more water (deeper, darker body), shallows lift toward a sandy turquoise, and distant water hazes into the sky tint.
+  let slant=1.0/max(dot(view,up),.2);let bodyD=mix(body,${v3(WATER_LOOK.deep)}*.8,clamp((slant-1.0)*.12,0.0,.5)*smoothstep(0.0,.5,depth));
+  let shoal=1.0-smoothstep(0.0,.22,depth);let bodyS=mix(bodyD,vec3f(.30,.58,.50)*mix(1.0,.3,nightK()),shoal*.4*(1.0-.5*rain));
+  var color=mix(bodyS,sky,fresnel);
+  color=mix(color,fogTint()*.9,smoothstep(1500.0,9000.0,distance)*.35*(1.0-bowl*pit));
   color*=mix(1.0,.35,nightK());
   color*=1.0-.55*bowl*pit;
   color=mix(color,vec3f(.01,.05,.07)*mix(1.0,.3,nightK()),(1.0-smoothstep(${(W.core*.4).toFixed(1)},${(W.core*1.6).toFixed(1)},wr))*step(.0001,wk));

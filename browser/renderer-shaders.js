@@ -1,19 +1,26 @@
 import {waterShading,dayShading,localNightShadingFor} from './water-shader.js';
 import {shaderSetFor,activeBody} from './body-shaders.js';
+import {waveRenderShading,MASK_EPS} from './wave-render.js';
 
 /** terrain/splat/scene shaders with a body's radius and bend baked in; Azeroth's set is the byte-identical default below. */
 export const surfaceShadersFor=body=>{
 const groundBase=body.atmosphereEdge>0?".63,.59,.40":".45,.45,.45";const shade=body.atmosphereEdge>0?"":"let neutral=1.0-smoothstep(.02,.06,max(mapColor.r,max(mapColor.g,mapColor.b))-min(mapColor.r,min(mapColor.g,mapColor.b)));color*=mix(1.0,clamp(mapColor.r*1.9,.55,1.35),neutral*mapColor.a);";const bendShader=shaderSetFor(body).bend,localNightShading=localNightShadingFor(body.radius,body.atmosphereEdge<=0);
 
 const terrainShader=`
-struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,body:vec4f,settings:vec4f,tile:vec4f,pad:array<vec4f,3>,sky:array<vec4f,4>};
+struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,body:vec4f,settings:vec4f,tile:vec4f,pad:array<vec4f,3>,sky:array<vec4f,4>,wave:vec4f};
 @group(0) @binding(0) var<uniform> u:U;
 @group(0) @binding(1) var minimap:texture_2d<f32>;
 @group(0) @binding(2) var mapSampler:sampler;
-${dayShading}${waterShading}fn waterSun()->vec3f {let s=u.pad[1].xyz;return select(normalize(vec3f(-.3,1.0,.4)),s,dot(s,s)>.5);}fn seaState()->vec2f {return u.pad[2].xy;}fn waterBendK()->f32 {return u.pad[0].x;}fn bendEye()->vec3f {return vec3f(u.eye.x,u.eye.y,u.pad[0].z);}${bendShader}${localNightShading}
-struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3f,@location(2) @interpolate(flat) material:f32,@location(3) uv:vec2f};
+${dayShading}${waterShading}${waveRenderShading}fn waterSun()->vec3f {let s=u.pad[1].xyz;return select(normalize(vec3f(-.3,1.0,.4)),s,dot(s,s)>.5);}fn seaState()->vec2f {return u.pad[2].xy;}fn waterBendK()->f32 {return u.pad[0].x;}fn bendEye()->vec3f {return vec3f(u.eye.x,u.eye.y,u.pad[0].z);}${bendShader}${localNightShading}
+struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3f,@location(2) @interpolate(flat) material:f32,@location(3) uv:vec2f,@location(4) w:vec3f};
 @vertex fn vs(@location(0) p:vec3f,@location(1) n:vec3f,@location(2) material:f32)->V {
-  var position=p+u.tile.xyz;var normal=n;
+  var position=p+u.tile.xyz;var normal=n;var lattice=vec3f(0.0);
+  if(material==9.0) {
+    let wave=waveVertex(position.xz,u.eye.xz);
+    let wd=wave.xz-vec2f(u.sky[1].w,u.sky[2].w);let dq=max(1.0-dot(wd,wd)/(DIP_R*DIP_R),0.0);
+    position=vec3f(wave.xz.x,p.y+u.tile.y+wave.h-u.sky[3].w*DIP_D*dq*dq,wave.xz.y);
+    normal=wave.n;lattice=vec3f(p.x+u.tile.x,p.z+u.tile.z,wave.crest);
+  }
   if(material==1.0) {
     let s=sin(u.body.w);let c=cos(u.body.w);
     let sb=sin(u.settings.z);let cb=cos(u.settings.z);
@@ -24,10 +31,12 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   let relative=bend(position-u.eye.xyz,bendEye(),u.pad[0].x);let z=dot(relative,u.forward.xyz);
   var v:V;v.clip=vec4f(dot(relative,u.right.xyz)/(0.55*u.settings.x),dot(relative,u.up.xyz)/0.55,
     (z-u.settings.w)*u.eye.w/(u.eye.w-u.settings.w),z);
-  v.p=position;v.n=normal;v.material=material;v.uv=p.xz/(1600.0/3.0);return v;
+  v.p=position;v.n=normal;v.material=material;v.uv=p.xz/(1600.0/3.0);v.w=lattice;return v;
 }
 @fragment fn fs(v:V)->@location(0) vec4f {
   nightOver=localNight(v.p);
+  if(v.material==9.0 && ((u.wave.z>0.0 && max(abs(v.w.x-u.wave.x),abs(v.w.y-u.wave.y))<u.wave.z) || waveAmp(v.w.xy)<${MASK_EPS})){discard;}
+  if(v.material==2.0 && v.n.z<.5 && wv.head.x>.5 && max(abs(v.p.x-wv.clip.x),abs(v.p.z-wv.clip.y))<wv.clip.z && waveAmp(v.p.xz)>=${MASK_EPS}){discard;}
   let dx=dpdx(v.p.xz);let dy=dpdy(v.p.xz);let rampWidth=fwidth(v.n.x);
   let light=.35+.65*max(dot(normalize(v.n),normalize(vec3f(-.3,1.0,.4))),0.0);
   var color=vec3f(${groundBase})*light;
@@ -43,6 +52,10 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   }
   if(v.material==2.0 || v.material==4.0){
     color=waterColor(v.p,select(1.0,v.n.x,v.n.z>.5),rampWidth,dx,dy);
+  }
+  if(v.material==9.0){
+    waveIn=Wave(0.0,v.n.xz/max(v.n.y,.05),v.w.z);
+    color=waterColor(v.p,1.0,0.0,dx,dy);
   }
   let fog=max(clamp(length(v.p-u.eye.xyz)/150000.0,0.0,.93),valleyHaze(v.p))*(1.0-u.pad[0].y);
   return vec4f(mix(color,fogTint(),fog)+limbGlow(v.p),1);
@@ -98,7 +111,7 @@ struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,settings:vec4f,model:mat4
 @group(0) @binding(0) var<uniform> u:U;
 @group(0) @binding(1) var image:texture_2d<f32>;
 @group(0) @binding(2) var imageSampler:sampler;
-${dayShading}${waterShading}fn waterSun()->vec3f {return normalize(vec3f(-.3,1.0,.4));}fn seaState()->vec2f {return vec2f(.35,0.0);}fn waterBendK()->f32 {return u.bend.x;}fn bendEye()->vec3f {return vec3f(u.eye.x,u.eye.y,u.bend.z);}${bendShader}
+${dayShading}${waterShading}${waveRenderShading}fn waterSun()->vec3f {return normalize(vec3f(-.3,1.0,.4));}fn seaState()->vec2f {return vec2f(.35,0.0);}fn waterBendK()->f32 {return u.bend.x;}fn bendEye()->vec3f {return vec3f(u.eye.x,u.eye.y,u.bend.z);}${bendShader}
 struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3f,@location(2) uv:vec2f,@location(3) color:vec4f};
 @vertex fn vs(@location(0) p:vec3f,@location(1) n:vec3f,@location(2) uv:vec2f,@location(3) color:vec4f)->V {
   let position=(u.model*vec4f(p,1)).xyz;let relative=bend(position-u.eye.xyz,bendEye(),u.bend.x);let z=dot(relative,u.forward.xyz);

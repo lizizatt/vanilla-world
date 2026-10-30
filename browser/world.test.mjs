@@ -298,7 +298,7 @@ test('direct uniform packing matches shader layouts and cached bindings follow t
     uniformData:new Float32Array(16384*64),frameUniforms:{},body:{placement:[0,0]},
     horizon:[horizon],tiles:new Map([[1,detail]]),seams:new Map(),water:[],flags:[],gates:[],coast:new Map([[1,coastNear],[5,coastFar]]),coastBytes:0,
     instances:[instance],assets:new Map([['model',asset]]),textures:new Map([['model.blp',texture()]]),
-    items:new Map(),white:texture(),waterNormals:texture(),manifest:{regions:[region]},sceneRegion:0,
+    items:new Map(),white:texture(),waterNormals:texture(),waveMaskTexture:texture(),waveUniforms:{},waveUniformData:new Float32Array(64),manifest:{regions:[region]},sceneRegion:0,
     materialPending:new Map(),minimapAtlases:[]});
   const state=[origin[0]+.125,20,origin[1]+.25,.4,.2,0,0,1,0,0,0,...origin];
   const old=globalThis.devicePixelRatio;globalThis.devicePixelRatio=1;

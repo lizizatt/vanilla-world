@@ -21,6 +21,7 @@ import {ActorService,ACTOR} from './actors.js';
 import {ARRIVAL,arrivalResources} from './loading-gate.js';
 import {maelstromCentre,WHIRLPOOL_DIP} from './clouds.js';
 import {waveParams} from './wave-config.js';
+import {buildWaveMask} from './wave-render.js';
 import {TILE,createTerrainIndex,terrainDistance,tileKeyOf,assetPathOf,focusRegionOf,sourcePositionOf,
   nextUnresolvedWindow,isCameraUnknown,isObjectWaiting} from './world-worker-logic.js';
 
@@ -34,7 +35,17 @@ let poseTime,flightFocus,areaTime=-1e9,areaId=0,actors,actorFocus,actorRegion=0,
 export const setActorsOn=on=>{actorsOn=on;if(actors)actors.enabled=on;};
 // Gerstner sea (wave-config.js): uploaded once after the world exists and re-sent on the settings toggle. An empty array is "off".
 let wavesOn=true,waveSea=false,waveMaelstrom;
-const applyWaves=()=>{if(world)world.set_waves(wavesOn&&waveSea?waveParams({maelstrom:waveMaelstrom}):new Float64Array(0));};
+const applyWaves=()=>{waveRev++;if(world)world.set_waves(wavesOn&&waveSea?waveParams({maelstrom:waveMaelstrom}):new Float64Array(0));};
+let waveRev=0;
+/** Render-side sea state for the main thread: the sim tick clock (never wall time) and the parameter revision the mask is valid for. */
+export const waveState=()=>({on:!!world&&wavesOn&&waveSea,ticks:world?.wave_ticks?.()??0,rev:waveRev});
+/** Amplitude mask around a chart point, sampled from the physics itself so the drawn waves cannot disagree with the contact surface. */
+/** One slice of the mask (rowCount rows from rowStart) so each worker message stays a few ms; the renderer stitches the slices. */
+export function waveMask(center,rowStart,rowCount){
+  const params=wavesOn&&waveSea?waveParams({maelstrom:waveMaelstrom}):new Float64Array(0);
+  const mask=buildWaveMask(points=>world.water_sample_batch(points),center,rowStart,rowCount);
+  return {...mask,params,rev:waveRev};
+}
 export const setWavesOn=on=>{wavesOn=on;applyWaves();};
 // Total residency budget in bytes; each stream gets its share (memory-budget.js). Zero keeps the built-in defaults.
 let memoryBudget=0;
@@ -716,7 +727,7 @@ export function snapshot() {
   const arrival=arrivalLoading?{tiles:lastNearby.slice(0,Math.min(LIMIT,ARRIVAL.tiles)),
     ground:flightFocus?lastNearby.length===0||resident.has(lastNearby[0]):Array.from(world.required_tiles()).every(i=>resident.has(i)),
     waiting:objectWait.length,resources}:undefined;
-  return {arrival,telemetry:pod.telemetry(world),frame:Array.from(world.frame_state?.()??[0,0,0,0,0]),pod:pod.snapshot(world),area:areaId,poseTime,hopConsumed,resident:Array.from(resident),nearTerrain:{total:lastNearby.length,resident:lastNearby.filter(i=>resident.has(i)).length},required:Array.from(world.required_tiles()),
+  return {arrival,telemetry:pod.telemetry(world),waves:waveState(),frame:Array.from(world.frame_state?.()??[0,0,0,0,0]),pod:pod.snapshot(world),area:areaId,poseTime,hopConsumed,resident:Array.from(resident),nearTerrain:{total:lastNearby.length,resident:lastNearby.filter(i=>resident.has(i)).length},required:Array.from(world.required_tiles()),
     failures:Array.from(failures.values()),loads,evictions,peak,limit:LIMIT,horizon,source:source.stats,
     scene:sceneState?{instances:sceneState.instances.length,assets:sceneState.cachedAssets,bytes:sceneState.cachedBytes,
       pending:sceneState.pending,errors:sceneState.errors,population:sceneState.populationStatus,

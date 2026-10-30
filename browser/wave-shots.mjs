@@ -39,6 +39,7 @@ try{
         flight=[mx-MAELSTROM.radius,view.height??6,mz,view.yaw??0,view.pitch??-.05];
       }
       worldTest.settings({waves:view.waves!==false,...view.settings});
+      const box=document.getElementById('ocean-waves');if(box&&box.checked!==(view.waves!==false)){box.checked=view.waves!==false;box.dispatchEvent(new Event('change'));}
       if(view.probe)window.probe=view.probe;
       const r=worldTest.renderer();
       if(view.time!==undefined){r.clock=new SimClock(view.time,1);r.timeLock=view.time;}
