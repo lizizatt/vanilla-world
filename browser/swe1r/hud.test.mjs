@@ -49,3 +49,13 @@ test('boostFx ramps while boosting (boost is never empty) and fades otherwise',(
   assert.equal(boostFx(m,true,.1),1);
   assert.equal(boostFx(m,false,1),0);
 }); 
+
+import { resample } from './hud.js';
+test('resample: colour never bleeds from transparent texels and 1-bit alpha gets soft edges', () => {
+  const w = 4, h = 4, rgba = new Uint8Array(w * h * 4);
+  for (let i = 0; i < w * h; i++) { const x = i % w, solid = x >= 2; rgba.set(solid ? [200, 100, 50, 255] : [0, 0, 0, 0], i * 4); }
+  const o = resample({ w, h, rgba }, 16, 16), px = x => [...o.rgba.subarray((8 * 16 + x) * 4, (8 * 16 + x) * 4 + 4)];
+  assert.equal(px(0)[3], 0); assert.equal(px(15)[3], 255);
+  assert.ok(px(8)[3] > 0 && px(8)[3] < 255 || px(7)[3] > 0 && px(7)[3] < 255, 'edge pixel is partially covered');
+  for (let x = 0; x < 16; x++) if (px(x)[3] > 0) assert.deepEqual(px(x).slice(0, 3), [200, 100, 50]);
+});
