@@ -4,7 +4,7 @@ import {COAST_GPU_LIMIT} from './water-stream.js';
 import {maelstromCentre} from './clouds.js';
 import {oceanMeshCached} from './ocean-mesh.js';
 import {splatHeights} from './height-bake.js';
-import {isLandTile,trimRimSpikes} from './land-rect.js';
+import {dropOpenSeaWater,isLandTile,trimRimSpikes} from './land-rect.js';
 import {PLANET_RADIUS,WORLD_CENTRE} from './space.js';
 import {buildPlanetPipelines} from './renderer-init.js';
 import {ELUNE} from './bodies.js';
@@ -120,7 +120,7 @@ export function event(r,data) {
       data.rgba,{bytesPerRow:MINIMAP_SIZE*4},[MINIMAP_SIZE,MINIMAP_SIZE]);
   }
   else if(data.event==='terrain-material'){
-    if(!r.tiles.has(data.index))return;
+    if(!r.tiles.has(data.index)||r.tiles.get(data.index).openSea)return;
     r.releaseMaterial(r.materialPending.get(data.index)?.gpu);
     r.materialPending.set(data.index,{data,cursor:0});
   }
@@ -152,11 +152,11 @@ export function event(r,data) {
       r.releaseMaterial(r.materialPending.get(index)?.gpu);r.materialPending.delete(index);
     }
     for(const t of data.tiles){
-      trimRimSpikes(t.vertices);
+      trimRimSpikes(t.vertices);const flat=t.vertices;t.vertices=dropOpenSeaWater(flat);const openSea=t.vertices!==flat;
       r.release(r.tiles.get(t.index));
       r.releaseMaterial(r.materialPending.get(t.index)?.gpu);r.materialPending.delete(t.index);
       const entry=r.manifest.tiles[t.index];
-      let liquid=t.liquid;
+      let liquid=openSea?undefined:t.liquid;
       if(liquid===undefined){
         const values=[];
         for(let i=0;i<t.vertices.length;i+=7)if(t.vertices[i+6]===2)values.push(...t.vertices.subarray(i,i+7));
@@ -164,13 +164,14 @@ export function event(r,data) {
       }
       if(!(liquid instanceof Float32Array)||liquid.length%21||liquid.byteLength>t.vertices.byteLength)
         throw Error('Invalid prepared terrain liquid');
-      r.tiles.set(t.index,{...r.drawable(t.vertices,t.placement,r.minimapAtlases[entry.region]),liquid,
+      r.tiles.set(t.index,{...r.drawable(t.vertices,t.placement,r.minimapAtlases[entry.region]),liquid,openSea,
         entry,cell:entry.x+64*entry.y});
     }
     const entries=[...r.tiles.values()].map(t=>t.entry);
     for(const tile of r.tiles.values())tile.edgeMask=terrainEdgeMask(tile.entry,entries);
     for(const item of r.seams.values())r.release(item);r.seams.clear();
     for(const s of data.seams)if(s.vertices.length){
+      trimRimSpikes(s.vertices);
       const entry=r.manifest.tiles[s.index];
       r.seams.set(s.index,{...r.drawable(s.vertices,r.tiles.get(s.index).placement,r.minimapAtlases[entry.region]),
         cell:entry.x+64*entry.y});

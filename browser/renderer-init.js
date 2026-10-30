@@ -1,4 +1,5 @@
 import {DEPTH_STATE} from './render-passes.js';
+import {MASK_N} from './wave-render.js';
 import {WATER_NORMAL_SIZE,waterNormalMips} from './water-shader.js';
 import {shadowShader} from './shadow.js';
 import {cloudShader,CloudMask} from './clouds.js';
@@ -33,9 +34,13 @@ export async function initialize(r) {
   const waveEntries=[
     {binding:3,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float'}},
     {binding:4,visibility:GPUShaderStage.FRAGMENT,sampler:{type:'filtering'}}];
-  r.terrainLayout=r.device.createBindGroupLayout({entries:[uniformEntry(224),
+  r.terrainLayout=r.device.createBindGroupLayout({entries:[uniformEntry(240),
     {binding:1,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float'}},
-    {binding:2,visibility:GPUShaderStage.FRAGMENT,sampler:{type:'filtering'}},...waveEntries]});
+    {binding:2,visibility:GPUShaderStage.FRAGMENT,sampler:{type:'filtering'}},
+    {binding:3,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float'}},
+    {binding:4,visibility:GPUShaderStage.VERTEX|GPUShaderStage.FRAGMENT,sampler:{type:'filtering'}},
+    {binding:5,visibility:GPUShaderStage.VERTEX|GPUShaderStage.FRAGMENT,buffer:{type:'uniform'}},
+    {binding:6,visibility:GPUShaderStage.VERTEX|GPUShaderStage.FRAGMENT,texture:{sampleType:'float'}}]});
   r.splatLayout=r.device.createBindGroupLayout({entries:[uniformEntry(224),
     {binding:1,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float',viewDimension:'2d-array'}},
     {binding:2,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float',viewDimension:'2d-array'}},
@@ -128,6 +133,9 @@ export async function initialize(r) {
   }
   r.waveSampler=r.device.createSampler({minFilter:'linear',magFilter:'linear',mipmapFilter:'linear',
     addressModeU:'repeat',addressModeV:'repeat',maxAnisotropy:4});
+  r.waveUniforms=r.device.createBuffer({size:256,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
+  r.waveMaskTexture=r.device.createTexture({size:[MASK_N,MASK_N],format:'r8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});
+  r.waveUniformData=new Float32Array(64);
   const points=[[0,.25,-2.7],[-1.2,0,1.3],[1.2,0,1.3],[0,.65,.8],[0,-.35,.6]],vertices=[];
   for(const face of [[0,1,3],[0,3,2],[1,2,3],[0,4,1],[0,2,4],[1,4,2]]) {
     const [a,b,c]=face.map(i=>points[i]),n=unit(cross(sub(b,a),sub(c,a)));
