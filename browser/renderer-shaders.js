@@ -10,7 +10,7 @@ struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,body:vec4f,settings:vec4f
 @group(0) @binding(0) var<uniform> u:U;
 @group(0) @binding(1) var minimap:texture_2d<f32>;
 @group(0) @binding(2) var mapSampler:sampler;
-${dayShading}${waterShading}fn waterBendK()->f32 {return u.pad[0].x;}fn bendEye()->vec3f {return vec3f(u.eye.x,u.eye.y,u.pad[0].z);}${bendShader}${localNightShading}
+${dayShading}${waterShading}fn waterSun()->vec3f {let s=u.pad[1].xyz;return select(normalize(vec3f(-.3,1.0,.4)),s,dot(s,s)>.5);}fn seaState()->vec2f {return u.pad[2].xy;}fn waterBendK()->f32 {return u.pad[0].x;}fn bendEye()->vec3f {return vec3f(u.eye.x,u.eye.y,u.pad[0].z);}${bendShader}${localNightShading}
 struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3f,@location(2) @interpolate(flat) material:f32,@location(3) uv:vec2f};
 @vertex fn vs(@location(0) p:vec3f,@location(1) n:vec3f,@location(2) material:f32)->V {
   var position=p+u.tile.xyz;var normal=n;
@@ -98,7 +98,7 @@ struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,settings:vec4f,model:mat4
 @group(0) @binding(0) var<uniform> u:U;
 @group(0) @binding(1) var image:texture_2d<f32>;
 @group(0) @binding(2) var imageSampler:sampler;
-${dayShading}${waterShading}fn waterBendK()->f32 {return u.bend.x;}fn bendEye()->vec3f {return vec3f(u.eye.x,u.eye.y,u.bend.z);}${bendShader}
+${dayShading}${waterShading}fn waterSun()->vec3f {return normalize(vec3f(-.3,1.0,.4));}fn seaState()->vec2f {return vec2f(.35,0.0);}fn waterBendK()->f32 {return u.bend.x;}fn bendEye()->vec3f {return vec3f(u.eye.x,u.eye.y,u.bend.z);}${bendShader}
 struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3f,@location(2) uv:vec2f,@location(3) color:vec4f};
 @vertex fn vs(@location(0) p:vec3f,@location(1) n:vec3f,@location(2) uv:vec2f,@location(3) color:vec4f)->V {
   let position=(u.model*vec4f(p,1)).xyz;let relative=bend(position-u.eye.xyz,bendEye(),u.bend.x);let z=dot(relative,u.forward.xyz);

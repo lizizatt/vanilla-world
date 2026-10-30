@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {WATER_NORMAL_SIZE,waterNormalMips,waterShading} from './water-shader.js';
+import {WATER_NORMAL_SIZE,waterNormalMips,waterShading,WATER_LOOK,waterBody} from './water-shader.js';
 import {WorldRenderer} from './world-renderer.js';
 import {patchShader} from './space.js';
 
@@ -45,4 +45,28 @@ test('water follows the bent globe: normal and view use the sphere, supplied per
 });
 test('patch far-hemisphere discard altitude scales with the planet radius (no pre-shrink 20000 yd constant)',()=>{
   assert(patchShader.includes('s.p.x>R*.4675')&&!patchShader.includes('s.p.x>20000.0'));
+});
+test('phase 1 water: real sun hook, slope-variance roughness, Beer-Lambert body, subsurface, crest foam and a pluggable wave field',()=>{
+  assert(!waterShading.includes('vec3f(-.3,1.0,.4)'),'no hard-coded sun in the water shader');
+  for(const hook of ['waterSun()','seaState()','waveField(world,wt,windK)','rainRipples('])assert(waterShading.includes(hook),hook);
+  assert(/struct Wave \{h:f32,slope:vec2f,crest:f32\}/.test(waterShading));
+  assert(waterShading.includes('alpha2')&&waterShading.includes('meanLen'),'GGX lobe widened by slope variance and Toksvig loss');
+  assert(waterShading.includes('whitecap')&&waterShading.includes('dot(view,-sun)'));
+  const shaders=readFileSync(new URL('./renderer-shaders.js',import.meta.url),'utf8');
+  assert(shaders.includes('u.pad[1].xyz')&&shaders.includes('u.pad[2].xy'),'terrain water reads the real sun and sea state');
+  assert.equal(shaders.split('fn waterSun()').length,3,'terrain and scene both define the hooks');
+});
+test('Beer-Lambert body colour: shore keeps the shallow colour, deep reaches the old deep blue, red is absorbed first',()=>{
+  const shore=waterBody(0),deep=waterBody(1),mid=waterBody(.1);
+  shore.forEach((c,i)=>assert(Math.abs(c-WATER_LOOK.shallow[i])<1e-9));
+  deep.forEach((c,i)=>assert(Math.abs(c-WATER_LOOK.deep[i])<.012));
+  const lost=i=>(shore[i]-mid[i])/(shore[i]-deep[i]);
+  assert(lost(0)>lost(1)&&lost(1)>lost(2)&&lost(0)>.6,[0,1,2].map(lost).join());
+  let last=waterBody(0);for(let d=.05;d<=1;d+=.05){const c=waterBody(d);assert(c[0]<=last[0]+1e-9);last=c;}
+});
+test('far-field slope variance stays below what the normal map actually holds',()=>{
+  const mip=waterNormalMips()[0];let energy=0;
+  for(let i=0;i<mip.length;i+=4){const z=mip[i+2]/255,x=(1-2*mip[i]/255),y=(1-2*mip[i+1]/255);energy+=(x*x+y*y)/(z*z)/2;}
+  energy/=mip.length/4;
+  assert(WATER_LOOK.farVariance<energy&&WATER_LOOK.farVariance>energy/6,`${energy}`);
 });
