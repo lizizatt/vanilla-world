@@ -109,3 +109,11 @@ test('mask slices stitch to exactly the full mask', () => {
   for(let row=0;row<MASK_N;row+=12){const part=buildWaveMask(sample,[2000,9000],row,Math.min(12,MASK_N-row));assert.deepEqual(part.origin,full.origin);stitched.set(part.data,row*MASK_N);}
   assert.deepEqual(stitched,full.data);
 });
+
+test('ocean fill overlaps the clipmap along the mask edge so no sea-floor tear opens',async()=>{
+  const {MASK_EPS,MASK_FILL_EPS}=await import('./wave-render.js');
+  const {terrainShader}=await import('./renderer-shaders.js');
+  assert.ok(MASK_FILL_EPS>MASK_EPS);
+  assert.ok(terrainShader.includes(`waveAmp(v.p.xz)>=${MASK_FILL_EPS}`));
+  assert.ok(terrainShader.includes(`waveAmp(v.w.xy)<${MASK_EPS}`));
+});

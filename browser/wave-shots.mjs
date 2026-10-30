@@ -48,7 +48,7 @@ try{
     await page.waitForTimeout(view.settle??9000);
     const info=await page.evaluate(()=>({render:worldEvidence.render,errors:worldEvidence.errors,
       waves:worldTest.renderer().waveStats?.()}));
-    if(view.eval)info.eval=await page.evaluate(view.eval);
+    if(view.eval){info.eval=await page.evaluate(view.eval);await page.waitForTimeout(view.evalSettle??0);}
     await page.screenshot({path:fileURLToPath(new URL(`${view.name}.png`,out))});
     result.views.push({name:view.name,info});
   }
