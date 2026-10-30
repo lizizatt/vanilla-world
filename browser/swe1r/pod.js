@@ -18,6 +18,16 @@ export function meshTexture(body, mesh) {
     ...textureAddress(child&&child+16<=body.length?body[child+3]:0) };
 }
 
+// Untextured pod materials still combine TEXEL0*SHADE and map every vertex to uv 0,0: the game paints them with the first texel of the
+// texture bound by the preceding mesh (a colour-swatch trick), so a null texture pointer is not a flat-gray part.
+// Shade-only materials (cables) combine SHADE alone and are intentionally untextured.
+export function usesTexel(body, mesh) {
+  const m = mesh.matPtr;
+  if (!m || m + 16 > body.length) return false;
+  const p = new DataView(body.buffer, body.byteOffset, body.byteLength).getUint32(m + 12);
+  return p > 0 && p + 7 <= body.length && body[p + 6] === 1;
+}
+
 export function decodeTriangles(body, mesh) {
   const dv = new DataView(body.buffer, body.byteOffset, body.byteLength);
   const slots = new Array(64).fill(null);
@@ -60,12 +70,24 @@ export function buildPod(body, mask, opts = {}) {
   const meshes = opts.meshes ?? parseModel(body, mask, opts).meshes;
   const vertices = [], indices = [], batches = [], textures = new Map();
   const lo = [1e9, 1e9, 1e9], hi = [-1e9, -1e9, -1e9];
-  const groups = new Map();
+  const groups = new Map(), swatches = new Map();
+  // Meshes drawn before any texture in the pod borrow the first opaque one drawn after (the state they inherited is not in the model).
+  let bound = null;
+  for (const mesh of opts.texture ? meshes : []) {
+    const t = mesh.texture ?? meshTexture(mesh.body ?? body, mesh), tex = t && opts.texture(t);
+    if (tex && t.index !== BEAM_TEXTURE && tex.rgba[3] === 255) { bound = t; break; }
+  }
   for (const mesh of meshes) {
     const source = mesh.body ?? body;
     const t = mesh.texture ?? meshTexture(source, mesh);
     let tex = t && opts.texture ? opts.texture(t) : null;
     if (tex && !textures.has(`swe1r\\${t.index}`) && textures.size >= (opts.maxTextures ?? 64)) tex = null; // renderer's craft payload limit; the rest stay untextured
+    let swatch = null;
+    if (!t && usesTexel(source, mesh) && bound && opts.texture) {
+      if (!swatches.has(bound.index)) { const s = opts.texture(bound); swatches.set(bound.index, s && [...s.rgba.slice(0, 3)].map(c => c / 255)); }
+      swatch = swatches.get(bound.index);
+    }
+    if (tex && t.index !== BEAM_TEXTURE && tex.rgba[3] === 255) bound = t;
     const key = tex ? `swe1r\\${t.index}` : null;
     if (tex && !textures.has(key)) textures.set(key, { key, width: tex.width, height: tex.height, rgba: tex.rgba });
     const tris=(mesh.triangles ?? decodeTriangles(source,mesh)).map(tri=>({tri,P:tri.map(v=>applyMat(mesh.matrix,v.x,v.y,v.z))}));
@@ -75,12 +97,12 @@ export function buildPod(body, mask, opts = {}) {
       if(t){address.addressU=t.addressU;address.addressV=t.addressV;}
       const groupKey=`${key}|${address.addressU}|${address.addressV}|${pivot?pivot.join(','):''}`;
       if(!groups.has(groupKey))groups.set(groupKey,{key,address,pivot,list:[]});
-      groups.get(groupKey).list.push({tris,textured:!!tex});
+      groups.get(groupKey).list.push({tris,textured:!!tex,swatch});
     }
   }
   for (const {key,address,pivot,list} of groups.values()) {
     const first = indices.length;
-    for (const { tris, textured } of list) {
+    for (const { tris, textured, swatch } of list) {
       for (const {tri,P} of tris) {
         const e1 = P[1].map((c, i) => c - P[0][i]), e2 = P[2].map((c, i) => c - P[0][i]);
         let n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
@@ -88,7 +110,7 @@ export function buildPod(body, mask, opts = {}) {
         tri.forEach((v, k) => {
           const [x, y, z] = P[k];
           indices.push(vertices.length / 12);
-          vertices.push(x, y, z, n[0], n[1], n[2], textured ? v.u / UV_RANGE : 0, textured ? v.v / UV_RANGE : 0, v.r, v.g, v.b, v.a);
+          vertices.push(x, y, z, n[0], n[1], n[2], textured ? v.u / UV_RANGE : 0, textured ? v.v / UV_RANGE : 0, v.r * (swatch?.[0] ?? 1), v.g * (swatch?.[1] ?? 1), v.b * (swatch?.[2] ?? 1), v.a);
           for (let a = 0; a < 3; a++) { lo[a] = Math.min(lo[a], P[k][a]); hi[a] = Math.max(hi[a], P[k][a]); }
         });
       }
