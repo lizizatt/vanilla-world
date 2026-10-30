@@ -1,5 +1,6 @@
 import {parseModel, modelHeader, mulMat, applyMat} from './model.js';
 import {decodeTriangles,meshTexture,BEAM_TEXTURE} from './pod.js';
+import {INTAKE_TEXTURES} from './intakes.js';
 
 const IDENTITY=[1,0,0,0,0,1,0,0,0,0,1,0];
 function points(meshes) {
@@ -48,8 +49,10 @@ export function assemblePod(body, mask, alternate, pose) {
     if (!roots[part] && !position) continue;
     if (!roots[part] || !position?.every(Number.isFinite)) throw new Error('incomplete pod assembly');
     // The existing particle renderer owns exhaust plumes, at the preserved anchors.
+    // Nested header-root subtrees are separately driven parts stored in a deflected pose; only the fans are kept.
     const branch=parseModel(body,mask,{alternate,root:roots[part],finest:true,visibleOnly:true}).meshes
-      .filter(mesh=>meshTexture(mesh.body,mesh)?.index!==116);
+      .filter(mesh=>meshTexture(mesh.body,mesh)?.index!==116)
+      .filter(mesh=>!mesh.chain.some(c=>c.header)||INTAKE_TEXTURES.has(meshTexture(mesh.body,mesh)?.index));
     if (!branch.length) throw new Error('empty pod instance');
     const [x,y,z]=position;
     // Fans and housings must share the same transform. Fitting material envelopes
