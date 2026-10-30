@@ -66,7 +66,7 @@ export function stepWeather(r,dt,settings,flight,regimeAltitude) {
   r.thunderEvents.push(...r.lightning.step(r.cloudTime??0,{eye,polar:heavyOn?r.weather.polar:null,enabled:heavyOn,drop:Math.max(0,base0-eye[1])}));
   r.flashLevel=heavyOn?r.lightning.flash(r.cloudTime??0):0;
   r.weather.step({dt,eye,time:r.cloudTime??0,centre:r.manifest?maelstromCentre(r.manifest):[1e9,1e9],mask:r.cloudMask?.mask,
-    flow:r.planet?{cycles:r.planet.flowCycles,scale:r.planet.flowScale}:undefined,enabled:tier!=='off',regime,body,area:r.weatherArea??{name:'',cold:false}});
+    flow:r.planet?{cycles:r.planet.flowCycles,scale:r.planet.flowScale}:undefined,enabled:tier!=='off',regime,body,area:r.weatherArea??null});
 }
 
 /** Scalar the cloud uniform needs: 1 when weather is live, else 0. */
