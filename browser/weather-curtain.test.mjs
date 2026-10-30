@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {curtainShader,curtainUniform,curtainFade,CURTAIN_UNIFORM_BYTES} from './weather-curtain.js';
+import {curtainExit,curtainShader,curtainUniform,curtainFade,CURTAIN_UNIFORM_BYTES} from './weather-curtain.js';
 import {resolveWeatherTier} from './renderer-weather.js';
 import {WEATHER as W} from './weather-config.js';
 
@@ -19,6 +19,14 @@ test('curtain shader declares the grid at the packed size and shares the cloud c
 test('curtain fades out as the eye climbs into the cloud base',()=>{
   assert.equal(curtainFade(0,1316),1);assert.equal(curtainFade(1316,1316),0);assert.equal(curtainFade(2000,1316),0);
   const mid=curtainFade(1316-W.curtain.fade/2,1316);assert(mid>.4&&mid<.6);
+});
+test('curtain follows the curved cloud shell: a level ray leaves the sub-cloud volume within a few km, not at the 24 km grid edge (repro pose)',()=>{
+  const k=7.012622518232092e-5,eye=1024.15,base=1576.8-W.curtain.baseDrop;
+  const exit=curtainExit(eye,0,base,k);
+  assert(Number.isFinite(exit)&&exit<4500&&exit>2000,`level exit ${exit}`);
+  assert(curtainExit(eye,0,base,1e-9)>1e5,'flat limit stays unbounded');
+  assert(curtainExit(eye,.3,base,k)<exit,'climbing rays leave sooner');
+  assert(curtainShader.includes('worldAt(dir*s)')&&curtainShader.includes('shellRoots(eyeY,dir.y,base)'));
 });
 test('quality tier: off wins, explicit tier wins, auto drops to low when slow',()=>{
   assert.equal(resolveWeatherTier(false,'high'),'off');assert.equal(resolveWeatherTier(true,'off'),'off');

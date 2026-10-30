@@ -2,6 +2,7 @@
 // The CPU polar grid (weather.js) says where the rain is; this marches each pixel's ray below the cloud base and accumulates streaky, fog-tinted extinction,
 // clipped by scene depth. It reads the same uniform block as the cloud shader (so the camera and flow frame agree) plus the grid.
 import {flowWGSL} from './cloud-flow.js';
+import {SHELL_WGSL} from './clouds.js';
 import {WEATHER as W} from './weather-config.js';
 
 export const CURTAIN_UNIFORM_BYTES=256+W.polar.azimuth*W.polar.rings*4;
@@ -13,11 +14,20 @@ export function curtainUniform(cloud,polar,wx,out=new Float32Array(CURTAIN_UNIFO
 }
 /** 0..1 fade for the curtain as the eye climbs into and above the cloud base: full below (base-fade), gone at the base. */
 export const curtainFade=(eyeY,base)=>Math.min(Math.max((base-eyeY)/W.curtain.fade,0),1);
+/** CPU twin of the shader's march end: distance along a unit ray at which it climbs through the base shell (curvature k=1/effective radius), or Infinity. */
+export function curtainExit(eyeY,dirY,base,k) {
+  const a=Math.max(k,1e-9),b=(1+k*eyeY)*dirY,cc=(eyeY-base)*(2+k*(eyeY+base)),disc=b*b-a*cc;
+  if(disc<0)return Infinity;
+  const sq=Math.sqrt(disc);let q=-(b+(b>=0?sq:-sq));if(Math.abs(q)<1e-12)q=-1e-12;
+  const far=Math.max(q/a,cc/q);
+  return far>0?far:Infinity;
+}
 
 export const curtainShader=`
 struct C {eye:vec4f,right:vec4f,up:vec4f,look:vec4f,cloud:vec4f,near:vec4f,tint:vec4f,fog:vec4f,sun:vec4f,sunCol:vec4f,cloud2:vec4f,bend:vec4f,fe:vec4f,fu:vec4f,fs:vec4f,wx:vec4f,grid:array<vec4f,${W.polar.azimuth*W.polar.rings/4}>};
 @group(0) @binding(0) var<uniform> c:C;
 @group(0) @binding(1) var sceneDepth:texture_depth_2d;
+${SHELL_WGSL}
 ${flowWGSL()}
 struct V {@builtin(position) clip:vec4f,@location(0) ndc:vec2f};
 @vertex fn vs(@builtin(vertex_index) i:u32)->V {
@@ -51,8 +61,9 @@ fn precipAt(x:f32,z:f32)->f32 {
   let base=c.cloud.z-${f(W.curtain.baseDrop)};
   let eyeY=c.eye.y;
   var sEnd=min(sceneDist,R_FAR);
-  // The ray leaves the sub-cloud volume when it climbs through the base.
-  if(dir.y>0.0001){sEnd=min(sEnd,(base-eyeY)/dir.y);}
+  // The ray leaves the sub-cloud volume where it climbs through the curved base shell (the deck falls away with the planet, so a flat plane would put rain under sky with no cloud).
+  let exit=shellRoots(eyeY,dir.y,base).y;
+  if(exit>0.0&&exit<1e29){sEnd=min(sEnd,exit);}
   if(sEnd<=${f(W.curtain.start)}){return vec4f(0.0);}
   let t=c.up.w;let night=1.0-c.look.w;let snow=c.wx.x;
   let game=c.tint.w>.5;
@@ -65,9 +76,11 @@ fn precipAt(x:f32,z:f32)->f32 {
     let s=${f(W.curtain.start)}*pow(ratio,u);
     let ds=s*(pow(ratio,1.0/${f(W.curtain.steps)})-1.0);
     let p=c.eye.xyz+dir*s;
-    let P=precipAt(p.x-c.eye.x,p.z-c.eye.z);
+    // Grid lookup and base height on the same curved shells (and world mapping) the cloud pass renders.
+    let wp=worldAt(dir*s);
+    let P=precipAt(wp.x-c.eye.x,wp.z-c.eye.z);
     if(P<.02){continue;}
-    let drop=base-p.y;
+    let drop=base-wp.y;
     let fall=mix(${f(W.curtain.fall[0])},${f(W.curtain.fall[1])},smoothstep(.3,.8,P));
     let shaft=exp(-max(drop,0.0)/fall);
     let sx=max(${f(W.curtain.streakXZ)},s*.04);

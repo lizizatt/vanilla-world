@@ -54,11 +54,13 @@ export const TIER_FADE_SECONDS=.8;
 /** Moves the High-tier weight toward `target` (0 Standard, 1 High) at a constant rate; big frame hitches are clamped. */
 export const stepTierMix=(mix,target,dt)=>{const s=Math.min(Math.max(dt,0),.1)/TIER_FADE_SECONDS;return mix<target?Math.min(target,mix+s):Math.max(target,mix-s);};
 
-const COMMON=`
+const COMMON_HEAD=`
 struct C {eye:vec4f,right:vec4f,up:vec4f,look:vec4f,cloud:vec4f,near:vec4f,tint:vec4f,fog:vec4f,sun:vec4f,sunCol:vec4f,cloud2:vec4f,bend:vec4f,fe:vec4f,fu:vec4f,fs:vec4f};
 @group(0) @binding(0) var<uniform> c:C;
 @group(0) @binding(1) var sceneDepth:texture_depth_2d;
-fn hash(p:vec2f)->f32 {return fract(sin(dot(p,vec2f(127.1,311.7)))*43758.5453);}
+fn hash(p:vec2f)->f32 {return fract(sin(dot(p,vec2f(127.1,311.7)))*43758.5453);}`;
+/** Shell geometry shared with the weather curtain: needs a `c:C` uniform with eye, bend and fe/fu/fs (the cloud camera block). */
+export const SHELL_WGSL=`
 // Curved cloud shells (planet view): the layer is a spherical shell of effective radius 1/kappa under the eye. These are scaled by kappa so
 // the flat limit (kappa -> 0) stays finite: roots of a t^2 + 2 b t + cc = 0 for the sphere at altitude y; returns (near, far) or (1e30, -1e30).
 fn shellRoots(e:f32,dy:f32,y:f32)->vec2f {
@@ -99,11 +101,13 @@ fn worldAt(rel:vec3f)->vec3f {
 fn shellBend()->f32 {
   let g=${1/CLOUD_RADIUS_GROUND_SCALE};
   return clamp((c.bend.x*${PLANET_RADIUS}.0-g)/(1.0-g),0.0,1.0);
-}
+}`;
+const COMMON_TAIL=`
 fn vnoise(p:vec2f)->f32 {
   let i=floor(p);let f=fract(p);let s=f*f*(3.0-2.0*f);
   return mix(mix(hash(i),hash(i+vec2f(1,0)),s.x),mix(hash(i+vec2f(0,1)),hash(i+vec2f(1,1)),s.x),s.y);
 }`;
+const COMMON=COMMON_HEAD+SHELL_WGSL+COMMON_TAIL;
 const M=MAELSTROM;
 const F=FUNNEL;
 // One fullscreen ray march samples the cumulus sheet and the funnel together, always taking whichever sample is nearer,
