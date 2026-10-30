@@ -22,6 +22,7 @@ import {ARRIVAL,arrivalResources} from './loading-gate.js';
 import {maelstromCentre,WHIRLPOOL_DIP} from './clouds.js';
 import {waveParams} from './wave-config.js';
 import {buildWaveMask} from './wave-render.js';
+import {buildShoreClasses} from './shore-field.js';
 import {TILE,createTerrainIndex,terrainDistance,tileKeyOf,assetPathOf,focusRegionOf,sourcePositionOf,
   nextUnresolvedWindow,isCameraUnknown,isObjectWaiting} from './world-worker-logic.js';
 
@@ -45,6 +46,10 @@ export function waveMask(center,rowStart,rowCount){
   const params=wavesOn&&waveSea?waveParams({maelstrom:waveMaelstrom}):new Float64Array(0);
   const mask=buildWaveMask(points=>world.water_sample_batch(points),center,rowStart,rowCount);
   return {...mask,params,rev:waveRev};
+}
+/** One slice of the visual-only shore class grid (land / water / open sea) for the beach waves; sampled with the same physics queries, a few ms per slice. */
+export function shoreRows(center,rowStart,rowCount){
+  return buildShoreClasses(points=>world.water_sample_batch(points),(x,z)=>world.surface(x,z),center,rowStart,rowCount);
 }
 export const setWavesOn=on=>{wavesOn=on;applyWaves();};
 // Total residency budget in bytes; each stream gets its share (memory-budget.js). Zero keeps the built-in defaults.

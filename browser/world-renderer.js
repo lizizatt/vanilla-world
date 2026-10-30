@@ -34,7 +34,7 @@ import {zoneBlend,setSky,setSkyDome,horizonColour,planetRects,drawPlanet,sharedF
 import {drawShadow,enableHighClouds,highCloudGroup,maskEntries,drawClouds} from './renderer-clouds.js';
 import {seaState} from './sea-state.js';
 import {stepWind,drawWind} from './renderer-wind.js';
-import {waveItems,setWaveMask} from './renderer-waves.js';
+import {waveItems,setWaveMask,setShoreField} from './renderer-waves.js';
 import {weatherGroups,stepWeather,drawCurtain,drawNearWeather,drawFlash,drawBolts} from './renderer-weather.js';
 import {initialize,prepareBody,useBody,bodyPrepared} from './renderer-init.js';
 const OCEAN_MESH_CEILING=90000;
@@ -96,6 +96,7 @@ export class WorldRenderer {
   configure(manifest){return configure(this,manifest);}
   event(data){return event(this,data);}
   setWaveMask(mask){return setWaveMask(this,mask);}
+  setShoreField(field){return setShoreField(this,field);}
   waveStats(){return {active:!!this.waveActive,requested:!!this.waveRequest,rev:this.waveMask?.rev,ticks:this.waveSim?.ticks,levels:this.clipItems?.length??0};}
   clearFar(){return clearFar(this);}
   uploadMaterials(){return uploadMaterials(this);}
