@@ -8,7 +8,7 @@ import {readBlock} from './block.js';
 import {POD_POSES} from './poses.js';
 import {assemblePod,tetherMatrix} from './assembly.js';
 import {INTAKE_TEXTURES} from './intakes.js';
-import {meshTexture} from './pod.js';
+import {meshTexture,usesTexel,buildPod,decodeTexture,decodeTriangles} from './pod.js';
 
 function fixture(tag) {
   const body=new Uint8Array(0x600),dv=new DataView(body.buffer);
@@ -145,4 +145,31 @@ test('real data: all default payloads use only paired source geometry and fixed 
     for(const s of podSkinList())assert.equal((await loadPodModel(noLegacy,s)).assembly,'paired');
     assert.ok((await loadPartModel(reader,309)).asset.indices.length>0);
     await assert.rejects(loadPartModel(reader,skin.index),/not a scenery part/);
+  });
+
+test('real data: no pod face is untextured or flat gray unless its material is shade-only',
+  {skip:!process.env.SWE1R_DATA},()=>{
+    const dir=path.join(process.env.SWE1R_DATA,'lev01');
+    const models=readBlock(fs.readFileSync(path.join(dir,'out_modelblock.bin')),'model');
+    const textures=readBlock(fs.readFileSync(path.join(dir,'out_textureblock.bin')),'texture');
+    const texture=t=>{try{return decodeTexture(textures[t.index],t);}catch{return null;}};
+    for(const skin of podSkinList()){
+      const pair=podPair(skin.index),[mask,body]=models[pair.pod],alt=models[pair.alternate][1];
+      const meshes=assemblePod(body,mask,alt,POD_POSES[skin.index]);
+      let shadeOnly=0;
+      for(const m of meshes){
+        const src=m.body??body,t=m.texture??meshTexture(src,m);
+        if(t){assert.ok(texture(t),skin.name+' texture '+t.index+' does not decode');continue;}
+        if(usesTexel(src,m))continue;
+        shadeOnly+=decodeTriangles(src,m).length*3;
+      }
+      const {asset}=buildPod(body,mask,{meshes,texture});
+      let white=0;
+      for(const b of asset.batches.filter(b=>!b.texture))
+        for(let i=b.firstIndex;i<b.firstIndex+b.indexCount;i++){
+          const o=asset.indices[i]*12;
+          if(asset.vertices[o+8]===1&&asset.vertices[o+9]===1&&asset.vertices[o+10]===1)white++;
+        }
+      assert.equal(white,shadeOnly,skin.name);
+    }
   });

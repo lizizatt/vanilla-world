@@ -55,6 +55,8 @@ try {
             worldTest.focus([s[0]-sy,s[1]+sz+0.6,s[2]-sx-2.2,Math.PI,-0.15]);
           }
           else if(view==='chase') worldTest.focus([target[0],target[1]+Math.max(hi[2]-lo[2],1)*0.8,s[2]-lo[0]+Math.max(hi[1]-lo[1],hi[2]-lo[2])*1.6+3,0,-0.2]);
+          else if(view==='back') worldTest.focus([target[0],target[1],s[2]-lo[0]+Math.max(hi[1]-lo[1],hi[2]-lo[2])*0.6+2,0,0]);
+          else if(view==='top') worldTest.focus([target[0],target[1]+Math.max(hi[0]-lo[0],hi[1]-lo[1])*1.3+3,target[2],0,-Math.PI/2+0.001]);
           else if(view==='front') worldTest.focus([target[0],target[1],s[2]-hi[0]-Math.max(hi[1]-lo[1],hi[2]-lo[2])*1.2-3,Math.PI,0]);
           else worldTest.focus([target[0]+(hi[0]-lo[0])*1.1+3,target[1],target[2],Math.PI/2,0]);
         },[view,skin]);
