@@ -32,6 +32,7 @@ import {reset,configure,event,clearFar,swapPlanetState,bodyEvent} from './render
 import {scenePipeline,prepareBatches,sceneMatrix,drawScene} from './renderer-scene.js';
 import {zoneBlend,setSky,setSkyDome,horizonColour,planetRects,drawPlanet,sharedFrame,drawPatches,drawBodies,drawBodyClouds,drawLights,drawSkyDome,sampleSky,noteLitInstance} from './renderer-sky.js';
 import {drawShadow,enableHighClouds,highCloudGroup,maskEntries,drawClouds} from './renderer-clouds.js';
+import {seaState} from './sea-state.js';
 import {weatherGroups,stepWeather,drawCurtain,drawNearWeather,drawFlash,drawBolts} from './renderer-weather.js';
 import {initialize,prepareBody,useBody,bodyPrepared} from './renderer-init.js';
 const OCEAN_MESH_CEILING=90000;
@@ -144,6 +145,7 @@ export class WorldRenderer {
     const cc=this.cloudClock??=new CloudClock(time);cc.step(dt,clock.scale);pf.flowScale=cc.stretch;pf.flowCycles=cc.cycles;
     this.cloudTime=cc.time;const waterTime=this.cloudTime%7200;stepWeather(this,dt,settings,flight);
     this.timeOfDay=this.podTime??this.timeLock??clock.now();
+    const sea=seaState(this.view.eye[0],this.view.eye[2],this.weather?.on?this.weather.state.level:0,activeFramedBody().centre,activeFramedBody().radius);
     const airless=activeBody().id==='elune',moonSky=airless?eluneSkyAt(state[0],state[2],this.timeOfDay):undefined;
     // Atmospheric bodies light from where the camera stands: the local sun and the clock reading that sun corresponds to drive every day/night and Light.dbc lookup.
     this.sunLocal=moonSky?moonSky.sun:localSunAt(activeFramedBody(),this.view.eye[0],this.view.eye[2],this.timeOfDay);
@@ -176,7 +178,7 @@ export class WorldRenderer {
     const writeUniform=item=>{
       if(uniformCount>=16384)throw Error('World draw uniform budget exceeded');
       const base=uniformCount++*64;
-      item.offset=base*4;u.set(view,base);u.set(skyFloats,base+40);u[base+28]=u[base+60]=pf.bend;u[base+30]=u[base+62]=this.view.eye[2]+(activeBody().centre[1]-activeFramedBody().centre[1]);u[base+29]=u[base+61]=pf.space;u.set(sunDir,base+32);return base;
+      item.offset=base*4;u.set(view,base);u.set(skyFloats,base+40);u[base+28]=u[base+60]=pf.bend;u[base+30]=u[base+62]=this.view.eye[2]+(activeBody().centre[1]-activeFramedBody().centre[1]);u[base+29]=u[base+61]=pf.space;u.set(sunDir,base+32);u[base+36]=sea[0];u[base+37]=sea[1];return base;
     };
     for(const item of terrain){
       const base=writeUniform(item),body=item===this.body;
