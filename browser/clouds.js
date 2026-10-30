@@ -4,6 +4,8 @@ import {PLANET_RADIUS,WORLD_CENTRE,planetFrame} from './space.js';
 import {activeFramedBody} from './body-shaders.js';
 import {cloudShellRadius,cloudAltitudeAt,CLOUD_RADIUS_GROUND_SCALE} from './terrain-transition.js';
 import {flowWGSL,FLOW,MASK,bakeLandMask} from './cloud-flow.js';
+import {weatherWGSL,WEATHER_LOOK} from './weather-wgsl.js';
+import {WEATHER} from './weather-config.js';
 import {createRegistry,defaultManifest} from './tile-registry.js';
 import {CLOUD_ALTITUDE,CLOUD_THICKNESS,CLOUD_HALF_SIZE,HYJAL_SUMMIT,CLOUD_ALTITUDE_FACTOR,CLOUD_TOWER,WHIRLPOOL_DIP,MAELSTROM,MAELSTROM_MAP,KALIMDOR_NORTH_SHIFT,FUNNEL,FUNNEL_STEPS,tier} from './cloud-config.js';
 export * from './cloud-config.js';
@@ -44,7 +46,7 @@ export function cloudUniform(view,time,daylight,manifest,near,game,out=new Float
     out.set([...mixTo(game.cloud,[1,1,1]),1,...mixTo(game.fog,[.08,.15,.2]),0],24);
     if(game.sun)out.set([...mixTo(game.sun,[1,.96,.88]),0],36);if(game.cloud2)out.set([...mixTo(game.cloud2,[.55,.6,.7]),1],40);
   }
-  out[31]=planet.tierMix??0;out[39]=planet.farBoost??0;
+  out[31]=planet.tierMix??0;out[39]=planet.farBoost??0;out[21]=planet.wet??0;out[22]=planet.weatherOn??0;
   return out;
 }
 /** Seconds for the Standard/High cloud tier crossfade. */
@@ -133,7 +135,7 @@ fn maskAt(lat:f32,lon:f32)->vec3f {
   let m=textureSampleLevel(landMask,maskSamp,vec2f(lon/6.2831853+.5,.5-lat/3.14159265),0.0);
   return vec3f(m.r,m.g*2.0-1.0,m.b*2.0-1.0);
 }`;
-const build=high=>COMMON+flowWGSL()+(high?HIGH_BINDINGS:'')+MASK_BINDINGS+`
+const build=high=>COMMON+flowWGSL()+weatherWGSL()+(high?HIGH_BINDINGS:'')+MASK_BINDINGS+`
 struct V {@builtin(position) clip:vec4f,@location(0) ndc:vec2f};
 @vertex fn vs(@builtin(vertex_index) i:u32)->V {
   var q=array<vec2f,3>(vec2f(-1,-1),vec2f(3,-1),vec2f(-1,3));
@@ -143,15 +145,18 @@ const THICK=${CLOUD_THICKNESS.toFixed(1)};
 const UP=${tier(high).tower.up}.0;
 const DOWN=${tier(high).tower.down}.0;
 ${high?HIGH_NOISE:STD_NOISE}
-fn cloudBody(sp:Sph,d:vec2f,pos:vec3f,t:f32,tau:f32,drag:f32,coverage:f32,wall:f32)->vec2f {
+fn cloudBody(sp:Sph,d:vec2f,pos:vec3f,t:f32,tau:f32,drag:f32,base:f32,wall:f32,sr:f32)->vec3f {
   let s=flowShift(sp.lat,d,tau,drag);
   let Q=sp.up*${PLANET_RADIUS}.0+sp.e*s.x+sp.n*s.y;
+  // Precipitation cell at the same advected point: it rides the deck, swells the cover and darkens it (c.near.y = climate wetness, c.near.z = weather on).
+  var P=0.0;var coverage=base;
+  if(c.near.z>0.0&&(base>${WEATHER.coverage[0]}||sr>0.0)){P=max(wxCellIntensity(Q,t)*wxCoverageGate(base)*c.near.y,sr)*c.near.z;coverage=min(base+${WEATHER_LOOK.coverage}*P,.95);}
   // Dense columns grow upward (towering tops) and a little downward, billowing slowly; low coverage keeps the flat sheet.
   let grow=smoothstep(.45,.95,coverage)*mix(.4,1.0,vnoise3(Q/3800.0+vec3f(t*.012,-t*.009,0.0)));
   let hf=clamp((pos.y-(c.cloud.z-THICK*.5-DOWN*grow))/(THICK+(UP+DOWN)*grow),0.0,1.0);
   let n=cloudNoise(Q,sp.up,pos,t,hf);
   let top=(n-(1.0-coverage))*(2.2+1.6*wall);
-  return vec2f(smoothstep(0.0,.3,top-hf*.9)*smoothstep(0.0,.1,hf+.05),hf);
+  return vec3f(smoothstep(0.0,.3,top-hf*.9)*smoothstep(0.0,.1,hf+.05),hf,P);
 }
 // Offset from the storm centre with the longitude wrapped to the nearest turn: worldAt returns lon in (-pi, pi], so on the far side of the globe the raw difference is a whole circumference off.
 // Far / other-body views (sunCol.w>0): the great-circle offset in the storm's tangent plane (azimuthal equidistant) from the already computed sphere point. The chart difference jumps by a whole turn on the meridian opposite the storm, which tore the arms, vortex and flow shift there; this is continuous everywhere but the antipodal point.
@@ -166,7 +171,7 @@ fn stormOffset(xz:vec2f)->vec2f {
   let turn=${(2*Math.PI*PLANET_RADIUS).toFixed(1)};let d=xz-c.cloud.xy;
   return vec2f(d.x-turn*round(d.x/turn),d.y);
 }
-fn sheetDensity(pos:vec3f,t:f32)->vec3f {
+fn sheetDensity(pos:vec3f,t:f32)->vec4f {
   let sp=sphereAt(pos.xz);var d=stormOffset(pos.xz);if(c.sunCol.w>0.0){d=stormOffsetSphere(sp);}let r=length(d);
   // Noise is sampled at the 3D point on the planet (cloud-flow.js sphereAt), so it stays isotropic toward the poles; flowShift advects that point.
   // North is -z, so atan2(-z,x) grows counter-clockwise on the map.
@@ -182,12 +187,12 @@ fn sheetDensity(pos:vec3f,t:f32)->vec3f {
   let coverage=clamp(mix(base,mix(.1,.95,arm),storm)+.6*wall+${FAR_COVER}*c.sunCol.w,0.0,.95)*eye;
   // Two-phase flow map: each phase samples the noise displaced by the wind for its age, crossfaded near the resets; a single phase most of the time.
   let fp=flowPhase(c.bend.w,c.bend.z);
-  var bh:vec2f;
-  if(fp.z>=1.0){bh=cloudBody(sp,d,pos,t,fp.x,drag,coverage,wall);}
-  else if(fp.z<=0.0){bh=cloudBody(sp,d,pos,t,fp.y,drag,coverage,wall);}
-  else{bh=mix(cloudBody(sp,d,pos,t,fp.y,drag,coverage,wall),cloudBody(sp,d,pos,t,fp.x,drag,coverage,wall),fp.z);}
+  let sr=wxStormRain(storm,eye);var bh:vec3f;
+  if(fp.z>=1.0){bh=cloudBody(sp,d,pos,t,fp.x,drag,coverage,wall,sr);}
+  else if(fp.z<=0.0){bh=cloudBody(sp,d,pos,t,fp.y,drag,coverage,wall,sr);}
+  else{bh=mix(cloudBody(sp,d,pos,t,fp.y,drag,coverage,wall,sr),cloudBody(sp,d,pos,t,fp.x,drag,coverage,wall,sr),fp.z);}
   let body=bh.x;let hf=bh.y;
-  return vec3f(body,storm*(.55+.45*smoothstep(${(M.eyeRadius).toFixed(1)},${(M.wallRadius*2).toFixed(1)},r)),hf);
+  return vec4f(body,storm*(.55+.45*smoothstep(${(M.eyeRadius).toFixed(1)},${(M.wallRadius*2).toFixed(1)},r)),hf,bh.z);
 }
 const BASE=${(CLOUD_ALTITUDE-CLOUD_THICKNESS*.5).toFixed(1)};
 const SEA=${F.seaLevel.toFixed(1)};
@@ -324,7 +329,7 @@ const NF=${FUNNEL_STEPS};
       let w=(1.0-smoothstep(30000.0,c.cloud.w,dd))*.96*sEdge*tail;
       let absorb=(1.0-exp(-s.x*select(ssB,ss,i<=nA)*.008*(1.0+${FAR_ABSORB}*c.sunCol.w)))*w;
       ${high?HIGH_TAP:'let shade=1.0;'}
-      let lit=mix(.62,1.0,hf)*mix(.75,1.0,s.y)*(.7+.3*trans)*shade;
+      let lit=mix(.62,1.0,hf)*mix(.75,1.0,s.y)*(.7+.3*trans)*shade*mix(1.0,${1-WEATHER_LOOK.dim},s.w);
       let sunY=dot(upAt(rel),c.sun.xyz);
       let day=smoothstep(-.1,.25,sunY);
       let under=select(vec3f(.55,.60,.70),c.cloud2.rgb,game);

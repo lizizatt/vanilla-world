@@ -8,6 +8,9 @@ import {sunDirection,shellCurvatureAt,shellBendFromCurvature} from './clouds.js'
 import {PLANET_RADIUS,WORLD_CENTRE,planetFrame} from './space.js';
 import {activeFramedBody} from './body-shaders.js';
 import {smoothstep} from './math.js';
+import {cellIntensity,coverageGate,stormRain} from './weather-field.js';
+import {WEATHER} from './weather-config.js';
+import {WEATHER_LOOK} from './weather-wgsl.js';
 import {dirLatLon,flatOf} from './equirect.js';
 
 export const FADE_START=30000,FOG_RANGE=150000,SPAN_PER_DISTANCE=.3;
@@ -30,7 +33,8 @@ export function slab(high) {
 }
 
 /** Density at a world position: [body, storm, height fraction]; `coverage` may be forced to sweep storm values. */
-export function density(pos,t,high,centre=[0,0],coverageOverride,mask) {
+/** weather {wet, on} (climate wetness, weather enabled) adds the precipitation cell, returned as element 4 (0 when off); it mirrors cloudBody in clouds.js. */
+export function density(pos,t,high,centre=[0,0],coverageOverride,mask,weather) {
   const {ya,up,down}=slab(high);
   const dx=pos[0]-centre[0],dz=pos[2]-centre[1],r=Math.hypot(dx,dz);
   const sp=sphereAt(pos[0],pos[2]);
@@ -41,9 +45,11 @@ export function density(pos,t,high,centre=[0,0],coverageOverride,mask) {
   const eye=smoothstep(M.eyeRadius,M.eyeRadius*1.5,r);
   const lm=mask?maskAt(mask,sp.lat,sp.lon):{land:0,lift:0,coast:0},drag=landDrag(lm);
   const base=.4+(bandCoverage(sp.lat)+landCoverage(lm)+Math.exp(-r/FLOW.vortex.armReach)*(arm-.5)*FLOW.vortex.armCover)*(1-storm);
-  const coverage=coverageOverride??clamp(mix(base,mix(.1,.95,arm),storm)+.6*wall,0,.95)*eye;
+  const baseCoverage=coverageOverride??clamp(mix(base,mix(.1,.95,arm),storm)+.6*wall,0,.95)*eye,sr=stormRain(storm,eye);
   const body=tau=>{
     const s=flowShift(sp.lat,dx,dz,tau,drag),Q=[0,1,2].map(i=>sp.up[i]*PLANET_RADIUS+sp.east[i]*s[0]+sp.north[i]*s[1]);
+    let coverage=baseCoverage,P=0;
+    if(weather?.on>0&&(baseCoverage>WEATHER.coverage[0]||sr>0)){P=Math.max(cellIntensity(Q,t)*coverageGate(baseCoverage)*weather.wet,sr)*weather.on;coverage=Math.min(baseCoverage+WEATHER_LOOK.coverage*P,.95);}
     const grow=smoothstep(.45,.95,coverage)*mix(.4,1,vnoise3(Q[0]/3800+t*.012,Q[1]/3800-t*.009,Q[2]/3800));
     const base=CLOUD_ALTITUDE-CLOUD_THICKNESS/2-down*grow;
     const hf=clamp((pos[1]-base)/(CLOUD_THICKNESS+(up+down)*grow),0,1);
@@ -51,10 +57,10 @@ export function density(pos,t,high,centre=[0,0],coverageOverride,mask) {
     let n=.55*vnoise3(q0,q1,q2)+.3*vnoise3(q0*2.3+7,q1*2.3+7,q2*2.3+7)+.15*vnoise3(q0*5.1+3,q1*5.1+3,q2*5.1+3);
     n=n*.78+.22*vnoise3(Q[0]/650+hf*3.1,Q[1]/650+hf*1.7,Q[2]/650+hf*2.3);
     const top=(n-(1-coverage))*(2.2+1.6*wall);
-    return [smoothstep(0,.3,top-hf*.9)*smoothstep(0,.1,hf+.05),hf];
+    return [smoothstep(0,.3,top-hf*.9)*smoothstep(0,.1,hf+.05),hf,P];
   };
-  const fp=flowPhase(t),bh=fp.wA>=1?body(fp.tauA):fp.wA<=0?body(fp.tauB):(()=>{const b=body(fp.tauB),a2=body(fp.tauA);return [mix(b[0],a2[0],fp.wA),mix(b[1],a2[1],fp.wA)];})();
-  return [bh[0],storm*(.55+.45*smoothstep(M.eyeRadius,M.wallRadius*2,r)),bh[1],ya];
+  const fp=flowPhase(t),bh=fp.wA>=1?body(fp.tauA):fp.wA<=0?body(fp.tauB):(()=>{const b=body(fp.tauB),a2=body(fp.tauA);return [mix(b[0],a2[0],fp.wA),mix(b[1],a2[1],fp.wA),mix(b[2],a2[2],fp.wA)];})();
+  return [bh[0],storm*(.55+.45*smoothstep(M.eyeRadius,M.wallRadius*2,r)),bh[1],ya,bh[2]];
 }
 /**
  * Marches one ray exactly like the fragment shader's sheet branch. Returns {alpha, rgb (premultiplied-free colour), extent}.
