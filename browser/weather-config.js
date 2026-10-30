@@ -14,9 +14,11 @@ export const WEATHER={
   // Maelstrom storm: heavy rain inside this fraction of the storm envelope, calm in the eye.
   storm:{from:.22,to:.45,heavy:1},
   fall:{rain:9,snow:1.6},
+// Near-camera particle box: side (yd), fall speeds (yd/s), streak time (s), rain width and flake size (yd).
+near:{box:50,rainSpeed:30,snowSpeed:3.4,streak:.05,rainWidth:.07,snowSize:.1},
   // Near-camera particle box (yd) and the instance budget per quality tier.
   box:{half:36,height:30},
-  quality:{off:0,low:0,standard:1500,high:3200},
+  quality:{off:0,low:350,standard:1500,high:3200},
   // Curtain pass: polar sampling grid around the camera and its range (yd).
   polar:{azimuth:64,rings:8,near:300,far:24000},curtain:{start:60,steps:20,fall:[250,1400],baseDrop:260,fade:300,streakXZ:140,streakY:900,density:.0014,maxAlpha:.72},
   // Slow-frame / tier switching: camera-effect fallback is the Low tier.

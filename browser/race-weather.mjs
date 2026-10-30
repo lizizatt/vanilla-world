@@ -13,6 +13,8 @@ const shot = async (name, wait = 3500) => { await page.waitForTimeout(wait); awa
 page.on('console', m => { if (/error|warn/i.test(m.type())) console.log('console', m.text().slice(0, 300)); });
 const find = (from, o) => page.evaluate(([f, o]) => worldTest.weatherFind(f, o), [from, o]);
 const put = (pose) => page.evaluate(p => { worldTest.timeLock(720); worldTest.focus(p); }, pose);
+// Cells drift with the cloud flow, so chase the nearest intense cell while the camera settles inside it.
+const chase = async (x, z, yaw, y = 120, n = 8) => { for (let i = 0; i < n; i++) { await put([x, y, z, yaw, 0.02]); await page.waitForTimeout(1200); const c = await find([x, z], { min: .9, range: 2500 }); if (c) { x = c[0]; z = c[1]; } } return [x, z]; };
 const scenes = {
   async distant() {
     await put([START[0], 250, START[1], 0, 0]);await page.waitForTimeout(1500);
@@ -24,17 +26,17 @@ const scenes = {
   async envelop() {
     const cell = await find([START[0], START[1]], { min: .95, range: 40000 });
     const [x, z] = cell;
-    await put([x, 120, z, 0, 0.02]); await shot('envelop', 9000);
+    await chase(x, z, 0); await shot('envelop', 600);
   },
   async 'snow-dun-morogh'() {
     await page.evaluate(() => worldTest.weatherArea({ name: 'Dun Morogh', cold: true }));
     const cell = await find([START[0], START[1]], { min: .95, range: 40000 });
-    const [x, z] = cell; await put([x, 120, z, 0, 0.02]); await shot('snow-dun-morogh', 9000);
+    const [x, z] = cell; await chase(x, z, 0); await shot('snow-dun-morogh', 600);
   },
   async 'snow-winterspring'() {
     await page.evaluate(() => worldTest.weatherArea({ name: 'Winterspring', cold: true }));
     const cell = await find([START[0], START[1]], { min: .95, range: 40000 });
-    const [x, z] = cell; await put([x, 120, z, 1.2, 0.02]); await shot('snow-winterspring', 9000);
+    const [x, z] = cell; await chase(x, z, 1.2); await shot('snow-winterspring', 600);
   },
 };
 for (const name of want.length ? want : Object.keys(scenes)) { if (!scenes[name]) { console.log('skip', name); continue; } await scenes[name](); }

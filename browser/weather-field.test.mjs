@@ -12,7 +12,7 @@ test('weather config is coherent',()=>{
   assert(W.off<W.on&&W.on<W.heavy&&W.heavy<=1);
   assert(W.coverage[0]<W.coverage[1]&&W.coverage[1]<=.95);
   assert(W.life.build+W.life.decay<1);
-  assert(W.quality.low===0&&W.quality.standard<W.quality.high);
+  assert(W.quality.low>0&&W.quality.low<W.quality.standard&&W.quality.standard<W.quality.high);
   assert.deepEqual([...WEATHER_TIERS],['off','low','standard','high']);
   assert(DRY_ZONES.includes('Tanaris')&&SNOW_ZONES.includes('Winterspring'));
 });
