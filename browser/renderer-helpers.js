@@ -47,7 +47,7 @@ export function readySceneInstances(near,far,assets,textures) {
 export class AdmissionFade {
   constructor(){this.entries=new Map();this.active=new Set();}
   update(ids,time) {
-    if(ids.length>1024)throw Error('Admission fade exceeds the scene instance budget');
+    if(ids.length>1024+256)throw Error('Admission fade exceeds the scene instance budget');
     const active=new Set(ids);
     for(const id of this.active)if(!active.has(id))this.entries.get(id).removed=time;
     for(const id of active)if(!this.active.has(id)){

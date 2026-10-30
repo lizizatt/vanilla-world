@@ -80,3 +80,5 @@ test('terrain bounds include elevated geometry and translated tile overhangs',()
     assert.deepEqual(item.bounds,[[98,-10,197],[105,200,207]]);
   }finally{globalThis.GPUBufferUsage=previous;}
 });
+
+test('admission fade accepts a full near plus far scene',()=>{const f=new AdmissionFade();f.update(Array.from({length:1280},(_,i)=>String(i)),1);assert.throws(()=>f.update(Array.from({length:1281},(_,i)=>String(i)),2),/budget/);});
