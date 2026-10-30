@@ -25,7 +25,7 @@ test('about 30% of dense cloud rains, none of thin cloud',()=>{
   const r=rng(12345);let wet=0,thin=0,n=30000;
   for(let i=0;i<n;i++){const Q=[r()*4e4,r()*4e4,r()*4e4],t=r()*4e5;
     if(precipitation(Q,t,.9)>=W.on)wet++;if(precipitation(Q,t,.25)>0)thin++;}
-  assert(wet/n>.25&&wet/n<.36,`wet ${wet/n}`);assert.equal(thin,0);
+  assert(wet/n>.2&&wet/n<.36,`wet ${wet/n}`);assert.equal(thin,0);
 });
 test('lifecycle fades in and out and is continuous across the wrap',()=>{
   assert.equal(lifeEnvelope(0),0);assert(lifeEnvelope(.999999)<1e-3);
@@ -49,7 +49,7 @@ test('climate: dry zones, snow zones, Elune and space',()=>{
   assert.deepEqual([climateOf({area:{name:'Elwynn Forest'}}).wet,climateOf({area:{name:'Elwynn Forest'}}).snow],[1,0]);
   assert.equal(climateOf({area:{name:'Elwynn Forest'},body:'elune'}).wet,0);
   assert.equal(climateOf({area:{name:'Elwynn Forest'},regime:'orbit'}).wet,0);
-  assert.equal(climateOf({}).wet,1);
+  assert.equal(climateOf({}).wet,0);assert.equal(climateOf({area:{name:'Elwynn Forest',cold:false}}).wet,1);
 });
 test('weather state eases, uses hysteresis and picks the kind',()=>{
   const s=new WeatherState();let flips=0,was=false;

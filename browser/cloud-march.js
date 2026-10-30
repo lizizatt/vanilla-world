@@ -60,7 +60,7 @@ export function density(pos,t,high,centre=[0,0],coverageOverride,mask,weather) {
     return [smoothstep(0,.3,top-hf*.9)*smoothstep(0,.1,hf+.05),hf,P];
   };
   const fp=weather?.flow?flowPhaseAt(weather.flow.cycles,weather.flow.scale):flowPhase(t),bh=fp.wA>=1?body(fp.tauA):fp.wA<=0?body(fp.tauB):(()=>{const b=body(fp.tauB),a2=body(fp.tauA);return [mix(b[0],a2[0],fp.wA),mix(b[1],a2[1],fp.wA),mix(b[2],a2[2],fp.wA)];})();
-  return [bh[0],storm*(.55+.45*smoothstep(M.eyeRadius,M.wallRadius*2,r)),bh[1],ya,bh[2]];
+  return [bh[0],storm*(.55+.45*smoothstep(M.eyeRadius,M.wallRadius*2,r)),bh[1],ya,bh[2],baseCoverage];
 }
 /**
  * Marches one ray exactly like the fragment shader's sheet branch. Returns {alpha, rgb (premultiplied-free colour), extent}.

@@ -5,6 +5,7 @@ const has=(list,name)=>!!name&&list.some(z=>name.toLowerCase().includes(z.toLowe
 /** area: {name, cold} from the AreaTable catalogue (cold = ground-snow flag incl. one-hop parent inheritance); body 'azeroth'|'elune'; regime from regimeOf. */
 export function climateOf({area=null,body='azeroth',regime='ground'}={}) {
   if(body==='elune'||regime==='orbit')return {wet:0,snow:0,reason:body==='elune'?'elune':'space'};
+  if(!area)return {wet:0,snow:0,reason:'unknown'};
   if(has(SNOW_ZONES,area?.name)||area?.cold)return {wet:1,snow:1,reason:'snow'};
   if(has(DRY_ZONES,area?.name))return {wet:0,snow:0,reason:'dry'};
   return {wet:1,snow:0,reason:'rain'};

@@ -124,3 +124,7 @@ Cloud shader cost and parity drift (mitigate: shared emitter, tests, tier guard)
 ## Status
 Option A implemented (phases 0-5). Limits: climate is per current area, no occlusion, curtain assumes flat ground, Low tier is a small near box (not a screen overlay), flash is a screen veil, thunder has no distance low-pass, ThunderClap cue name unverified against the MPQ.
 
+
+## Coverage retune
+Measured with weather-coverage.mjs (real land mask, 3000 points x 90 steps of 120 s). Before (coverage [.3,.42], cell gate [.41,.61], period 1100): land soft(P>=.1) 31.8%, raining(P>=.5) 17.6%, 9% of time raining under cloud <.42, mean dry spell 27 min (sea: 18.2% / 6.3%). After (coverage [.4,.5], gate [.46,.62], period 450): land 18.5% / 10.1%, 30% of dense cloud rains, wet spell ~10 min, dry spell ~60 min, nothing under cloud <.4 (sea 5.6% / 2.6%). Unresolved climate (no area yet) is dry, not wet. Guarded by weather-coverage.test.mjs.
+
