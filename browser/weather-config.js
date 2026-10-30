@@ -18,7 +18,7 @@ export const WEATHER={
   box:{half:36,height:30},
   quality:{off:0,low:0,standard:1500,high:3200},
   // Curtain pass: polar sampling grid around the camera and its range (yd).
-  polar:{azimuth:64,rings:8,near:300,far:24000},curtain:{start:60,steps:16},
+  polar:{azimuth:64,rings:8,near:300,far:24000},curtain:{start:60,steps:20,fall:[250,1400],baseDrop:260,fade:300,streakXZ:140,streakY:900,density:.0014,maxAlpha:.72},
   // Slow-frame / tier switching: camera-effect fallback is the Low tier.
   effect:{streaks:26},
   // Lightning: only in cells at or above `heavy`; mean seconds between strikes at full intensity; speed of sound (yd/s).

@@ -85,7 +85,7 @@ const client=new WorldClient(data=>{
   try {
     evidence.eventRevision=(evidence.eventRevision||0)+1;
     if(data.event==='progress'){if(!evidence.ready){app.report(data.text);app.loadingProgress(data);}}
-    else if(data.event==='music')music.event(data);
+    else if(data.event==='music')music.event(data);else if(data.event==='climate')app.climate?.event(data);
     else if(data.event==='sky')app.renderer.setSky(data);
     else if(data.event==='sky-dome')app.renderer.setSkyDome(data);
     else if(data.event==='worldmap'||data.event==='worldmap-tiles')mapPanel.event(data);

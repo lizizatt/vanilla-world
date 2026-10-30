@@ -11,6 +11,7 @@ import {shaderSetFor} from './body-shaders.js';
 import {activeBody} from './body-shaders.js';
 import {atmosphericDisc} from './body-sky.js';
 import {BODIES} from './bodies.js';
+import {initWeather} from './renderer-weather.js';
 /** Bodies that see an atmospheric parent get a texture holding the parent's own baked surface registry (bound as discTex, filled from the parked body state). */
 export const wantsDisc=body=>!!body.parent&&atmosphericDisc(BODIES[body.parent]);
 const discEntries=(r,body)=>{if(!wantsDisc(body))return [];r.discTex??=r.device.createTexture({size:[1024,512],format:'rgba8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});return [{binding:6,resource:r.discTex.createView()}];};
@@ -56,6 +57,7 @@ export async function initialize(r) {
     fragment:{module:cloudModule,entryPoint:'fs',targets:[{format:r.format,blend:{color:{srcFactor:'src-alpha',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},
     primitive:{topology:'triangle-list',cullMode:'none'}});
   r.shader=shader;
+  await initWeather(r);
   r.particles=new ParticlePool();
   r.particleInstances=new Float32Array(CAPACITY*INSTANCE_FLOATS);
   r.particleBuffer=r.device.createBuffer({size:r.particleInstances.byteLength,usage:GPUBufferUsage.VERTEX|GPUBufferUsage.COPY_DST});
