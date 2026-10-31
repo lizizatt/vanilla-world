@@ -17,7 +17,7 @@ const scenes = {
     const [cx, cz] = c;
     await page.evaluate(p => worldTest.focus(p), [START[0], 250, START[1], 0, 0]); await page.waitForTimeout(1500);
     await page.evaluate(() => { worldTest.weatherArea({ name: 'The Maelstrom', cold: false }); worldTest.windStorm(1); worldTest.timeLock(720); });
-    pose = camera([cx, 0, cz], 0, 5200, 14, -.02); await page.evaluate(p => worldTest.focus(p), pose);
+    pose = camera([cx, 0, cz], 0, 5200, 5, -.02); await page.evaluate(p => worldTest.focus(p), pose);
     await shot('spray', 9000);
   },
   async dust() {

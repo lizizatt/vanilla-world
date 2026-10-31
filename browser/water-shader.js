@@ -152,8 +152,8 @@ fn waterColor(p:vec3f,ramp:f32,rampWidth:f32,dx:vec2f,dy:vec2f)->vec3f {
   color+=${v3(WATER_LOOK.scatter)}*pow(clamp(dot(view,-sun),0.0,1.0),4.0)*crest*sunK*1.2*detail;
   // Crest whitecaps: wave.crest (Jacobian once waves exist) plus steep normal-map faces, broken up by noise, gated by wind.
   let capK=smoothstep(.45,.75,windK)*detail;
-  let whitecap=smoothstep(mix(1.1,.5,windK),mix(1.4,.8,windK),crest+.35*a.b+.5*wave.crest)*capK;
-  color=mix(color,${v3(WATER_LOOK.foam)}*mix(1.0,.35,nightK()),whitecap*.6);
+  let whitecap=  smoothstep(mix(1.4,.95,windK),mix(1.75,1.3,windK),crest+.35*a.b+.5*wave.crest)*capK;
+    color=mix(color,${v3(WATER_LOOK.foam)}*mix(1.0,.35,nightK()),whitecap*.35);
   let lap=.012*sin(u.settings.y*1.4+a.r*2.0);
   let foam=smoothstep(0.0,.015,depth)*(1.0-smoothstep(.035+lap,.09+lap,depth))
     *min(1.0,rampWidth*400.0)*detail;

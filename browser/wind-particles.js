@@ -5,6 +5,9 @@ import {windWGSL} from './wind-wgsl.js';
 import {waveRenderShading} from './wave-render.js';
 
 export const WIND_UNIFORM_BYTES=160;
+/** Ground height lattice upload: meta vec4 (originX, originZ, step, n) + the n*n heights padded to vec4s. */
+export const GRID_UNIFORM_FLOATS=4+Math.ceil(W.grid.n*W.grid.n/4)*4;
+export function groundGridUniform(grid,out=new Float32Array(GRID_UNIFORM_FLOATS)) {out.set(grid.meta,0);out.set(grid.data,4);return out;}
 /** KIND values of u.p.z. */
 export const WIND_KIND={spray:0,dust:1,snow:2};
 /**
@@ -66,11 +69,13 @@ ${waveRenderShading}
   let m=waveAmp(P);
   if(amt<=0.0||m<.03){return culled(q);}
   let w=waveVertex(P,eyeR);
-  // Crest tops: height as a fraction of the local amplitude (the components sum to 1), plus the steepness term; stronger wind lowers the bar.
+  // Crest tops are favoured (height as a fraction of the local amplitude plus the steepness term), but a wind-scaled share of the sea emits anyway,
+  // so the spray reads over the whole near sea even where the wave components have faded with eye distance.
   let top=w.h/m+.5*w.crest;
-  let emit=smoothstep(mix(.7,.25,amt),mix(1.0,.55,amt),top);
+  let pick=1.0-smoothstep(.03+.12*amt,.08+.2*amt,h.z);
+  let emit=pick*(.4+.6*smoothstep(mix(.25,.04,amt),mix(.5,.14,amt),top));
   if(emit<=0.0){return culled(q);}
-  let sz=.7+.5*min(m,4.0);
+  let sz=.45+.25*min(m,4.0);
   let a=fract(u.drift.z*.55+h.y);
   let rise=sz*.7*(1.0-(1.0-a)*(1.0-a));
   let blow=wd.xy*wd.z*a*.6;
@@ -79,12 +84,23 @@ ${waveRenderShading}
   let L=sz*(.9+1.1*a)*(1.0+wd.z*.05);let H=sz*(.35+.6*a);
   let pos=c+streakSide(wd.xy)*q.x*L+u.up.xyz*q.y*H;
   let edge=1.0-smoothstep(.6,1.0,max(abs(rel.x),abs(rel.y))/(B*.5));
-  let al=emit*amt*edge*smoothstep(0.0,.15,a)*(1.0-a)*.9*smoothstep(u.up.w,u.up.w*6.0,z0);
+  let al=emit*amt*edge*smoothstep(0.0,.15,a)*(1.0-a)*.5*smoothstep(u.up.w,u.up.w*6.0,z0);
   return project(pos,al,vec3f(.86,.92,.95)*(.5+.5*u.org.w),q);
 }`;
 
 /** Blowing dust (kind 1) or snow (kind 2): a thin layer of streaks riding the wind just above u.org.z (the ground under the eye). */
 export const groundShader=`${common}
+struct G {m:vec4f,h:array<vec4f,${Math.ceil(W.grid.n*W.grid.n/4)}>};
+@group(0) @binding(1) var<uniform> g:G;
+fn gAt(i:i32,j:i32)->f32 {
+  let n=${W.grid.n-1};let k=u32(clamp(j,0,n)*${W.grid.n}+clamp(i,0,n));
+  return g.h[k/4u][k%4u];
+}
+// Bilinear terrain height from the CPU lattice (wind.js GroundGrid.sample is the twin).
+fn groundY(p:vec2f)->f32 {
+  let f=(p-g.m.xy)/g.m.z;let fl=floor(f);let t=f-fl;let i=i32(fl.x);let j=i32(fl.y);
+  return mix(mix(gAt(i,j),gAt(i+1,j),t.x),mix(gAt(i,j+1),gAt(i+1,j+1),t.x),t.y);
+}
 @vertex fn vs(@builtin(vertex_index) vi:u32,@builtin(instance_index) ii:u32)->V {
   let q=corner(vi);
   if(f32(ii)>=u.p.x){return culled(q);}
@@ -92,10 +108,11 @@ export const groundShader=`${common}
   let rel=(fract((h.xz*B+u.drift.xy-u.eye.xz)/B+.5)-.5)*B;
   let wd=windAt(u.w0,u.w1,u.w2,u.eye.xz+rel,u.eye.w);
   let lift=${f(W.box.height)}*mix(1.0,.75,snow)*(.3+.7*u.p.y);
-  let y=u.org.z+.12+h.y*lift+.25*sin(u.drift.z*1.7+h.x*30.0)-u.eye.y;
+  let L=mix(.9+wd.z*.07,.3+wd.z*.03,snow);let H=mix(.45*(.6+.8*h.z),.12,snow);
+  // Centre sits above the local terrain by the quad's half height, the sway (always >= 0) and the lattice clearance, so nothing dips into the ground.
+  let y=groundY(u.eye.xz+rel)+${f(W.grid.clear)}+H+h.y*lift+.25*(.5+.5*sin(u.drift.z*1.7+h.x*30.0))-u.eye.y;
   let c=vec3f(rel.x,y,rel.y);
   let z0=dot(c,u.look.xyz);
-  let L=mix(.9+wd.z*.07,.3+wd.z*.03,snow);let H=mix(.45*(.6+.8*h.z),.12,snow);
   let pos=c+streakSide(wd.xy)*q.x*L+u.up.xyz*q.y*H;
   let edge=1.0-smoothstep(.62,1.0,max(abs(rel.x),abs(rel.y))/(B*.5));
   let al=edge*u.p.w*u.p.y*mix(.2*(.5+.5*h.z),.65,snow)*smoothstep(u.up.w,u.up.w*4.0,z0);
