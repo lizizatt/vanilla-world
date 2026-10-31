@@ -56,6 +56,14 @@ test('shoreTexture is deterministic and shoreAt reads it back',()=>{
   assert.equal(shoreAt(a,origin,origin[0]-500,z).weight,0);
 });
 
+test('buildShoreClasses: inland water above or below sea level is not a shore (no floating beach sheet over a dry basin)',()=>{
+  const sample=p=>{const o=new Float64Array(p.length/2*8);for(let n=0;n<p.length/2;n++){o[n*8]=p[n*2]<0?-55:0;o[n*8+7]=0;}return o;};
+  const g=buildShoreClasses(sample,()=>[0,-100,0,0,0],[0,0],0,N);
+  const at=x=>g.data[Math.floor((x-g.origin[0])/SHORE_CELL)];
+  assert.equal(at(-100),0,'pond at y=-55 is land');
+  assert.equal(at(100),1,'water at sea level stays water');
+});
+
 test('buildShoreClasses: unavailable tiles are water, land is 0, waves give class 2',()=>{
   const sample=p=>{const o=new Float64Array(p.length/2*8);for(let n=0;n<p.length/2;n++){o[n*8]=0;o[n*8+7]=p[n*2]>100?0:1;}return o;};
   const surface=(x,z)=>z<0?[1,NaN,NaN,0,0]:z<300?[0,-50,0,0,0]:[0,10,0,0,0];
