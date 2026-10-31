@@ -3,7 +3,7 @@ import {sunDirection,cloudUniform,CloudMask} from './clouds.js';
 import {eluneSkyAt} from './elune-sky.js';
 import {wantsDisc} from './renderer-init.js';
 import {schematicRects} from './worldmap.js';
-import {viewFrom,otherView} from './body-sky.js';
+import {viewFrom,otherView,dayDiscVisibility} from './body-sky.js';
 import {AZEROTH,ELUNE,BODIES,planetFactorsFor,farDrawLevel} from './bodies.js';
 import {activeBody,activeFramedBody} from './body-shaders.js';
 import {patchesAt,packPatches,PATCH_GRID} from './globe-patches.js';
@@ -61,7 +61,7 @@ export function otherSurface(r,body,state,now) {
 export function drawBodies(r,pass,pf,near) {
   const list=otherBodies(r);
   if(!list.length)return;
-  const a=activeBody(),views=[];
+  const a=activeBody(),views=[],visible=dayDiscVisibility(a,(r.sunLocal??sunDirection(r.timeOfDay))[1],pf.space);
   for(const body of list) {
     const set=r.otherSets?.[body.id];
     if(!set){r.otherPending??={};r.otherPending[body.id]??=makeOtherSet(r,body).then(s=>{(r.otherSets??={})[body.id]=s;}).catch(e=>console.warn(body.id+' far renderer',e));continue;}
@@ -77,7 +77,8 @@ export function drawBodies(r,pass,pf,near) {
       r.device.queue.writeTexture({texture:set.heightTex},encodeHeights(state.heightGrid),{bytesPerRow:HEIGHT_W},[HEIGHT_W,HEIGHT_H]);
       set.heightGrid=state.heightGrid;set.heightFilled=state.heightFilled;set.heightAt=now;
     }
-    const factors={...planetFactorsFor(body,o.altitude,true),space:0,mesh:pf.mesh,registry:pf.registry,fog:[0,0,0]};
+    const far=planetFactorsFor(body,o.altitude,true);
+    const factors={...far,globe:far.globe*visible,space:0,mesh:pf.mesh,registry:pf.registry,fog:[0,0,0]};
     const level=farDrawLevel(body,o.altitude);
     if(!(factors.globe>0)||level==='skip')continue;
     const uniform=spaceUniform(o.view,o.sun,factors,r.bodyRects?.[body.id]??FALLBACK_RECTS,r.timeOfDay,near,200000,undefined,{radius:body.radius,centre:body.centre,moons:OTHER_MOONS});
