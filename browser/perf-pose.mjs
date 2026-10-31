@@ -38,6 +38,8 @@ const poses = {
   'above-cloud': { p: [cx - 30000, 3337, cz + 20000, 0, -.25] },
   orbit: { p: [cx - 30000, 400000, cz + 20000, 0, -1.2] },
   storm: { storm: true },
+  'coast-fly': { move: [260, 0], p: [coast[0], coast[1], coast[2], Math.PI / 2, -.2] },
+  'ocean-fly': { move: [0, -400], p: [cx + 24000, 40, cz + 8000, Math.PI / 2, -.02] },
   'wind-storm': { p: [cx + 6000, 60, cz, Math.PI / 2, -.02] },
 };
 const rows = {};
@@ -51,6 +53,7 @@ for (const [name, def] of Object.entries(poses)) {
     pose = c ? [c[0], 120, c[1], 0, .02] : [START[0], 120, START[1], 0, .02]; }
   await page.evaluate(p => worldTest.focus(p), pose);
   await page.waitForTimeout(SETTLE);
+  if (def.move) await page.evaluate(([p, v]) => { const t0 = performance.now(); clearInterval(window.__mv); window.__mv = setInterval(() => { const s = (performance.now() - t0) / 1000; worldTest.focus([p[0] + v[0] * s, p[1], p[2] + v[1] * s, p[3], p[4]]); }, 16); }, [pose, def.move]);
   await page.evaluate(() => Object.assign(__prof, { on: true, draw: [], rt: [], tasks: [], frames: [] }));
   if (process.env.PROFILE) { await cdp.send('Profiler.enable'); await cdp.send('Profiler.setSamplingInterval', { interval: 200 }); await cdp.send('Profiler.start'); }
   const m0 = await metric(); await page.waitForTimeout(SAMPLE); const m1 = await metric();
@@ -60,8 +63,9 @@ for (const [name, def] of Object.entries(poses)) {
     const tot = [...self.values()].reduce((a, b) => a + b, 0);
     console.log(`profile ${name}`); for (const [k, v] of [...self].sort((a, b) => b[1] - a[1]).slice(0, 25)) console.log(`  ${(v / tot * 100).toFixed(1)}%  ${k}`);
   }
+  await page.evaluate(() => clearInterval(window.__mv));
   const d = await page.evaluate(() => { __prof.on = false; return { draw: __prof.draw, rt: __prof.rt, tasks: __prof.tasks, frames: __prof.frames }; });
-  rows[name] = { frameMs: dist(d.frames), drawCpuMs: dist(d.draw), workerRtMs: dist(d.rt), longTasks: dist(d.tasks),
+  rows[name] = { frameMs: dist(d.frames), over25: d.frames.filter(x => x > 25).length, drawCpuMs: dist(d.draw), workerRtMs: dist(d.rt), longTasks: dist(d.tasks),
     scriptMsPerS: +((m1.ScriptDuration - m0.ScriptDuration) / (SAMPLE / 1000) * 1000).toFixed(1), render: await page.evaluate(() => { const r = worldEvidence.render ?? {}; return { worldDraws: r.worldDraws, coastalWaterTiles: r.coastalWaterTiles }; }) };
   console.log(name, JSON.stringify(rows[name]));
 }
