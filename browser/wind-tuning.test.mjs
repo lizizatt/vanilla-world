@@ -35,6 +35,12 @@ test('default CPU behaviour equals the legacy formulas',()=>{
 test('layer heights: (k+1)/(n+1) of the top reproduces the old .25/.5/.75 table at 3 layers',()=>{
   const n=3;W.layers.fracs.forEach((fr,k)=>assert.equal(Math.fround((k+1)/(n+1)*W.layers.top),Math.fround(fr*W.layers.top)));
 });
+test('streak axis is world-anchored: no dependence on the camera right vector',()=>{
+  for(const s of [groundShader,sprayShader]){
+    const fn=s.slice(s.indexOf('fn streakSide('),s.indexOf('fn project('));
+    assert(fn.includes('fn streakSide(wd:vec2f)')&&!/u\.(right|look|up|eye)/.test(fn),'streakSide may only read the wind direction and tuning');
+  }
+});
 test('panel logic: apply clamps and ignores junk, reset restores defaults, snippet round-trips',()=>{
   const t={...WIND_TUNE_DEFAULTS};
   applyTune({speed:2,layerCount:99,bogus:5,density:'x',sway:null,dustAlpha:-3},t);
