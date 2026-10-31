@@ -18,6 +18,7 @@ export const BEACH={
   ZONE:[70,90],RUP:8,SWASH:.07,    // wave zone fades out between these distances; swash run-up (yd landward of the line) and sheet height
   FADE:[150,240],GEO:[70,130],     // foam/normal fade and vertex-displacement fade by eye distance (yd)
   WINDOW_FADE:[.36,.46],
+  Q_MAX:3.5,                       // hard bound on the shoreward crest displacement (yd); the full-wind maximum is LEAN x 1.6 = 3.4
 };
 export const beachPeriodFraction=t=>{const x=t/BEACH.PERIOD;return x-Math.floor(x);};
 const smoothstep=(e0,e1,x)=>{const s=Math.min(1,Math.max(0,(x-e0)/(e1-e0)));return s*s*(3-2*s);};
@@ -43,7 +44,7 @@ export function beachProfile(d,along,tFrac,wind=.35,weight=1){
   const dh=-A*1.6*.5*c**.6*Math.sin(tw)*warp*thetaDot,jac=1-lean*dh;
   const line=(TAU*(2*Math.sqrt(B.D0*B.E)/B.L0+tFrac)+.55*Math.sin(along/41+1.7)+.35*Math.sin(along/17-.6))/TAU,wash=line-Math.floor(line),env=swashEnvelope(wash);
   const sheet=smoothstep(env.front-.5,env.front+.4,d)*(1-smoothstep(env.tail-1.5,env.tail,d))*weight;
-  return {h,q:lean*h,slope:dh/Math.max(jac,.08),b,c,jac,sheet,sheetH:B.SWASH*sheet*(1-smoothstep(0,5,d)),wash};
+  return {h,q:Math.min(lean*h,B.Q_MAX),slope:dh/Math.max(jac,.08),b,c,jac,sheet,sheetH:B.SWASH*sheet*(1-smoothstep(0,5,d)),wash};
 }
 
 /** Uniform block (8 floats): a=(on, field origin x,z render-relative, 1/window) b=(period fraction, render origin x, z, 0). */
@@ -99,7 +100,7 @@ fn beachSurface(P:vec2f,eyeXZ:vec2f)->BS {
   let c=.5+.5*cos(tw);let lean=${BEACH.LEAN}*b;
   let h=A*pow(c,1.6);let dh=-A*.8*pow(c,.6)*sin(tw)*warp*thetaDot;
   let jac=1.0-lean*dh;
-  s.h=h;s.q=lean*h;s.b=b;s.c=c;
+  s.h=h;s.q=min(lean*h,${BEACH.Q_MAX.toFixed(1)});s.b=b;s.c=c;
   s.slope=f.n*(dh/max(jac,.08));
   let lineTheta=${TAU.toFixed(5)}*(${(2*Math.sqrt(BEACH.D0*BEACH.E)/BEACH.L0).toFixed(5)}+bc.b.x)+.55*sin(along/41.0+1.7)+.35*sin(along/17.0-.6);let wp=lineTheta/${TAU.toFixed(5)};let wash=wp-floor(wp);s.wash=wash;
   let rise=bSmooth(0.0,.28,wash)*(1.0-bSmooth(.28,1.0,wash));
