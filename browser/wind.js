@@ -1,7 +1,7 @@
 // Procedural wind (design/wind.md): one deterministic function of position, wall time, storm level, zone character and the Maelstrom.
 // Pure and GPU-free. wind-wgsl.js emits the same arithmetic for the shaders; `parity` is checked by wind-parity.mjs and wind.test.mjs.
 // Wind is render-only: nothing here reaches the physics (Rust) or the wave params. Chart x/z, east = +x, north = -z.
-import {WIND as W} from './wind-config.js';
+import {WIND as W,WIND_TUNE as T} from './wind-config.js';
 import {beltWind} from './cloud-flow.js';
 import {smoothstep} from './math.js';
 import {WAVE_TICKS_PER_SECOND} from './wave-config.js';
@@ -67,12 +67,12 @@ export const windSeaK=strength=>W.seaCalm+(1-W.seaCalm)*clamp(strength,0,1);
 export const windWaveHint=strength=>1+smoothstep(W.spray.on,1,strength);
 
 /** Effect amounts 0..1 from the wind strength; exactly 0 below each threshold. */
-export const sprayK=s=>smoothstep(W.spray.on,W.spray.full,s);
-export const dustK=s=>smoothstep(W.dust.on,W.dust.full,s);
-export const snowK=s=>smoothstep(W.snow.on,W.snow.full,s);
+export const sprayK=s=>smoothstep(T.sprayOn,T.sprayFull,s);
+export const dustK=s=>smoothstep(T.dustOn,T.dustFull,s);
+export const snowK=s=>smoothstep(T.snowOn,T.snowFull,s);
 
 /** 1 on flat ground, easing to 0 on slopes steeper than W.flat[1]. */
-export const flatK=slope=>1-smoothstep(W.flat[0],W.flat[1],slope);
+export const flatK=slope=>1-smoothstep(T.slopeFlat0,T.slopeFlat1,slope);
 
 /**
  * Terrain heights for the ground layer: a world-anchored n x n lattice (step yd) cached forever (terrain is static) and filled nearest-first,
@@ -132,9 +132,9 @@ export class WindRuntime {
     this.on=1;this.spray=ctx.sea?sprayK(s.strength):0;
     this.dust=ctx.character==='desert'?dustK(s.strength):0;this.snow=ctx.character==='snow'?snowK(s.strength):0;
     // Drift of the ground layer (yd), integrated on the CPU so a changing gust never teleports the particles; wrapped to keep f32 exact.
-    const d=ctx.dt>0&&ctx.dt<.25?ctx.dt:0,k2=d*W.groundSpeed,dx=s.dir[0]*s.speed*k2,dz=s.dir[1]*s.speed*k2,L=W.box.groundFar;
+    const d=ctx.dt>0&&ctx.dt<.25?ctx.dt:0,k2=d*W.groundSpeed*T.speed,dx=s.dir[0]*s.speed*k2,dz=s.dir[1]*s.speed*k2,L=W.box.groundFar*T.distance;
     this.drift=[(this.drift[0]+dx)%L,(this.drift[1]+dz)%L];
-    const k3=W.layers.speed;this.layerDrift=[(this.layerDrift[0]+dx*k3)%L,(this.layerDrift[1]+dz*k3)%L];
+    const k3=T.layerSpeed;this.layerDrift=[(this.layerDrift[0]+dx*k3)%L,(this.layerDrift[1]+dz*k3)%L];
     return this;
   }
   get ground() {return Math.max(this.dust,this.snow);}

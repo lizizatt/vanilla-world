@@ -1,9 +1,9 @@
 // Renderer side of the wind (design/wind.md): per-frame CPU step (one windAt at the eye) and the two near-camera layers, spray and
 // blowing dust/snow. Tier gating reuses the weather tiers (renderer-weather.js resolveWeatherTier -> r.weatherTier); below the wind thresholds
 // nothing is uploaded or drawn.
-import {WIND as W} from './wind-config.js';
+import {WIND as W,WIND_TUNE as T} from './wind-config.js';
 import {WindRuntime,GroundGrid,windTime,zoneCharacter} from './wind.js';
-import {WIND_UNIFORM_BYTES,GRID_UNIFORM_FLOATS,WIND_KIND,windParticleUniform,groundGridUniform,sprayShader,groundShader} from './wind-particles.js';
+import {WIND_UNIFORM_BYTES,GRID_UNIFORM_FLOATS,WIND_KIND,windParticleUniform,groundGridUniform,windTuneUniform,WIND_TUNE_FLOATS,sprayShader,groundShader} from './wind-particles.js';
 import {maelstromCentre} from './clouds.js';
 import {activeFramedBody} from './body-shaders.js';
 import {subPoint} from './space.js';
@@ -25,9 +25,11 @@ export async function initWind(r) {
   const ub=()=>r.device.createBuffer({size:WIND_UNIFORM_BYTES,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
   r.sprayBuffer=ub();r.groundBuffer=ub();
   r.groundGridBuffer=r.device.createBuffer({size:GRID_UNIFORM_FLOATS*4,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
-  r.groundGroup=r.device.createBindGroup({layout:r.groundPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.groundBuffer}},{binding:1,resource:{buffer:r.groundGridBuffer}}]});
+  r.windTuneBuffer=r.device.createBuffer({size:WIND_TUNE_FLOATS*4,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});r.windTuneData=new Float32Array(WIND_TUNE_FLOATS);
+  const tune={binding:2,resource:{buffer:r.windTuneBuffer}};
+  r.groundGroup=r.device.createBindGroup({layout:r.groundPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.groundBuffer}},{binding:1,resource:{buffer:r.groundGridBuffer}},tune]});
   r.layerBuffer=ub();
-  r.layerGroup=r.device.createBindGroup({layout:r.groundPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.layerBuffer}},{binding:1,resource:{buffer:r.groundGridBuffer}}]});
+  r.layerGroup=r.device.createBindGroup({layout:r.groundPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.layerBuffer}},{binding:1,resource:{buffer:r.groundGridBuffer}},tune]});
 }
 
 /** The wave tick clock, free-running on wall time while the sim is not stepping (same convention as the wave renderer) so gusts keep moving in flight and pause. */
@@ -65,22 +67,23 @@ function groundUnder(r) {
 
 /** Draws whichever layers are above their wind threshold in one depth-tested pass. Returns the number of layer draws (0 = no pass, no cost). */
 export function drawWind(r,encoder,near,origin,depthAttachment) {
-  const w=r.wind,count=W.quality[r.weatherTier]??0;
+  const w=r.wind,base=W.quality[r.weatherTier]??0,count=Math.round(base*T.density),sprayCount=Math.round(base*T.sprayDensity);
   if(!w||!w.on||!count||!r.groundGroup)return 0;
   const doSpray=w.spray>0&&r.waveActive,wantGround=w.ground>0;
   if(!doSpray&&!wantGround)return 0;
   const e=r.view.eye,cu=r.lastCloudUniform,light=Math.min(1,.35+(cu?cu[15]:1)),clock=r.cloudTime??0,t=windTime(windTicks(r));
   let fade=0,ground=0;
-  if(wantGround){const g=groundUnder(r);if(g!==undefined){ground=g;fade=1-smoothstep(20,80,e[1]-g);}}
+  if(wantGround){const g=groundUnder(r);if(g!==undefined){ground=g;fade=1-smoothstep(T.fadeNear,T.fadeFar,e[1]-g);}}
   const doGround=wantGround&&fade>0;
   if(!doSpray&&!doGround)return 0;
   const pass=encoder.beginRenderPass({colorAttachments:[{view:r.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}],depthStencilAttachment:depthAttachment});
   let n=0;
+  r.device.queue.writeBuffer(r.windTuneBuffer,0,windTuneUniform(T,r.windTuneData));
   if(doSpray){
     r.sprayGroup??=r.device.createBindGroup({layout:r.sprayPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.sprayBuffer}},
-      {binding:4,resource:r.waveSampler},{binding:5,resource:{buffer:r.waveUniforms}},{binding:6,resource:r.waveMaskTexture.createView()}]});
-    r.device.queue.writeBuffer(r.sprayBuffer,0,windParticleUniform(r.view,near,origin,t,clock,0,light,count,w.spray,WIND_KIND.spray,1,w.drift,w.params,r.windUniform));
-    pass.setPipeline(r.sprayPipeline);pass.setBindGroup(0,r.sprayGroup);pass.draw(6,count);n++;
+      {binding:2,resource:{buffer:r.windTuneBuffer}},{binding:4,resource:r.waveSampler},{binding:5,resource:{buffer:r.waveUniforms}},{binding:6,resource:r.waveMaskTexture.createView()}]});
+    r.device.queue.writeBuffer(r.sprayBuffer,0,windParticleUniform(r.view,near,origin,t,clock,0,light,sprayCount,w.spray,WIND_KIND.spray,1,w.drift,w.params,r.windUniform));
+    pass.setPipeline(r.sprayPipeline);pass.setBindGroup(0,r.sprayGroup);pass.draw(6,sprayCount);n++;
   }
   if(doGround){
     const kind=w.snow>w.dust?WIND_KIND.snow:WIND_KIND.dust;
@@ -88,8 +91,8 @@ export function drawWind(r,encoder,near,origin,depthAttachment) {
     r.windGridUniform=groundGridUniform(r.windGrid,r.windGridUniform);r.device.queue.writeBuffer(r.groundGridBuffer,0,r.windGridUniform);
     pass.setPipeline(r.groundPipeline);pass.setBindGroup(0,r.groundGroup);pass.draw(6,count);n++;
     // Stacked layers: same pipeline and lattice, own uniform (half drift/sway speed, layered flag).
-    r.device.queue.writeBuffer(r.layerBuffer,0,windParticleUniform(r.view,near,origin,t,clock*W.layers.speed,ground,light,count,w.ground,kind,fade,w.layerDrift,w.params,r.windUniform,1));
-    pass.setBindGroup(0,r.layerGroup);pass.draw(6,count);n++;
+    if(T.layerCount>=1){r.device.queue.writeBuffer(r.layerBuffer,0,windParticleUniform(r.view,near,origin,t,clock*T.layerSpeed,ground,light,count,w.ground,kind,fade,w.layerDrift,w.params,r.windUniform,1));
+    pass.setBindGroup(0,r.layerGroup);pass.draw(6,count);n++;}
   }
   pass.end();r.windDraws+=n;
   return n;

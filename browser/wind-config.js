@@ -55,3 +55,19 @@ export const WIND={
   box:{spray:56,sprayFar:280,ground:48,groundFar:240},
   quality:{off:0,low:320,standard:1100,high:2600},
 };
+
+// Live-tunable look values (read per frame by wind.js, renderer-wind.js and, as a uniform, the wind shaders). Defaults are derived from WIND above so they
+// reproduce the tuned look exactly; only the temporary tuning panel (wind-tuning-panel.js) ever changes them. Units: yd, yd/s, 0..1 unless noted.
+export const WIND_TUNE_DEFAULTS={
+  // Dust / snow (ground layers)
+  speed:1,layerSpeed:WIND.layers.speed,density:1,distance:1,
+  layerCount:WIND.layers.fracs.length,layerAlpha:WIND.layers.alpha,layerTop:WIND.layers.top,groundHeight:WIND.ground.height,
+  dustAlpha:WIND.ground.alpha.dust,snowAlpha:WIND.ground.alpha.snow,farShare:WIND.ground.far,
+  sizeLength:1,sizeHeight:1,diag:.6,sway:.08,clear:WIND.grid.clear,
+  slopeFlat0:WIND.flat[0],slopeFlat1:WIND.flat[1],
+  dustOn:WIND.dust.on,dustFull:WIND.dust.full,snowOn:WIND.snow.on,snowFull:WIND.snow.full,fadeNear:20,fadeFar:80,
+  // Sea spray
+  sprayAlpha:WIND.sprayLook.alpha,sprayCrest0:WIND.sprayLook.crest[0],sprayCrest1:WIND.sprayLook.crest[1],spraySize:1,sprayDistance:1,
+  sprayDensity:1,sprayFarShare:WIND.sprayLook.far,sprayOn:WIND.spray.on,sprayFull:WIND.spray.full,
+};
+export const WIND_TUNE={...WIND_TUNE_DEFAULTS};
