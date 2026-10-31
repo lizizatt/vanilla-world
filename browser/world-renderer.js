@@ -161,9 +161,9 @@ export class WorldRenderer {
     const sky0=airless?AIRLESS_SKY:DAY_SKY.map((v,i)=>NIGHT_SKY[i]+(v-NIGHT_SKY[i])*daylight);
     const game=airless?undefined:zoneBlend(this.sampleSky(),pf.zone),sky=game?game.fog:sky0;pf.fog=(game?game.horizon:sky).slice(0,3);
     this.gameSky=game;
-    const skyFloats=game?[...game.fog,1,...game.sun,0,...game.horizon,0,...game.mid,0]:new Array(16).fill(0);
+    const skyFloats=Float32Array.from(game?[...game.fog,1,...game.sun,0,...game.horizon,0,...game.mid,0]:new Array(16).fill(0));
     if(this.manifest?.world_bounds){const [mx,mz]=maelstromCentre(this.manifest);skyFloats[7]=mx-origin[0];skyFloats[11]=mz-origin[1];skyFloats[15]=1;}
-    const view=[...this.camera,200000,...right,origin[0]%4096,...up,origin[1]%4096,...look,daylight];
+    const view=Float32Array.of(...this.camera,200000,...right,origin[0]%4096,...up,origin[1]%4096,...look,daylight);
     const distant=settings.horizon?this.horizon.filter(h=>!this.tiles.has(h.near)):[];
     const coastal=[...this.coast].flatMap(([index,item])=>
       this.tiles.has(index)?item.backing?[item.backing]:[]:settings.horizon?[item]:[]);
@@ -179,11 +179,11 @@ export class WorldRenderer {
     this.fadeTime=Math.max(this.fadeTime||0,time);
     const fadeTime=this.fadeTime;
     let uniformCount=0;
-    const u=this.uniformData,sunDir=this.sunLocal;
+    const u=this.uniformData,sunDir=this.sunLocal,eyeZ=this.view.eye[2]+(activeBody().centre[1]-activeFramedBody().centre[1]);
     const writeUniform=item=>{
       if(uniformCount>=16384)throw Error('World draw uniform budget exceeded');
       const base=uniformCount++*64;
-      item.offset=base*4;u.set(view,base);u.set(skyFloats,base+40);u[base+28]=u[base+60]=pf.bend;u[base+30]=u[base+62]=this.view.eye[2]+(activeBody().centre[1]-activeFramedBody().centre[1]);u[base+29]=u[base+61]=pf.space;u.set(sunDir,base+32);u[base+36]=sea[0];u[base+37]=sea[1];u[base+38]=this.debugWater?1:0;u[base+56]=u[base+57]=u[base+58]=u[base+59]=0;return base;
+      item.offset=base*4;u.set(view,base);u.set(skyFloats,base+40);u[base+28]=u[base+60]=pf.bend;u[base+30]=u[base+62]=eyeZ;u[base+29]=u[base+61]=pf.space;u.set(sunDir,base+32);u[base+36]=sea[0];u[base+37]=sea[1];u[base+38]=this.debugWater?1:0;u[base+56]=u[base+57]=u[base+58]=u[base+59]=0;return base;
     };
     for(const item of terrain){
       const base=writeUniform(item),body=item===this.body;
