@@ -3,7 +3,8 @@
 // Ctrl+Alt+W, or open the page with #windtune, or call window.windTuning.toggle() in the console. Values persist in localStorage.
 import {WIND_TUNE,WIND_TUNE_DEFAULTS} from './wind-config.js';
 
-const KEY='racer.windTune';
+// Versioned: bump when WIND_TUNE_DEFAULTS are re-baked so values saved against older defaults can't mask the new ones.
+const KEY='racer.windTune.v2';
 // [key, label, min, max, step]. Groups mirror the two effects.
 export const TUNE_GROUPS=[
   ['Dust / snow',[

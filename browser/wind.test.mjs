@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {WIND as W} from './wind-config.js';
+import {WIND as W,WIND_TUNE} from './wind-config.js';
 import {windAt,packWind,windTime,zoneCharacter,beltVector,windSeaK,windWaveHint,sprayK,dustK,snowK,WindRuntime,GroundGrid,flatK,gustOmega} from './wind.js';
 import {windWGSL} from './wind-wgsl.js';
 import {sprayShader,groundShader,windParticleUniform,WIND_UNIFORM_BYTES,groundGridUniform,GRID_UNIFORM_FLOATS} from './wind-particles.js';
@@ -104,7 +104,7 @@ test('zone parameters ease across a border instead of jumping',()=>{
 });
 test('ground drift is bounded so f32 stays exact',()=>{
   const w=new WindRuntime();for(let i=0;i<100000;i++)w.step({dt:.016,x:0,z:0,t:i*.016,lat:.8,character:'desert',storm:1,mael:null,enabled:true,sea:false});
-  assert(Math.abs(w.drift[0])<W.box.groundFar&&Math.abs(w.drift[1])<W.box.groundFar);
+  assert(Math.abs(w.drift[0])<W.box.groundFar*WIND_TUNE.distance&&Math.abs(w.drift[1])<W.box.groundFar*WIND_TUNE.distance);
   assert.equal(W.box.groundFar%W.box.ground,0,'the drift wrap must be a whole number of near boxes');
 });
 test('blowing dust/snow drifts at half the wind speed on land',()=>{
@@ -113,7 +113,7 @@ test('blowing dust/snow drifts at half the wind speed on land',()=>{
     const w=new WindRuntime(),ctx={dt:.05,x:0,z:0,t:3,lat:.8,character,storm:.6,mael:null,enabled:true,sea:false};
     w.step(ctx);const d0=[...w.drift];w.step(ctx);
     const moved=Math.hypot(w.drift[0]-d0[0],w.drift[1]-d0[1]),full=w.sample.speed*ctx.dt;
-    assert(full>0&&Math.abs(moved/full-.5)<1e-9,`${character} drift ratio ${moved/full}`);
+    assert(full>0&&Math.abs(moved/full-.5*WIND_TUNE.speed)<1e-9,`${character} drift ratio ${moved/full}`);
   }
 });
 test('sea spray switches on at a moderate wind, well below a gale',()=>{
@@ -149,7 +149,7 @@ test('stacked dust layers: 1/3 opacity, 1/2 speed, below the main layer; hidden 
   const w=new WindRuntime();
   for(let i=0;i<200;i++)w.step({dt:.05,x:0,z:0,t:i*.05,lat:0,character:'desert',storm:1,mael:null,enabled:true});
   assert(w.drift[0]!==0||w.drift[1]!==0);
-  assert.ok(Math.abs(w.layerDrift[0]-w.drift[0]*L.speed)<1e-4&&Math.abs(w.layerDrift[1]-w.drift[1]*L.speed)<1e-4,'layers drift at half speed');
+  assert.ok(Math.abs(w.layerDrift[0]-w.drift[0]*WIND_TUNE.layerSpeed)<1e-4&&Math.abs(w.layerDrift[1]-w.drift[1]*WIND_TUNE.layerSpeed)<1e-4,'layers drift at half speed');
   // Slope: flat ground -> 1, steep -> 0, monotone and continuous in between.
   assert.equal(flatK(0),1);assert.equal(flatK(W.flat[1]),0);
   let prev=1;for(let s=0;s<=.5;s+=.005){const k=flatK(s);assert(k<=prev+1e-12&&prev-k<.05);prev=k;}

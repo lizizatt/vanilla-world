@@ -56,18 +56,18 @@ export const WIND={
   quality:{off:0,low:320,standard:1100,high:2600},
 };
 
-// Live-tunable look values (read per frame by wind.js, renderer-wind.js and, as a uniform, the wind shaders). Defaults are derived from WIND above so they
-// reproduce the tuned look exactly; only the temporary tuning panel (wind-tuning-panel.js) ever changes them. Units: yd, yd/s, 0..1 unless noted.
+// Live-tunable look values (read per frame by wind.js, renderer-wind.js and, as a uniform, the wind shaders). These are the final values dialed in with the
+// tuning panel (wind-tuning-panel.js), absolute (not multipliers) apart from the "x" fields. Units: yd, yd/s, 0..1 unless noted.
 export const WIND_TUNE_DEFAULTS={
   // Dust / snow (ground layers)
-  speed:1,layerSpeed:WIND.layers.speed,density:1,distance:1,
-  layerCount:WIND.layers.fracs.length,layerAlpha:WIND.layers.alpha,layerTop:WIND.layers.top,groundHeight:WIND.ground.height,
-  dustAlpha:WIND.ground.alpha.dust,snowAlpha:WIND.ground.alpha.snow,farShare:WIND.ground.far,
-  sizeLength:1,sizeHeight:1,diag:.6,sway:.08,clear:WIND.grid.clear,
-  slopeFlat0:WIND.flat[0],slopeFlat1:WIND.flat[1],
-  dustOn:WIND.dust.on,dustFull:WIND.dust.full,snowOn:WIND.snow.on,snowFull:WIND.snow.full,fadeNear:20,fadeFar:80,
+  speed:.45,layerSpeed:.9,density:.3,distance:1.7,
+  layerCount:2,layerAlpha:.34,layerTop:0,groundHeight:.27,
+  dustAlpha:.17,snowAlpha:.5,farShare:.61,
+  sizeLength:1.6,sizeHeight:4.7,diag:.6,sway:.39,clear:.05,
+  slopeFlat0:.12,slopeFlat1:.35,
+  dustOn:.52,dustFull:.9,snowOn:.48,snowFull:.85,fadeNear:16,fadeFar:80,
   // Sea spray
-  sprayAlpha:WIND.sprayLook.alpha,sprayCrest0:WIND.sprayLook.crest[0],sprayCrest1:WIND.sprayLook.crest[1],spraySize:1,sprayDistance:1,
-  sprayDensity:1,sprayFarShare:WIND.sprayLook.far,sprayOn:WIND.spray.on,sprayFull:WIND.spray.full,
+  sprayAlpha:.11,sprayCrest0:.51,sprayCrest1:.9,spraySize:6,sprayDistance:2,
+  sprayDensity:1.65,sprayFarShare:.67,sprayOn:.32,sprayFull:.72,
 };
 export const WIND_TUNE={...WIND_TUNE_DEFAULTS};
