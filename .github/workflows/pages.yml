@@ -3,7 +3,7 @@ name: Deploy browser racer to Pages
 on:
   push:
     branches: [main]
-    paths: ['browser/**', 'client/crates/**', '.github/workflows/pages.yml']
+    paths: ['browser/**', 'client/crates/**', '.github/workflows/pages.yml', 'deploy.env']
   workflow_dispatch:
 
 permissions:
@@ -39,9 +39,11 @@ jobs:
           command -v wasm-bindgen >/dev/null && wasm-bindgen --version | grep -q 0.2.122 || cargo install wasm-bindgen-cli --version 0.2.122 --locked
           cargo build -p flats-racer-web --target wasm32-unknown-unknown --release
           wasm-bindgen target/wasm32-unknown-unknown/release/flats_racer_web.wasm --target web --out-dir ../browser/pkg
-      - name: Test and build dist
+      - name: Test
+        run: node --test browser
+      - name: Build dist (levers from deploy.env)
         run: |
-          node --test browser
+          grep -E '^[A-Z_]+=' deploy.env >> "$GITHUB_ENV"
           INCLUDE_NPC_PACK=1 node browser/build-dist.mjs dist
       - uses: actions/upload-pages-artifact@v3
         with:
