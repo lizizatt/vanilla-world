@@ -35,6 +35,10 @@ export const resetTune=(target=WIND_TUNE)=>Object.assign(target,WIND_TUNE_DEFAUL
 /** The snippet the user pastes back: the full set, so it can replace WIND_TUNE_DEFAULTS' numbers. */
 export const tuneSnippet=(T=WIND_TUNE)=>JSON.stringify(Object.fromEntries(FIELDS.map(([k])=>[k,+T[k].toPrecision(6)])),null,2);
 
+const CSS=`#wind-tuning-panel{position:fixed;top:8px;right:8px;z-index:99999;width:340px;max-height:92vh;overflow:auto;background:#101418ee;color:#dde;font:12px/1.3 system-ui,sans-serif;border:1px solid #f90;border-radius:6px;padding:8px}
+#wind-tuning-panel[hidden]{display:none}
+#wind-tuning-panel .wt-head{display:flex;gap:6px;align-items:center;margin-bottom:6px}#wind-tuning-panel .wt-head b{color:#f90;flex:1}#wind-tuning-panel button{font:inherit;cursor:pointer}
+#wind-tuning-panel summary{cursor:pointer;color:#fc6}#wind-tuning-panel .wt-row{display:grid;grid-template-columns:1fr 110px 54px;gap:6px;align-items:center;margin:2px 0}#wind-tuning-panel input[type=number]{width:54px}`;
 function install() {
   try{applyTune(JSON.parse(localStorage.getItem(KEY)));}catch{/* no stored values */}
   let root;const inputs={};
@@ -42,10 +46,11 @@ function install() {
   const sync=()=>{for(const [k,,,,step] of FIELDS){inputs[k].range.value=WIND_TUNE[k];inputs[k].num.value=+WIND_TUNE[k].toFixed(step<.1?3:2);}};
   const build=()=>{
     root=document.createElement('div');root.id='wind-tuning-panel';root.hidden=true;
-    root.style.cssText='position:fixed;top:8px;right:8px;z-index:99999;width:340px;max-height:92vh;overflow:auto;background:#101418ee;color:#dde;font:12px/1.3 system-ui,sans-serif;border:1px solid #f90;border-radius:6px;padding:8px';
-    const head=document.createElement('div');head.style.cssText='display:flex;gap:6px;align-items:center;margin-bottom:6px';
-    head.innerHTML='<b style="color:#f90;flex:1">TEMPORARY - wind tuning</b>';
-    const btn=(label,fn)=>{const b=document.createElement('button');b.textContent=label;b.style.cssText='font:inherit;cursor:pointer';b.onclick=fn;head.append(b);return b;};
+    // A constructed stylesheet: the page CSP (style-src 'self') blocks inline style attributes and <style> elements.
+    const sheet=new CSSStyleSheet();sheet.replaceSync(CSS);document.adoptedStyleSheets=[...document.adoptedStyleSheets,sheet];
+    const head=document.createElement('div');head.className='wt-head';
+    const title=document.createElement('b');title.textContent='TEMPORARY - wind tuning';head.append(title);
+    const btn=(label,fn)=>{const b=document.createElement('button');b.textContent=label;b.onclick=fn;head.append(b);return b;};
     const copy=btn('Copy values',async()=>{
       const text=tuneSnippet();
       try{await navigator.clipboard.writeText(text);}catch{const t=document.createElement('textarea');t.value=text;document.body.append(t);t.select();document.execCommand('copy');t.remove();}
@@ -54,12 +59,12 @@ function install() {
     btn('Reset',()=>{resetTune();save();sync();});btn('x',()=>{root.hidden=true;});
     root.append(head);
     for(const [name,list] of TUNE_GROUPS) {
-      const d=document.createElement('details');d.open=true;d.innerHTML=`<summary style="cursor:pointer;color:#fc6">${name}</summary>`;
+      const d=document.createElement('details');d.open=true;const sum=document.createElement('summary');sum.textContent=name;d.append(sum);
       for(const [key,label,min,max,step] of list) {
-        const row=document.createElement('label');row.style.cssText='display:grid;grid-template-columns:1fr 110px 54px;gap:6px;align-items:center;margin:2px 0';
+        const row=document.createElement('label');row.className='wt-row';
         const span=document.createElement('span');span.textContent=label;
         const range=document.createElement('input');range.type='range';Object.assign(range,{min,max,step});
-        const num=document.createElement('input');num.type='number';Object.assign(num,{min,max,step});num.style.width='54px';
+        const num=document.createElement('input');num.type='number';Object.assign(num,{min,max,step});
         const set=v=>{if(Number.isFinite(v)){WIND_TUNE[key]=Math.min(max,Math.max(min,v));save();sync();}};
         range.oninput=()=>set(Number(range.value));num.onchange=()=>set(Number(num.value));
         inputs[key]={range,num};row.append(span,range,num);d.append(row);
