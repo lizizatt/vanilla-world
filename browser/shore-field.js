@@ -3,7 +3,7 @@
 // into one RGBA texture: R signed distance to the waterline (yd, + is water), G/B the seaward unit normal averaged over a coarse neighbourhood
 // (so tidepools and small inlets do not steer the wave trains), A confidence of that normal x "a real body of water is nearby" (rivers and puddles drop out).
 export const SHORE_N=96,SHORE_CELL=8,SHORE_REFRESH=128;
-export const SHORE_D_MIN=-16,SHORE_D_MAX=80;
+export const SHORE_D_MIN=-16,SHORE_D_MAX=80,SEA_LEVEL_TOLERANCE=3;
 const CONTOUR_BLUR=1,NORMAL_BLUR=4,NORMAL_PASSES=3,OPEN_BLUR=8;
 const smoothstep=(e0,e1,x)=>{const s=Math.min(1,Math.max(0,(x-e0)/(e1-e0)));return s*s*(3-2*s);};
 
@@ -16,7 +16,8 @@ export function buildShoreClasses(sampleBatch,surface,center,rowStart=0,rowCount
   for(let n=0;n<total;n++){
     const s=surface(points[n*2],points[n*2+1]),water=out[n*8];
     if(s[0]!==0){data[n]=1;continue;}
-    if(Number.isNaN(water)||s[1]>=water)continue;
+    // The beach layer is drawn on the flat sea plane, so inland water at another height (basin ponds, mountain lakes) is not a shore: it would float over/under the terrain.
+    if(Number.isNaN(water)||s[1]>=water||Math.abs(water)>SEA_LEVEL_TOLERANCE)continue;
     data[n]=out[n*8+7]>0?2:1;
   }
   return {origin:[ox,oz],cell:SHORE_CELL,n:SHORE_N,data,rowStart};

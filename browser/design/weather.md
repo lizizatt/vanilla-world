@@ -140,3 +140,5 @@ Rain showed at the Steamwheedle spawn under a clear sky (coverage .18): the Mael
 
 
 Wind-driven dust and blowing snow share the weather tiers; see [wind.md](wind.md).
+
+Rain threshold raised again (coverage [.4,.5] -> [.46,.56]; rain only under clearly cloudy sky). Measured: race-start land soft(P>=.1) 12.6% -> 9.3%, raining 6.7% -> 4.9%, 30% -> 22% of dense cloud rains; sea 5.2% -> 2.8%. Shimmering Flats (12 km around the flats) land raining 17.8% -> 15.6%, rain of dense cloud 48% -> 42%.
