@@ -20,6 +20,13 @@ export const ROUTES={
     {hop:true,to:[CX+CIRCUMFERENCE/2-3000,-8000]},
     {from:'prev',to:[24000,4000],stop:true},
   ],
+  // Fly north over the pole (wrapFlat flips onto the far meridian), continue to the far side and come back to land.
+  pole:[
+    {from:[24000,4000],to:[24000,4000]},
+    {from:[24000,4000],dir:[0,-1],distance:PLANET_RADIUS*Math.PI*1.5},
+    {hop:true,to:[24000,4000]},
+    {from:[24000,4000],to:[24000,4000],stop:true},
+  ],
   quick:[
     {from:[-24000,-9000],to:[-24000-CIRCUMFERENCE*.6,-9000]},
     {from:'prev',to:[24000,4000],stop:true},

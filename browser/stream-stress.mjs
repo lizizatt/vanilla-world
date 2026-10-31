@@ -79,6 +79,14 @@ try {
     for(let li=0;li<legs.length;li++){
       const leg=legs[li];
       if(leg.hop){pose=[leg.to[0],leg.alt,leg.to[1],leg.yaw??pose[3],-.05];worldTest.focus(pose);sample('hop',li);continue;}
+      if(leg.dir){ // fixed-heading leg (pole crossing): travel distance yd, reversing the northing when wrapFlat flips over a pole
+        let left=leg.distance,dz=leg.dir[1],lastFlip=0;
+        while(left>0){await frame();const now=performance.now(),dt=Math.min(.25,(now-last)/1000);frameDts.push(now-last);last=now;
+          const step=Math.min(left,leg.speed*dt);let [x,z,flipped]=wrapFlat(pose[0]+leg.dir[0]*step,pose[2]+dz*step);
+          if(flipped)dz=-dz;pose=[x,leg.alt,z,pose[3],-.05];left-=step;travelled+=step;worldTest.focus(pose);
+          if(now-lastSample>=1000){lastSample=now;sample('fly',li);}}
+        continue;
+      }
       let remaining=Math.hypot(leg.to[0]-pose[0],leg.to[1]-pose[2]);
       const yaw=Math.atan2(-(leg.to[0]-pose[0]),-(leg.to[1]-pose[2]));
       while(remaining>1){
