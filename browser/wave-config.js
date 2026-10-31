@@ -33,7 +33,7 @@ export const WAVE_SCALES=Object.freeze({normal:1,storm:2.5,maelstrom:10});
 /** Largest slope any region may reach. Default slopes stay gentle (~.25 cap) so a wave face only becomes an impact when it is very large. */
 export const WAVE_SLOPE_CAPS=Object.freeze({normal:.25,storm:.5,maelstrom:.5});
 /** Shore: waves are exactly 0 within `margin` yd of land or authored water and reach full size `fade` yd further out. The margin exceeds the largest horizontal displacement. */
-export const WAVE_SHORE=Object.freeze({fade:80,margin:16});
+export const WAVE_SHORE=Object.freeze({fade:32,margin:12});
 /** Maelstrom regions (yd around the whirlpool centre): full 10x inside `peakRadius`, easing to the storm sea at the funnel's `MAELSTROM.radius`, which eases to the normal sea by `haloRadius`. */
 export const WAVE_MAELSTROM=Object.freeze({peakRadius:2*WHIRLPOOL_DIP.radius,stormRadius:MAELSTROM.radius,haloRadius:2*MAELSTROM.radius});
 
