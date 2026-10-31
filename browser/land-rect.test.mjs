@@ -37,3 +37,9 @@ test('splat triangles on the -503 placeholder are dropped, real ones kept',()=>{
   assert.deepEqual([...dropPlaceholderTriangles(verts,Uint32Array.from([0,1,2,0,1,3]))],[0,1,3]);
   const keep=Uint32Array.from([0,1,3]);assert.equal(dropPlaceholderTriangles(verts,keep),keep);
 });
+
+test('dropOpenSeaWater keeps exactly the non-liquid vertices in order',()=>{
+  const v=(y,m,x)=>[x,y,0,0,1,0,m];
+  const out=dropOpenSeaWater(Float32Array.from([...v(-503,0,1),...v(0,2,2),...v(-503,1,3),...v(0,4,4)]));
+  assert.deepEqual([...out],[...v(-503,0,1),...v(-503,1,3)]);
+});
