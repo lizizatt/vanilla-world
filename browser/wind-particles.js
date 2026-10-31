@@ -47,10 +47,10 @@ fn corner(vi:u32)->vec2f {
   return c[vi];
 }
 fn culled(q:vec2f)->V {var v:V;v.q=q;v.a=0.0;v.col=vec3f(0.0);v.clip=vec4f(2.0,2.0,2.0,1.0);return v;}
-// Streak axis: along the wind but never edge-on to the camera.
+// Streak axis: world-anchored. Along the wind, sheared by diag toward the wind's fixed left-hand perpendicular, so the apparent heading never depends on the camera.
 fn streakSide(wd:vec2f)->vec3f {
-  let s=vec3f(wd.x,0.0,wd.y);let d=dot(s,u.right.xyz);
-  return normalize(u.right.xyz*tn[1].w+s*(.8*select(-1.0,1.0,d>=0.0)));
+  let s=vec3f(wd.x,0.0,wd.y);let p=vec3f(-wd.y,0.0,wd.x);
+  return normalize(p*tn[1].w+s*.8);
 }
 fn project(pos:vec3f,a:f32,col:vec3f,q:vec2f)->V {
   let z=dot(pos,u.look.xyz);let near=u.up.w;let far=u.look.w;
