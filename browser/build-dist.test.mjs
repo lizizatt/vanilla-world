@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { appFiles, vehicleFiles } from './build-dist.mjs';
+import { ARCHIVE_MODULES } from './shell-manifest.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -18,6 +19,7 @@ test('hosted file list is app-only and covers every static import', needsPkg, as
     const source = await readFile(join(here, file), 'utf8');
     for (const [, spec] of source.matchAll(/(?:from\s+|import\s*\(\s*|new Worker\(\s*)'(\.{1,2}\/[^']+\.js)'/g)) {
       const target = posix.normalize(posix.join(posix.dirname(file), spec));
+      if (ARCHIVE_MODULES.has(target) && !set.has(target)) continue; // flag-gated dynamic import, absent by design when ARCHIVE_DATA_SOURCE is off
       assert.ok(set.has(target), `${file} imports ${spec} which is not hosted`);
     }
   }
