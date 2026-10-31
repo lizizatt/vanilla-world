@@ -12,8 +12,10 @@ const f=x=>Number.isInteger(x)?x.toFixed(1):String(x);
 export function curtainUniform(cloud,polar,wx,out=new Float32Array(CURTAIN_UNIFORM_BYTES/4)) {
   out.set(cloud.subarray(0,60));out.set(wx,60);out.set(polar,64);return out;
 }
-/** 0..1 fade for the curtain as the eye climbs into and above the cloud base: full below (base-fade), gone at the base. */
-export const curtainFade=(eyeY,base)=>Math.min(Math.max((base-eyeY)/W.curtain.fade,0),1);
+/** 0..1 fade for the whole weather stack (curtain, near box): full from the ground up through the cloud layer, gone `fade` above its top (default top = base + W.layer.top). */
+export const curtainFade=(eyeY,base,top=base+W.layer.top)=>Math.min(Math.max((top+W.curtain.fade-eyeY)/W.curtain.fade,0),1);
+/** 0..1 weight of the shafts inside the cloud layer: zero for an eye under the base, ramping in across the base so crossing it never pops. */
+export const layerWeight=(eyeY,base)=>{const t=Math.min(Math.max((eyeY-base+W.layer.blend)/(2*W.layer.blend),0),1);return t*t*(3-2*t);};
 /** CPU twin of the shader's march end: distance along a unit ray at which it climbs through the base shell (curvature k=1/effective radius), or Infinity. */
 export function curtainExit(eyeY,dirY,base,k) {
   const a=Math.max(k,1e-9),b=(1+k*eyeY)*dirY,cc=(eyeY-base)*(2+k*(eyeY+base)),disc=b*b-a*cc;
@@ -61,9 +63,13 @@ fn precipAt(x:f32,z:f32)->f32 {
   let base=c.cloud.z-${f(W.curtain.baseDrop)};
   let eyeY=c.eye.y;
   var sEnd=min(sceneDist,R_FAR);
-  // The ray leaves the sub-cloud volume where it climbs through the curved base shell (the deck falls away with the planet, so a flat plane would put rain under sky with no cloud).
-  let exit=shellRoots(eyeY,dir.y,base).y;
-  if(exit>0.0&&exit<1e29){sEnd=min(sEnd,exit);}
+  let wIn=c.wx.w;
+  // Under the base the ray leaves the sub-cloud volume where it climbs through the curved base shell (the deck falls away with the planet, so a flat plane would put rain under sky with no cloud).
+  // From inside the layer (wIn>0) it keeps going: rain falls out of the nearby cloud mass and is seen through the haze.
+  if(wIn<=0.001){
+    let exit=shellRoots(eyeY,dir.y,base).y;
+    if(exit>0.0&&exit<1e29){sEnd=min(sEnd,exit);}
+  }
   if(sEnd<=${f(W.curtain.start)}){return vec4f(0.0);}
   let t=c.up.w;let night=1.0-c.look.w;let snow=c.wx.x;
   let game=c.tint.w>.5;
@@ -82,7 +88,13 @@ fn precipAt(x:f32,z:f32)->f32 {
     if(P<.02){continue;}
     let drop=base-wp.y;
     let fall=mix(${f(W.curtain.fall[0])},${f(W.curtain.fall[1])},smoothstep(.3,.8,P));
-    let shaft=exp(-max(drop,0.0)/fall);
+    // Below the base the shaft thins with the fall distance (virga for weak cells); inside the layer it is full to mid, gone by top, and fades with distance (haze).
+    var shaft=exp(-max(drop,0.0)/fall);
+    if(drop<0.0){
+      if(wIn<=0.001){break;}
+      shaft=wIn*(1.0-smoothstep(${f(W.layer.mid)},${f(W.layer.top)},-drop))*(1.0-smoothstep(${f(W.layer.haze[0])},${f(W.layer.haze[1])},s));
+      if(shaft<.01){continue;}
+    }
     let sx=max(${f(W.curtain.streakXZ)},s*.04);
     let streak=mix(.12,1.0,smoothstep(.25,.75,vnoise3(vec3f(p.x/sx,p.y/${f(W.curtain.streakY)}+t*.8*(1.0-.75*snow),p.z/sx))));
     let k=ds*P*shaft*streak*${f(W.curtain.density)};

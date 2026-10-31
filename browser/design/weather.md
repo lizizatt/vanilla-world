@@ -58,7 +58,7 @@ Runtime inputs only (no committed data):
 - **Aridity** (no rain): by authored zone name list/flags (Tanaris, Silithus, Durotar, Badlands, Barrens in part, Searing Gorge, Burning Steppes, Blasted Lands, Un'Goro none) *or* by existing `bandCoverage` clear belt (`clearAt ~ .49 rad`) plus `landCov` dryness; both multiply into `climate`. Deserts get dust haze at most, never precipitation. Barrens: light rare rain (aridity 0.7).
 - **Latitude/altitude fallback** for areas with no authored flag (open ocean, unnamed map): temperature from latitude and ground altitude: `T = 1 - |lat|/lat_max*0.8 - alt/3000*0.5`; snow when `T < 0.2`; tundra/ice caps always snow; equatorial ocean heavy rain bias (ITCZ). A tall peak therefore snows even in a temperate zone (snow line ~1500 yd above its zone temperature), and precipitation type **changes with altitude along a descent** with a 100-300 yd mixing band (sleet/rain-snow dither), so flying down from a snow cloud you see snow turn to rain.
 - **Elune**: no weather by default (airless moon, no cloud shell; `ambientFor` gives it black sky). Climate multiplier 0, shader branch compiled out when the nearest body is Elune. Decision for the user (open question 5); a later opt-in could add ash/moon-mote effects in the Moonglade graft only.
-- **Space/orbit**: weather is visible from orbit only as darkened cloud tops (via the cloud density feedback). No particles, no wetness above `atmosphere` regime (`regimeOf`).
+- **Space/orbit**: no particles and no wetness above the `atmosphere` regime (`regimeOf`), but wet cells stay legible: the cloud shader stretches and darkens them (section 4.4, `weather.look`, `spaceLook`/`spaceRain`).
 
 ## 4. Rendering plan (WebGPU, p99 < 20 ms handler budget)
 
@@ -77,7 +77,7 @@ The CPU polar sampling also yields the **nearest wet-cell distance and bearing**
 - Density scale = `P_local(camera)` (the smooth CPU value) so as the cell edge passes the density ramps from nothing to heavy over ~300-1500 yd: that gradient is the *enveloping* moment. Streak length from relative velocity (wind + camera velocity + fall speed ~ 9 yd/s rain, 1.5 snow with turbulence).
 - Slightly larger box and a second sparse far shell (200-500 yd, thin streak cards) bridge near particles and the curtain.
 - **Occlusion**: cheap height test per column against the terrain/WMO top at the box cells (CPU 16 x 16 grid per frame sampling the physics height) so there is no rain indoors or under overhangs; skip for v1 (accept rain through roofs) with a documented limitation.
-- **Pod / flight / space**: pod uses camera-relative relative-velocity streaks (long streaks at speed, motion-blur look) and windshield-free (no droplet decals v1). Fly camera at altitude inside a cell works the same; the box is simply positioned in camera frame. Above the cloud top the near field fades to 0 with altitude (the rain/snow column ends at the cloud base: use `clamp((base - alt)/200,0,1)`). Above `atmosphere` regime (`regime.js`) the whole system is gated off. Very fast flight (> 800 yd/s) switches streaks to a screen-space radial smear instead of per-particle.
+- **Pod / flight / space**: pod uses camera-relative relative-velocity streaks (long streaks at speed, motion-blur look) and windshield-free (no droplet decals v1). Fly camera at altitude inside a cell works the same; the box is simply positioned in camera frame. The near field and curtain stay at full strength through the cloud layer (base to top, `curtainFade`) and fade to 0 over `W.curtain.fade` above the cloud top, so nothing pops at the base. Above `atmosphere` regime (`regime.js`) the whole system is gated off. Very fast flight (> 800 yd/s) switches streaks to a screen-space radial smear instead of per-particle.
 
 ### 4.3 Wetness and snow
 - One uniform `wet` (0..1, time-smoothed: +0.15/s wetting, -0.01/s drying) and `snow` (accumulation 0..1, +0.004/s while snowing, -0.002/s melt in non-cold areas). Terrain/model fragment shaders add: `albedo *= mix(1,.7,wet)`, `rough` lowering / specular boost, and `albedo = mix(albedo, white, snow*smoothstep(.5,.9,normal.y))`. Water surfaces get ripple particles (existing `ripple` kind) on a sparse set. Wet state is a single value per frame, not per tile, v1 (global response) with a per-area climate scale.
@@ -88,6 +88,11 @@ The CPU polar sampling also yields the **nearest wet-cell distance and bearing**
 
 ### 4.5 Audio hooks (`world-audio.js`)
 `weatherLevel({near,distance,type})`: a band-passed noise bed whose gain follows `P_local`, a low-passed "distant rain" bed whose gain follows `max(0, 1 - nearestWetDistance/6000)`, snow = muffled wind bed. Reuses the `windLevel` pattern (pure function + tests). Wind bed already scales with speed and air density, so no change in orbit.
+
+### 4.4 Rain from inside the layer and from orbit
+- **In the layer** (weather-curtain.js): curtainFade(eyeY,base) is 1 up through the cloud top (`base+W.layer.top`) then fades out. layerWeight (smoothstep over ase+-W.layer.blend) tells the curtain shader the camera is inside; samples then rise into the layer as shafts that thin out above W.layer.mid/	op and with haze distance (W.layer.haze), and the base-shell exit is skipped. The near box uses the same fade.
+- **From above and orbit** (clouds.js): the cloud shader multiplies the cloud density P by wxSpaceRain(P,noise,k) and dims wet cells (W.space: streak, dim, stretch). k is uniform slot 23, `spaceLook(height,on)` (ramp W.space.ramp). WeatherRuntime.look keeps {wet:1,on:1} in orbit (where `on` is 0) so every wet cell shows; Elune and off give {0,0}. Streaks are Standard/High only (ainStreak); Low keeps the plain darkening. No particles. CPU twin: `spaceRain` in weather-field.js; GPU parity checked by weather-parity.mjs.
+- Captures and cost A/B: ace-weather-aloft.mjs (in-cloud, below-base, above, orbit, cost) -> untime/gate-preview/aloft-*.png.
 
 ## 5. Phased plan
 

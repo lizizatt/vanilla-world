@@ -27,6 +27,11 @@ export const stormRain=(storm,eye)=>smoothstep(W.storm.from,W.storm.to,storm)*ey
 /** Precipitation intensity 0..1 for a sheet point: the cell under its coverage gate, or the storm term (also gated: no rain without rendered cloud), whichever is higher. */
 export const precipitation=(Q,t,coverage,storm=0,eye=1)=>Math.max(cellIntensity(Q,t)*coverageGate(coverage),stormRain(storm,eye)*smoothstep(W.storm.cover[0],W.storm.cover[1],coverage));
 
+/** Precipitation as drawn from above: streak noise n (0..1) modulates P with depth k (0 = plain P), so wet cells read as wind-stretched virga. Visual only; the local rain still uses P. */
+export const spaceRain=(P,n,k)=>Math.min(1,Math.max(0,P*(1+k*W.space.streak*(1.1*smoothstep(.3,.7,n)-.65))));
+/** 0..1 weight of the from-above look for an eye `h` yd above the cloud top (times the tier switch). */
+export const spaceLook=(h,on=1)=>on*smoothstep(W.space.ramp[0],W.space.ramp[1],h);
+
 /**
  * Camera-side smoothed state with Schmitt hysteresis: `intensity` eases toward the sampled target, `raining` flips on above W.on and off below
  * W.off so a cell edge never makes it flicker. `kind` is 'rain' | 'snow' | 'none' from the climate.

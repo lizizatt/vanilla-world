@@ -42,3 +42,15 @@ test('Maelstrom wall rains heavily through the sheet, the eye stays calm',()=>{
   const wall=density([1500,1590,0],100,false,[0,0],undefined,undefined,{wet:0,on:1}),eye=density([50,1590,0],100,false,[0,0],undefined,undefined,{wet:1,on:1});
   assert(wall[4]>=W.heavy,`wall ${wall[4]}`);assert.equal(eye[4],0);
 });
+test('from-above look: emitter and CPU twin agree, uniform slot ramps with height over the cloud top and by tier',async()=>{
+  const {spaceRain,spaceLook}=await import('./weather-field.js');
+  assert(src.includes('fn wxSpaceRain('));assert(src.includes(String(W.space.streak)));
+  for(const s of [cloudShader,cloudShaderHigh]){assert(s.includes('wxSpaceRain(P,vnoise3('));assert(s.includes('c.near.w'));}
+  assert.equal(spaceRain(0,.5,1),0);assert.equal(spaceRain(.6,.5,0),.6);assert(spaceRain(.9,1,1)<=1);
+  assert(spaceRain(.6,0,1)<.6&&spaceRain(.6,1,1)>.6,'streak noise modulates P');
+  const view={eye:[0,0,0],right:[1,0,0],up:[0,1,0],look:[0,0,1],aspect:1},m={ocean:[0,0,1,1],world_bounds:[[0,0,1,1],[0,0,1,1]],regions:[{placement:[0,0]},{placement:[0,0]}]};
+  const at=(y,streak)=>cloudUniform({...view,eye:[0,y,0]},0,1,m,5,undefined,undefined,1440,{bend:0,space:0,wet:1,weatherOn:1,rainStreak:streak})[23];
+  const top=cloudUniform(view,0,1,m,5)[18]+520/2;
+  assert.equal(at(top,1),0);assert.equal(at(top+W.space.ramp[1]+1,1),1);assert(at(top+3000,1)>0&&at(top+3000,1)<1);assert.equal(at(top+1e5,0),0);
+  assert.equal(spaceLook(W.space.ramp[1]+10),1);
+});
