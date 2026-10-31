@@ -124,7 +124,7 @@ export class WindRuntime {
     this.on=1;this.spray=ctx.sea?sprayK(s.strength):0;
     this.dust=ctx.character==='desert'?dustK(s.strength):0;this.snow=ctx.character==='snow'?snowK(s.strength):0;
     // Drift of the ground layer (yd), integrated on the CPU so a changing gust never teleports the particles; wrapped to keep f32 exact.
-    const d=ctx.dt>0&&ctx.dt<.25?ctx.dt:0,k2=d*W.groundSpeed,dx=s.dir[0]*s.speed*k2,dz=s.dir[1]*s.speed*k2,L=W.box.ground;
+    const d=ctx.dt>0&&ctx.dt<.25?ctx.dt:0,k2=d*W.groundSpeed,dx=s.dir[0]*s.speed*k2,dz=s.dir[1]*s.speed*k2,L=W.box.groundFar;
     this.drift=[(this.drift[0]+dx)%L,(this.drift[1]+dz)%L];
     return this;
   }

@@ -69,7 +69,7 @@ export function drawWind(r,encoder,near,origin,depthAttachment) {
   if(!doSpray&&!wantGround)return 0;
   const e=r.view.eye,cu=r.lastCloudUniform,light=Math.min(1,.35+(cu?cu[15]:1)),clock=r.cloudTime??0,t=windTime(windTicks(r));
   let fade=0,ground=0;
-  if(wantGround){const g=groundUnder(r);if(g!==undefined){ground=g;fade=1-smoothstep(12,40,e[1]-g);}}
+  if(wantGround){const g=groundUnder(r);if(g!==undefined){ground=g;fade=1-smoothstep(20,80,e[1]-g);}}
   const doGround=wantGround&&fade>0;
   if(!doSpray&&!doGround)return 0;
   const pass=encoder.beginRenderPass({colorAttachments:[{view:r.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}],depthStencilAttachment:depthAttachment});

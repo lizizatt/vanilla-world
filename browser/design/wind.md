@@ -20,8 +20,9 @@ One deterministic wind field drives wave-top spray and blowing dust/snow. Render
 
 - `stepWind` (after `stepWeather`) takes one CPU sample at the eye and updates `WindRuntime`. Wind is on when weather is on and the tier is not `off`.
 - `drawWind` returns 0 and records no pass when no layer is above threshold. Otherwise one depth-tested pass draws:
-  - **Spray**: instanced streaks in a 56 yd world-anchored box, placed on crest tops of the shared Gerstner surface (`waveVertex`, mask and uniform of the water pass), gated by local wind strength and wave amplitude.
-  - **Dust / snow**: streaks hugging the ground under the eye (ray cast through `cameraFloor`, re-queried 0.3 s), drifting with a CPU-integrated wrapped offset, faded with height above ground.
+  - **Spray**: instanced streaks in a 56 yd world-anchored box, placed on crest tops of the shared Gerstner surface (`waveVertex`, mask and uniform of the water pass),   gated by local wind strength and wave amplitude. Crest-only (no general haze), low alpha (`sprayLook`), with a 280 yd far ring whose quads grow with distance.
+    - **Dust / snow**: wispy streaks hugging the ground under the eye (ray cast through `cameraFloor`, re-queried 0.3 s), only ~0.3-0.7 yd (1-2 ft) tall, drifting with a CPU-integrated wrapped offset. A 48 yd near box plus a 240 yd far ring (`box.groundFar`, quads grow with distance, same instance budget), faded with eye height above ground (20-80 yd).
+  - Wind runs ~35% slower than the first pass (`SLOW` in `wind-config.js`); thresholds: spray .32/.72, dust .52/.9, snow .48/.85.
 - Tier gating reuses `weatherQuality` (`resolveWeatherTier`): particle counts `off 0 / low 320 / standard 1100 / high 2600`.
 
 ## Hooks
