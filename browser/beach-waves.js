@@ -9,6 +9,8 @@ import {waveTime} from './wave-math.js';
 import {WATER_LOOK} from './water-shader.js';
 
 const TAU=Math.PI*2;
+// Phase wobble coordinate. A fixed direction, not the local coast tangent: the tangent turns around islands and bends, and dot(P,tangent) with P ~ 1e4 yd then slides the phase by many radians per pixel (radial foam streaks, moire rings, starbursts).
+export const ALONG_DIR=[.8,.6];
 export const BEACH={
   L0:28,D0:40,E:4,                 // deep wavelength (yd), shoaling reference distance, offset that keeps the wavelength finite at the line
   PERIOD:1024/200,                 // beach wave period (s): 200 periods per master period
@@ -88,7 +90,7 @@ fn beachSurface(P:vec2f,eyeXZ:vec2f)->BS {
   let w=f.w*(1.0-bSmooth(${BEACH.FADE[0].toFixed(1)},${BEACH.FADE[1].toFixed(1)},dist))*step(${(-BEACH.RUP-2).toFixed(1)},f.d);
   s.w=w;if(w<=.001){return s;}
   s.geo=1.0-bSmooth(${BEACH.GEO[0].toFixed(1)},${BEACH.GEO[1].toFixed(1)},dist);
-  let d=f.d;let tn=vec2f(-f.n.y,f.n.x);let along=dot(P+bc.b.yz,tn);
+  let d=f.d;let along=dot(P+bc.b.yz,vec2f(${ALONG_DIR[0]},${ALONG_DIR[1]}));
   let dd=max(d,0.0)+${BEACH.E.toFixed(1)};let psi=2.0*sqrt(${BEACH.D0.toFixed(1)}*dd);
   let thetaDot=${(TAU/BEACH.L0).toFixed(5)}*sqrt(${BEACH.D0.toFixed(1)}/dd)*step(0.0,d);
   let theta=${TAU.toFixed(5)}*(psi/${BEACH.L0.toFixed(1)}+bc.b.x)+.55*sin(along/41.0+1.7)+.35*sin(along/17.0-.6);
