@@ -39,6 +39,10 @@ The cloud bench agrees with the +9-11 ms High-tier cost seen in the real game.
 |---|---|---|---|
 | 1 | Curtain shader shares the 4 grid reads between precip and the wet mask, and hoists the march invariants (`log2(ratio)`, `stepGrow`, `exp2`) | 4.97 -> 4.74 ms ground (~4.5%) | Pixel readback identical (max byte diff 0 on all poses); `weather-curtain` and `weather-wgsl` tests pass |
 
+## Tried and reverted (no measurable gain)
+
+- Cloud High: `continue` when the step's `absorb` is 0 (skips the light tap and shading). Output identical, but the gain was within noise (ground 8.38 -> 8.39 ms, in-cloud 11.96 -> 11.89 ms), so it was not kept. The cost is the per-step `sheetDensity` and `worldAt` work, not the skipped tail.
+
 ## Proposed, not applied (they alter the look and would need equivalence gating)
 
 - Half-resolution curtain pass (large win, visible softening).
