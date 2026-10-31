@@ -51,7 +51,7 @@ fn precipAt(x:f32,z:f32)->f32 {
   let fa=(atan2(z,x)/6.2831853+1.0)*f32(AZ);
   let fk=clamp(log(max(r,R_NEAR)/R_NEAR)/log(R_FAR/R_NEAR)*f32(RINGS-1),0.0,f32(RINGS-1));
   let a0=i32(floor(fa));let k0=i32(floor(fk));let u=fract(fa);let w=fract(fk);
-  return mix(mix(gridAt(a0,k0),gridAt(a0+1,k0),u),mix(gridAt(a0,k0+1),gridAt(a0+1,k0+1),u),w);
+  return mix(mix(gridAt(a0,k0),gridAt(a0+1,k0),u),mix(gridAt(a0,k0+1),gridAt(a0+1,k0+1),u),w)*(1.0-smoothstep(.8*R_FAR,R_FAR,r));
 }
 @fragment fn fs(v:V)->@location(0) vec4f {
   let strength=c.wx.z;

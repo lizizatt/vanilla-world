@@ -10,7 +10,7 @@ test('curtain uniform packs camera block, extras and the whole polar grid at the
   assert.equal(u.byteLength,CURTAIN_UNIFORM_BYTES);
   assert.equal(u[0],1);assert.equal(u[59],60);assert.deepEqual([...u.slice(60,64)],[.25,.5,.75,0]);
   assert.equal(u[64],0);assert.equal(u[64+511],polar[511]);
-  assert.equal(CURTAIN_UNIFORM_BYTES,256+512*4);
+  assert.equal(CURTAIN_UNIFORM_BYTES,256+768*4);
 });
 test('curtain shader declares the grid at the packed size and shares the cloud camera block',()=>{
   assert(curtainShader.includes(`array<vec4f,${W.polar.azimuth*W.polar.rings/4}>`));
