@@ -16,7 +16,8 @@ test('every bend() call receives the absolute eye, never u.eye.xyz', () => {
 
 test('writeUniform uploads the absolute eye z into the slots bendEye() reads', () => {
   const w=src('./world-renderer.js');
-  assert.match(w,/u\[base\+30\]=u\[base\+62\]=this\.view\.eye\[2\]/);
+  assert.match(w,/u\[base\+30\]=u\[base\+62\]=eyeZ/);
+  assert.match(w,/eyeZ=this\.view\.eye\[2\]/);
   const s=src('./renderer-shaders.js');
   assert.match(s,/vec3f\(u\.eye\.x,u\.eye\.y,u\.pad\[0\]\.z\)/);
   assert.match(s,/vec3f\(u\.eye\.x,u\.eye\.y,u\.bend\.z\)/);
