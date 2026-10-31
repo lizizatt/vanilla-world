@@ -28,12 +28,14 @@ export const WIND={
   // Time constant (s) of the smoothed zone parameters, so crossing a zone border eases the wind rather than jumping it.
   tau:3,
   // Effect ramps over wind strength 0..1: spray from crests, blowing dust, blowing snow. Below `on` nothing draws and nothing is paid for.
-  spray:{on:.5,full:.85},dust:{on:.45,full:.8},snow:{on:.4,full:.75},
+  spray:{on:.28,full:.65},dust:{on:.45,full:.8},snow:{on:.4,full:.75},
+  // Blowing dust/snow drifts at this fraction of the wind speed on land (the streaks themselves still align to the wind).
+  groundSpeed:.5,
+  // Terrain-following ground layer: world-anchored height grid (n x n cells, step yd apart) around the eye, `budget` new cells queried per frame, `clear` yd of headroom.
+  grid:{n:15,step:4,budget:48,clear:.3},
   // Sea state fed to the water shader: windK = max(belt windK, calm + (1-calm)*strength).
   seaCalm:.2,
   // Particle box (yd) around the eye and per-tier instance budgets (weatherQuality tiers).
   box:{spray:56,ground:48,height:3.2},
   quality:{off:0,low:320,standard:1100,high:2600},
-  // Camera floor query cadence (s) for the ground layer.
-  floorEvery:.3,
 };

@@ -72,6 +72,38 @@ export const dustK=s=>smoothstep(W.dust.on,W.dust.full,s);
 export const snowK=s=>smoothstep(W.snow.on,W.snow.full,s);
 
 /**
+ * Terrain heights for the ground layer: a world-anchored n x n lattice (step yd) cached forever (terrain is static) and filled nearest-first,
+ * `budget` queries per update. `query(x,z)` returns the ground y or a non-finite value when unknown. `data` is the window around the eye
+ * (row-major, unknown cells filled with the mean of the known ones) for the shader; `sample` is its bilinear twin.
+ */
+export class GroundGrid {
+  constructor(query,{n,step,budget}=W.grid) {
+    this.query=query;this.n=n;this.step=step;this.budget=budget;this.cache=new Map();this.data=new Float32Array(n*n);this.meta=[0,0,step,n];this.known=0;
+    const h=(n-1)/2;this.order=[];for(let j=0;j<n;j++)for(let i=0;i<n;i++)this.order.push([i,j,Math.hypot(i-h,j-h)]);this.order.sort((a,b)=>a[2]-b[2]);
+  }
+  update(x,z) {
+    const {n,step}=this,i0=Math.round(x/step)-(n-1)/2,j0=Math.round(z/step)-(n-1)/2;
+    if(this.cache.size>6000)this.cache.clear();
+    let left=this.budget,sum=0,cnt=0;
+    for(const [i,j] of this.order) {
+      const key=(i0+i)*1048576+(j0+j);let y=this.cache.get(key);
+      if(y===undefined&&left>0){left--;y=this.query((i0+i)*step,(j0+j)*step);y=Number.isFinite(y)?y:NaN;this.cache.set(key,y);}
+      if(Number.isFinite(y)){sum+=y;cnt++;}
+    }
+    const mean=cnt?sum/cnt:0;this.known=cnt;
+    for(let j=0;j<n;j++)for(let i=0;i<n;i++){const y=this.cache.get((i0+i)*1048576+(j0+j));this.data[j*n+i]=Number.isFinite(y)?y:mean;}
+    this.meta=[i0*step,j0*step,step,n];
+    return this;
+  }
+  /** Bilinear ground height at world (x,z), clamped to the window. Matches groundShader's groundY. */
+  sample(x,z) {
+    const [ox,oz,step,n]=this.meta,fx=(x-ox)/step,fz=(z-oz)/step,i=Math.floor(fx),j=Math.floor(fz),tx=fx-i,tz=fz-j;
+    const at=(a,b)=>this.data[clamp(b,0,n-1)*n+clamp(a,0,n-1)];
+    return (at(i,j)*(1-tx)+at(i+1,j)*tx)*(1-tz)+(at(i,j+1)*(1-tx)+at(i+1,j+1)*tx)*tz;
+  }
+}
+
+/**
  * Per-frame runtime: smooths the zone parameters, evaluates the wind at the eye and decides which effect layers run.
  * ctx: {dt, x, z, t (windTime), lat, character, storm, mael:[x,z]|null, enabled}. Cheap (one windAt per frame).
  */
@@ -92,7 +124,7 @@ export class WindRuntime {
     this.on=1;this.spray=ctx.sea?sprayK(s.strength):0;
     this.dust=ctx.character==='desert'?dustK(s.strength):0;this.snow=ctx.character==='snow'?snowK(s.strength):0;
     // Drift of the ground layer (yd), integrated on the CPU so a changing gust never teleports the particles; wrapped to keep f32 exact.
-    const d=ctx.dt>0&&ctx.dt<.25?ctx.dt:0,dx=s.dir[0]*s.speed*d,dz=s.dir[1]*s.speed*d,L=W.box.ground;
+    const d=ctx.dt>0&&ctx.dt<.25?ctx.dt:0,k2=d*W.groundSpeed,dx=s.dir[0]*s.speed*k2,dz=s.dir[1]*s.speed*k2,L=W.box.ground;
     this.drift=[(this.drift[0]+dx)%L,(this.drift[1]+dz)%L];
     return this;
   }

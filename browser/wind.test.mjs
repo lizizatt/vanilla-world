@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {WIND as W} from './wind-config.js';
-import {windAt,packWind,windTime,zoneCharacter,beltVector,windSeaK,windWaveHint,sprayK,dustK,snowK,WindRuntime,gustOmega} from './wind.js';
+import {windAt,packWind,windTime,zoneCharacter,beltVector,windSeaK,windWaveHint,sprayK,dustK,snowK,WindRuntime,GroundGrid,gustOmega} from './wind.js';
 import {windWGSL} from './wind-wgsl.js';
-import {sprayShader,groundShader,windParticleUniform,WIND_UNIFORM_BYTES} from './wind-particles.js';
+import {sprayShader,groundShader,windParticleUniform,WIND_UNIFORM_BYTES,groundGridUniform,GRID_UNIFORM_FLOATS} from './wind-particles.js';
 import {seaState,seaWindK} from './sea-state.js';
 import {resolveWeatherTier} from './renderer-weather.js';
 import {WAVE_PERIOD,WAVE_TICKS_PER_SECOND} from './wave-config.js';
@@ -104,6 +104,41 @@ test('zone parameters ease across a border instead of jumping',()=>{
 test('ground drift is bounded so f32 stays exact',()=>{
   const w=new WindRuntime();for(let i=0;i<100000;i++)w.step({dt:.016,x:0,z:0,t:i*.016,lat:.8,character:'desert',storm:1,mael:null,enabled:true,sea:false});
   assert(Math.abs(w.drift[0])<W.box.ground&&Math.abs(w.drift[1])<W.box.ground);
+});
+test('blowing dust/snow drifts at half the wind speed on land',()=>{
+  assert.equal(W.groundSpeed,.5);
+  for(const character of ['desert','snow']){
+    const w=new WindRuntime(),ctx={dt:.05,x:0,z:0,t:3,lat:.8,character,storm:.6,mael:null,enabled:true,sea:false};
+    w.step(ctx);const d0=[...w.drift];w.step(ctx);
+    const moved=Math.hypot(w.drift[0]-d0[0],w.drift[1]-d0[1]),full=w.sample.speed*ctx.dt;
+    assert(full>0&&Math.abs(moved/full-.5)<1e-9,`${character} drift ratio ${moved/full}`);
+  }
+});
+test('sea spray switches on at a moderate wind, well below a gale',()=>{
+  assert(W.spray.on<=.3&&sprayK(.5)>.3&&sprayK(.7)===1);
+  const w=new WindRuntime();let best=0;
+  for(let i=0;i<4000;i++){w.step({dt:.05,x:100,z:200,t:i*.05,lat:.8,character:'sea',storm:.5,mael:null,enabled:true,sea:true});best=Math.max(best,w.spray);}
+  assert(best>.5);
+});
+test('ground layer follows the terrain: lattice reproduces a slope, caches, and the shader rides above it',()=>{
+  const slope=(x,z)=>.4*x+.2*Math.sin(z/9)*3,calls=[];
+  const g=new GroundGrid((x,z)=>{calls.push([x,z]);return slope(x,z);});
+  g.update(1000.3,-500.7);
+  const first=calls.length;assert(first<=W.grid.budget);
+  for(let i=0;i<8;i++)g.update(1000.3,-500.7);
+  assert.equal(calls.length,W.grid.n*W.grid.n);
+  g.update(1000.3,-500.7);assert.equal(calls.length,W.grid.n*W.grid.n);
+  // On a planar slope the bilinear sample is exact; on a curved one it stays within the curvature error of a step.
+  const plane=new GroundGrid((x,z)=>.4*x-.1*z);for(let i=0;i<8;i++)plane.update(200,300);
+  for(const [x,z] of [[200,300],[203.7,296.2],[190.1,310.9]])assert(Math.abs(plane.sample(x,z)-(.4*x-.1*z))<1e-3);
+  for(const [x,z] of [[1000.3,-500.7],[1006.1,-494.9],[994.4,-506.2]])assert(Math.abs(g.sample(x,z)-slope(x,z))<.1);
+  // Moving the window reuses the cache and only queries the new cells.
+  const before=calls.length;g.update(1004.3,-500.7);assert(calls.length-before<=W.grid.budget&&calls.length>before);
+  // Failed queries do not poison the window.
+  const bad=new GroundGrid(()=>NaN);bad.update(0,0);assert.equal(bad.known,0);
+  assert(groundShader.includes('fn groundY(')&&groundShader.includes('groundY(u.eye.xz+rel)')&&!groundShader.includes('u.org.z'));
+  assert(groundShader.includes(`${W.grid.clear}+H+`)&&groundShader.includes('.25*(.5+.5*sin('),'particle centre must clear its own half height');
+  const up=groundGridUniform(g);assert.equal(up.length,GRID_UNIFORM_FLOATS);assert.deepEqual([...up.slice(0,4)],g.meta);
 });
 test('wave/whitecap hooks only ever raise the sea state and never touch the physics waves',()=>{
   const base=seaState(0,0,0,[0,0],1e6),hi=seaState(0,0,0,[0,0],1e6,1),lo=seaState(0,0,0,[0,0],1e6,0);
