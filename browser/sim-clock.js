@@ -26,8 +26,13 @@ export class SimClock {
 export const cloudRate=scale=>scale<=10?Math.max(0,scale):10*Math.pow(scale/10,.45);
 /** Flow-map cycle stretch: keeps the cloud flow reset slow in real time at high speed (cycle >= ~5 s) so it never strobes. */
 export const flowScale=rate=>Math.min(5,Math.max(1,rate/10));
-/** Wrap for the f32 shader clock (about 1 hour at the 1000x rate). */
-export const CLOUD_TIME_WRAP=4e6;
+/**
+ * Wrap for the f32 shader clock (about 1 hour at the 1000x rate). Every consumer of the cloud time must be periodic in it or the wrap is a visible reset:
+ * a multiple of the weather life period (450), the wind/wave period (1024) and the water wrap (7200), with the storm spins snapped by wrapSpin.
+ */
+export const CLOUD_TIME_WRAP=17*230400;
+/** Snaps an angular rate (rad/s, times `mul` in the shader) to a whole number of turns per CLOUD_TIME_WRAP so the wrap does not jump its phase. */
+export const wrapSpin=(spin,mul=1)=>2*Math.PI*Math.round(spin*mul*CLOUD_TIME_WRAP/(2*Math.PI))/(mul*CLOUD_TIME_WRAP);
 export const CLOUD_MAX_DT=.1,FLOW_SCALE_TAU=1.5,RATE_TAU=.4;
 
 /**
