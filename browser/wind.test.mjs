@@ -140,7 +140,7 @@ test('ground layer follows the terrain: lattice reproduces a slope, caches, and 
   // Failed queries do not poison the window.
   const bad=new GroundGrid(()=>NaN);bad.update(0,0);assert.equal(bad.known,0);
   assert(groundShader.includes('fn groundY(')&&groundShader.includes('groundY(wp)')&&groundShader.includes('wp=u.eye.xz+rel')&&!groundShader.includes('u.org.z'));
-  assert(groundShader.includes(`${f(W.grid.clear)}+${f(W.grid.clearFar)}*d+H+rise+.08*(.5+.5*sin(`),'particle centre must clear its own half height');
+  assert(groundShader.includes(`tn[0].w+${f(W.grid.clearFar)}*d+H+rise+tn[3].w*(.5+.5*sin(`),'particle centre must clear its own half height');
   const up=groundGridUniform(g);assert.equal(up.length,GRID_UNIFORM_FLOATS);assert.deepEqual([...up.slice(0,4)],g.meta);
 });
 test('stacked dust layers: 1/3 opacity, 1/2 speed, below the main layer; hidden on slopes with a smooth fade',()=>{
@@ -156,8 +156,8 @@ test('stacked dust layers: 1/3 opacity, 1/2 speed, below the main layer; hidden 
   const plane=new GroundGrid((x,z)=>.5*x);for(let i=0;i<40;i++)plane.update(0,0);
   assert(Math.abs(plane.slope(0,0)-.5)<1e-3);
   const flat=new GroundGrid(()=>3);for(let i=0;i<40;i++)flat.update(0,0);assert.equal(flat.slope(5,5),0);
-  assert(groundShader.includes('fn slopeAt(')&&groundShader.includes(`smoothstep(${f(W.flat[0])},${f(W.flat[1])},slopeAt(wp))`));
-  assert(groundShader.includes(`select(1.0,${f(L.alpha)},layered)`)&&groundShader.includes('u.drift.w>.5'));
+  assert(groundShader.includes('fn slopeAt(')&&groundShader.includes(`smoothstep(tn[2].z,tn[2].w,slopeAt(wp))`));
+  assert(groundShader.includes(`select(1.0,tn[1].y,layered)`)&&groundShader.includes('u.drift.w>.5'));
   const u=windParticleUniform({right:[1,0,0],aspect:1,up:[0,1,0],look:[0,0,1],eye:[0,0,0]},.1,[0,0],0,0,0,1,10,1,1,1,  [0,0],new Float32Array(12),undefined,1);
   assert.equal(u[27],1);
 });
@@ -191,15 +191,15 @@ test('second pass: ground layer is wispy, 1-2 ft (0.3-0.7 yd) tall and reaches s
   assert(W.ground.alpha.dust<=.4&&W.ground.alpha.snow<=.6,'quads are ~20x smaller in area than the first pass, so peak alpha stays moderate');
   assert(W.box.groundFar>=4*W.box.ground&&W.box.sprayFar>=4*W.box.spray,'draw distance several times the first pass box');
   assert(W.box.sprayFar%W.box.spray===0&&W.grid.n*W.grid.step>=W.box.groundFar,'the height lattice covers the far ring');
-  assert(groundShader.includes('let ds=1.0+d*.045')&&groundShader.includes('*ds;'),'quads grow with distance');
-  assert(groundShader.includes(`floor(u.p.x*${f(1-W.ground.far)})`)&&W.ground.far>0&&W.ground.far<1);
+  assert(groundShader.includes('let ds=1.0+d*.045')&&groundShader.includes('*ds*tn[2].x;'),'quads grow with distance');
+  assert(groundShader.includes(`floor(u.p.x*tn[3].z)`)&&W.ground.far>0&&W.ground.far<1);
   assert(W.quality.high<=2600&&W.quality.standard<=1100,'particle budget unchanged');
 });
 test('second pass: spray is subtle and crest-only, and reaches distant crests',()=>{
   assert(W.sprayLook.alpha<=.4&&W.sprayLook.crest[0]>=.6&&W.sprayLook.crest[1]>W.sprayLook.crest[0]);
-  assert(sprayShader.includes('let top=w.h/m+.5*w.crest;')&&sprayShader.includes(`smoothstep(${f(W.sprayLook.crest[0])}-.12*amt`));
+  assert(sprayShader.includes('let top=w.h/m+.5*w.crest;')&&sprayShader.includes(`smoothstep(tn[4].y-.12*amt`));
   assert(!sprayShader.includes('(.4+.6*smoothstep'),'no general haze share outside crests');
-  assert(sprayShader.includes('let ds=1.0+d*.035')&&sprayShader.includes(`select(${f(W.box.spray)},${f(W.box.sprayFar)},far)`));
+  assert(sprayShader.includes('let ds=1.0+d*.035')&&sprayShader.includes(`select(tn[5].x,tn[5].y,far)`));
 });
 test('particle uniform packs into its 160 byte block',()=>{
   const view={eye:[1,2,3],right:[1,0,0],up:[0,1,0],look:[0,0,1],aspect:1.5},u=windParticleUniform(view,.2,[10,20],5,6,7,.8,100,.5,1,.9,[1,2],P('desert'));

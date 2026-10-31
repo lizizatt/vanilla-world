@@ -1,3 +1,4 @@
+import './wind-tuning-panel.js';
 import {loadPodModel} from './swe1r/skin.js';
 import {getSwe1r} from './swe1r/ui.js';
 import {maelstromCentre} from './clouds.js';
