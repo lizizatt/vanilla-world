@@ -37,7 +37,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
 @fragment fn fs(v:V)->@location(0) vec4f {
   nightOver=localNight(v.p);
   if(v.material==9.0 && ((u.wave.z>0.0 && max(abs(v.w.x-u.wave.x),abs(v.w.y-u.wave.y))<u.wave.z) || !clipLive(v.w.xy))){discard;}
-  if(v.material==2.0 && v.n.z<.5 && wv.head.x>.5 && max(abs(v.p.x-wv.clip.x),abs(v.p.z-wv.clip.y))<wv.clip.z && waveAmp(v.p.xz)>=${MASK_FILL_EPS}){discard;}
+  if(v.material==2.0 && v.n.z<.5 && wv.head.x>.5 && max(abs(v.p.x-wv.clip.x),abs(v.p.z-wv.clip.y))<wv.clip.z && waveMaskInner(v.p.xz) && waveAmp(v.p.xz)>=${MASK_FILL_EPS}){discard;}
   let dx=dpdx(v.p.xz);let dy=dpdy(v.p.xz);let rampWidth=fwidth(v.n.x);
   let light=.35+.65*max(dot(normalize(v.n),normalize(vec3f(-.3,1.0,.4))),0.0);
   var color=vec3f(${groundBase})*light;
@@ -59,6 +59,8 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
     let bs=beachSurface(v.w.xy,u.eye.xz);waveIn.slope+=bs.slope;waveIn.crest=max(waveIn.crest,bs.crest);if(bs.d<0.0&&bs.sheet<.04){discard;}
     color=waterColor(v.p,beachRamp(bs),0.0,dx,dy);color=beachFoam(color,bs,v.w.xy);
   }
+  // Ocean-sweep debug pass (ocean-sweep.mjs): water pure blue, terrain below sea level pure red (a tear), other terrain pure green.
+  if(u.pad[2].z>.5){return vec4f(select(select(vec3f(0.0,1.0,0.0),vec3f(1.0,0.0,0.0),v.p.y<-1.0),vec3f(0.0,0.0,1.0),v.material==2.0||v.material==4.0||v.material==9.0),1);}
   let fog=max(clamp(length(v.p-u.eye.xyz)/150000.0,0.0,.93),valleyHaze(v.p))*(1.0-u.pad[0].y);
   return vec4f(mix(color,fogTint(),fog)+limbGlow(v.p),1);
 }`;
@@ -105,6 +107,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) uv:vec
   color=mix(color,mapColor.rgb,(1.0-smoothstep(0.0,100.0/3.0,edgeDistance))*mapColor.a);
   let base=mix(vec3f(${groundBase})*v.light,mapColor.rgb,mapColor.a);
   color=grade(mix(base,color,u.settings.z));
+  if(u.pad[2].z>.5){return vec4f(select(vec3f(0.0,1.0,0.0),vec3f(1.0,0.0,0.0),v.p.y<-1.0),1);}
   let fog=max(clamp(length(v.p-u.eye.xyz)/150000.0,0.0,.93),valleyHaze(v.p))*(1.0-u.pad[0].y);
   return vec4f(mix(color,fogTint(),fog)+limbGlow(v.p),1);
 }`;
