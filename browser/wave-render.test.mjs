@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {waveParams} from './wave-config.js';
 import {paramsFromArray,sampleWaves,waveTime,regionScale,shoreK,maxDisplacement} from './wave-math.js';
-import {forwardWave,packWaveUniform,buildWaveMask,maskAmp,clipLevelMesh,clipLevels,clipHalf,clipSpacing,CLIP_LEVELS,CLIP_N,MASK_N,MASK_CELL,waveRenderShading} from './wave-render.js';
+import {forwardWave,packWaveUniform,buildWaveMask,maskAmp,clipLevelMesh,clipLevels,clipHalf,clipSpacing,CLIP_LEVELS,CLIP_N,MASK_N,MASK_CELL,waveRenderShading,clipLift,BAND_LIFT,MASK_FILL_EPS} from './wave-render.js';
 
 const MAEL=[2000,9000];
 const p=paramsFromArray(waveParams({maelstrom:MAEL}));
@@ -116,4 +116,23 @@ test('ocean fill overlaps the clipmap along the mask edge so no sea-floor tear o
   assert.ok(MASK_FILL_EPS>MASK_EPS);
   assert.ok(terrainShader.includes(`waveAmp(v.p.xz)>=${MASK_FILL_EPS}`));
   assert.ok(terrainShader.includes('!clipLive(v.w.xy)'));
+});
+
+test('coast z-fighting: in the clip/fill overlap band the clipmap stays strictly above the flat fill (and by more than the depth step) at every phase', () => {
+  const near=.5;
+  for(const dist of [5,60,300,1200])for(let m=.01;m<MASK_FILL_EPS;m+=.01)for(let t=0;t<1024;t+=7.3)for(const [px,pz] of POINTS){
+    const h=forwardWave(p,t,px,pz,{amp:()=>m}).height+clipLift(p,m,dist,near);
+    const step=dist*dist/(near*2**24);
+    assert.ok(h>=Math.max(BAND_LIFT,step)-1e-9,`m=${m} dist=${dist} t=${t}: clip ${h} is not above the fill`);
+  }
+});
+
+test('coast z-fighting: the lift vanishes where the fill yields, is continuous in m, and only exists in the shader once', () => {
+  assert.ok(clipLift(p,MASK_FILL_EPS,50,.5)>MASK_FILL_EPS*.99);
+  assert.equal(clipLift(p,2*MASK_FILL_EPS,50,.5),0);
+  assert.equal(clipLift(p,3,50,.5),0);
+  let prev=clipLift(p,0,50,.5);
+  for(let m=.001;m<=2*MASK_FILL_EPS;m+=.001){const l=clipLift(p,m,50,.5);assert.ok(Math.abs(l-prev)<.01,`jump at m=${m}`);prev=l;}
+  assert.ok(clipLift(p,MASK_FILL_EPS,50,.5)<MASK_FILL_EPS*1.0+.05);
+  assert.equal(waveRenderShading.match(/fn clipLift\(/g).length,1);
 });

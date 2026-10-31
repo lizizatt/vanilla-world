@@ -18,6 +18,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   var position=p+u.tile.xyz;var normal=n;var lattice=vec3f(0.0);
   if(material==9.0) {
     var wave=waveVertex(position.xz,u.eye.xz);beachApply(position.xz,u.eye.xz,&wave);
+    wave.h+=clipLift(waveAmp(position.xz),length(position-u.eye.xyz),u.settings.w);
     let wd=wave.xz-vec2f(u.sky[1].w,u.sky[2].w);let dq=max(1.0-dot(wd,wd)/(DIP_R*DIP_R),0.0);
     position=vec3f(wave.xz.x,p.y+u.tile.y+wave.h-u.sky[3].w*DIP_D*dq*dq,wave.xz.y);
     normal=wave.n;lattice=vec3f(p.x+u.tile.x,p.z+u.tile.z,wave.crest);
