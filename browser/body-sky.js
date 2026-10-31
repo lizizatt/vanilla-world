@@ -9,6 +9,14 @@ import {sunInertial} from './sky-coupling.js';
 export const atmosphericDisc=body=>body.atmosphereEdge>0;
 const TINT={azeroth:[.45,.62,1],elune:[.9,.93,1]};
 
+/** How much of another body's disc survives the viewer's daytime sky. Its far renderer has no atmosphere of its own, so without this a new Elune (dark side black) hangs in the noon sky like a hole; the day veil leaves it a faint pale disc and night or space leaves it untouched. */
+export const DAY_VEIL=.85;
+export const dayDiscVisibility=(active,sunUp,space)=>{
+  if(!atmosphericDisc(active))return 1;
+  const day=Math.min(1,Math.max(0,(sunUp+.1)/.35)),air=1-Math.min(1,Math.max(0,space));
+  return 1-DAY_VEIL*day*air;
+};
+
 /** Planet-frame position of `other`'s centre relative to `body`'s centre. */
 export function relativeCentre(body,other,t) {
   const a=centreAt(other,t),b=centreAt(body,t),ax=axesAt(body,t),v=[a[0]-b[0],a[1]-b[1],a[2]-b[2]];

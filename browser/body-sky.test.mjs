@@ -24,3 +24,18 @@ test('Azeroth from Elune is 100000 yd away at the tidal-lock zenith direction',(
   const u=spaceUniform({...view,eye:[0,500,0]},sun,pf,[],t,.5,200000,undefined,viewFrom(ELUNE,t));
   assert.equal(u[51],Math.fround(AZEROTH.radius));assert.equal(u[15],Math.fround(ELUNE.radius));
 });
+
+test('a viewer in the Azeroth day sky has the Elune disc veiled; night, space and airless viewers do not',async()=>{
+  const {dayDiscVisibility,DAY_VEIL}=await import('./body-sky.js');
+  assert.ok(Math.abs(dayDiscVisibility(AZEROTH,1,0)-(1-DAY_VEIL))<1e-9,'noon on the ground');
+  assert.equal(dayDiscVisibility(AZEROTH,-.5,0),1,'night');
+  assert.equal(dayDiscVisibility(AZEROTH,1,1),1,'in space');
+  assert.equal(dayDiscVisibility(ELUNE,1,0),1,'airless viewer');
+  assert.ok(dayDiscVisibility(AZEROTH,.05,0)>dayDiscVisibility(AZEROTH,1,0),'dusk is lighter than noon');
+});
+
+test('drawBodies applies the day veil to the other body globe factor',async()=>{
+  const {readFile}=await import('node:fs/promises');
+  const src=await readFile(new URL('./renderer-sky.js',import.meta.url),'utf8');
+  assert.match(src,/globe:far\.globe\*visible/);
+});
