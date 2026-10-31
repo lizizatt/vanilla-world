@@ -6,8 +6,8 @@ import {atmosphericDisc} from './body-sky.js';
 import {frameCentre} from './frames.js';
 
 /** The body this page's chart renders: ?body=elune boots the moon, anything else Azeroth; setActiveBody switches it in-page (the renderer rebuilds its radius-baked pipelines via useBody). */
-let current;
-export const activeBody=()=>current??(typeof location!=='undefined'&&new URLSearchParams(location.search).get('body')==='elune'?ELUNE:AZEROTH);
+let current,pageBody;
+export const activeBody=()=>current??(pageBody??=typeof location!=='undefined'&&new URLSearchParams(location.search).get('body')==='elune'?ELUNE:AZEROTH);
 export const setActiveBody=body=>{current=body;};
 let frameId='E',framed;
 /** Which frame ('E','N','S') the camera's chart coordinates are in; E is the authored chart and leaves every body untouched. */
