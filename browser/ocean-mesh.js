@@ -42,9 +42,16 @@ export function oceanMesh(manifest,cells=96,land=[]) {
   const cell=(x0,z0,x1,z1,flags)=>{
     const near=nearOf(x0,z0,x1,z1);
     if(!near)return flags&&flags.some(n=>n>1)?fan(x0,z0,x1,z1,flags):tri(x0,z0,x1,z1);
-    for(let j=0;j<SUB;j++)for(let i=0;i<SUB;i++){
-      const a=x0+(x1-x0)*i/SUB,b=z0+(z1-z0)*j/SUB,c=x0+(x1-x0)*(i+1)/SUB,d=z0+(z1-z0)*(j+1)/SUB,mx=x+(a+c)/2,mz=z+(b+d)/2;
-      if(!coversLand(near,mx,mz))tri(a,b,c,d);
+    // Rect edges are extra breakpoints so the carve is exact: a midpoint test on the uniform lattice alone carved up to half a sub-cell past a rect, leaving a sea-floor strip.
+    const cuts=(a,b,lo,hi)=>{
+      const s=Array.from({length:SUB+1},(_,k)=>a+(b-a)*k/SUB);
+      for(const r of near)for(const e of [r[lo]-(lo?z:x),r[hi]-(lo?z:x)])if(e>a+1e-6&&e<b-1e-6)s.push(e);
+      return s.sort((p,q)=>p-q).filter((v,k,all)=>k===0||v-all[k-1]>1e-6);
+    };
+    const xs=cuts(x0,x1,0,2),zs=cuts(z0,z1,1,3);
+    for(let j=0;j+1<zs.length;j++)for(let i=0;i+1<xs.length;i++){
+      const a=xs[i],b=zs[j],c=xs[i+1],d=zs[j+1];
+      if(!coversLand(near,x+(a+c)/2,z+(b+d)/2))tri(a,b,c,d);
     }
   };
   // Axes are shared between neighbouring quads (and the dip patch is cut at multiples of its own vertex spacing), so every

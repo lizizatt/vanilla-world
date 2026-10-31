@@ -351,3 +351,12 @@ Answered in the physics phase (branch `lizizatt-ocean-wave-physics`; implementat
 
 **Depth cues** (`waterColor`): slant-path absorption (grazing rays read deeper), a sandy-turquoise shoal tint in the first 22% of ramp depth, and distance haze toward the fog tint beyond ~1.5k yd. Beer-Lambert body, Fresnel and shore foam were already present.
 Wave-top spray follows the shared crests and is driven by the procedural wind; see [wind.md](wind.md). Render waves are unchanged.
+
+
+## 13. Ocean-coverage sweep (torn patches)
+
+A "tear" is water missing where the sea is, exposing the sea floor. Root causes found so far: the fill was carved on a uniform 250 yd lattice by sub-cell midpoints, overshooting 533.33 yd land-tile rects by up to ~125 yd (fixed: rect edges are exact breakpoints in `ocean-mesh.js`); the fill yielding to a clipmap whose lattice point had left the mask window (fixed: the fill only yields inside the mask padded by `MASK_PAD`).
+
+`node browser/ocean-sweep.mjs` (also `ocean-coverage.test.mjs` in `node --test`) runs a CPU model, `ocean-coverage.js`, that replicates the shader discard rules (fill: material 2 yields when inside the clip window and padded mask amp >= `MASK_FILL_EPS`; clipmap: inverse Gerstner to the lattice point, level ownership, amp >= `MASK_EPS`). For a dense grid over the clip window along sea-level paths, with the mask refreshed (and optionally stale) as the eye moves, every point not inside a land rect must be drawn by the fill or clipmap (no gap), and no land point may be drawn by the fill (no flood). Beach liveness and the far/horizon layer are not modelled, so it is conservative. No WoW data is needed.
+
+`--real` (needs `WOW_DATA` and a free `PORT`, run under `heavy-lock.mjs`) renders random drive-height and flight poses with `renderer.debugWater=1`: water keeps its colour, sea-floor terrain below sea level is pure red, so red pixels are tear candidates (the racetrack basin is also below sea). Failing poses are listed and screenshotted under `runtime/gate-preview/<label>`.

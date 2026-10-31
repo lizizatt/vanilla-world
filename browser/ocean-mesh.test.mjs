@@ -47,3 +47,11 @@ test('no water over a below-sea land tile (racetrack basin); bays outside land r
   for(let i=0;i<verts.length;i+=21){const x=(verts[i]+verts[i+7]+verts[i+14])/3,z=(verts[i+2]+verts[i+9]+verts[i+16])/3;(x>=-100&&x<100&&z>=-100&&z<100?inside:outside).push(1);}
   assert.equal(inside.length,0);assert.ok(outside.length>0);
 });
+
+test('land carve is exact: fill area equals ocean minus the (lattice-misaligned) land rects',()=>{
+  const T=1600/3,land=[[3*T,2*T,4*T,3*T],[4*T,2*T,5*T,3*T],[-2*T,-5*T,-T,-4*T]],ocean=[-3000,-3000,3000,3000];
+  const m=oceanMesh({ocean,sea_level:0},96,land);let area=0;
+  for(let i=0;i<m.length;i+=21){const [ax,az,bx,bz,cx,cz]=[m[i],m[i+2],m[i+7],m[i+9],m[i+14],m[i+16]];area+=Math.abs((bx-ax)*(cz-az)-(cx-ax)*(bz-az))/2;}
+  const want=6000*6000-land.reduce((s,r)=>s+(r[2]-r[0])*(r[3]-r[1]),0);
+  assert.ok(Math.abs(area-want)<1,`area ${area} vs ${want}`);
+});

@@ -9,6 +9,8 @@ import {waveTime,paramsFromArray} from './wave-math.js';
 // The clipmap keeps lattice points with amp >= MASK_EPS, the flat tile/fill water yields only where amp >= MASK_FILL_EPS: the band between is drawn by both,
 // so the horizontal Gerstner displacement of the clip edge (and the coarse-level interpolation of it) cannot open a see-through gap along the wave-region boundary.
 export const MASK_N=96,MASK_CELL=40,MASK_RANGE=10,MASK_EPS=.01,MASK_FILL_EPS=.5,MASK_REFRESH=384;
+// The mask reads 0 outside its window, a hard edge. The fill only yields this far inside it, so a clip vertex displaced across the edge cannot leave a gap (> the largest Gerstner displacement, 5 yd in the maelstrom).
+export const MASK_PAD=16;
 export const CLIP_LEVELS=5,CLIP_N=64,CLIP_BASE=2,CLIP_HOLE=15,SKIRT=4,MAX_COMPONENTS=6;
 export const clipSpacing=level=>CLIP_BASE*2**level;
 export const clipHalf=level=>CLIP_N/2*clipSpacing(level);
@@ -28,6 +30,8 @@ export function buildWaveMask(sampleBatch,center,rowStart=0,rowCount=MASK_N){
   }
   return {origin:[ox,oz],cell:MASK_CELL,n:MASK_N,data,rowStart};
 }
+/** True when (x,z) is at least pad yd inside the mask window. */
+export const maskInside=(mask,x,z,pad=0)=>x>mask.origin[0]+pad&&z>mask.origin[1]+pad&&x<mask.origin[0]+mask.n*mask.cell-pad&&z<mask.origin[1]+mask.n*mask.cell-pad;
 /** Bilinear mask read in chart coordinates, mirroring the shader (0 outside the window). */
 export function maskAmp(mask,x,z){
   const u=(x-mask.origin[0])/mask.cell-.5,v=(z-mask.origin[1])/mask.cell-.5,n=mask.n;
@@ -108,6 +112,11 @@ fn waveAmp(xz:vec2f)->f32 {
   let uv=(xz-wv.mask.xy)*wv.mask.z;
   if(any(uv<=vec2f(0.0))||any(uv>=vec2f(1.0))){return 0.0;}
   return textureSampleLevel(waveMask,waveSampler,uv,0.0).r*${MASK_RANGE.toFixed(1)};
+}
+// True when the render-space xz is at least ${MASK_PAD} yd inside the mask window (the ocean fill only yields there).
+fn waveMaskInner(xz:vec2f)->bool {
+  let uv=(xz-wv.mask.xy)*wv.mask.z;let pad=${MASK_PAD.toFixed(1)}*wv.mask.z;
+  return all(uv>vec2f(pad))&&all(uv<vec2f(1.0-pad));
 }
 // Lattice point P (physics x0) -> displaced position, height, analytic normal; mirrors wave-render.js forwardWave and wave-math.js sampleWaves.
 fn waveVertex(P:vec2f,eyeXZ:vec2f)->WV {
