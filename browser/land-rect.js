@@ -29,9 +29,9 @@ export const coversLand=(rects,x,z)=>rects.some(r=>x>=r[0]&&x<r[2]&&z>=r[1]&&z<r
 /** Open-sea tiles can ship placeholder strips with no liquid, exposing the sea floor. Cover a land-free tile with one sea-level quad (same material as its liquid). */
 export function dropOpenSeaWater(vertices,floor=LAND_FLOOR) {
   for(let i=0;i<vertices.length;i+=7)if(!isWater(vertices[i+6])&&vertices[i+1]>floor)return vertices;
-  const keep=[];
-  for(let i=0;i<vertices.length;i+=7)if(!isWater(vertices[i+6]))keep.push(...vertices.subarray(i,i+7));
-  return new Float32Array(keep);
+  const out=new Float32Array(vertices.length);let n=0;
+  for(let i=0;i<vertices.length;i+=7)if(!isWater(vertices[i+6])){out.set(vertices.subarray(i,i+7),n);n+=7;}
+  return out.slice(0,n);
 }
 
 /** Splat triangles at the -503 no-data sentinel are placeholder ground that shows through translucent water as an olive strip. */
