@@ -1,6 +1,7 @@
 import {WorldClient} from './world-client.js';
 import {WorldRenderer} from './world-renderer.js';
 import {restoreDataFolder,authorizeDataFolder} from './asset-folder.js';
+import {ARCHIVE_DATA_SOURCE} from './archive-flag.js';
 import {WorldInput} from './world-input.js';
 import {WorldAudio} from './world-audio.js';
 import {TUNING_FIELDS} from './world-tuning.js';
@@ -131,6 +132,7 @@ async function start() {
       $('offline').textContent='Offline ready.';
     }
     initSwe1rRow();
+    if(ARCHIVE_DATA_SOURCE)(await import('./archive-ui.js')).installArchiveSource(app);
     onSwe1r(async r=>{
       if(!r){setRuntimeSkins('swe1r',[]);if(app.choice.skin.startsWith('swe1r-')){app.choice=normalizeChoice({...app.choice,skin:'rocket'});writeChoice(app.choice);app.applySkin();}app.garagePick=normalizeChoice(app.garagePick);app.dial=undefined;app.heatGauge=undefined;app.realHud=undefined;$('swe1r-heat').hidden=true;app.countdownSprites=undefined;app.voiceReader=undefined;$('swe1r-hud').hidden=true;app.syncHud();$('swe1r-hud-row').hidden=true;$('overheat-row').hidden=true;$('swe1r-sfx-row').hidden=true;audio.sampleOn=false;if(app.garage.open)app.renderGarage();return;}
       setRuntimeSkins('swe1r',podSkinList());if(app.garage.open)app.renderGarage();

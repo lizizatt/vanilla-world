@@ -103,6 +103,29 @@ Why Azeroth Survivors' apparent safety is not a precedent: (a) no explicit permi
 4. Do **not** replicate the official game's hosted-data approach, and do not script downloads of a client from third-party mirrors.
 5. If a shared/hosted experience becomes important, ask an IP lawyer and/or contact Blizzard for written permission first.
 
+## Archive.org option (spike, OFF by default)
+
+The owner decided to build this as an opt-in deploy option despite the recommendation above. The legal call and any enabling are theirs; this section only documents the lever. Shipping it with the flag on means the deployed site offers users a download of Blizzard content from a third-party mirror whose license status is unverified (the item's metadata carries no license; collection `open_source_software`).
+
+**Lever:** `ARCHIVE_DATA_SOURCE=1`, set when starting the dev server (`ARCHIVE_DATA_SOURCE=1 node browser/server.mjs`) or building (`ARCHIVE_DATA_SOURCE=1 node browser/build-dist.mjs`). Anything else, or unset, is OFF. There is no runtime query parameter.
+
+**Off (default):** `archive-ui.js`, `archive-source.js` and `archive-manifest.js` are not in the shell manifest, so they are not served, published or precached; `archive-flag.js` stays `false`; the CSP has no archive.org entry; the page has no extra button. Tests in `archive-source.test.mjs` assert this (including that no shipped file mentions archive.org).
+
+**On:** the welcome screen gets "Or download Data from archive.org (optional)". It opens a notice (unofficial, not affiliated with Blizzard, you are responsible for having the right to use the content, files go from archive.org directly into this browser's own storage, nothing hosted/proxied by us) and requires a checkbox before "Download". Files go to OPFS (`wow-archive-data/`), the folder handle is passed to the existing loader exactly like a picked Data folder, and is remembered like one. "Delete downloaded data" clears it. The CSP gains `connect-src 'self' https://archive.org https://*.archive.org`. Optional audio (+~0.9 GB) is a checkbox; whether the app is fully usable without `sound.MPQ`/`speech.MPQ` is unverified.
+
+**What archive.org offers (probed with metadata/HEAD/1-byte-range requests, item `WoW_1.12.1-5875`):**
+- The item holds one zip per locale (~5.3-6.0 GB each, enUS 5,475,617,875 bytes, md5 published) and no loose files. No per-file hashes; only the whole-zip md5/sha1/crc32.
+- `https://archive.org/metadata/<id>`: JSON, `Access-Control-Allow-Origin: *`.
+- `https://archive.org/download/<id>/<zip>/` (zip listing page): HTML with member names and uncompressed sizes; CORS allowed (origin echoed).
+- `https://archive.org/download/<id>/<zip>/<url-encoded inner path>`: 302 to `.../view_archive.php?archive=...&file=...`, CORS allowed (origin echoed, preflight 200), **but `Range` is ignored** (a ranged request returned 200 with the whole member, no `Content-Length`/`Accept-Ranges`). So only whole members can be fetched; no partial MPQ reads and no mid-file resume.
+- The raw zip (`/download/<id>/<zip>`, redirects to a `dn*`/`ia*.archive.org` node): honors `Range` (206, `Content-Range`) **but the responses carry no `Access-Control-Allow-Origin`**, so a browser page cannot read it (and `OPTIONS` there returns 405/500). Reading the zip central directory and ranged members, which would give per-file CRC-32 and mid-file resume, is therefore impossible from the browser.
+
+**Feasible:** browser downloads of whole members via the view_archive endpoint, streamed into OPFS with progress, cancel, and file-granular resume. Only the 10 MPQs the world needs (`dbc, fonts, interface, misc, model, terrain, texture, wmo, patch, patch-2`, ~4.5 GB) are fetched, skipping audio, `base`, `backup`, cinematics and docs; that saves ~1.1 GB of the ~5.5 GB zip, not more, because MPQs are the bulk and are not sliceable.
+**Not feasible in the browser:** ranged per-file/per-block reads, resuming inside a 2 GB `patch.MPQ`, per-file hashes. **Integrity actually done:** HTTP length and received length must equal the size listed by archive.org and the size pinned in `archive-manifest.js`; the first bytes must be the MPQ magic; a file is committed to OPFS only after verification (no partial file visible). This catches truncation/drift/swaps but is not a cryptographic check.
+**CLI variant** (node can read the raw zip): `ARCHIVE_DATA_SOURCE=1 node browser/tools/fetch-archive-data.mjs --out <folder> --yes [--audio] [--locale enUS]` reads the central directory by Range (ZIP64, stored and deflate), downloads members with `.part` resume, and verifies each member's zip CRC-32 and the pinned size, then you pick `<folder>` in the app. It refuses (exit 2, no network) without the flag. The whole-zip md5 is not checked (it would need the full 5.5 GB).
+
+**Risks:** the legal exposure in the table above applies to the deployer, now with a first-party button that points users at a third-party copy; archive.org can change or remove the item, its listing HTML, its CORS policy or throttle heavy downloads; ~4.5 GB in browser storage can hit quota/eviction (storage is not persisted unless the browser grants it); the HTML listing parse is a scraper; locales other than enUS are only checked against their live listing.
+**Unverified:** a full real download end to end (deliberately never done; everything was tested against a local mock that imitates the observed headers, including a mock raw zip), that the browser really lets a cross-origin redirect from `archive.org` to `view_archive.php` through with CSP/CORS as probed with curl, OPFS quota behaviour at 2 GB writes, app behaviour without the audio MPQs, and whether the 302 data node always matches `*.archive.org`.
 ## Open questions
 
 - What exactly is in the official `AzerothSurvivorsWindowsNew.rar` and the browser asset bundle (raw MPQ-extracted files, converted formats, substitutes)? Not checked by design.

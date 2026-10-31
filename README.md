@@ -30,6 +30,7 @@ node --test browser                                  # unit tests (from repo roo
 
 Then open the page and pick your own WoW 1.12 `Data` folder (optionally also a Star Wars Episode I: Racer `data` folder). Nothing is uploaded.
 Optional local-only files (never committed): `browser/world-map-art.jpg` (painted map override), `browser/vehicles/*.glb`, a private NPC pack.
+Optional, OFF by default: `ARCHIVE_DATA_SOURCE=1` (server or `build-dist`) adds a button to download the Data files from archive.org into the browser (or use `browser/tools/fetch-archive-data.mjs`); read [the notes and risks](browser/design/data-hosting-research.md) first.
 See [browser/design/clean-checkout.md](browser/design/clean-checkout.md) for what a clean checkout does and does not have.
 Windows helper: `browser/Build.ps1`. See [browser/README.md](browser/README.md) for details.
 

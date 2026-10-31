@@ -36,6 +36,10 @@ folder (and optionally Star Wars Episode I: Racer `data`). Read from origin/main
 Tracked binary files at this commit: none after removing the two plane PNGs. `npc-pack.public.json` is trimmed positions + display ids (format
 `npc-trimmed-v1`, guarded by `build-dist.mjs`); `swe1r/voice-map.json` is 71 bytes of names. History-only: item 10.
 
+## Optional archive.org data source (off)
+
+Set `ARCHIVE_DATA_SOURCE=1` when running `server.mjs` or `build-dist.mjs` to add a download-from-archive.org button; unset it (the default) and none of that code, UI or network access exists in the build. Details, findings and risks: [data-hosting-research.md](data-hosting-research.md#archive-org-option-spike-off-by-default).
+
 ## Hosting privacy
 
 Pages serves static JS/wasm only (`_headers` CSP, `build-dist.mjs` refuses `local/`, `runtime/`, tests, smokes). Game data is read through
