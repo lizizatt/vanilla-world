@@ -20,7 +20,7 @@ near:{box:50,rainSpeed:30,snowSpeed:3.4,streak:.05,rainWidth:.07,snowSize:.1},
   box:{half:36,height:30},
   quality:{off:0,low:350,standard:1500,high:3200},
   // Curtain pass: polar sampling grid around the camera and its range (yd).
-  polar:{azimuth:64,rings:8,near:300,far:24000},curtain:{start:60,steps:20,fall:[250,1400],baseDrop:260,fade:300,streakXZ:140,streakY:900,density:.0025,maxAlpha:.85,wet:.02,edge:[.35,.65]},
+  polar:{azimuth:64,rings:12,near:300,far:48000},curtain:{start:60,steps:24,fall:[250,1400],baseDrop:260,fade:300,streakXZ:140,streakY:900,density:.0025,maxAlpha:.85,wet:.02,edge:[.35,.65]},
   // Rain inside the cloud layer: rain exists from the base up through the layer (height above the base, yd: full to `mid`, gone by `top`), the whole weather stack fades out only above `top`;
   // `haze` is the eye-distance range over which in-layer shafts fade (seen through the cloud), `blend` the half-width of the eye-height ramp around the base that brings in-layer shafts.
   layer:{mid:380,top:900,haze:[4000,16000],blend:150},

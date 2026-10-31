@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {curtainShader} from './weather-curtain.js';
 import {WeatherRuntime,POLAR_CELLS,ringDistance} from './weather.js';
 import {WEATHER as W} from './weather-config.js';
 import {MAELSTROM as M} from './cloud-config.js';
@@ -57,3 +58,8 @@ test('nearest wet cell is reported with distance and bearing, and the step is ch
   assert((performance.now()-t0)/200<3,'weather step under 3 ms');
 });
 
+
+test('distant rain reaches 48 kyd with log rings no coarser than ~1.6x and a soft far edge',()=>{
+  assert(W.polar.far>=48000&&ringDistance(1)/ringDistance(0)<1.7);
+  assert(curtainShader.includes('smoothstep(.8*R_FAR,R_FAR,r)'));
+});
