@@ -15,7 +15,8 @@ fn wxCellIntensity(Q:vec3f,t:f32)->f32 {
   return wxCellNoise(Q)*wxLifeEnvelope(t/${f(W.life.period)}+phase*3.0);
 }
 fn wxCoverageGate(cov:f32)->f32 {return smoothstep(${f(W.coverage[0])},${f(W.coverage[1])},cov);}
-fn wxStormRain(storm:f32,eye:f32)->f32 {return smoothstep(${f(W.storm.from)},${f(W.storm.to)},storm)*eye*${f(W.storm.heavy)};}`;
+fn wxStormRain(storm:f32,eye:f32)->f32 {return smoothstep(${f(W.storm.from)},${f(W.storm.to)},storm)*eye*${f(W.storm.heavy)};}
+fn wxSpaceRain(P:f32,n:f32,k:f32)->f32 {return clamp(P*(1.0+k*${f(W.space.streak)}*(1.1*smoothstep(.3,.7,n)-.65)),0.0,1.0);}`;
 }
 /** Cloud look under precipitation (shared by both cloud tiers and the CPU mirror): coverage swells and the base darkens with P. */
 export const WEATHER_LOOK={coverage:.1,dim:.45};

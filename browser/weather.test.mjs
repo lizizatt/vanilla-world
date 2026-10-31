@@ -37,6 +37,13 @@ test('under a wet cell rain raises; dry zones never rain, snow zones report snow
     assert.equal(rt.on,0);assert.equal(rt.state.intensity,0);assert(rt.polar.every(v=>v===0));assert(!rt.anyWet);
   }
 });
+test('from-altitude cloud look: orbit shows every cell (climate-free), Elune and off never do',()=>{
+  const [x,z]=wetSpot(),at=o=>ctx({eye:[x,300,z],...o});
+  assert.deepEqual(warm(new WeatherRuntime(),at({regime:'orbit'})).look,{wet:1,on:1});
+  assert.deepEqual(warm(new WeatherRuntime(),at({regime:'orbit',area:{name:'Tanaris'}})).look,{wet:1,on:1});
+  assert.deepEqual(warm(new WeatherRuntime(),at({regime:'atmosphere',area:{name:'Tanaris'}})).look,{wet:0,on:1});
+  for(const o of [{body:'elune',regime:'orbit'},{enabled:false,regime:'orbit'}])assert.deepEqual(warm(new WeatherRuntime(),at(o)).look,{wet:0,on:0});
+});
 test('Maelstrom wall is heavy rain even in a dry zone, the eye is calm',()=>{
   const wall=warm(new WeatherRuntime(),ctx({centre:[0,0],eye:[M.wallRadius,300,0],  area:{name:'Tanaris'}}),300);
   assert(wall.local>=W.heavy&&wall.state.heavy,`wall ${wall.local}`);
@@ -49,3 +56,4 @@ test('nearest wet cell is reported with distance and bearing, and the step is ch
   const t0=performance.now();for(let i=0;i<200;i++)rt.step(ctx({centre:[0,0],eye:[-9000,300,0],time:3000+i*.05}));
   assert((performance.now()-t0)/200<3,'weather step under 3 ms');
 });
+

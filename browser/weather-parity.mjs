@@ -20,26 +20,26 @@ const result = await page.evaluate(async raw => {
   const code = `struct C {fe:vec4f,fu:vec4f};@group(0) @binding(0) var<uniform> c:C;${flowWGSL()}${weatherWGSL()}
 @group(0) @binding(1) var<storage,read> inp:array<vec4f>;@group(0) @binding(2) var<storage,read_write> outp:array<vec4f>;
 @compute @workgroup_size(64) fn main(@builtin(global_invocation_id) g:vec3u) {
-  let p=inp[g.x];let k=c.fe.x*0.0;outp[g.x]=k+vec4f(wxCellIntensity(p.xyz,p.w),wxCoverageGate(fract(p.x*.001)),wxStormRain(fract(p.y*.001),fract(p.z*.001)),wxLifeEnvelope(p.w/1100.0));}`;
+  let p=inp[g.x];let k=c.fe.x*0.0;outp[g.x*2u]=k+vec4f(wxCellIntensity(p.xyz,p.w),wxCoverageGate(fract(p.x*.001)),wxStormRain(fract(p.y*.001),fract(p.z*.001)),wxLifeEnvelope(p.w/1100.0));outp[g.x*2u+1u]=vec4f(wxSpaceRain(fract(p.x*.001),fract(p.y*.001),fract(p.z*.001)),0.0,0.0,0.0);}`;
   const module = device.createShaderModule({code}), info = await module.getCompilationInfo();
   const errs = info.messages.filter(m => m.type === 'error').map(m => `${m.lineNum}: ${m.message}`);
   if (errs.length) return {errs};
   const mk = (size, usage) => device.createBuffer({size, usage}), ub = mk(32, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST), ib = mk(input.byteLength, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST),
-    ob = mk(input.byteLength, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC), rb = mk(input.byteLength, GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ);
+    ob = mk(input.byteLength * 2, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC), rb = mk(input.byteLength * 2, GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ);
   device.queue.writeBuffer(ib, 0, input);
   const pipe = device.createComputePipeline({layout: 'auto', compute: {module, entryPoint: 'main'}});
   const bg = device.createBindGroup({layout: pipe.getBindGroupLayout(0), entries: [{binding: 0, resource: {buffer: ub}}, {binding: 1, resource: {buffer: ib}}, {binding: 2, resource: {buffer: ob}}]});
   const enc = device.createCommandEncoder(), pass = enc.beginComputePass(); pass.setPipeline(pipe); pass.setBindGroup(0, bg); pass.dispatchWorkgroups(N / 64); pass.end();
-  enc.copyBufferToBuffer(ob, 0, rb, 0, input.byteLength); device.queue.submit([enc.finish()]); await rb.mapAsync(GPUMapMode.READ);
+  enc.copyBufferToBuffer(ob, 0, rb, 0, input.byteLength * 2); device.queue.submit([enc.finish()]); await rb.mapAsync(GPUMapMode.READ);
   return {gpu: [...new Float32Array(rb.getMappedRange().slice(0))]};
 }, [...input]);
 await ctx.close();
-const fr = x => x - Math.floor(x), worst = [0, 0, 0, 0];
+const fr = x => x - Math.floor(x), worst = [0, 0, 0, 0, 0];
 let cellBad = 0;
 if (result.gpu) for (let i = 0; i < N; i++) {
-  const p = [...input.slice(i * 4, i * 4 + 4)], cpu = [F.cellIntensity(p.slice(0, 3), p[3]), F.coverageGate(fr(p[0] * .001)), F.stormRain(fr(p[1] * .001), fr(p[2] * .001)), F.lifeEnvelope(p[3] / 1100)];
-  for (let k = 0; k < 4; k++) worst[k] = Math.max(worst[k], Math.abs(cpu[k] - result.gpu[i * 4 + k]));
-  if (Math.abs(cpu[0] - result.gpu[i * 4]) > 2e-2) cellBad++;
+  const p = [...input.slice(i * 4, i * 4 + 4)], cpu = [F.cellIntensity(p.slice(0, 3), p[3]), F.coverageGate(fr(p[0] * .001)), F.stormRain(fr(p[1] * .001), fr(p[2] * .001)), F.lifeEnvelope(p[3] / 1100)];  worst[4] = Math.max(worst[4], Math.abs(F.spaceRain(fr(p[0] * .001), fr(p[1] * .001), fr(p[2] * .001)) - result.gpu[i * 8 + 4]));
+  for (let k = 0; k < 4; k++) worst[k] = Math.max(worst[k], Math.abs(cpu[k] - result.gpu[i * 8 + k]));
+  if (Math.abs(cpu[0] - result.gpu[i * 8]) > 2e-2) cellBad++;
 }
 // The cell goes through the f32 hash, whose rounding can differ from f64 at a few lattice points: require 99% agreement there and tight agreement on the pure smoothstep terms.
 console.log(JSON.stringify({errs: result.errs, worst, cellBad, of: N}));

@@ -1,7 +1,7 @@
 // Renderer side of the weather system: per-frame state (CPU), and the distant curtain pass. See design/weather.md.
 import {WeatherRuntime} from './weather.js';
 import {WEATHER as W,WEATHER_TIERS} from './weather-config.js';
-import {curtainShader,curtainUniform,curtainFade,CURTAIN_UNIFORM_BYTES} from './weather-curtain.js';
+import {curtainShader,curtainUniform,curtainFade,layerWeight,CURTAIN_UNIFORM_BYTES} from './weather-curtain.js';
 import {maelstromCentre,SlowFrameGuard} from './clouds.js';
 import {activeBody} from './body-shaders.js';
 import {regimeOf} from './regime.js';
@@ -77,7 +77,7 @@ export function drawCurtain(r,pass,cloudUniformData) {
   if(!w||!r.curtainGroup||r.weatherTier==='off'||r.weatherTier==='low'||!w.anyWet)return false;
   const base=cloudUniformData[18]-CLOUD_THICKNESS/2,fade=curtainFade(r.view.eye[1],base);
   if(fade<=0)return false;
-  const wx=[w.state.snowMix,w.state.level,fade,0];
+  const wx=[w.state.snowMix,w.state.level,fade,layerWeight(r.view.eye[1],base)];
   r.device.queue.writeBuffer(r.curtainBuffer,0,curtainUniform(cloudUniformData,w.polar,wx,r.weatherUniform));
   pass.setPipeline(r.curtainPipeline);pass.setBindGroup(0,r.curtainGroup);pass.draw(3);
   r.curtainDrawn=(r.curtainDrawn??0)+1;

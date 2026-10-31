@@ -1,4 +1,5 @@
 import {shadowUniform,shadowHalf,sunShadow} from './shadow.js';
+import {WEATHER as W} from './weather-config.js';
 import {sunDirection,cloudShaderHigh,cloudUniform,bakeCloudNoise,CLOUD_NOISE_SIZE,stepTierMix} from './clouds.js';
 
 export function drawShadow(r,pass,state,near) {
@@ -34,7 +35,7 @@ export function drawClouds(r,pass,time,daylight,near,high) {
   r.tierMix=r.tierMix===undefined?target:stepTierMix(r.tierMix,target,(nowMs-(r.tierMs??nowMs))/1000);r.tierMs=nowMs;
   // Fading out of High needs its pipeline for the fade; fading into it already has it (useHigh).
   const m=r.tierMix,both=m>0&&m<1&&r.cloudHighGroup;
-  const cu=cloudUniform(r.view,time,daylight,r.manifest,near,r.gameSky,undefined,r.timeOfDay,{...r.planet,tierMix:both?m:target,wet:r.weather?.climate.wet??0,weatherOn:r.weather?.on??0});r.lastCloudUniform=cu;
+  const cu=cloudUniform(r.view,time,daylight,r.manifest,near,r.gameSky,undefined,r.timeOfDay,{...r.planet,tierMix:both?m:target,wet:r.weather?.look.wet??0,weatherOn:r.weather?.look.on??0,rainStreak:W.quality[r.weatherTier]>W.quality.low?1:0});r.lastCloudUniform=cu;
   if(r.sunLocal)cu.set([...r.sunLocal,r.sunLocal[1]],32);
   r.device.queue.writeBuffer(r.cloudBuffer,0,cu);
   if(both||!useHigh){pass.setPipeline(r.cloudPipeline);pass.setBindGroup(0,r.cloudGroup);pass.draw(3);}

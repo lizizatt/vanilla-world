@@ -14,7 +14,7 @@ const SLICE=4;
 export class WeatherRuntime {
   constructor() {
     this.state=new WeatherState();this.polar=new Float32Array(POLAR_CELLS);this.cursor=0;
-    this.local=0;this.climate={wet:1,snow:0,reason:'rain'};this.on=0;this.nearest={distance:Infinity,bearing:0,intensity:0};this.sampleMs=0;
+    this.local=0;this.climate={wet:1,snow:0,reason:'rain'};this.on=0;this.look={wet:0,on:0};this.nearest={distance:Infinity,bearing:0,intensity:0};this.sampleMs=0;
   }
   /** Precipitation intensity of the cloud column above (x, z), 0..1. */
   sample(x,z,ctx) {
@@ -28,6 +28,8 @@ export class WeatherRuntime {
     const t0=performance.now();
     this.climate=climateOf({area:ctx.area,body:ctx.body,regime:ctx.regime});
     this.on=ctx.enabled&&ctx.regime!=='orbit'&&ctx.body!=='elune'?1:0;
+    // The cloud shader draws the same cells from altitude/orbit (no particles): the zone climate gates local rain only, so from orbit every wet cell shows.
+    this.look=ctx.enabled&&ctx.body!=='elune'?{wet:this.on?this.climate.wet:1,on:1}:{wet:0,on:0};
     if(!this.on){this.local=0;this.polar.fill(0);this.nearest={distance:Infinity,bearing:0,intensity:0};this.state.step(ctx.dt,0,{wet:0,snow:0});this.sampleMs=0;return this;}
     this.wantCover=true;this.cover=this.sample(ctx.eye[0],ctx.eye[2],ctx);this.wantCover=false;
     this.local=this.sample(ctx.eye[0],ctx.eye[2],ctx);

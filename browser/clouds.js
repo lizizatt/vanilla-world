@@ -6,6 +6,7 @@ import {cloudShellRadius,cloudAltitudeAt,CLOUD_RADIUS_GROUND_SCALE} from './terr
 import {flowWGSL,FLOW,MASK,bakeLandMask} from './cloud-flow.js';
 import {weatherWGSL,WEATHER_LOOK} from './weather-wgsl.js';
 import {WEATHER} from './weather-config.js';
+import {spaceLook} from './weather-field.js';
 import {createRegistry,defaultManifest} from './tile-registry.js';
 import {CLOUD_ALTITUDE,CLOUD_THICKNESS,CLOUD_HALF_SIZE,HYJAL_SUMMIT,CLOUD_ALTITUDE_FACTOR,CLOUD_TOWER,WHIRLPOOL_DIP,MAELSTROM,MAELSTROM_MAP,KALIMDOR_NORTH_SHIFT,FUNNEL,FUNNEL_STEPS,tier} from './cloud-config.js';
 export * from './cloud-config.js';
@@ -47,6 +48,8 @@ export function cloudUniform(view,time,daylight,manifest,near,game,out=new Float
     if(game.sun)out.set([...mixTo(game.sun,[1,.96,.88]),0],36);if(game.cloud2)out.set([...mixTo(game.cloud2,[.55,.6,.7]),1],40);
   }
   out[31]=planet.tierMix??0;out[39]=planet.farBoost??0;out[21]=planet.wet??0;out[22]=planet.weatherOn??0;
+  // From-above rain look: eye height over the cloud top (the 520 yd sheet) ramps the streaked, darker precipitation in; only on tiers that ask for it (planet.rainStreak).
+  out[23]=spaceLook(view.eye[1]-(out[18]+CLOUD_THICKNESS/2),planet.rainStreak??0);
   return out;
 }
 /** Seconds for the Standard/High cloud tier crossfade. */
@@ -154,7 +157,10 @@ fn cloudBody(sp:Sph,d:vec2f,pos:vec3f,t:f32,tau:f32,drag:f32,base:f32,wall:f32,s
   let Q=sp.up*${PLANET_RADIUS}.0+sp.e*s.x+sp.n*s.y;
   // Precipitation cell at the same advected point: it rides the deck, swells the cover and darkens it (c.near.y = climate wetness, c.near.z = weather on).
   var P=0.0;var coverage=base;
-  if(c.near.z>0.0&&(base>${WEATHER.coverage[0]}||sr>0.0)){let gate=wxCoverageGate(base);P=max(wxCellIntensity(Q,t)*gate*c.near.y,sr*smoothstep(${WEATHER.storm.cover[0]},${WEATHER.storm.cover[1]},base))*c.near.z;coverage=min(base+${WEATHER_LOOK.coverage}*P,.95);}
+  if(c.near.z>0.0&&(base>${WEATHER.coverage[0]}||sr>0.0)){let gate=wxCoverageGate(base);P=max(wxCellIntensity(Q,t)*gate*c.near.y,sr*smoothstep(${WEATHER.storm.cover[0]},${WEATHER.storm.cover[1]},base))*c.near.z;
+    // From above (c.near.w = 0..1) the same P reads as wind-stretched virga streaks, no particles.
+    if(c.near.w>0.0){P=wxSpaceRain(P,vnoise3(vec3f(dot(Q,sp.e),dot(Q,sp.n),pos.y)/vec3f(${WEATHER.space.stretch.map(x=>x.toFixed(1)).join(',')})),c.near.w);}
+    coverage=min(base+${WEATHER_LOOK.coverage}*P,.95);}
   // Dense columns grow upward (towering tops) and a little downward, billowing slowly; low coverage keeps the flat sheet.
   let grow=smoothstep(.45,.95,coverage)*mix(.4,1.0,vnoise3(Q/3800.0+vec3f(t*.012,-t*.009,0.0)));
   let hf=clamp((pos.y-(c.cloud.z-THICK*.5-DOWN*grow))/(THICK+(UP+DOWN)*grow),0.0,1.0);
@@ -333,7 +339,7 @@ const NF=${FUNNEL_STEPS};
       let w=(1.0-smoothstep(30000.0,c.cloud.w,dd))*.96*sEdge*tail;
       let absorb=(1.0-exp(-s.x*select(ssB,ss,i<=nA)*.008*(1.0+${FAR_ABSORB}*c.sunCol.w)))*w;
       ${high?HIGH_TAP:'let shade=1.0;'}
-      let lit=mix(.62,1.0,hf)*mix(.75,1.0,s.y)*(.7+.3*trans)*shade*mix(1.0,${1-WEATHER_LOOK.dim},s.w);
+      let lit=mix(.62,1.0,hf)*mix(.75,1.0,s.y)*(.7+.3*trans)*shade*mix(1.0,${1-WEATHER_LOOK.dim},s.w)*(1.0-${WEATHER.space.dim*.5}*c.near.w*s.w);
       let sunY=dot(upAt(rel),c.sun.xyz);
       let day=smoothstep(-.1,.25,sunY);
       let under=select(vec3f(.55,.60,.70),c.cloud2.rgb,game);
