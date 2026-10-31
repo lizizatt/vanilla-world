@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {curtainExit,curtainShader,curtainUniform,curtainFade,layerWeight,CURTAIN_UNIFORM_BYTES} from './weather-curtain.js';
+import {layerTop,layerMid,curtainPrecip,curtainExit,curtainShader,curtainUniform,curtainFade,layerWeight,CURTAIN_UNIFORM_BYTES} from './weather-curtain.js';
 import {resolveWeatherTier} from './renderer-weather.js';
 import {WEATHER as W} from './weather-config.js';
+import {CLOUD_THICKNESS} from './cloud-config.js';
 
 test('curtain uniform packs camera block, extras and the whole polar grid at the WGSL offsets',()=>{
   const cloud=Float32Array.from({length:60},(_,i)=>i+1),polar=Float32Array.from({length:W.polar.azimuth*W.polar.rings},(_,i)=>i/1000);
@@ -42,7 +43,7 @@ test('in-layer shaft weight ramps smoothly across the base: 0 well under it, 1 i
 });
 test('curtain shader keeps marching past the base from inside the layer, with layer and haze falloff',()=>{
   assert(curtainShader.includes('let wIn=c.wx.w;')&&curtainShader.includes('if(wIn<=0.001){'));
-  assert(curtainShader.includes(`smoothstep(${W.layer.mid.toFixed(1)},${W.layer.top.toFixed(1)},-drop)`));
+  assert(curtainShader.includes(`smoothstep(${layerMid.toFixed(1)},${layerTop.toFixed(1)},-drop)`));
   assert(curtainShader.includes(`smoothstep(${W.layer.haze[0].toFixed(1)},${W.layer.haze[1].toFixed(1)},s)`));
 });
 test('quality tier: off wins, explicit tier wins, auto drops to low when slow',()=>{
@@ -50,4 +51,19 @@ test('quality tier: off wins, explicit tier wins, auto drops to low when slow',(
   assert.equal(resolveWeatherTier(true,'high',true),'high');assert.equal(resolveWeatherTier(true,'low'),'low');
   assert.equal(resolveWeatherTier(true,'auto'),'standard');assert.equal(resolveWeatherTier(true,'auto',true),'low');
   assert.equal(resolveWeatherTier(undefined,undefined),'standard');
+});
+test('curtain rain is cut to the wet footprint: a lone wet ring never smears across the gap into dry sky (repro pose)',()=>{
+  const A=W.polar.azimuth,R=W.polar.rings,polar=new Float32Array(A*R),a=10,k=5;
+  for(const da of [-1,0,1])polar[(a+da)*R+k]=.9;
+  const ring=j=>W.polar.near*Math.pow(W.polar.far/W.polar.near,j/(R-1)),th=a/A*Math.PI*2;
+  const at=(d,t=th)=>curtainPrecip(polar,Math.cos(t)*d,Math.sin(t)*d);
+  assert(Math.abs(at(ring(k))-.9)<1e-6,'full strength on the wet node');
+  const next=ring(k+1),gapPast=ring(k)*Math.pow(next/ring(k),.7);
+  assert.equal(at(gapPast),0,'past the half-way contour toward a dry ring there is no rain');
+  assert.equal(curtainPrecip(polar,ring(k+1),0),0);assert.equal(curtainPrecip(polar,W.polar.far*1.01,0),0);
+  const a2=Math.PI*2*(a+1.8)/A;assert.equal(at(ring(k),a2),0,'and none past the half-way azimuth beside the wet arc');
+  assert(curtainShader.includes('wetAt(')&&curtainShader.includes('smoothstep('+(Number.isInteger(W.curtain.edge[0])?W.curtain.edge[0].toFixed(1):W.curtain.edge[0])));
+});test('in-layer rain stops at the rendered cloud top, not above it (repro pose veil)',()=>{
+  assert(layerTop<=CLOUD_THICKNESS&&layerMid<layerTop);
+  assert(curtainShader.includes(`smoothstep(${layerMid.toFixed(1)},${layerTop.toFixed(1)},-drop)`)||curtainShader.includes(`smoothstep(${layerMid},${layerTop},-drop)`));
 });

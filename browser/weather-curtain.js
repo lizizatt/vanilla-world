@@ -4,6 +4,10 @@
 import {flowWGSL} from './cloud-flow.js';
 import {SHELL_WGSL} from './clouds.js';
 import {WEATHER as W} from './weather-config.js';
+import {CLOUD_THICKNESS} from './cloud-config.js';
+
+// In-layer rain ends at the rendered cloud's own top (the layer config may reach higher for the weather-stack fade), so no veil hangs above the cloud.
+export const layerTop=Math.min(W.layer.top,CLOUD_THICKNESS),layerMid=Math.min(W.layer.mid,layerTop*.75);
 
 export const CURTAIN_UNIFORM_BYTES=256+W.polar.azimuth*W.polar.rings*4;
 const f=x=>Number.isInteger(x)?x.toFixed(1):String(x);
@@ -25,6 +29,17 @@ export function curtainExit(eyeY,dirY,base,k) {
   return far>0?far:Infinity;
 }
 
+/** CPU twin of the shader's precipAt: bilinear grid value, cut to the wet footprint (bilinear wet mask through `W.curtain.edge`) so rain never reaches past the cells that have it. polar is azimuth-major (a*rings+k). */
+export function curtainPrecip(polar,x,z) {
+  const A=W.polar.azimuth,R=W.polar.rings,r=Math.hypot(x,z);
+  if(r>W.polar.far)return 0;
+  const fa=(Math.atan2(z,x)/(2*Math.PI)+1)*A,fk=Math.min(Math.max(Math.log(Math.max(r,W.polar.near)/W.polar.near)/Math.log(W.polar.far/W.polar.near)*(R-1),0),R-1);
+  const a0=Math.floor(fa),k0=Math.floor(fk),u=fa-a0,w=fk-k0,at=(a,k)=>polar[(((a%A)+A)%A)*R+Math.min(Math.max(k,0),R-1)];
+  const bil=g=>{const m=(p,q,t)=>p+(q-p)*t;return m(m(g(a0,k0),g(a0+1,k0),u),m(g(a0,k0+1),g(a0+1,k0+1),u),w);};
+  const e=W.curtain.edge,t=Math.min(Math.max((bil((a,k)=>at(a,k)>=W.curtain.wet?1:0)-e[0])/(e[1]-e[0]),0),1);
+  return bil(at)*t*t*(3-2*t);
+}
+
 export const curtainShader=`
 struct C {eye:vec4f,right:vec4f,up:vec4f,look:vec4f,cloud:vec4f,near:vec4f,tint:vec4f,fog:vec4f,sun:vec4f,sunCol:vec4f,cloud2:vec4f,bend:vec4f,fe:vec4f,fu:vec4f,fs:vec4f,wx:vec4f,grid:array<vec4f,${W.polar.azimuth*W.polar.rings/4}>};
 @group(0) @binding(0) var<uniform> c:C;
@@ -44,14 +59,17 @@ fn gridAt(a:i32,k:i32)->f32 {
   let ai=((a%AZ)+AZ)%AZ;let ki=clamp(k,0,RINGS-1);
   let idx=ai*RINGS+ki;return c.grid[idx>>2u][idx&3];
 }
-// Bilinear over azimuth (wraps) and log radius.
+// Bilinear over azimuth (wraps) and log radius. Rings are far apart at range, so plain bilinear smears rain across the gap into dry sky: it is cut to the half-way contour of the wet mask (CPU twin: curtainPrecip).
+fn wetAt(a:i32,k:i32)->f32 {return select(0.0,1.0,gridAt(a,k)>=${f(W.curtain.wet)});}
 fn precipAt(x:f32,z:f32)->f32 {
   let r=length(vec2f(x,z));
   if(r>R_FAR){return 0.0;}
   let fa=(atan2(z,x)/6.2831853+1.0)*f32(AZ);
   let fk=clamp(log(max(r,R_NEAR)/R_NEAR)/log(R_FAR/R_NEAR)*f32(RINGS-1),0.0,f32(RINGS-1));
   let a0=i32(floor(fa));let k0=i32(floor(fk));let u=fract(fa);let w=fract(fk);
-  return mix(mix(gridAt(a0,k0),gridAt(a0+1,k0),u),mix(gridAt(a0,k0+1),gridAt(a0+1,k0+1),u),w);
+  let p=mix(mix(gridAt(a0,k0),gridAt(a0+1,k0),u),mix(gridAt(a0,k0+1),gridAt(a0+1,k0+1),u),w);
+  let m=mix(mix(wetAt(a0,k0),wetAt(a0+1,k0),u),mix(wetAt(a0,k0+1),wetAt(a0+1,k0+1),u),w);
+  return p*smoothstep(${f(W.curtain.edge[0])},${f(W.curtain.edge[1])},m);
 }
 @fragment fn fs(v:V)->@location(0) vec4f {
   let strength=c.wx.z;
@@ -92,7 +110,7 @@ fn precipAt(x:f32,z:f32)->f32 {
     var shaft=exp(-max(drop,0.0)/fall);
     if(drop<0.0){
       if(wIn<=0.001){break;}
-      shaft=wIn*(1.0-smoothstep(${f(W.layer.mid)},${f(W.layer.top)},-drop))*(1.0-smoothstep(${f(W.layer.haze[0])},${f(W.layer.haze[1])},s));
+      shaft=wIn*(1.0-smoothstep(${f(layerMid)},${f(layerTop)},-drop))*(1.0-smoothstep(${f(W.layer.haze[0])},${f(W.layer.haze[1])},s));
       if(shaft<.01){continue;}
     }
     let sx=max(${f(W.curtain.streakXZ)},s*.04);
