@@ -12,6 +12,7 @@ import {CLOUD_ALTITUDE,CLOUD_THICKNESS,CLOUD_HALF_SIZE,HYJAL_SUMMIT,CLOUD_ALTITU
 export * from './cloud-config.js';
 
 export function maelstromCentre(manifest) {
+  if(!manifest.world_bounds)return [1e9,1e9]; // a moon has no Azeroth layout: callers already treat this as "no maelstrom"
   const o=manifest.ocean,[kalimdor,east]=manifest.world_bounds.map((b,i)=>{
     const placement=manifest.regions[i].placement[1];
     return placement+(i?0:KALIMDOR_NORTH_SHIFT)+(b[1]+(i?MAELSTROM_MAP.easternDown:MAELSTROM_MAP.kalimdorDown)*(b[3]+1-b[1]))*1600/3;

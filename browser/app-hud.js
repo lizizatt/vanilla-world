@@ -18,7 +18,7 @@ function syncDurability(){client.request('durability',{on:gib.durable,lethal:gib
 function ownHud(boost,hl=1,hr=1){const m=hudModel(boost),key=m.arc+'/'+hl+'/'+hr;if(ownLast.key===key)return;ownLast.key=key;$('heat-arc').style.strokeDasharray=`${m.arc} 100`;const d=$('heat-arc').closest('.speed-dial');d.dataset.stage=String(m.stage);d.dataset.hot=String(m.heat>=1);const g=app.meters.querySelector('.heat-twin');g.dataset.warn=String(m.warn);g.setAttribute('aria-label',`Engine heat ${Math.round(m.heat*100)}%`);const lv=engineLevels(m.heat,hl,hr);g.querySelectorAll('.engine').forEach((e,i)=>{e.dataset.stage=String(levelStage(lv[i]));e.dataset.hot=String(lv[i]>=1);});g.dataset.hot='false';g.setAttribute('aria-label',`Engine heat ${Math.round(m.heat*100)}%, health ${Math.round(hl*100)}% / ${Math.round(hr*100)}%`);}
 if(new URLSearchParams(location.search).has('test'))window.ownHudTest=ownHud;
 app.dial=undefined;app.heatGauge=undefined;app.hudOn=false;app.countdownSprites=undefined;
-function landmarks(){const m=client.info?.manifest;return app.landmarkCache??=m?mapIcons(m,maelstromCentre(m)):[];}
+function landmarks(){const m=client.info?.manifest;return m?.world_bounds?app.landmarkCache??=mapIcons(m,maelstromCentre(m)):[];}
 function syncHud(){app.hudOn=$('swe1r-hud-on').checked;}
 $('swe1r-hud-on').addEventListener('change',syncHud);
 $('swe1r-sfx').addEventListener('change',()=>{audio.sampleOn=$('swe1r-sfx').checked;});
