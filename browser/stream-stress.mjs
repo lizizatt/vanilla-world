@@ -51,6 +51,34 @@ try {
   await page.locator('#world').click();
   await page.waitForTimeout(3000);
   const legs=routeLegs(routeName,{speed,alt});
+  if(process.env.INPUT==='keys'){
+    // Real Shift+W flight: the app's own flight state is unbounded (never re-wrapped by the harness), which is what exposed the circumnavigation stall.
+    const laps=Number(process.env.LAPS||3),land=[-15000,0],landZ=[-8000,12000];
+    const read=()=>page.evaluate(()=>{const st=worldEvidence.state,f=worldTest.flightState().flight;return {pose:f.slice(0,3).map(Math.round),near:st.nearTerrain,resident:st.resident?.length??0,failures:st.failures?.length??0,heapMB:Math.round(performance.memory.usedJSHeapSize/1048576)};});
+    await page.evaluate(()=>worldTest.focus([-14000,300,-9000,Math.PI/2,0]));
+    await page.waitForTimeout(2000);
+    const samples=[],t0=Date.now(),circ=2*Math.PI*(await page.evaluate(async()=>(await import('./space.js')).PLANET_RADIUS));
+    await page.keyboard.down('Shift');await page.keyboard.down('KeyW');
+    let prev=null,travelled=0;
+    for(;;){
+      await page.waitForTimeout(1000);const s=await read();s.sec=(Date.now()-t0)/1000;s.phase='fly';samples.push(s);
+      const wrapped=((s.pose[0]%circ)+circ*1.5)%circ-circ/2;
+      if(prev!==null){let d=wrapped-prev;d-=Math.round(d/circ)*circ;travelled+=Math.abs(d);}
+      prev=wrapped;
+      if(travelled>laps*circ&&wrapped>land[0]&&wrapped<land[1]&&s.pose[2]>landZ[0]&&s.pose[2]<landZ[1])break;
+      assert(s.sec<600,'Keyboard flight never reached land');
+    }
+    await page.keyboard.up('KeyW');await page.keyboard.up('Shift');
+    const holdStart=Date.now();let ok=null;
+    while((Date.now()-holdStart)/1000<stopTimeout){
+      await page.waitForTimeout(500);const s=await read();s.sec=(Date.now()-t0)/1000;s.phase='stopped';samples.push(s);
+      if(s.near?.total>0&&s.near.resident===s.near.total){ok=(Date.now()-holdStart)/1000;break;}
+    }
+    samples.push({phase:'stop-result',leg:0,recoveredAfterS:ok,sec:(Date.now()-t0)/1000});
+    console.table(samples.filter((s,i)=>i%5===0||s.phase!=='fly').map(s=>({sec:+s.sec.toFixed(1),phase:s.phase,pose:s.pose,near:s.near&&`${s.near.resident}/${s.near.total}`,resident:s.resident,heap:s.heapMB})));
+    result={samples,travelled:0,legs:[],errors:errors.slice(0,20)};
+    await writeFile(new URL('samples.json',output),JSON.stringify(result));
+  } else
   result=await page.evaluate(async ({legs,stopTimeout})=>{
     const {wrapFlat}=await import('./space.js');
     const snap=()=>{
