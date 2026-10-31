@@ -154,3 +154,13 @@ test('beach displacement is bounded',()=>{
   for(let d=-2;d<90;d+=.5)for(let t=0;t<1;t+=.05)for(const wind of [0,.35,1])max=Math.max(max,beachProfile(d,0,t,wind,1).q);
   assert.ok(max<=BEACH.Q_MAX&&max>0);
 });
+
+test('beach phase wobble coordinate is a fixed direction, so a turning shore normal cannot slide the phase (radial streaks, rings, starbursts)',async()=>{
+  const {ALONG_DIR}=await import('./beach-waves.js');
+  assert.ok(Math.abs(Math.hypot(...ALONG_DIR)-1)<1e-9);
+  assert.ok(!/dot\(P\+bc\.b\.yz,\s*tn\)/.test(beachShading)&&!/vec2f\(-f\.n\.y,f\.n\.x\)/.test(beachShading));
+  // At the offshore-shoal repro (chart ~ 7088,7282) a 1 degree turn of the normal would have moved the old tangent-based coordinate by >100 yd.
+  const P=[7088.5,7282.3],a=.017,old=(th)=>P[0]*-Math.sin(th)+P[1]*Math.cos(th);
+  assert.ok(Math.abs(old(a)-old(0))>100);
+  assert.ok(beachShading.includes(`vec2f(${ALONG_DIR[0]},${ALONG_DIR[1]})`));
+});
