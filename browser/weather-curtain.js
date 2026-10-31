@@ -60,15 +60,16 @@ fn gridAt(a:i32,k:i32)->f32 {
   let idx=ai*RINGS+ki;return c.grid[idx>>2u][idx&3];
 }
 // Bilinear over azimuth (wraps) and log radius. Rings are far apart at range, so plain bilinear smears rain across the gap into dry sky: it is cut to the half-way contour of the wet mask (CPU twin: curtainPrecip).
-fn wetAt(a:i32,k:i32)->f32 {return select(0.0,1.0,gridAt(a,k)>=${f(W.curtain.wet)});}
+fn wetAt(g:f32)->f32 {return select(0.0,1.0,g>=${f(W.curtain.wet)});}
 fn precipAt(x:f32,z:f32)->f32 {
   let r=length(vec2f(x,z));
   if(r>R_FAR){return 0.0;}
   let fa=(atan2(z,x)/6.2831853+1.0)*f32(AZ);
   let fk=clamp(log(max(r,R_NEAR)/R_NEAR)/log(R_FAR/R_NEAR)*f32(RINGS-1),0.0,f32(RINGS-1));
   let a0=i32(floor(fa));let k0=i32(floor(fk));let u=fract(fa);let w=fract(fk);
-  let p=mix(mix(gridAt(a0,k0),gridAt(a0+1,k0),u),mix(gridAt(a0,k0+1),gridAt(a0+1,k0+1),u),w);
-  let m=mix(mix(wetAt(a0,k0),wetAt(a0+1,k0),u),mix(wetAt(a0,k0+1),wetAt(a0+1,k0+1),u),w);
+  let g00=gridAt(a0,k0);let g10=gridAt(a0+1,k0);let g01=gridAt(a0,k0+1);let g11=gridAt(a0+1,k0+1);
+  let p=mix(mix(g00,g10,u),mix(g01,g11,u),w);
+  let m=mix(mix(wetAt(g00),wetAt(g10),u),mix(wetAt(g01),wetAt(g11),u),w);
   return p*smoothstep(${f(W.curtain.edge[0])},${f(W.curtain.edge[1])},m)*(1.0-smoothstep(.8*R_FAR,R_FAR,r));
 }
 @fragment fn fs(v:V)->@location(0) vec4f {
@@ -94,11 +95,13 @@ fn precipAt(x:f32,z:f32)->f32 {
   let fog=select(mix(vec3f(.08,.15,.20),vec3f(.008,.016,.045),night),c.fog.rgb,game);
   let jitter=fract(52.9829189*fract(dot(v.clip.xy,vec2f(.06711056,.00583715))));
   let ratio=sEnd/${f(W.curtain.start)};
+  // Loop invariants: the log-spaced march is s=start*ratio^u and each step's width is s*(ratio^(1/steps)-1).
+  let lr=log2(ratio);let stepGrow=pow(ratio,1.0/${f(W.curtain.steps)})-1.0;
   var T=1.0;var acc=vec3f(0.0);
   for(var i=0;i<${W.curtain.steps};i++){
     let u=(f32(i)+jitter)/${f(W.curtain.steps)};
-    let s=${f(W.curtain.start)}*pow(ratio,u);
-    let ds=s*(pow(ratio,1.0/${f(W.curtain.steps)})-1.0);
+    let s=${f(W.curtain.start)}*exp2(u*lr);
+    let ds=s*stepGrow;
     let p=c.eye.xyz+dir*s;
     // Grid lookup and base height on the same curved shells (and world mapping) the cloud pass renders.
     let wp=worldAt(dir*s);
