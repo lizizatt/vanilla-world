@@ -71,6 +71,9 @@ export const sprayK=s=>smoothstep(W.spray.on,W.spray.full,s);
 export const dustK=s=>smoothstep(W.dust.on,W.dust.full,s);
 export const snowK=s=>smoothstep(W.snow.on,W.snow.full,s);
 
+/** 1 on flat ground, easing to 0 on slopes steeper than W.flat[1]. */
+export const flatK=slope=>1-smoothstep(W.flat[0],W.flat[1],slope);
+
 /**
  * Terrain heights for the ground layer: a world-anchored n x n lattice (step yd) cached forever (terrain is static) and filled nearest-first,
  * `budget` queries per update. `query(x,z)` returns the ground y or a non-finite value when unknown. `data` is the window around the eye
@@ -101,6 +104,11 @@ export class GroundGrid {
     const at=(a,b)=>this.data[clamp(b,0,n-1)*n+clamp(a,0,n-1)];
     return (at(i,j)*(1-tx)+at(i+1,j)*tx)*(1-tz)+(at(i,j+1)*(1-tx)+at(i+1,j+1)*tx)*tz;
   }
+  /** Local slope (rise/run) by central differences one lattice step either side. Matches groundShader's slopeAt. */
+  slope(x,z) {
+    const s=this.step,gx=this.sample(x+s,z)-this.sample(x-s,z),gz=this.sample(x,z+s)-this.sample(x,z-s);
+    return Math.hypot(gx,gz)/(2*s);
+  }
 }
 
 /**
@@ -111,7 +119,7 @@ export class WindRuntime {
   constructor() {
     this.base=[0,0];this.gain=1;this.floor=0;this.gust=0;this.ready=false;this.character='plains';
     this.params=new Float32Array(WIND_PARAM_FLOATS);this.sample={dir:[1,0],speed:0,strength:0,gust:0,storm:0};
-    this.on=0;this.spray=0;this.dust=0;this.snow=0;this.drift=[0,0];
+    this.on=0;this.spray=0;this.dust=0;this.snow=0;this.drift=[0,0];this.layerDrift=[0,0];
   }
   step(ctx) {
     const Z=W.zones[ctx.character]??W.zones.plains;
@@ -126,6 +134,7 @@ export class WindRuntime {
     // Drift of the ground layer (yd), integrated on the CPU so a changing gust never teleports the particles; wrapped to keep f32 exact.
     const d=ctx.dt>0&&ctx.dt<.25?ctx.dt:0,k2=d*W.groundSpeed,dx=s.dir[0]*s.speed*k2,dz=s.dir[1]*s.speed*k2,L=W.box.groundFar;
     this.drift=[(this.drift[0]+dx)%L,(this.drift[1]+dz)%L];
+    const k3=W.layers.speed;this.layerDrift=[(this.layerDrift[0]+dx*k3)%L,(this.layerDrift[1]+dz*k3)%L];
     return this;
   }
   get ground() {return Math.max(this.dust,this.snow);}

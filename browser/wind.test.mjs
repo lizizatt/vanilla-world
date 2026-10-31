@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {WIND as W} from './wind-config.js';
-import {windAt,packWind,windTime,zoneCharacter,beltVector,windSeaK,windWaveHint,sprayK,dustK,snowK,WindRuntime,GroundGrid,gustOmega} from './wind.js';
+import {windAt,packWind,windTime,zoneCharacter,beltVector,windSeaK,windWaveHint,sprayK,dustK,snowK,WindRuntime,GroundGrid,flatK,gustOmega} from './wind.js';
 import {windWGSL} from './wind-wgsl.js';
 import {sprayShader,groundShader,windParticleUniform,WIND_UNIFORM_BYTES,groundGridUniform,GRID_UNIFORM_FLOATS} from './wind-particles.js';
 import {seaState,seaWindK} from './sea-state.js';
@@ -139,9 +139,27 @@ test('ground layer follows the terrain: lattice reproduces a slope, caches, and 
   const before=calls.length;g.update(1006.3,-500.7);assert(calls.length-before<=W.grid.budget&&calls.length>before);
   // Failed queries do not poison the window.
   const bad=new GroundGrid(()=>NaN);bad.update(0,0);assert.equal(bad.known,0);
-  assert(groundShader.includes('fn groundY(')&&groundShader.includes('groundY(u.eye.xz+rel)')&&!groundShader.includes('u.org.z'));
-  assert(groundShader.includes(`${f(W.grid.clear)}+${f(W.grid.clearFar)}*d+H+`)&&groundShader.includes('.08*(.5+.5*sin('),'particle centre must clear its own half height');
+  assert(groundShader.includes('fn groundY(')&&groundShader.includes('groundY(wp)')&&groundShader.includes('wp=u.eye.xz+rel')&&!groundShader.includes('u.org.z'));
+  assert(groundShader.includes(`${f(W.grid.clear)}+${f(W.grid.clearFar)}*d+H+rise+.08*(.5+.5*sin(`),'particle centre must clear its own half height');
   const up=groundGridUniform(g);assert.equal(up.length,GRID_UNIFORM_FLOATS);assert.deepEqual([...up.slice(0,4)],g.meta);
+});
+test('stacked dust layers: 1/3 opacity, 1/2 speed, below the main layer; hidden on slopes with a smooth fade',()=>{
+  const L=W.layers;
+  assert.equal(L.alpha,1/3);assert.equal(L.speed,.5);assert(L.fracs.length>=3&&L.fracs.every((x,i)=>x>0&&x<1&&(!i||x>L.fracs[i-1])));
+  const w=new WindRuntime();
+  for(let i=0;i<200;i++)w.step({dt:.05,x:0,z:0,t:i*.05,lat:0,character:'desert',storm:1,mael:null,enabled:true});
+  assert(w.drift[0]!==0||w.drift[1]!==0);
+  assert.ok(Math.abs(w.layerDrift[0]-w.drift[0]*L.speed)<1e-4&&Math.abs(w.layerDrift[1]-w.drift[1]*L.speed)<1e-4,'layers drift at half speed');
+  // Slope: flat ground -> 1, steep -> 0, monotone and continuous in between.
+  assert.equal(flatK(0),1);assert.equal(flatK(W.flat[1]),0);
+  let prev=1;for(let s=0;s<=.5;s+=.005){const k=flatK(s);assert(k<=prev+1e-12&&prev-k<.05);prev=k;}
+  const plane=new GroundGrid((x,z)=>.5*x);for(let i=0;i<40;i++)plane.update(0,0);
+  assert(Math.abs(plane.slope(0,0)-.5)<1e-3);
+  const flat=new GroundGrid(()=>3);for(let i=0;i<40;i++)flat.update(0,0);assert.equal(flat.slope(5,5),0);
+  assert(groundShader.includes('fn slopeAt(')&&groundShader.includes(`smoothstep(${f(W.flat[0])},${f(W.flat[1])},slopeAt(wp))`));
+  assert(groundShader.includes(`select(1.0,${f(L.alpha)},layered)`)&&groundShader.includes('u.drift.w>.5'));
+  const u=windParticleUniform({right:[1,0,0],aspect:1,up:[0,1,0],look:[0,0,1],eye:[0,0,0]},.1,[0,0],0,0,0,1,10,1,1,1,  [0,0],new Float32Array(12),undefined,1);
+  assert.equal(u[27],1);
 });
 test('wave/whitecap hooks only ever raise the sea state and never touch the physics waves',()=>{
   const base=seaState(0,0,0,[0,0],1e6),hi=seaState(0,0,0,[0,0],1e6,1),lo=seaState(0,0,0,[0,0],1e6,0);

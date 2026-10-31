@@ -41,6 +41,11 @@ export const WIND={
   // Ground layer look (second pass): thin wisps hugging the ground. height = vertical extent in yd (WoW units are yards: 0.3-0.7 yd is 1-2 ft),
   // alpha = peak opacity per streak (dust, snow), far = share of the particle budget spent on the far ring.
   ground:{height:.3,alpha:{dust:.34,snow:.5},far:.55},
+  // Extra stacked layers between the ground and the main layer: heights as fractions of `top` (yd above the lattice clearance, about the main layer's mean centre),
+  // each at `alpha` x the main opacity and `speed` x the main drift speed/sway rate. Budget is shared across layers (count / layers each).
+  layers:{fracs:[.25,.5,.75],top:.35,alpha:1/3,speed:.5},
+  // Dust/snow only blows over flat ground: local slope (rise/run over one lattice step) fades the layers out smoothly from flat[0] to flat[1].
+  flat:[.12,.35],
   // Spray (second pass): subtle, crest-only. alpha = peak opacity, crest = minimum crest measure (height fraction + steepness) that emits.
   sprayLook:{alpha:.34,crest:[.62,.9],far:.5},
   // Sea state fed to the water shader: windK = max(belt windK, calm + (1-calm)*strength).

@@ -26,6 +26,8 @@ export async function initWind(r) {
   r.sprayBuffer=ub();r.groundBuffer=ub();
   r.groundGridBuffer=r.device.createBuffer({size:GRID_UNIFORM_FLOATS*4,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
   r.groundGroup=r.device.createBindGroup({layout:r.groundPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.groundBuffer}},{binding:1,resource:{buffer:r.groundGridBuffer}}]});
+  r.layerBuffer=ub();
+  r.layerGroup=r.device.createBindGroup({layout:r.groundPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.layerBuffer}},{binding:1,resource:{buffer:r.groundGridBuffer}}]});
 }
 
 /** The wave tick clock, free-running on wall time while the sim is not stepping (same convention as the wave renderer) so gusts keep moving in flight and pause. */
@@ -85,6 +87,9 @@ export function drawWind(r,encoder,near,origin,depthAttachment) {
     r.device.queue.writeBuffer(r.groundBuffer,0,windParticleUniform(r.view,near,origin,t,clock,ground,light,count,w.ground,kind,fade,w.drift,w.params,r.windUniform));
     r.windGridUniform=groundGridUniform(r.windGrid,r.windGridUniform);r.device.queue.writeBuffer(r.groundGridBuffer,0,r.windGridUniform);
     pass.setPipeline(r.groundPipeline);pass.setBindGroup(0,r.groundGroup);pass.draw(6,count);n++;
+    // Stacked layers: same pipeline and lattice, own uniform (half drift/sway speed, layered flag).
+    r.device.queue.writeBuffer(r.layerBuffer,0,windParticleUniform(r.view,near,origin,t,clock*W.layers.speed,ground,light,count,w.ground,kind,fade,w.layerDrift,w.params,r.windUniform,1));
+    pass.setBindGroup(0,r.layerGroup);pass.draw(6,count);n++;
   }
   pass.end();r.windDraws+=n;
   return n;
