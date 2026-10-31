@@ -8,7 +8,7 @@ import {waveTime,paramsFromArray} from './wave-math.js';
 
 // The clipmap keeps lattice points with amp >= MASK_EPS, the flat tile/fill water yields only where amp >= MASK_FILL_EPS: the band between is drawn by both,
 // so the horizontal Gerstner displacement of the clip edge (and the coarse-level interpolation of it) cannot open a see-through gap along the wave-region boundary.
-export const MASK_N=96,MASK_CELL=40,MASK_RANGE=10,MASK_EPS=.01,MASK_FILL_EPS=.5,MASK_REFRESH=384;
+export const MASK_N=128,MASK_CELL=16,MASK_RANGE=10,MASK_EPS=.01,MASK_FILL_EPS=.5,MASK_REFRESH=384;
 // The mask reads 0 outside its window, a hard edge. The fill only yields this far inside it, so a clip vertex displaced across the edge cannot leave a gap (> the largest Gerstner displacement, 5 yd in the maelstrom).
 export const MASK_PAD=16;
 export const CLIP_LEVELS=5,CLIP_N=64,CLIP_BASE=2,CLIP_HOLE=15,SKIRT=4,MAX_COMPONENTS=6;

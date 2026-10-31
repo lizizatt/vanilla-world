@@ -29,7 +29,7 @@ export function setShoreField(r,{origin,cell,n,data}) {
 
 // Above this the sea reads as flat from the eye and the clipmap (and its fill discard) switches off.
 export const WAVE_CEILING=2500;
-const MASK_SLICE_ROWS=6;
+const MASK_SLICE_ROWS=4;
 
 /** Fetches the mask in row slices (one worker message each, ~10 ms of sampling) and stitches them; the last slice carries the params and rev. */
 export async function fetchWaveMask(client,center) {
