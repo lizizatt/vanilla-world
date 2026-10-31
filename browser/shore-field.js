@@ -4,6 +4,7 @@
 // (so tidepools and small inlets do not steer the wave trains), A confidence of that normal x "a real body of water is nearby" (rivers and puddles drop out).
 export const SHORE_N=96,SHORE_CELL=8,SHORE_REFRESH=128;
 export const SHORE_D_MIN=-16,SHORE_D_MAX=80,SEA_LEVEL_TOLERANCE=3;
+const NORMAL_TURN=[.06,.16],NORMAL_ALIGN=[.3,.7];
 const CONTOUR_BLUR=1,NORMAL_BLUR=4,NORMAL_PASSES=3,OPEN_BLUR=8;
 const smoothstep=(e0,e1,x)=>{const s=Math.min(1,Math.max(0,(x-e0)/(e1-e0)));return s*s*(3-2*s);};
 
@@ -85,6 +86,22 @@ export function shoreSolve(classes,n=SHORE_N,cell=SHORE_CELL){
     const gx=(at(i+1,j)-at(i-1,j))/2,gz=(at(i,j+1)-at(i,j-1))/2,m=Math.hypot(gx,gz),k=j*n+i;
     if(m>1e-6){nx[k]=-gx/m;nz[k]=-gz/m;}
     conf[k]=smoothstep(.008,.03,m);
+  }
+  // Low-confidence zones: where the averaged normal turns fast (converging/diverging around small islands and narrow shoals, saddles between them)
+  // or disagrees with the contour's own gradient, wave phase along the coast aliases and the shoreward displacement stretches crests into spikes.
+  // Both factors are ~1 on a straight or gently curved coast, so those look as before.
+  const nAt=(i,j)=>{const q=Math.min(n-1,Math.max(0,j))*n+Math.min(n-1,Math.max(0,i));return q;};
+  const raw=conf.slice();
+  for(let j=0;j<n;j++)for(let i=0;i<n;i++){
+    const k=j*n+i;if(raw[k]<=0)continue;
+    let v=0;
+    for(const [di,dj] of [[1,0],[0,1],[1,1],[1,-1]]){
+      const a=nAt(i+di,j+dj),b=nAt(i-di,j-dj);
+      v=Math.max(v,Math.hypot(nx[a]-nx[b],nz[a]-nz[b])/(2*Math.hypot(di,dj)));
+    }
+    const sx=(sdf[nAt(i+1,j)]-sdf[nAt(i-1,j)])/2,sz=(sdf[nAt(i,j+1)]-sdf[nAt(i,j-1)])/2,sm=Math.hypot(sx,sz);
+    const align=sm>.5*cell?(nx[k]*sx+nz[k]*sz)/sm:1;
+    conf[k]=raw[k]*(1-smoothstep(NORMAL_TURN[0],NORMAL_TURN[1],v))*smoothstep(NORMAL_ALIGN[0],NORMAL_ALIGN[1],align);
   }
   return {sdf,nx,nz,conf,open:boxBlur(Float32Array.from(open),n,OPEN_BLUR)};
 }

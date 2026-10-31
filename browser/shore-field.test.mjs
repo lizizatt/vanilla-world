@@ -116,3 +116,41 @@ test('beach shader binds 7/8 and exposes the swap-point wind hook',()=>{
   assert.match(beachShading,/fn beachApply\(/);
   assert.match(beachShading,/fn clipLive\(/);
 });
+
+// Small island (radius ~3 cells) and a narrow shoal (3 cells wide) far offshore: the field must fade out instead of steering crests into spikes.
+function island(r){const c=new Uint8Array(N*N).fill(2);for(let j=0;j<N;j++)for(let i=0;i<N;i++)if(Math.hypot(i-48,j-48)<=r)c[j*N+i]=0;return c;}
+function shoal(w){const c=new Uint8Array(N*N).fill(2);for(let j=20;j<76;j++)for(let i=48;i<48+w;i++)c[j*N+i]=0;return c;}
+const maxConf=(f,cls,ring)=>{let m=0;for(let k=0;k<N*N;k++)if(cls[k]!==0&&ring(k%N,Math.floor(k/N)))m=Math.max(m,f.conf[k]);return m;};
+
+test('a tiny island yields no confident wave field; the saddle between two islands fades out',()=>{
+  const near=(i,j)=>Math.hypot(i-48,j-48)<30;
+  const c=island(3);assert.ok(maxConf(shoreSolve(c),c,near)<.25,'tiny island');
+  const two=new Uint8Array(N*N).fill(2);
+  for(let j=0;j<N;j++)for(let i=0;i<N;i++)if(Math.hypot(i-36,j-48)<=8||Math.hypot(i-60,j-48)<=8)two[j*N+i]=0;
+  const f=shoreSolve(two);
+  assert.ok(f.conf[48*N+48]<.3,`saddle conf ${f.conf[48*N+48]}`);
+});
+
+test('a narrow shoal keeps a coherent, seaward-pointing field on its flanks',()=>{
+  const cls=shoal(3),f=shoreSolve(cls);
+  assert.ok(f.nx[48*N+53]>.8&&f.nx[48*N+45]<-.8);
+});
+test('confidence never lets the normal turn fast or point away from the contour gradient',()=>{
+  const f=shoreSolve(island(9));
+  for(let j=2;j<N-2;j++)for(let i=2;i<N-2;i++){
+    const k=j*N+i;if(f.conf[k]<.5)continue;
+    const turn=Math.hypot(f.nx[k+1]-f.nx[k-1],f.nz[k+1]-f.nz[k-1])/2;
+    assert.ok(turn<.14,`normal turns ${turn}/cell at ${i},${j}`);
+  }
+});
+
+test('straight coast keeps full confidence (beach waves unchanged there)',()=>{
+  const f=shoreSolve(coast());
+  for(let i=8;i<N-8;i++)assert.ok(f.conf[58*N+i]>.9);
+});
+
+test('beach displacement is bounded',()=>{
+  let max=0;
+  for(let d=-2;d<90;d+=.5)for(let t=0;t<1;t+=.05)for(const wind of [0,.35,1])max=Math.max(max,beachProfile(d,0,t,wind,1).q);
+  assert.ok(max<=BEACH.Q_MAX&&max>0);
+});
