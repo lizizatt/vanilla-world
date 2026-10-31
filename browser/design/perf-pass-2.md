@@ -1,7 +1,6 @@
-# Performance pass 2 (profiling only)
+# Performance pass 2 (profiling + first fixes)
 
-Profile-only report. No behavior or visual changes were made; only harnesses were added (`perf-matrix.mjs`, `perf-elune.mjs`).
-Baseline for comparison is `perf-pass.md` (pass 1).
+Profiling report followed by the implemented fixes (see "Results" at the end). Baseline for comparison is `perf-pass.md` (pass 1).
 
 ## Method and caveats
 
@@ -118,6 +117,36 @@ Not worth doing now (measured negligible): wave shaders and beach waves (waves o
 2. Item 2: capture a trace of one coast-fly (and `hispeed-fly`) to name the native stall before choosing a fix; this is the main user-visible p99 cost.
 3. Item 3 (worker scheduling) with `stream-stress.mjs` as the gate, then item 5.
 4. Items 6-9 only as quality-tier options or adaptive degradation, never silently.
+
+## Results (implemented)
+
+Same harness, 720p uncapped, one run per row (noise up to ~1.2 ms mean). Before = the matrix above (first sweep); after = `PROFILE=0`/profiled runs on this branch.
+
+| Cell | before mean / p99 / >25 | after items 1-3 mean / p99 / >25 |
+|---|---|---|
+| ground | 4.53 / 13.5 / 3 | 3.93 / 9.4 / 2 |
+| coast-fly | 7.26 (6.09 rerun) / 27.7 / 20 | 5.34 / 12.2 / 4 (other runs: 5.17 / 11.7 / 1, 6.03 / 14.1 / 6 after item 1 only) |
+| ocean-fly | 8.38 / 26.2 / 16 | 5.79 / 11.7 / 1 (item 1 only) |
+| hispeed-fly (3000 yd/s) | 9.01 / 109.2 / 28 | 7.04 / 44.1 / 27 (repeat runs: 7.01 / 33.1 / 24) |
+
+1. **Streaming at speed** (`renderer-waves.js`, `app-frame.js`): the eye speed is smoothed per frame in `waveItems` (teleport jumps clamped); above `WAVE_STREAM_SPEED` = 1200 yd/s no wave-mask / shore-field refresh is requested and an in-flight sliced fetch is abandoned between slices. Outside the mask window amplitude reads 0, so the flat fill covers the sea; refresh resumes when the flight slows. Below 1200 yd/s nothing changes (260-400 yd/s flights keep full waves/shore). At 3000 yd/s `wave-mask` requests fell 825 -> ~120 and `shore-rows` 792 -> ~125 per 10 s (the rest happen before the smoothed speed crosses the threshold). **Finding that corrects the profile:** the p99 did not move from this alone (108 -> 112 ms), because the 114-ish ms worker round trips listed for `frame`/`shore-rows`/`wave-mask` were the *same* main-thread stall (the reply cannot be read while the main thread is blocked), not worker saturation. The p99 only fell once items 2-3 removed CPU on the main thread (and `stream-stress` recovery after the stop went 1.5 s -> 1.0 s).
+2. **`dropOpenSeaWater`** (`land-rect.js`): preallocated `Float32Array` + `set` instead of `keep.push(...subarray)`; output identical (new test). 17% of script at 3000 yd/s -> 4.2%.
+3. **Globe patches** (`globe-patches.js`): `stitch` is memoised on the exact leaf set (cell keys + limit, 8 entries), so identical leaf sets give identical output (existing 51 wave/globe/land tests pass). `stitch`/`levelAt`/`edgeLevels` dropped out of the top of the CPU profile (was 8-18% of script; `arc` from the selection walk remains at ~2-3%).
+
+Gates: `stream-stress.mjs` (quick, 8000 yd/s) ok, 0 errors; matrix runs 0 errors, `frame` handler p99 ~20 ms (coast-fly 20.2); wave/shore/globe/land unit tests 51/51. Flat water with waves off and the wave shaders/Rust were not touched, so no `pkg` rebuild or JS/Rust parity change was needed.
+
+### Item 4: the ~100 ms main-thread stalls (traced)
+
+`perf-matrix.mjs` gained `TRACE=1` (Chrome tracing around the sample, reduces to events overlapping >60 ms main-thread tasks plus >3 ms GC events, in `test-results/perf-trace/`) and records synchronous WebGPU calls >8 ms (`slowGpuCalls`) and long-task times (`tasksAt`).
+- Every stall is one `RunTask` -> `BeginMainFrame` -> rAF `FireAnimationFrame` -> `v8.callFunction` of our `frame` with **no child events**: not layout/style/paint, not worker messaging, not DOM.
+- **Not GC:** longest GC event in any trace was 5 ms; scavenges inside the stall are tiny.
+- **Not a slow WebGPU call:** during the first-seconds stall (1.1 s, 157 ms in `ground-weather`; 0.15 s, 55-169 ms in flights) no single `createRenderPipeline`/`createShaderModule`/`submit`/`writeBuffer` call exceeded 8 ms, and `CommandBufferProxyImpl::WaitForToken` was 2 ms. The stall is therefore a one-time warm-up inside script (first-use JIT/lazy compile of the weather/wave/scene paths and first tile ingest), not a driver wait as the profile guessed.
+- After items 1-3 these first-second stalls disappeared from several coast-fly runs (0 long tasks in the `gpu` run; one 166 ms in the traced run) and are not reproducible enough to attribute further without a JS-level frame breakdown; they happen once per cell start and are not recurring.
+- The recurring ones at 3000 yd/s (50-76 ms, 4.5-6.7 s into the run) coincide with clusters of 8-18 ms `writeBuffer`/`writeTexture`/`createCommandEncoder` calls: tile-ingest upload bursts when many new tiles arrive at once (GPU queue backpressure). A fix would be an upload budget per frame in the terrain/tile ingest path; not done here because it delays tile visibility (visual trade-off) and needs its own streaming gate run.
+
+### Remaining / trade-off options (not done)
+
+Item 5 (batch `writeBuffer`/`writeUniform`), the sky/weather/particle quality options (6-9), per-frame tile-upload budget (above) and skipping the globe mesh when occluded remain open; none were changed because they alter visuals or need separate validation.
 
 ## Re-run
 

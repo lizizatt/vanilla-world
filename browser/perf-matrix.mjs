@@ -9,7 +9,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const label = process.argv[2] || 'run', want = process.argv.slice(3);
-const SETTLE = Number(process.env.SETTLE || 6000), SAMPLE = Number(process.env.SAMPLE || 10000), PROFILE = process.env.PROFILE !== '0';
+const SETTLE = Number(process.env.SETTLE || 6000), SAMPLE = Number(process.env.SAMPLE || 10000), PROFILE = process.env.PROFILE !== '0', TRACE = process.env.TRACE === '1';
 const port = await new Promise((res, rej) => { const s = net.createServer(); s.once('error', rej); s.listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => res(port)); }); });
 if (port === 4173) throw new Error('refusing port 4173');
 process.env.PORT = String(port); process.env.LAB_UNCAPPED ??= '1'; process.env.LAB_NO_RESTORE ??= '1';
@@ -33,6 +33,10 @@ await page.evaluate(() => {
     WorldClient.prototype.request = function (action, ...a) { const t = performance.now(); const p = q.call(this, action, ...a);
       const done = r => { if (mine.on) mine.rt.push({ action, t: t - mine.t0, ms: performance.now() - t }); return r; };
       return p.then(done, e => { done(); throw e; }); }; });
+  mine.gpu = [];
+  // Synchronous WebGPU calls that block the main thread >8 ms (pipeline/shader/texture creation, uploads, submit), to attribute native stalls.
+  for (const [proto, names] of [[GPUDevice.prototype, ['createRenderPipeline', 'createComputePipeline', 'createShaderModule', 'createTexture', 'createBuffer', 'createBindGroup', 'createCommandEncoder', 'createSampler', 'importExternalTexture']], [GPUQueue.prototype, ['writeBuffer', 'writeTexture', 'submit', 'copyExternalImageToTexture']], [GPUCommandEncoder.prototype, ['finish', 'beginRenderPass', 'beginComputePass']], [GPUCanvasContext.prototype, ['getCurrentTexture']]])
+    for (const n of names) { const o = proto[n]; if (!o) continue; proto[n] = function (...a) { const t = performance.now(), r = o.apply(this, a), d = performance.now() - t; if (mine.on && d > 8) mine.gpu.push({ n, t: t - mine.t0, ms: +d.toFixed(1) }); return r; }; }
   new PerformanceObserver(l => { if (mine.on) for (const e of l.getEntries()) mine.tasks.push({ t: e.startTime - mine.t0, ms: e.duration }); }).observe({ type: 'longtask', buffered: false });
   let last = performance.now(); const tick = n => { if (mine.on) mine.frames.push({ t: n - mine.t0, dt: n - last }); last = n; requestAnimationFrame(tick); }; requestAnimationFrame(tick);
 });
@@ -85,7 +89,18 @@ for (const [name, def] of Object.entries(cells)) {
   if (def.move) await page.evaluate(([p, v]) => { const t0 = performance.now(); clearInterval(window.__mv); window.__mv = setInterval(() => { const s = (performance.now() - t0) / 1000; worldTest.focus([p[0] + v[0] * s, p[1], p[2] + v[1] * s, p[3], p[4]]); }, 16); }, [pose, def.move]);
   await page.evaluate(() => Object.assign(__prof, { on: true, t0: performance.now(), draw: [], rt: [], tasks: [], frames: [] }));
   if (PROFILE) { await cdp.send('Profiler.enable'); await cdp.send('Profiler.setSamplingInterval', { interval: 200 }); await cdp.send('Profiler.start'); }
-  const pnow0 = PROFILE ? await page.evaluate(() => performance.now()) : 0, m0 = await metric(); await page.waitForTimeout(SAMPLE); const m1 = await metric();
+  const pnow0 = PROFILE ? await page.evaluate(() => performance.now()) : 0, m0 = await metric();
+  const traceEvents = [];
+  if (TRACE) { cdp.on('Tracing.dataCollected', e => traceEvents.push(...e.value)); await cdp.send('Tracing.start', { transferMode: 'ReportEvents', traceConfig: { includedCategories: ['devtools.timeline', 'v8', 'gpu', 'disabled-by-default-devtools.timeline', 'toplevel', 'blink', 'cc', 'viz'] } }); }
+  await page.waitForTimeout(SAMPLE);
+  if (TRACE) { const done = new Promise(r => cdp.once('Tracing.tracingComplete', r)); await cdp.send('Tracing.end'); await done; fs.mkdirSync('test-results/perf-trace', { recursive: true });
+    // The raw trace is too big to stringify: keep only events (>1 ms) on each thread that overlap a >80 ms main-thread task, plus thread names.
+    const meta = traceEvents.filter(e => e.ph === 'M' && e.name === 'thread_name'), main = meta.filter(e => e.args.name === 'CrRendererMain').map(e => `${e.pid}:${e.tid}`);
+    const tasks = traceEvents.filter(e => e.ph === 'X' && e.name === 'RunTask' && e.dur > 60000 && main.includes(`${e.pid}:${e.tid}`));
+    const inside = e => (e.ph === 'X' ? e.dur > 1000 : ['B', 'E', 'I', 'R', 'n', 'b', 'e'].includes(e.ph)) && tasks.some(t => e.ts < t.ts + t.dur && e.ts + (e.dur || 0) > t.ts && (e.ph === 'X' || (e.pid === t.pid)));
+    fs.writeFileSync(`test-results/perf-trace/${label}-${name.replace(/\W/g, '_')}.json`, JSON.stringify({ meta, gc: traceEvents.filter(e => e.ph === 'X' && /GC|scaveng/i.test(e.name) && e.dur > 3000).map(e => ({ n: e.name, ts: e.ts, dur: e.dur, tid: e.tid })), tasks: tasks.map(t => ({ ts: t.ts, dur: t.dur, pid: t.pid, tid: t.tid })), events: traceEvents.filter(inside).slice(0, 4000).map(e => ({ p: e.ph, n: e.name, c: e.cat, ts: e.ts, dur: e.dur, pid: e.pid, tid: e.tid, a: e.args && JSON.stringify(e.args).slice(0, 160) })) }));
+    traceEvents.length = 0; }
+  const m1 = await metric();
   const d0 = await page.evaluate(() => ({ tasks: __prof.tasks.map(t => ({ t0: t.t + __prof.t0, ms: t.ms })) }));
   let hot, files, ltHot;
   if (PROFILE) {
@@ -102,14 +117,14 @@ for (const [name, def] of Object.entries(cells)) {
     ltHot = [...lt].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([k, v]) => [k, +(v / (ltTot || 1) * 100).toFixed(1)]);
   }
   await page.evaluate(() => clearInterval(window.__mv));
-  const d = await page.evaluate(() => { __prof.on = false; return { draw: __prof.draw, rt: __prof.rt, tasks: __prof.tasks, frames: __prof.frames }; });
+  const d = await page.evaluate(() => { __prof.on = false; return { draw: __prof.draw, rt: __prof.rt, tasks: __prof.tasks, frames: __prof.frames, gpu: __prof.gpu.splice(0) }; });
   const dts = d.frames.map(f => f.dt), byAction = {};
   for (const r of d.rt) (byAction[r.action] ??= []).push(r.ms);
   const worker = Object.fromEntries(Object.entries(byAction).map(([a, v]) => [a, { n: v.length, totalMs: Math.round(v.reduce((x, y) => x + y, 0)), ...dist(v) }]));
   const slow = d.frames.filter(f => f.dt > 25).map(f => ({ at: +(f.t / 1000).toFixed(2), ms: +f.dt.toFixed(1),
     longTask: Math.round(Math.max(0, ...d.tasks.filter(t => t.t + t.ms > f.t - f.dt - 20 && t.t < f.t + 20).map(t => t.ms))),
     worker: d.rt.filter(r => r.t < f.t && r.t + r.ms > f.t - f.dt - 20).map(r => `${r.action}:${Math.round(r.ms)}`).slice(0, 4) }));
-  rows[name] = { frameMs: dist(dts), over25: slow.length, slow: slow.slice(0, 12), drawCpuMs: dist(d.draw), workerMs: worker, longTasks: dist(d.tasks.map(t => t.ms)),
+  rows[name] = { frameMs: dist(dts), over25: slow.length, slow: slow.slice(0, 12), drawCpuMs: dist(d.draw), workerMs: worker, longTasks: dist(d.tasks.map(t => t.ms)), tasksAt: d.tasks.filter(t => t.ms > 40).map(t => ({ at: +(t.t / 1000).toFixed(2), ms: Math.round(t.ms) })), slowGpuCalls: d.gpu.slice(0, 40),
     scriptMsPerS: +((m1.ScriptDuration - m0.ScriptDuration) / (SAMPLE / 1000) * 1000).toFixed(1), taskMsPerS: +((m1.TaskDuration - m0.TaskDuration) / (SAMPLE / 1000) * 1000).toFixed(1),
     heapMB: +(m1.JSHeapUsedSize / 1048576).toFixed(1), hot, files, ltHot,
     render: await page.evaluate(() => { const r = worldEvidence.render ?? {}; return { worldDraws: r.worldDraws, coastalWaterTiles: r.coastalWaterTiles }; }) };
