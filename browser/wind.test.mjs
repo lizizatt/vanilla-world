@@ -10,6 +10,7 @@ import {WAVE_PERIOD,WAVE_TICKS_PER_SECOND} from './wave-config.js';
 
 const zone=(name,extra={})=>({base:beltVector(.8),...W.zones[name],storm:0,...extra});
 const P=(name,extra)=>packWind(zone(name,extra));
+const f=x=>Number.isInteger(x)?x.toFixed(1):String(x);
 const grid=(fn)=>{for(let i=0;i<60;i++)fn(2e4+i*913.7,-3e4+i*1771.3,i*17.31);};
 
 test('wind is deterministic, finite and bounded',()=>{
@@ -103,7 +104,8 @@ test('zone parameters ease across a border instead of jumping',()=>{
 });
 test('ground drift is bounded so f32 stays exact',()=>{
   const w=new WindRuntime();for(let i=0;i<100000;i++)w.step({dt:.016,x:0,z:0,t:i*.016,lat:.8,character:'desert',storm:1,mael:null,enabled:true,sea:false});
-  assert(Math.abs(w.drift[0])<W.box.ground&&Math.abs(w.drift[1])<W.box.ground);
+  assert(Math.abs(w.drift[0])<W.box.groundFar&&Math.abs(w.drift[1])<W.box.groundFar);
+  assert.equal(W.box.groundFar%W.box.ground,0,'the drift wrap must be a whole number of near boxes');
 });
 test('blowing dust/snow drifts at half the wind speed on land',()=>{
   assert.equal(W.groundSpeed,.5);
@@ -115,7 +117,7 @@ test('blowing dust/snow drifts at half the wind speed on land',()=>{
   }
 });
 test('sea spray switches on at a moderate wind, well below a gale',()=>{
-  assert(W.spray.on<=.3&&sprayK(.5)>.3&&sprayK(.7)===1);
+  assert(W.spray.on<=.35&&sprayK(.5)>.3&&sprayK(.75)===1);
   const w=new WindRuntime();let best=0;
   for(let i=0;i<4000;i++){w.step({dt:.05,x:100,z:200,t:i*.05,lat:.8,character:'sea',storm:.5,mael:null,enabled:true,sea:true});best=Math.max(best,w.spray);}
   assert(best>.5);
@@ -125,19 +127,20 @@ test('ground layer follows the terrain: lattice reproduces a slope, caches, and 
   const g=new GroundGrid((x,z)=>{calls.push([x,z]);return slope(x,z);});
   g.update(1000.3,-500.7);
   const first=calls.length;assert(first<=W.grid.budget);
-  for(let i=0;i<8;i++)g.update(1000.3,-500.7);
+  const fill=Math.ceil(W.grid.n*W.grid.n/W.grid.budget)+1;
+  for(let i=0;i<fill;i++)g.update(1000.3,-500.7);
   assert.equal(calls.length,W.grid.n*W.grid.n);
   g.update(1000.3,-500.7);assert.equal(calls.length,W.grid.n*W.grid.n);
   // On a planar slope the bilinear sample is exact; on a curved one it stays within the curvature error of a step.
-  const plane=new GroundGrid((x,z)=>.4*x-.1*z);for(let i=0;i<8;i++)plane.update(200,300);
+  const plane=new GroundGrid((x,z)=>.4*x-.1*z);for(let i=0;i<fill;i++)plane.update(200,300);
   for(const [x,z] of [[200,300],[203.7,296.2],[190.1,310.9]])assert(Math.abs(plane.sample(x,z)-(.4*x-.1*z))<1e-3);
   for(const [x,z] of [[1000.3,-500.7],[1006.1,-494.9],[994.4,-506.2]])assert(Math.abs(g.sample(x,z)-slope(x,z))<.1);
   // Moving the window reuses the cache and only queries the new cells.
-  const before=calls.length;g.update(1004.3,-500.7);assert(calls.length-before<=W.grid.budget&&calls.length>before);
+  const before=calls.length;g.update(1006.3,-500.7);assert(calls.length-before<=W.grid.budget&&calls.length>before);
   // Failed queries do not poison the window.
   const bad=new GroundGrid(()=>NaN);bad.update(0,0);assert.equal(bad.known,0);
   assert(groundShader.includes('fn groundY(')&&groundShader.includes('groundY(u.eye.xz+rel)')&&!groundShader.includes('u.org.z'));
-  assert(groundShader.includes(`${W.grid.clear}+H+`)&&groundShader.includes('.25*(.5+.5*sin('),'particle centre must clear its own half height');
+  assert(groundShader.includes(`${f(W.grid.clear)}+${f(W.grid.clearFar)}*d+H+`)&&groundShader.includes('.08*(.5+.5*sin('),'particle centre must clear its own half height');
   const up=groundGridUniform(g);assert.equal(up.length,GRID_UNIFORM_FLOATS);assert.deepEqual([...up.slice(0,4)],g.meta);
 });
 test('wave/whitecap hooks only ever raise the sea state and never touch the physics waves',()=>{
@@ -156,6 +159,29 @@ test('WGSL emitter carries every constant windAt reads',()=>{
   assert(src.includes('fn windAt(a0:vec4f,a1:vec4f,a2:vec4f,xz:vec2f,t:f32)->vec4f'));
   for(const s of [sprayShader,groundShader]){assert(s.includes(src));assert(s.includes('@vertex fn vs')&&s.includes('@fragment fn fs'));}
   assert(sprayShader.includes('waveVertex(P,eyeR)')&&sprayShader.includes('wv.head.x<.5'));
+});
+test('second pass: wind is 35% slower than the first pass with the same effect thresholds on strength',()=>{
+  // First-pass reference numbers (commit 15e35310 and before): belt .35, maxSpeed 28, storm add 22, desert floor 5.
+  assert(Math.abs(W.beltScale/.35-.65)<1e-9&&Math.abs(W.maxSpeed/28-.65)<1e-9&&Math.abs(W.storm.add/22-.65)<1e-9);
+  assert(Math.abs(W.zones.desert.floor/5-.65)<1e-9&&W.zones.forest.floor===0);
+  assert(W.dust.on>=.5&&W.snow.on>=.45&&W.spray.on>=.3,'effects start at a stronger wind than the first pass (.45/.4/.28)');
+  const s=windAt(packWind({base:[0,0],gain:1,floor:10,gust:0}),0,0,0);assert(Math.abs(s.speed-10)<1e-4);
+});
+test('second pass: ground layer is wispy, 1-2 ft (0.3-0.7 yd) tall and reaches several times further',()=>{
+  const near=W.ground.height+W.grid.clear+.08+2*.1*1.4;
+  assert(W.ground.height>=.3&&near<=.75,`near vertical extent ${near} yd`);
+  assert(W.ground.alpha.dust<=.4&&W.ground.alpha.snow<=.6,'quads are ~20x smaller in area than the first pass, so peak alpha stays moderate');
+  assert(W.box.groundFar>=4*W.box.ground&&W.box.sprayFar>=4*W.box.spray,'draw distance several times the first pass box');
+  assert(W.box.sprayFar%W.box.spray===0&&W.grid.n*W.grid.step>=W.box.groundFar,'the height lattice covers the far ring');
+  assert(groundShader.includes('let ds=1.0+d*.045')&&groundShader.includes('*ds;'),'quads grow with distance');
+  assert(groundShader.includes(`floor(u.p.x*${f(1-W.ground.far)})`)&&W.ground.far>0&&W.ground.far<1);
+  assert(W.quality.high<=2600&&W.quality.standard<=1100,'particle budget unchanged');
+});
+test('second pass: spray is subtle and crest-only, and reaches distant crests',()=>{
+  assert(W.sprayLook.alpha<=.4&&W.sprayLook.crest[0]>=.6&&W.sprayLook.crest[1]>W.sprayLook.crest[0]);
+  assert(sprayShader.includes('let top=w.h/m+.5*w.crest;')&&sprayShader.includes(`smoothstep(${f(W.sprayLook.crest[0])}-.12*amt`));
+  assert(!sprayShader.includes('(.4+.6*smoothstep'),'no general haze share outside crests');
+  assert(sprayShader.includes('let ds=1.0+d*.035')&&sprayShader.includes(`select(${f(W.box.spray)},${f(W.box.sprayFar)},far)`));
 });
 test('particle uniform packs into its 160 byte block',()=>{
   const view={eye:[1,2,3],right:[1,0,0],up:[0,1,0],look:[0,0,1],aspect:1.5},u=windParticleUniform(view,.2,[10,20],5,6,7,.8,100,.5,1,.9,[1,2],P('desert'));

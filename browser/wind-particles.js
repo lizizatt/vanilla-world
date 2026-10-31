@@ -61,30 +61,33 @@ ${waveRenderShading}
 @vertex fn vs(@builtin(vertex_index) vi:u32,@builtin(instance_index) ii:u32)->V {
   let q=corner(vi);
   if(f32(ii)>=u.p.x||wv.head.x<.5){return culled(q);}
-  let B=${f(W.box.spray)};let h=h3(ii);
+  // The last share of the budget is the far ring: a wide box whose puffs grow with distance so spray still reads on distant crests.
+  let far=f32(ii)>=floor(u.p.x*${f(1-W.sprayLook.far)});
+  let B=select(${f(W.box.spray)},${f(W.box.sprayFar)},far);let h=h3(ii);
   let rel=(fract((h.xz*B-u.eye.xz)/B+.5)-.5)*B;
+  let d=length(rel);let ds=1.0+d*.035;
   let eyeR=u.eye.xz-u.org.xy;let P=eyeR+rel;
   let wd=windAt(u.w0,u.w1,u.w2,P+u.org.xy,u.eye.w);
   let amt=smoothstep(${f(W.spray.on)},${f(W.spray.full)},wd.w);
   let m=waveAmp(P);
   if(amt<=0.0||m<.03){return culled(q);}
   let w=waveVertex(P,eyeR);
-  // Crest tops are favoured (height as a fraction of the local amplitude plus the steepness term), but a wind-scaled share of the sea emits anyway,
-  // so the spray reads over the whole near sea even where the wave components have faded with eye distance.
+  // Crest tops only: height as a fraction of the local amplitude plus the steepness term must clear a threshold that eases down a little as the wind rises.
+  // No general haze; the sea between crests emits nothing.
   let top=w.h/m+.5*w.crest;
-  let pick=1.0-smoothstep(.03+.12*amt,.08+.2*amt,h.z);
-  let emit=pick*(.4+.6*smoothstep(mix(.25,.04,amt),mix(.5,.14,amt),top));
+  let pick=1.0-smoothstep(.25,.45+.35*amt,h.z);
+  let emit=pick*smoothstep(${f(W.sprayLook.crest[0])}-.12*amt,${f(W.sprayLook.crest[1])}-.12*amt,top);
   if(emit<=0.0){return culled(q);}
-  let sz=.45+.25*min(m,4.0);
+  let sz=(.2+.1*min(m,4.0))*ds;
   let a=fract(u.drift.z*.55+h.y);
-  let rise=sz*.7*(1.0-(1.0-a)*(1.0-a));
-  let blow=wd.xy*wd.z*a*.6;
-  let c=vec3f(w.xz.x-eyeR.x+blow.x,w.h+.15+rise-u.eye.y,w.xz.y-eyeR.y+blow.y);
+  let rise=sz*.5*(1.0-(1.0-a)*(1.0-a));
+  let blow=wd.xy*wd.z*a*.5;
+  let c=vec3f(w.xz.x-eyeR.x+blow.x,w.h+.08+rise-u.eye.y,w.xz.y-eyeR.y+blow.y);
   let z0=dot(c,u.look.xyz);
-  let L=sz*(.9+1.1*a)*(1.0+wd.z*.05);let H=sz*(.35+.6*a);
+  let L=sz*(.9+1.1*a)*(1.0+wd.z*.03);let H=sz*(.25+.4*a);
   let pos=c+streakSide(wd.xy)*q.x*L+u.up.xyz*q.y*H;
   let edge=1.0-smoothstep(.6,1.0,max(abs(rel.x),abs(rel.y))/(B*.5));
-  let al=emit*amt*edge*smoothstep(0.0,.15,a)*(1.0-a)*.5*smoothstep(u.up.w,u.up.w*6.0,z0);
+  let al=emit*amt*edge*smoothstep(0.0,.15,a)*(1.0-a)*${f(W.sprayLook.alpha)}*smoothstep(u.up.w,u.up.w*6.0,z0);
   return project(pos,al,vec3f(.86,.92,.95)*(.5+.5*u.org.w),q);
 }`;
 
@@ -104,18 +107,21 @@ fn groundY(p:vec2f)->f32 {
 @vertex fn vs(@builtin(vertex_index) vi:u32,@builtin(instance_index) ii:u32)->V {
   let q=corner(vi);
   if(f32(ii)>=u.p.x){return culled(q);}
-  let B=${f(W.box.ground)};let h=h3(ii);let snow=select(0.0,1.0,u.p.z>1.5);
+  // The last share of the budget is the far ring: a wide box whose quads grow with distance so the layer reads out to the horizon of the lattice.
+  let far=f32(ii)>=floor(u.p.x*${f(1-W.ground.far)});
+  let B=select(${f(W.box.ground)},${f(W.box.groundFar)},far);let h=h3(ii);let snow=select(0.0,1.0,u.p.z>1.5);
   let rel=(fract((h.xz*B+u.drift.xy-u.eye.xz)/B+.5)-.5)*B;
+  let d=length(rel);let ds=1.0+d*.045;
   let wd=windAt(u.w0,u.w1,u.w2,u.eye.xz+rel,u.eye.w);
-  let lift=${f(W.box.height)}*mix(1.0,.75,snow)*(.3+.7*u.p.y);
-  let L=mix(.9+wd.z*.07,.3+wd.z*.03,snow);let H=mix(.45*(.6+.8*h.z),.12,snow);
-  // Centre sits above the local terrain by the quad's half height, the sway (always >= 0) and the lattice clearance, so nothing dips into the ground.
-  let y=groundY(u.eye.xz+rel)+${f(W.grid.clear)}+H+h.y*lift+.25*(.5+.5*sin(u.drift.z*1.7+h.x*30.0))-u.eye.y;
+  let lift=${f(W.ground.height)}*mix(1.0,.8,snow)*(.35+.65*u.p.y);
+  let L=mix(.4+wd.z*.02,.2+wd.z*.01,snow)*ds;let H=mix(.1*(.6+.8*h.z),.06,snow)*(1.0+d*.012);
+  // Centre sits above the local terrain by the quad's half height, the sway (always >= 0) and the lattice clearance (coarser far away), so nothing dips into the ground.
+  let y=groundY(u.eye.xz+rel)+${f(W.grid.clear)}+${f(W.grid.clearFar)}*d+H+h.y*lift+.08*(.5+.5*sin(u.drift.z*1.7+h.x*30.0))-u.eye.y;
   let c=vec3f(rel.x,y,rel.y);
   let z0=dot(c,u.look.xyz);
   let pos=c+streakSide(wd.xy)*q.x*L+u.up.xyz*q.y*H;
   let edge=1.0-smoothstep(.62,1.0,max(abs(rel.x),abs(rel.y))/(B*.5));
-  let al=edge*u.p.w*u.p.y*mix(.2*(.5+.5*h.z),.65,snow)*smoothstep(u.up.w,u.up.w*4.0,z0);
+  let al=edge*u.p.w*u.p.y*mix(${f(W.ground.alpha.dust)}*(.5+.5*h.z),${f(W.ground.alpha.snow)},snow)*smoothstep(u.up.w,u.up.w*4.0,z0);
   let col=mix(vec3f(.72,.58,.40)*(.45+.55*u.org.w),vec3f(.95,.97,1.0)*(.55+.45*u.org.w),snow);
   return project(pos,al,col,q);
 }`;
