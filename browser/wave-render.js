@@ -8,7 +8,7 @@ import {waveTime,paramsFromArray} from './wave-math.js';
 
 // The clipmap keeps lattice points with amp >= MASK_EPS, the flat tile/fill water yields only where amp >= MASK_FILL_EPS: the band between is drawn by both,
 // so the horizontal Gerstner displacement of the clip edge (and the coarse-level interpolation of it) cannot open a see-through gap along the wave-region boundary.
-export const MASK_N=128,MASK_CELL=16,MASK_RANGE=10,MASK_EPS=.01,MASK_FILL_EPS=.5,MASK_REFRESH=384;
+export const MASK_N=128,MASK_CELL=16,MASK_RANGE=10,MASK_EPS=.01,MASK_FILL_EPS=.2,MASK_REFRESH=384;
 // The mask reads 0 outside its window, a hard edge. The fill only yields this far inside it, so a clip vertex displaced across the edge cannot leave a gap (> the largest Gerstner displacement, 5 yd in the maelstrom).
 export const MASK_PAD=16;
 export const CLIP_LEVELS=5,CLIP_N=64,CLIP_BASE=2,CLIP_HOLE=15,SKIRT=4,MAX_COMPONENTS=6;
@@ -17,6 +17,16 @@ export const clipHalf=level=>CLIP_N/2*clipSpacing(level);
 const smoothstep=(e0,e1,x)=>{const s=Math.min(1,Math.max(0,(x-e0)/(e1-e0)));return s*s*(3-2*s);};
 const TAU=Math.PI*2;
 const wavelength=c=>TAU/c.k;
+
+// Ownership of the overlap band: where the mask amp m < MASK_FILL_EPS both the clipmap and the flat fill draw, so the clipmap must sit strictly above the fill there.
+// Lift = (m*sum(amp) [the deepest trough] + max(BAND_LIFT, depth-buffer step at the vertex distance)) * (1-smoothstep(MASK_FILL_EPS,2*MASK_FILL_EPS,m)): full while the fill is drawn,
+// tapering to 0 only after it has yielded, so the surface stays continuous and troughs can never cross the fill. Render-only: at most ~MASK_FILL_EPS*sum+BAND_LIFT yd above the physics surface.
+export const BAND_LIFT=.03,DEPTH_STEPS=8,DEPTH_RES=2**24;
+/** CPU mirror of the shader's clipLift(): render-only vertical lift (yd) of a clipmap vertex with mask amplitude m at distance dist from a camera with near plane `near`. */
+export function clipLift(p,m,dist,near){
+  const band=1-smoothstep(MASK_FILL_EPS,2*MASK_FILL_EPS,m),sum=p.components.reduce((s,c)=>s+c.amp,0);
+  return band*(m*sum+Math.max(BAND_LIFT,DEPTH_STEPS*dist*dist/(Math.max(near,.01)*DEPTH_RES)));
+}
 
 /** Amplitude mask, row-major r8unorm: texel (i,j) is the physics amp_k at (ox+(i+.5)*MASK_CELL, oz+(j+.5)*MASK_CELL) / MASK_RANGE. */
 export function buildWaveMask(sampleBatch,center,rowStart=0,rowCount=MASK_N){
@@ -117,6 +127,13 @@ fn waveAmp(xz:vec2f)->f32 {
 fn waveMaskInner(xz:vec2f)->bool {
   let uv=(xz-wv.mask.xy)*wv.mask.z;let pad=${MASK_PAD.toFixed(1)}*wv.mask.z;
   return all(uv>vec2f(pad))&&all(uv<vec2f(1.0-pad));
+}
+// Mirrors wave-render.js clipLift(): keeps the clipmap above the flat fill across the overlap band so the two never share depth.
+fn clipLift(m:f32,dist:f32,near:f32)->f32 {
+  var sum=0.0;let n=u32(wv.head.y);
+  for(var i=0u;i<n;i=i+1u){sum+=wv.c[2u*i].w;}
+  let band=1.0-smoothstep(${MASK_FILL_EPS},${2*MASK_FILL_EPS},m);
+  return band*(m*sum+max(${BAND_LIFT},${DEPTH_STEPS.toFixed(1)}*dist*dist/(max(near,.01)*${DEPTH_RES.toFixed(1)})));
 }
 // Lattice point P (physics x0) -> displaced position, height, analytic normal; mirrors wave-render.js forwardWave and wave-math.js sampleWaves.
 fn waveVertex(P:vec2f,eyeXZ:vec2f)->WV {
