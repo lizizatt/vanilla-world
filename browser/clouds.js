@@ -240,7 +240,7 @@ fn funnelDensity(pos:vec3f,t:f32)->vec2f {
   let d=stormOffset(pos.xz);let r=length(d);
   let rel=r/radius(h,pos.y);
   // North is -z, so the swirl turns counter-clockwise on the map like the maelstrom arms.
-  let a=atan2(-d.y,d.x)+${F.twist.toFixed(2)}*h-t*${F.spin.toFixed(2)};
+  let a=atan2(-d.y,d.x)+${F.twist.toFixed(2)}*h-t*${F.spin.toFixed(10)};
   let n=.6*vnoise(vec2f(cos(a),sin(a))*2.6+vec2f(h*9.0,rel*3.0))+.4*vnoise(vec2f(cos(a*2.0),sin(a*2.0))*4.0+vec2f(h*23.0-t*.3,rel*6.0));
   let shell=smoothstep(1.05,.55,rel)*(.5+.9*n);
   // Sparse near the base: dust thins to baseDensity at sea level, full density by sparseHeight above it.

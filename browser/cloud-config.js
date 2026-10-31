@@ -1,5 +1,6 @@
 // Single source for cloud numbers: slab geometry, maelstrom, whirlpool dip, funnel and per-tier march budgets.
 // clouds.js (WGSL generation), cloud-march.js (CPU mirror), ocean-mesh.js and world-engine.js (whirlpool) all read these.
+import {wrapSpin} from './sim-clock.js';
 export const CLOUD_ALTITUDE_FACTOR=.8;
 // Mt Hyjal summit height in yards, measured from the user's Kalimdor terrain (tile bounds near Hyjal, see README "Clouds").
 export const HYJAL_SUMMIT=1971;
@@ -12,7 +13,7 @@ export const CLOUD_HALF_SIZE=250000;
 // The storm was authored for the 42,781 yd planet; it scales with the planet (whirlpool dip stays, it is physics).
 export const STORM_SCALE=.4;
 const S=STORM_SCALE;
-export const MAELSTROM={eyeRadius:2200*S,wallRadius:5200*S,radius:24000*S,arms:3,pitch:.7,spin:.012,drift:.006};
+export const MAELSTROM={eyeRadius:2200*S,wallRadius:5200*S,radius:24000*S,arms:3,pitch:.7,spin:wrapSpin(.012,3),drift:.006};
 // World-map registration: the eye sits 43% of the way from Kalimdor's east coast to the Eastern Kingdoms' west coast,
 // and at 35% / 40% of the way down each continent's tile rows, averaged because the two continents are offset provisionally.
 export const MAELSTROM_MAP={across:.43,kalimdorDown:.35,easternDown:.4};
@@ -25,7 +26,7 @@ export const WHIRLPOOL_DIP={radius:1800,depth:380};
 
 // Funnel: a tapered, rotating column rising far above the sheet at the maelstrom centre (yards). Tunable.
 // The column continues below the sheet down to sea level, flaring into a mist skirt (skirtRadius) at the whirlpool.
-export const FUNNEL={top:7500*S,seaLevel:-WHIRLPOOL_DIP.depth,skirtRadius:1700*S,baseRadius:500*S,baseDensity:.12,sparseHeight:2200*S,topRadius:3200*S,flare:1.5,spin:.5,twist:5,fadeStart:90000,fadeEnd:170000};
+export const FUNNEL={top:7500*S,seaLevel:-WHIRLPOOL_DIP.depth,skirtRadius:1700*S,baseRadius:500*S,baseDensity:.12,sparseHeight:2200*S,topRadius:3200*S,flare:1.5,spin:wrapSpin(.5),twist:5,fadeStart:90000,fadeEnd:170000};
 
 // Funnel march steps are the same on every tier.
 export const FUNNEL_STEPS=14;
