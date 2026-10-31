@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { shellManifest, stampServiceWorker } from './shell-manifest.mjs';
+import { shellManifest, stampServiceWorker, archiveStamp, archiveEnabled, CSP } from './shell-manifest.mjs';
 
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.json':'application/json', '.svg':'image/svg+xml', '.glb':'model/gltf-binary', '.jpg':'image/jpeg' };
 // Served files = the generated shell manifest (import graph, re-read per second so new files need no restart) plus optional local-only assets.
@@ -24,12 +24,13 @@ async function shell() {
   }
   try {
     let bytes = await readFile(new URL(file==='/local/npc-spawns.json'?'../runtime/browser/npc-spawns.json':file==='/local/world-map.jpg'?'../runtime/browser/world-map.jpg':file==='/npc-pack.json'?'../runtime/browser/npc-pack.json':`.${file}`, import.meta.url));
+    if (file === '/archive-flag.js') bytes = archiveStamp(bytes.toString('utf8'), archiveEnabled());
     if (file === '/sw.js') bytes = stampServiceWorker(bytes.toString('utf8'), (await shell()).manifest);
     response.writeHead(200, {
       'Content-Type': types[file.slice(file.lastIndexOf('.'))],
       'Cache-Control': 'no-cache',
       'X-Content-Type-Options': 'nosniff',
-      'Content-Security-Policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; media-src blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+      'Content-Security-Policy': CSP(archiveEnabled()),
     }).end(bytes);
   } catch (error) {
     if((file==='/local/npc-spawns.json'||file==='/local/world-map.jpg'||file==='/npc-pack.json') && error.code==='ENOENT'){response.writeHead(404).end('No private local population pack');return;}

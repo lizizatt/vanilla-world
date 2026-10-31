@@ -4,7 +4,7 @@
 import { cp, mkdir, readFile, readdir, rm, writeFile, access } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { shellManifest, stampServiceWorker } from './shell-manifest.mjs';
+import { shellManifest, stampServiceWorker, archiveStamp, archiveEnabled, stampHeaders } from './shell-manifest.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -29,8 +29,8 @@ export async function npcPack(env = process.env, path = join(here, 'npc-pack.pub
   return text;
 }
 
-export async function build(out = resolve(here, '..', 'dist')) {
-  const manifest = await shellManifest(), files = [...manifest.files, ...await vehicleFiles()];
+export async function build(out = resolve(here, '..', 'dist'), { archive = archiveEnabled() } = {}) {
+  const manifest = await shellManifest({ archive }), files = [...manifest.files, ...await vehicleFiles()];
   for (const file of files) {
     if (/(^|\/)(local|runtime)\//.test(file) || /\.(test|smoke)\.|-smoke\./.test(file)) throw new Error(`refusing to publish ${file}`);
     await access(join(here, file)).catch(() => { throw new Error(`${file} is missing${file.startsWith('pkg/') ? '; run browser\\Build.ps1 first' : ''}`); });
@@ -39,11 +39,12 @@ export async function build(out = resolve(here, '..', 'dist')) {
   await rm(out, { recursive: true, force: true });
   for (const file of files) {
     await mkdir(dirname(join(out, file)), { recursive: true });
-    if (file === 'sw.js') await writeFile(join(out, file), stampServiceWorker(await readFile(join(here, file), 'utf8'), manifest));
+    if (file === 'archive-flag.js') await writeFile(join(out, file), archiveStamp(await readFile(join(here, file), 'utf8'), archive));
+    else if (file === 'sw.js') await writeFile(join(out, file), stampServiceWorker(await readFile(join(here, file), 'utf8'), manifest));
     else await cp(join(here, file), join(out, file));
   }
   if (pack) await writeFile(join(out, 'npc-pack.json'), pack);
-  await cp(join(here, 'hosting', '_headers'), join(out, '_headers'));
+  await writeFile(join(out, '_headers'), stampHeaders(await readFile(join(here, 'hosting', '_headers'), 'utf8'), archive));
   await writeFile(join(out, '.nojekyll'), '');
   return { out, files: files.length + 2 };
 }
