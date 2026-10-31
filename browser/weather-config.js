@@ -4,7 +4,7 @@ export const WEATHER={
   // Precipitation cell: low-frequency value noise sampled at the cloud's own advected point, so cells ride the cloud deck.
   cell:{scale:9000,octave2:2.7,mix:.35,gate:[.46,.62]},
   // Only dense cloud rains: coverage ramps in over this range (the sheet's coverage is 0..0.95).
-  coverage:[.4,.5],
+  coverage:[.46,.56],
   // A cell's life: build, plateau, decay over `period` cloud seconds; the phase is spatially smooth so neighbours are out of step.
   life:{period:450,build:.28,decay:.34},
   // Intensity needed for a cell to count as raining (on) and to stop (off): Schmitt hysteresis for the smoothed camera state.

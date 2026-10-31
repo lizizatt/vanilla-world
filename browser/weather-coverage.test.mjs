@@ -8,7 +8,7 @@ import {precipitation} from './weather-field.js';
 const rng=seed=>{let s=seed;return()=>(s=(s*1664525+1013904223)>>>0)/4294967296;};
 const mask=(land,lift)=>({w:2,h:2,data:new Uint8Array(16).map((_,i)=>i%4===0?land:i%4===3?255:lift)});
 const sample=(x,z,t,m,wet=1,coverage)=>density([x,1500,z],t,false,[1e9,1e9],coverage,m,{wet,on:1});
-const DENSE=.5;
+const DENSE=.56;
 
 test('thin cloud never rains and dry zones never rain over a long sample',()=>{
   const r=rng(3);let thin=0,dry=0;
