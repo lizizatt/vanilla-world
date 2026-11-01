@@ -9,11 +9,12 @@ const unit=v=>{const length=Math.hypot(...v);return length?v.map(n=>n/length):[0
 export const CAMERA=Object.freeze({pitchLimit:89*Math.PI/180,orbitSense:.004,recentre:7});
 const PITCH_LIMIT=CAMERA.pitchLimit;
 
-export function craftMatrix(state,origin,scale) {
+/** `drop` lowers the craft below the physics position (ground-riding skins; see ridePlan). */
+export function craftMatrix(state,origin,scale,drop=0) {
   if(state.length===22){
     const {look,right,up}=basis(state.slice(18)),m=new Float32Array(16);
     for(const [column,v] of [look,right.map(n=>-n),up].entries())m.set(v.map(n=>n*scale),column*4);
-    m.set([state[0]-origin[0],state[1],state[2]-origin[1],1],12);
+    m.set([state[0]-origin[0],state[1]-drop,state[2]-origin[1],1],12);
     return m;
   }
   const c=Math.cos(state[3]),s=Math.sin(state[3]),cb=Math.cos(state[4]),sb=-Math.sin(state[4]); // physics bank is negative for a left steer; render left side down
@@ -24,7 +25,7 @@ export function craftMatrix(state,origin,scale) {
     const y=by*cp-v[2]*sp,z=by*sp+v[2]*cp;
     m.set([(x*c+z*s)*scale,y*scale,(-x*s+z*c)*scale,0],column*4);
   }
-  m.set([state[0]-origin[0],state[1],state[2]-origin[1],1],12);
+  m.set([state[0]-origin[0],state[1]-drop,state[2]-origin[1],1],12);
   return m;
 }
 export function cockpitAnchor(metadata) {
@@ -141,7 +142,7 @@ function flatCameraView(rig,state,flight,dt,origin,settings={},lookBack=false) {
       rig.cockpitLook=rig.cockpitLook.map(n=>n*follow);
     }
     rig.lookBack=lookBack;
-    const matrix=craftMatrix(state,origin,rig.craft.metadata.scale),anchor=rig.craft.anchor;
+    const drop=rig.craftDrop??0,matrix=craftMatrix(state,origin,rig.craft.metadata.scale,drop),anchor=rig.craft.anchor;
     const transform=v=>[0,1,2].map(i=>matrix[i]*v[0]+matrix[4+i]*v[1]+matrix[8+i]*v[2]);
     const pivot=[state[0]-origin[0],state[1],state[2]-origin[1]];
     const eye=transform(anchor).map((n,i)=>n+pivot[i]);

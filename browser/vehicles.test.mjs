@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {VEHICLES,DEFAULT_CHOICE,normalizeChoice,readChoice,writeChoice,tracksFor,vehicleOf,canSwitch,skinOf,stepSkin} from './vehicles.js';
+import {VEHICLES,DEFAULT_CHOICE,normalizeChoice,readChoice,writeChoice,tracksFor,vehicleOf,canSwitch,skinOf,stepSkin,ridePlan,RIDE_CLEARANCE,garageIconVisible} from './vehicles.js';
 import {validateTrack} from './race.js';
 import {nearestFlag} from './race-flags.js';
 
@@ -78,4 +78,29 @@ test('stepSkin carousel wraps, skips unusable skins, and tolerates empty/one-ski
   assert.equal(stepSkin(s,'a',1,()=>false),'a');
   assert.equal(stepSkin([{id:'x'}],'x',1),'x');
   assert.equal(stepSkin([],'x',1),'x');
+});
+
+test('ridePlan: no skin hover leaves tuning and craft untouched; hover 0 sends a positive standing height and drops the craft',()=>{
+  const tuned=[150,300,50,30,30,.25,2.2,10,8,1.5,1.3,3,90,18,48,7,.9];
+  assert.deepEqual(ridePlan(undefined,tuned),{values:tuned,drop:0});
+  assert.equal(skinOf({vehicle:'podracer',skin:'rocket'}).hover,undefined);
+  assert.equal(skinOf({vehicle:'podracer',skin:'gnome-rocket-car'}).hover,0);
+  const plan=ridePlan(0,tuned);
+  assert.equal(plan.values[11],RIDE_CLEARANCE);assert.equal(tuned[11],3);
+  assert.ok(plan.values[11]>0&&plan.values.every((n,i)=>i===11||n===tuned[i]));
+  assert.ok(Math.abs(plan.drop-(RIDE_CLEARANCE-48/90))<1e-9);
+  // standing height never settles below the floor clearance, so a soft spring cannot sink the wheels
+  assert.equal(ridePlan(0,tuned.map((n,i)=>i===12?10:n)).drop,.25);
+  assert.equal(ridePlan(0,tuned.map((n,i)=>i===12?0:n)).drop,.25);
+  // a raised ride keeps that clearance visible above the ground
+  const raised=ridePlan(2,tuned);assert.equal(raised.values[11],2+RIDE_CLEARANCE);assert.ok(Math.abs(raised.drop-.2667)<1e-3);
+});
+
+test('garageIconVisible follows the G-key rule: driving in the world, no race, no editor', () => {
+  const base={running:true,flying:false,race:undefined,editing:false};
+  assert.equal(garageIconVisible(base),true);
+  assert.equal(garageIconVisible({...base,running:false}),false);
+  assert.equal(garageIconVisible({...base,flying:true}),false);
+  assert.equal(garageIconVisible({...base,race:{}}),false);
+  assert.equal(garageIconVisible({...base,editing:true}),false);
 });

@@ -37,7 +37,7 @@ export function startWreck(r,state,seed=1,speed=state[5]) {
   const c=r.craft,src=c?.source;
   if(!src)return undefined;
   r.endWreck();
-  const scale=c.metadata.scale,m0=craftMatrix(state,[state[11],state[12]],scale),{rot}=craftFrame(m0,scale),split=splitParts(src.vertices,src.indices,src.batches);
+  const scale=c.metadata.scale,m0=craftMatrix(state,[state[11],state[12]],scale,r.craftDrop),{rot}=craftFrame(m0,scale),split=splitParts(src.vertices,src.indices,src.batches);
   if(split[0].empty)return undefined;
   const vertices=r.buffer(crumple(src.vertices,seed),GPUBufferUsage.VERTEX),parts=[];
   split.forEach((p,i)=>{if(!p.empty)parts.push({...p,asset:{vertices,indices:r.buffer(p.indices,GPUBufferUsage.INDEX),

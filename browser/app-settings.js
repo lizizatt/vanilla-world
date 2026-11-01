@@ -66,7 +66,7 @@ async function applyTuning(record) {
   const values=await client.request('tuning',{values:record.values,validateOnly:true});
   const canonical={version:1,defaults:3,values:Array.from(values),cameraSeconds:Math.fround(record.cameraSeconds)};
   await worldTuning(client.info.id,canonical);
-  await client.request('tuning',{values:canonical.values});
+  await app.sendTuning(canonical.values);
   app.tuningValues=canonical.values;settings.cameraSeconds=canonical.cameraSeconds;
   app.running=true;$('error').hidden=true;
   fillTuning(app.tuningValues,settings.cameraSeconds);$('tuning-status').textContent='Saved.';
@@ -110,7 +110,7 @@ for(const [i,field] of [...TUNING_FIELDS,['Chase damping (s)',.5]].entries()) {
   label.append(document.createTextNode(field[0]),box);$('tuning-fields').append(label);
 }
 $('tuning-panel').addEventListener('toggle',()=>{if($('tuning-panel').open)app.operation(async()=>{
-  app.syncDurability();app.tuningValues=Array.from(await client.request('tuning'));fillTuning(app.tuningValues,settings.cameraSeconds);
+  app.syncDurability();app.tuningValues=app.userTuning(await client.request('tuning'));fillTuning(app.tuningValues,settings.cameraSeconds);
   $('tuning-status').textContent='';
 });});
 $('tuning-fields').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();$('tuning-apply').click();}});
