@@ -27,7 +27,7 @@ folder (and optionally Star Wars Episode I: Racer `data`). Read from origin/main
 | SWE1R `data` | Optional | Racer HUD, sfx, skins, voices off; procedural audio fallback; HUD rows hidden. |
 | `world-map-art.jpg` | No | Fixed above: map uses the user's own Data continent art plus schematic rects. |
 | `runtime/browser/*` (npc-spawns, npc-pack) | No | `server.mjs` 404s (optional); Pages publishes only the de-identified `npc-pack.public.json` when `INCLUDE_NPC_PACK=1`. Population simply absent. |
-| `browser/vehicles/*.glb` | Not tracked | Original procedural vehicles used. |
+| `browser/vehicles/*.glb` | Tracked (`gnome-car`, `gnome-tower`) | Original generated models; extra local `.glb` files are optional. |
 | Golden poses (`golden-poses.json`) | Tracked (coordinates only) | n/a |
 | WebGPU / IndexedDB | Browser-dependent | WebGPU: `world-renderer.js` throws "WebGPU is unavailable..." which the loader shows. IndexedDB failure (incognito/blocked): `AssetError('STORAGE')`; the folder must be re-picked each load. |
 
