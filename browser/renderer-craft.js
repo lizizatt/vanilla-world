@@ -2,6 +2,7 @@ import {craftMatrix,cockpitAnchor} from './world-camera.js';
 import {splitParts,crumple,craftFrame,appendWreckChunk} from './wreck.js';
 import {emitBurst} from './particles.js';
 import {domeShellAsset,domePlacement} from './dome-shell.js';
+import {advanceAnimation,framePose} from './wow-skin.js';
 
 export function destroyCraft(r,craft) {
   if(!craft)return;
@@ -15,14 +16,21 @@ export function buildCraft(r,data,display,key,maxIndices=60000) {
     data.asset.indices.length>maxIndices||data.textures.length>64)throw Error('Invalid craft payload');
   const bytes=data.asset.vertices.byteLength+data.asset.indices.byteLength+data.textures.reduce((n,t)=>n+t.rgba.byteLength,0);
   if(bytes>32*1024*1024)throw Error('Craft exceeds GPU budget');
-  const build=asset=>({vertices:r.buffer(asset.vertices,GPUBufferUsage.VERTEX),
+  const build=asset=>({vertices:r.buffer(asset.vertices,GPUBufferUsage.VERTEX|(data.frames&&asset===data.asset?GPUBufferUsage.COPY_DST:0)),
     indices:r.buffer(asset.indices,GPUBufferUsage.INDEX),batches:r.prepareBatches(asset.batches),count:asset.indices.length});
   const anchor=cockpitAnchor(data.metadata),asset=build(data.asset),lo=[1e9,1e9,1e9],hi=[-1e9,-1e9,-1e9];
   for(let i=0;i<data.asset.vertices.length;i+=12)for(let a=0;a<3;a++){lo[a]=Math.min(lo[a],data.asset.vertices[i+a]);hi[a]=Math.max(hi[a],data.asset.vertices[i+a]);}
   return {asset,textures:new Map(data.textures.map(t=>[t.key,r.texture(t.width,t.height,t.rgba)])),
-    metadata:data.metadata,anchor,source:data.asset,items:new Map(),instance:{id:'player-craft',key,craft:true},bytes,size:hi.map((v,a)=>(v-lo[a])*data.metadata.scale),
+    metadata:data.metadata,anchor,source:data.asset,frames:data.frames,items:new Map(),instance:{id:'player-craft',key,craft:true},bytes,size:hi.map((v,a)=>(v-lo[a])*data.metadata.scale),
     flame:data.flame&&data.metadata.exhausts?.length?{asset:build(data.flame),
       parts:data.metadata.exhausts.map((at,i)=>({at,instance:{id:`player-craft-flame:${i}`,key:'flame',craft:true}}))}:undefined};
+}
+// Authored clips (wow skins): rewrite the craft's vertex buffer to the sampled pose for its speed; unchanged poses are not re-uploaded.
+export function animateCraft(r,craft,dt,speed) {
+  if(!craft?.frames)return;
+  craft.anim=advanceAnimation(craft.anim,dt,speed);
+  const pose=framePose(craft.frames,craft.anim);
+  if(pose!==craft.animPose){r.device.queue.writeBuffer(craft.asset.vertices,0,pose.buffer,pose.byteOffset,pose.byteLength);craft.animPose=pose;}
 }
 // Debug crash: returns the Rust wreck_start inputs and, once frames arrive, replaces the craft with its pod/engine parts.
 export function startWreck(r,state,seed=1,speed=state[5]) {

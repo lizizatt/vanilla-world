@@ -1,5 +1,5 @@
 import * as wasmTypes from './pkg/flats_racer_web.js';
-import {loadProp,loadPropTexture} from './craft-stream.js';
+import {loadProp,loadPropTexture,loadCraftModel} from './craft-stream.js';
 import {validateView} from './world-view.js';
 import {MusicService} from './music.js';
 import {SkyService} from './sky.js';
@@ -55,6 +55,7 @@ export function routeImmediate(data) {
 export async function handle(message) {
   await ready;
   if(message.action==='prop-texture')return loadPropTexture(source,wasmTypes,String(message.path));
+  if(message.action==='craft-model')return loadCraftModel(source,wasmTypes,message.display);
   if(message.action==='prop-model')return loadProp(source,wasmTypes,String(message.path));
   if(message.action==='open')return openWorld(message);
   requireWorld();

@@ -1,7 +1,8 @@
 // Vehicle registry. Pure data plus selection helpers, no DOM. A vehicle type decides which races are visible
 // (track.vehicle, default 'podracer'); free flight is just a type without races.
 // Skin `source`: 'data' = authored model read at runtime from the user's Data (never shipped), 'glb' = original
-// model shipped in browser/vehicles/ (`model`), 'procedural' = drawn in code, 'none' = no body.
+// model shipped in browser/vehicles/ (`model`), 'wow' = another creature model (`display` id) read from the user's Data at runtime
+// (never shipped; offered only while the Data is open), 'procedural' = drawn in code, 'none' = no body.
 export const DEFAULT_CHOICE=Object.freeze({vehicle:'podracer',skin:'rocket'});
 const STORAGE_KEY='racer.vehicle';
 
@@ -11,7 +12,8 @@ export const VEHICLES=Object.freeze({
     skins:[{id:'camera',name:'Free camera',source:'none'}]},
   podracer:{id:'podracer',name:'Podracer',races:true,stats:{Speed:.9,Handling:.55,Boost:.8},
     note:'Hovering racer on the ground and over water. Boost with Shift.',
-    skins:[{id:'rocket',name:'Rocket (current)',source:'data'}]},
+    skins:[{id:'rocket',name:'Rocket (current)',source:'data'},
+      {id:'gnome-rocket-car',name:'Gnome rocket car',source:'wow',display:2490,model:'Creature\\GnomeRocketCar\\GnomeRocketCar'}]},
 });
 
 export const vehicleOf=track=>track?.vehicle??'podracer';

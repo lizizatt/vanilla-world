@@ -27,7 +27,7 @@ import {cameraAxes,AdmissionFade,sceneSelection} from './renderer-helpers.js';
 import {posedAsset,npcMoves,moveMatrix,pose} from './renderer-actors.js';
 import {BEND_ALWAYS} from './terrain-transition.js';
 import {buffer,texture,drawable,setFlags,setGates,releaseMaterial,release,uploadMaterials,drawTerrain,refreshOcean} from './renderer-terrain.js';
-import {destroyCraft,releaseCraft,buildCraft,startWreck,wreckChunk,endWreck,setProps,setCraftOverride,domeDraw} from './renderer-craft.js';
+import {destroyCraft,releaseCraft,buildCraft,animateCraft,startWreck,wreckChunk,endWreck,setProps,setCraftOverride,domeDraw} from './renderer-craft.js';
 import {reset,configure,event,clearFar,swapPlanetState,bodyEvent} from './renderer-events.js';
 import {scenePipeline,prepareBatches,sceneMatrix,drawScene} from './renderer-scene.js';
 import {zoneBlend,setSky,setSkyDome,horizonColour,planetRects,drawPlanet,sharedFrame,drawPatches,drawBodies,drawBodyClouds,drawLights,drawSkyDome,sampleSky,noteLitInstance} from './renderer-sky.js';
@@ -247,6 +247,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
     const wreckAge=this.wreck?performance.now()/1000-this.wreck.t0:0;
     this.intakeAngle=advanceIntake(this.intakeAngle||0,time===0?0:dt,this.fxInput?.throttle,state[5]);
     if(this.wreck&&wreckAge>WRECK_SECONDS)this.endWreck();
+    if(this.craft&&!this.wreck)animateCraft(this,this.craft,time===0?0:dt,state[5]);
     const wreckFrameNow=this.wreck&&wreckFrame(this.wreck,wreckAge);
     if(wreckFrameNow)this.wreck.parts.forEach((p,i)=>append(p.asset,p.instance,partMatrix(wreckFrameNow.subarray(i*7,i*7+7),p.center,this.wreck.scale,origin),this.craft.textures,this.craft.items));
     else if((!flight||this.showCraftInFlight)&&this.craft&&this.cameraMode!=='cockpit')append(this.craft.asset,this.craft.instance,

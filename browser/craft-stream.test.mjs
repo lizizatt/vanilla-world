@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {loadCraft} from './craft-stream.js';
+import {loadCraft,loadCraftModel} from './craft-stream.js';
 import {craftMatrix} from './world-renderer.js';
 import {cameraView} from './world-camera.js';
 
@@ -86,4 +86,44 @@ test('an unsupported Stand rig fails rather than publishing the old sideways bin
   f.wasm.SceneModel.craft=()=>{throw Error('unsupported Stand rig');};
   await assert.rejects(loadCraft({read:async()=>new Uint8Array(1)},f.wasm,m=>messages.push(m)),/unsupported Stand rig/);
   assert.deepEqual(messages.map(m=>m.event),['craft-error']);
+});
+
+function skinFixture({actor=true,vertexCount=3}={}) {
+  const f=fixture(),reads=[];let freed=0;
+  f.wasm.scene_resolve_displays=(_m,_d,_e,ids)=>JSON.stringify({[ids[0]]:{path:'Creature\\GnomeRocketCar\\GnomeRocketCar.mdx',scale:1.5,skins:['a.blp',null,null,null]}});
+  f.wasm.SceneActor={create:(_b,path,skins)=>{
+    if(!actor)throw Error('Actor has no Stand clip');
+    reads.push(['actor',path,skins]);
+    return {vertex_count:()=>vertexCount,duration:clip=>({0:3.3,4:1.6})[clip]??0,pose:(clip,t)=>Float32Array.from({length:36},()=>clip+t),free(){freed++;}};
+  }};
+  return {...f,reads,get actorFreed(){return freed;}};
+}
+test('garage skin resolves a creature display from the local Data and samples its Stand and Walk clips',async()=>{
+  const f=skinFixture(),read=[];
+  const source={read:async path=>{read.push(path);return new Uint8Array(1);}};
+  const model=await loadCraftModel(source,f.wasm,2490);
+  assert.equal(model.metadata.display,2490);
+  assert.equal(model.metadata.scale,1.5);
+  assert.equal(model.asset.indices.length,3);
+  assert.equal(model.textures.length,1);
+  assert(read.includes('DBFilesClient\\CreatureDisplayInfoExtra.dbc'));
+  assert.equal(f.reads[0][2],'["a.blp",null,null]');
+  assert.deepEqual(Object.keys(model.frames),['idle','drive']);
+  assert.equal(model.frames.idle.poses.length,16);
+  assert.equal(model.frames.drive.duration,1.6);
+  assert.equal(model.frames.drive.poses[1][0],Math.fround(4+1.6/16));
+  assert.equal(f.actorFreed,1);
+});
+test('garage skin falls back to the static stand pose when the rig cannot be re-posed or differs in vertex count',async()=>{
+  const source={read:async()=>new Uint8Array(1)};
+  assert.equal((await loadCraftModel(source,skinFixture({actor:false}).wasm,2490)).frames,undefined);
+  const mismatched=skinFixture({vertexCount:5});
+  assert.equal((await loadCraftModel(source,mismatched.wasm,2490)).frames,undefined);
+  assert.equal(mismatched.actorFreed,1);
+});
+test('garage skin rejects bad ids and displays missing from this Data',async()=>{
+  const f=skinFixture(),source={read:async()=>new Uint8Array(1)};
+  for(const id of [0,-1,1.5,'x'])await assert.rejects(loadCraftModel(source,f.wasm,id),/Invalid creature display id/);
+  f.wasm.scene_resolve_displays=()=>'{}';
+  await assert.rejects(loadCraftModel(source,f.wasm,2490),/unavailable in this Data/);
 });
