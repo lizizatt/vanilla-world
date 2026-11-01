@@ -2,6 +2,7 @@ import {loadVehicleModel} from './vehicle-model.js';
 import {writeChoice,tracksFor,VEHICLES,canSwitch,normalizeChoice,skinOf,stepSkin} from './vehicles.js';
 import {getSwe1r,attachSwe1r} from './swe1r/ui.js';
 import {loadPodModel} from './swe1r/skin.js';
+import {loadWowModel} from './wow-skin.js';
 export function installGarage(app) {
 const {canvas,keys,mapPanel,client}=app;
 const $=id=>document.getElementById(id);
@@ -31,8 +32,8 @@ async function applySkin() {
   const token=++skinToken,skin=skinOf(app.choice);
   app.audio?.setPod(skin);
   if(!app.renderer)return;
-  if(skin.source!=='glb'&&skin.source!=='swe1r'){app.skinNote='';app.renderer.setCraftOverride(undefined);return;}
-  try{const model=skin.source==='swe1r'?await loadPodModel(getSwe1r(),skin):await loadVehicleModel(skin);if(token===skinToken){app.renderer.setCraftOverride(model);app.skinNote='';}}
+  if(skin.source!=='glb'&&skin.source!=='swe1r'&&skin.source!=='wow'){app.skinNote='';app.renderer.setCraftOverride(undefined);return;}
+  try{const model=skin.source==='swe1r'?await loadPodModel(getSwe1r(),skin):skin.source==='wow'?await loadWowModel(client,skin):await loadVehicleModel(skin);if(token===skinToken){app.renderer.setCraftOverride(model);app.skinNote='';}}
   catch(error){if(token===skinToken){app.renderer.setCraftOverride(undefined);app.skinNote=`Skin ${skin.name} unavailable (${error.message}); using the default craft`;app.report(app.skinNote,true);}}
 }
 function selectVehicle(next) {
