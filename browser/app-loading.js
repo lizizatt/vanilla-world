@@ -145,10 +145,11 @@ app.gateKit=undefined;void loadGateKit((a,p)=>client.request(a,p),()=>getSwe1r()
     const tune=migrateTuning(await worldTuning(result.info.id));
     if(tune) {
       validateTuningRecord(tune);
-      await client.request('tuning',{values:tune.values});
+      await app.sendTuning(tune.values);
       app.tuningValues=tune.values.slice();settings.cameraSeconds=tune.cameraSeconds;
     }
-    if(selection==='elune'){settings.clouds=false;app.syncSettings();const values=app.tuningValues.slice();values[14]=podGravityFor(values[14],'azeroth','elune');await client.request('tuning',{values});app.tuningValues=values;}
+    if(Number.isFinite(app.rideHover))await app.sendTuning(app.tuningValues);
+    if(selection==='elune'){settings.clouds=false;app.syncSettings();const values=app.tuningValues.slice();values[14]=podGravityFor(values[14],'azeroth','elune');await app.sendTuning(values);app.tuningValues=values;}
     const restored=await restore(save);
     if(tune&&!restored)client.state=await client.request('reset');
     await waitNearby();evidence.loading.active=false;
@@ -286,7 +287,7 @@ async function soiSwap(app,parentId) {
     const rebound=client.request('rebind');lap('rebind');// new near world forgets what it "already sent" so streaming and the horizon reach the fresh renderer
     app.gateKey=undefined;
     const values=app.tuningValues.slice();values[14]=podGravityFor(values[14],prev.id,parentId);
-    const tuned=client.request('tuning',{values});lap('tuning');app.tuningValues=values;
+    const tuned=app.sendTuning(values);lap('tuning');app.tuningValues=values;
     evidence.swapSettled=Promise.all([rebound,tuned]).catch(e=>console.warn('swap settle',e));
     settings.clouds=app.bodyClouds[parentId]??(body.atmosphereEdge>0);app.syncSettings();
     evidence.info=client.info;evidence.bodySwaps=(evidence.bodySwaps||0)+1;

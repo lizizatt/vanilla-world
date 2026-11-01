@@ -251,12 +251,12 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
     const wreckFrameNow=this.wreck&&wreckFrame(this.wreck,wreckAge);
     if(wreckFrameNow)this.wreck.parts.forEach((p,i)=>append(p.asset,p.instance,partMatrix(wreckFrameNow.subarray(i*7,i*7+7),p.center,this.wreck.scale,origin),this.craft.textures,this.craft.items));
     else if((!flight||this.showCraftInFlight)&&this.craft&&this.cameraMode!=='cockpit')append(this.craft.asset,this.craft.instance,
-      craftMatrix(state,origin,this.craft.metadata.scale),this.craft.textures,this.craft.items,true);
+      craftMatrix(state,origin,this.craft.metadata.scale,this.craftDrop),this.craft.textures,this.craft.items,true);
     for(const p of [...(this.props||[]),...(this.launchProps||[]),...[domeDraw(this,activeBody().id,time)].filter(Boolean)]){const c=Math.cos(p.yaw),s=Math.sin(p.yaw),k=p.scale;
       append(p.craft.asset,p.craft.instance,p.space==='craft'?craftMatrix([p.pos[0],p.pos[1],p.pos[2],p.yaw,0],origin,k):
         new Float32Array([c*k,0,-s*k,0,0,k,0,0,s*k,0,c*k,0,p.pos[0]-origin[0],p.pos[1],p.pos[2]-origin[1],1]),p.craft.textures,p.craft.items);}
     if(!this.wreck&&!flight&&this.craft?.flame&&this.cameraMode!=='cockpit') {
-      const m=craftMatrix(state,origin,this.craft.metadata.scale),k=(.35+.9*Math.min(1,Math.abs(state[5])/150))*(1+.08*Math.sin(time*45));
+      const m=craftMatrix(state,origin,this.craft.metadata.scale,this.craftDrop),k=(.35+.9*Math.min(1,Math.abs(state[5])/150))*(1+.08*Math.sin(time*45));
       for(const part of this.craft.flame.parts) {
         const [x,y,z]=part.at,f=new Float32Array(m);
         for(let i=0;i<3;i++){f[i]=m[i]*k;f[12+i]=m[12+i]+m[i]*x+m[4+i]*y+m[8+i]*z;}
@@ -314,11 +314,11 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
       const input=this.fxInput||{},speed=Math.abs(state[5]),scale=craft.metadata.scale;
       fx.frame=pf.bend>0?podParticleFrame(activeFramedBody(),state):undefined;
       craft.fx??={points:exhaustPoints(craft.source.vertices,craft.source.indices,craft.metadata),length:craft.size[0]};
-      emitPlumes(fx,{points:craft.fx.points,matrix:craftMatrix(state,origin,scale),origin,scale,length:craft.fx.length,speed,
+      emitPlumes(fx,{points:craft.fx.points,matrix:craftMatrix(state,origin,scale,this.craftDrop),origin,scale,length:craft.fx.length,speed,
         thrust:input.throttle??Math.min(1,speed/150),boosting:!!input.boosting,dt:Math.min(dt,.1)});
-      const wet=overWater(state[1],craft.fx.length),fxArgs={matrix:craftMatrix(state,origin,scale),origin,scale,length:craft.fx.length,speed,drift:!!input.drifting,grounded:state[7]>0,dt:Math.min(dt,.1),time:performance.now()/1000};
+      const wet=overWater(state[1],craft.fx.length),fxArgs={matrix:craftMatrix(state,origin,scale,this.craftDrop),origin,scale,length:craft.fx.length,speed,drift:!!input.drifting,grounded:state[7]>0,dt:Math.min(dt,.1),time:performance.now()/1000};
       if(wet)emitWaterFx(fx,fxArgs);else emitGroundDust(fx,fxArgs);
-      if(input.heat)emitHeatSmoke(fx,{points:craft.fx.points,matrix:craftMatrix(state,origin,scale),origin,length:craft.fx.length,heat:input.heat,dt:Math.min(dt,.1)});
+      if(input.heat)emitHeatSmoke(fx,{points:craft.fx.points,matrix:craftMatrix(state,origin,scale,this.craftDrop),origin,length:craft.fx.length,heat:input.heat,dt:Math.min(dt,.1)});
       fx.frame=undefined;
     }
     if(fx&&quality>0&&!this.cameraBlocked){

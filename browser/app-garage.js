@@ -1,12 +1,12 @@
 import {loadVehicleModel} from './vehicle-model.js';
-import {writeChoice,tracksFor,VEHICLES,canSwitch,normalizeChoice,skinOf,stepSkin} from './vehicles.js';
+import {writeChoice,tracksFor,VEHICLES,canSwitch,normalizeChoice,skinOf,stepSkin,ridePlan,TUNING_HOVER} from './vehicles.js';
 import {getSwe1r,attachSwe1r} from './swe1r/ui.js';
 import {loadPodModel} from './swe1r/skin.js';
 import {loadWowModel} from './wow-skin.js';
 export function installGarage(app) {
 const {canvas,keys,mapPanel,client}=app;
 const $=id=>document.getElementById(id);
-Object.assign(app,{openRaceMenu,applySkin,selectVehicle,renderGarage,openGarage});
+Object.assign(app,{openRaceMenu,applySkin,selectVehicle,renderGarage,openGarage,sendTuning,userTuning});
 app.raceMenu=$('race-menu');
 function openRaceMenu() {
   keys.clear();app.dragging=false;app.mouseButtons=0;menuTab('game');
@@ -26,15 +26,31 @@ app.raceMenu.addEventListener('click',event=>{if(event.target.closest('[data-clo
 $('menu-map').addEventListener('click',()=>{app.raceMenu.close();if(app.running)mapPanel.toggle();});
 app.garage=$('garage');const glbPresent=new Map();
 app.garagePick=undefined;
-let skinToken=0;app.skinNote='';
+let skinToken=0;app.skinNote='';app.rideHover=undefined;
+// Every tuning write goes through here: the loaded skin's ride height (if any) replaces the hover value sent to the sim and the craft is lowered to match. app.tuningValues always holds the user's own values.
+async function sendTuning(values) {
+  const plan=ridePlan(app.rideHover,values);
+  const sent=await client.request('tuning',{values:plan.values});
+  if(app.renderer)app.renderer.craftDrop=plan.drop;
+  return sent;
+}
+// Tuning as the user set it: a read back from the sim carries the skin's hover, which is not the user's value.
+function userTuning(read) {
+  const values=Array.from(read);if(Number.isFinite(app.rideHover)&&app.tuningValues)values[TUNING_HOVER]=app.tuningValues[TUNING_HOVER];return values;
+}
+async function syncRide(hover) {
+  if(app.rideHover===hover)return;
+  app.rideHover=hover;
+  if(client.info&&app.tuningValues)await sendTuning(app.tuningValues);
+}
 // Shipped GLB skins replace the Data rocket; any load failure keeps the Data rocket and says so in Diagnostics.
 async function applySkin() {
   const token=++skinToken,skin=skinOf(app.choice);
   app.audio?.setPod(skin);
   if(!app.renderer)return;
-  if(skin.source!=='glb'&&skin.source!=='swe1r'&&skin.source!=='wow'){app.skinNote='';app.renderer.setCraftOverride(undefined);return;}
-  try{const model=skin.source==='swe1r'?await loadPodModel(getSwe1r(),skin):skin.source==='wow'?await loadWowModel(client,skin):await loadVehicleModel(skin);if(token===skinToken){app.renderer.setCraftOverride(model);app.skinNote='';}}
-  catch(error){if(token===skinToken){app.renderer.setCraftOverride(undefined);app.skinNote=`Skin ${skin.name} unavailable (${error.message}); using the default craft`;app.report(app.skinNote,true);}}
+  if(skin.source!=='glb'&&skin.source!=='swe1r'&&skin.source!=='wow'){app.skinNote='';app.renderer.setCraftOverride(undefined);await syncRide(skin.hover);return;}
+  try{const model=skin.source==='swe1r'?await loadPodModel(getSwe1r(),skin):skin.source==='wow'?await loadWowModel(client,skin):await loadVehicleModel(skin);if(token===skinToken){app.renderer.setCraftOverride(model);app.skinNote='';await syncRide(skin.hover);}}
+  catch(error){if(token===skinToken){app.renderer.setCraftOverride(undefined);await syncRide(undefined);app.skinNote=`Skin ${skin.name} unavailable (${error.message}); using the default craft`;app.report(app.skinNote,true);}}
 }
 function selectVehicle(next) {
   if(!canSwitch({race:app.race,editing:app.editor.isOpen}))return false;
