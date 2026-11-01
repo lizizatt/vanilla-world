@@ -67,3 +67,5 @@ export const skinOf=choice=>VEHICLES[choice.vehicle].skins.find(s=>s.id===choice
 
 // Switching is open-world only: never while a race is lining up, counting down or running, nor while editing.
 export const canSwitch=({race,editing})=>!race&&!editing;
+/** The HUD garage icon: shown while driving in the world, under the same rule as the G key and the Esc menu. */
+export const garageIconVisible=({running,flying,race,editing})=>!!running&&!flying&&canSwitch({race,editing});

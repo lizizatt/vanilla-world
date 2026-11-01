@@ -53,7 +53,7 @@ function dockFolderButtons(inMenu) {
   for(const id of ['different','fallback','forget','swe1r-row'])if($(id).parentNode!==host)host.append($(id));
 }
 function enabled(value) {
-  document.querySelector('.meters').hidden=!value;$('flight-hud').hidden=!value;$('menu-hint').hidden=!value;dockFolderButtons(value);
+  document.querySelector('.meters').hidden=!value;$('flight-hud').hidden=!value;$('menu-hint').hidden=!value;if(!value)$('hud-garage').hidden=true;dockFolderButtons(value);
   for(const id of ['save','load','reset','unstuck','retry','overview','fly','drive'])$(id).disabled=!value;
   $('tuning-panel').inert=!value || !Array.isArray(client.info?.tuning);
   $('cockpit').disabled=!value;

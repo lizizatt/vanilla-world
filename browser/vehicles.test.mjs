@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {VEHICLES,DEFAULT_CHOICE,normalizeChoice,readChoice,writeChoice,tracksFor,vehicleOf,canSwitch,skinOf,stepSkin,ridePlan,RIDE_CLEARANCE} from './vehicles.js';
+import {VEHICLES,DEFAULT_CHOICE,normalizeChoice,readChoice,writeChoice,tracksFor,vehicleOf,canSwitch,skinOf,stepSkin,ridePlan,RIDE_CLEARANCE,garageIconVisible} from './vehicles.js';
 import {validateTrack} from './race.js';
 import {nearestFlag} from './race-flags.js';
 
@@ -94,4 +94,13 @@ test('ridePlan: no skin hover leaves tuning and craft untouched; hover 0 sends a
   assert.equal(ridePlan(0,tuned.map((n,i)=>i===12?0:n)).drop,.25);
   // a raised ride keeps that clearance visible above the ground
   const raised=ridePlan(2,tuned);assert.equal(raised.values[11],2+RIDE_CLEARANCE);assert.ok(Math.abs(raised.drop-.2667)<1e-3);
+});
+
+test('garageIconVisible follows the G-key rule: driving in the world, no race, no editor', () => {
+  const base={running:true,flying:false,race:undefined,editing:false};
+  assert.equal(garageIconVisible(base),true);
+  assert.equal(garageIconVisible({...base,running:false}),false);
+  assert.equal(garageIconVisible({...base,flying:true}),false);
+  assert.equal(garageIconVisible({...base,race:{}}),false);
+  assert.equal(garageIconVisible({...base,editing:true}),false);
 });

@@ -1,5 +1,5 @@
 import {loadVehicleModel} from './vehicle-model.js';
-import {writeChoice,tracksFor,VEHICLES,canSwitch,normalizeChoice,skinOf,stepSkin,ridePlan,TUNING_HOVER,ROCKET_DISPLAY} from './vehicles.js';
+import {writeChoice,tracksFor,VEHICLES,canSwitch,normalizeChoice,skinOf,stepSkin,garageIconVisible,ridePlan,TUNING_HOVER,ROCKET_DISPLAY} from './vehicles.js';
 import {getSwe1r,attachSwe1r} from './swe1r/ui.js';
 import {loadPodModel} from './swe1r/skin.js';
 import {loadWowModel} from './wow-skin.js';
@@ -120,5 +120,6 @@ app.garage.addEventListener('keydown',event=>{const dir={ArrowLeft:-1,KeyA:-1,Ar
 $('garage-use').addEventListener('click',()=>{if(selectVehicle(app.garagePick))app.garage.close();});
 $('garage-attach').addEventListener('click',attachSwe1r);
 app.garage.addEventListener('close',()=>{closePreview();canvas.focus();});
+$('hud-garage').addEventListener('click',openGarage);
 $('menu-garage').addEventListener('click',()=>{app.raceMenu.close();openGarage();});
 }

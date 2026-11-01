@@ -224,6 +224,8 @@ dialog h2 { color: #ffb34d; margin-top: 0; }
 #race-menu button:hover, #race-menu button:focus-visible { background: linear-gradient(#6a4a1e, #43300f); border-color: var(--gold); color: #fff3c4; text-decoration: none; }
 #race-menu #menu-tabs button[aria-selected=true] { background: linear-gradient(#7a5622, #4d3511); color: #fff3c4; }
 #menu-hint { font-family: var(--serif); color: var(--gold); }
+#hud-garage { position: fixed; top: calc(max(8px, env(safe-area-inset-top)) + 26px); right: max(12px, env(safe-area-inset-right)); width: 38px; height: 38px; padding: 0; display: grid; place-items: center; color: var(--gold); background: rgba(19, 13, 7, .72); border: 1px solid var(--gold-dim); border-radius: 6px; cursor: pointer; pointer-events: auto; }
+#hud-garage:hover, #hud-garage:focus-visible { border-color: var(--gold); background: rgba(58, 42, 20, .85); }
 
 .welcome-note { margin: 0.9rem 0 0; font-size: 0.72rem; line-height: 1.4; opacity: 0.7; }
 
