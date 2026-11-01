@@ -281,3 +281,9 @@ details.welcome-help summary { cursor: pointer; } details.welcome-help p { margi
 #archive-dialog progress { width: 100%; }
 #archive-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 #archive-dialog label { display: block; margin: 8px 0; }
+
+#garage-preview { position: relative; margin-top: 8px; height: 190px; border: 1px solid #a98836; border-radius: 4px; background: radial-gradient(ellipse at 50% 70%, #3a2a14, #130d07); overflow: hidden; }
+#garage-preview canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+#garage-preview canvas:active { cursor: grabbing; }
+#garage-preview-note { position: absolute; inset: 0; margin: 0; display: grid; place-items: center; font-size: .8rem; opacity: .7; pointer-events: none; }
+#garage-preview-note:empty { display: none; }

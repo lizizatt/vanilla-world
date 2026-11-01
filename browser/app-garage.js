@@ -1,8 +1,9 @@
 import {loadVehicleModel} from './vehicle-model.js';
-import {writeChoice,tracksFor,VEHICLES,canSwitch,normalizeChoice,skinOf,stepSkin,ridePlan,TUNING_HOVER} from './vehicles.js';
+import {writeChoice,tracksFor,VEHICLES,canSwitch,normalizeChoice,skinOf,stepSkin,ridePlan,TUNING_HOVER,ROCKET_DISPLAY} from './vehicles.js';
 import {getSwe1r,attachSwe1r} from './swe1r/ui.js';
 import {loadPodModel} from './swe1r/skin.js';
 import {loadWowModel} from './wow-skin.js';
+import {GaragePreview} from './garage-preview.js';
 export function installGarage(app) {
 const {canvas,keys,mapPanel,client}=app;
 const $=id=>document.getElementById(id);
@@ -79,7 +80,34 @@ function renderGarage() {
   $('garage-races').replaceChildren(...(v.races?list.map(t=>{const li=document.createElement('li');li.textContent=t.name||t.id;return li;}):[]));
   if(!list.length||!v.races){const li=document.createElement('li');li.textContent=v.races?'None yet':'No races';$('garage-races').append(li);}
   $('garage-use').disabled=!skinOf(app.garagePick)||!glbAvailable(skinOf(app.garagePick));
+  updatePreview();
   $('garage-attach').hidden=app.garagePick.vehicle!=='podracer'||!!getSwe1r();
+}
+// Turntable of the highlighted skin. One preview at a time (own canvas + GL context), built only while the Garage is open and freed on close or skin change.
+let preview,previewKey,previewToken=0;const payloads=new Map();
+function previewPayload(skin) {
+  if(!payloads.has(skin.id)){
+    const load=skin.source==='data'?client.request('craft-model',{display:ROCKET_DISPLAY}):skin.source==='wow'?client.request('craft-model',{display:skin.display})
+      :skin.source==='swe1r'?loadPodModel(getSwe1r(),skin):loadVehicleModel(skin);
+    payloads.set(skin.id,load.catch(error=>{payloads.delete(skin.id);throw error;}));
+  }
+  return payloads.get(skin.id);
+}
+function closePreview() {
+  previewToken++;previewKey=undefined;preview?.dispose();preview=undefined;payloads.clear();$('garage-preview-note').textContent='';
+}
+async function updatePreview() {
+  const pick=app.garagePick,skin=skinOf(pick),key=`${pick.vehicle}/${pick.skin}`,note=$('garage-preview-note');
+  if(!app.garage.open||key===previewKey)return;
+  const token=++previewToken;previewKey=key;preview?.dispose();preview=undefined;
+  if(!skin||skin.source==='none'||skin.source==='procedural'){note.textContent=skin?.source==='none'?'No vehicle body':'No preview';return;}
+  if(!glbAvailable(skin)){note.textContent='Not available';return;}
+  note.textContent='Loading preview...';
+  try{
+    const payload=await previewPayload(skin);
+    if(token!==previewToken||!app.garage.open)return;
+    preview=new GaragePreview($('garage-preview'),payload);$('garage-preview').append(note);note.textContent='';
+  }catch(error){if(token===previewToken){$('garage-preview').append(note);note.textContent=`Preview unavailable (${error.message})`;}}
 }
 function openGarage() {
   if(!app.running||!canSwitch({race:app.race,editing:app.editor.isOpen}))return;
@@ -91,6 +119,6 @@ $('garage-skins').addEventListener('click',event=>{const b=event.target.closest(
 app.garage.addEventListener('keydown',event=>{const dir={ArrowLeft:-1,KeyA:-1,ArrowRight:1,KeyD:1}[event.code];if(dir&&!event.ctrlKey&&!event.altKey&&!event.metaKey){event.preventDefault();stepGarage(dir);}});
 $('garage-use').addEventListener('click',()=>{if(selectVehicle(app.garagePick))app.garage.close();});
 $('garage-attach').addEventListener('click',attachSwe1r);
-app.garage.addEventListener('close',()=>canvas.focus());
+app.garage.addEventListener('close',()=>{closePreview();canvas.focus();});
 $('menu-garage').addEventListener('click',()=>{app.raceMenu.close();openGarage();});
 }
