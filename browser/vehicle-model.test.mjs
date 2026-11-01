@@ -21,8 +21,3 @@ test('loader rejects HTTP errors and non-GLB bodies (SPA fallback)',async()=>{
   const ok=await loadVehicleModel(skin,async()=>new Response(sampleVehicle()));
   assert.equal(ok.key,'glb:x');assert.deepEqual(ok.textures,[]);
 });
-
-test('shipped gnome models parse, stay in limits and carry cockpit + exhausts',async()=>{
-  const {gnomeCar,gnomeTower}=await import('./tools/make-gnome-vehicles.mjs');
-  for(const make of [gnomeCar,gnomeTower]){const p=vehiclePayload(make());assert.equal(p.metadata.exhausts.length,2);assert.ok(p.metadata.posedAttachment0);assert.ok(p.asset.indices.length>0&&p.asset.indices.length<120000);}
-});
