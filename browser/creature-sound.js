@@ -3,7 +3,8 @@
 import { table, index } from './music.js';
 
 export const CREATURE_SOUND = Object.freeze({
-  displaySoundField: 2,   // CreatureDisplayInfo: ID, ModelID, SoundID
+  displayModelField: 1, displaySoundField: 2,   // CreatureDisplayInfo: ID, ModelID, SoundID (an override, set on only ~3% of real displays)
+  modelSoundField: 13,    // CreatureModelData: SoundID, the usual source (verified on real 1.12 Data)
   deathField: 6,          // CreatureSoundData: ID, Exertion, ExertionCritical, Injury, InjuryCritical, InjuryCrushingBlow, Death
   entryFirstFile: 3, entryFileCount: 10, entryDirField: 23,
   maxBytes: 2 * 1024 * 1024,
@@ -25,16 +26,21 @@ export function looseTable(bytes, name) {
 }
 
 export class CreatureSoundCatalog {
-  constructor(displayBytes, dataBytes, entryBytes) {
+  constructor(displayBytes, dataBytes, entryBytes, modelBytes) {
     this.displays = looseTable(displayBytes, 'CreatureDisplayInfo'); this.data = looseTable(dataBytes, 'CreatureSoundData');
     this.entries = table(entryBytes, 29, 116, 'SoundEntries');
+    this.models = modelBytes ? looseTable(modelBytes, 'CreatureModelData') : undefined; this.modelRows = this.models && index(this.models);
     this.displayRows = index(this.displays); this.dataRows = index(this.data); this.entryRows = index(this.entries);
   }
   /** Every candidate death file (full MPQ path) for a creature display id; empty when it has none. */
   deathPaths(displayId, c = CREATURE_SOUND) {
     const d = this.displayRows.get(displayId);
     if (d === undefined) return [];
-    const data = this.dataRows.get(this.displays.u32(d, c.displaySoundField));
+    let data = this.dataRows.get(this.displays.u32(d, c.displaySoundField));
+    if (data === undefined && this.models) {
+      const m = this.modelRows.get(this.displays.u32(d, c.displayModelField));
+      if (m !== undefined) data = this.dataRows.get(this.models.u32(m, c.modelSoundField));
+    }
     if (data === undefined) return [];
     const entry = this.entryRows.get(this.data.u32(data, c.deathField));
     if (entry === undefined) return [];
@@ -56,8 +62,8 @@ export class CreatureSounds {
   }
   load() {
     const read = n => this.source.read(`DBFilesClient\\${n}.dbc`, { background: true });
-    return this.loading ??= Promise.all([read('CreatureDisplayInfo'), read('CreatureSoundData'), read('SoundEntries')])
-      .then(([a, b, c]) => (this.catalog = new CreatureSoundCatalog(a, b, c)), () => { this.failed = true; });
+    return this.loading ??= Promise.all([read('CreatureDisplayInfo'), read('CreatureSoundData'),     read('SoundEntries'), read('CreatureModelData').catch(() => undefined)])
+          .then(([a, b, c, d]) => (this.catalog = new CreatureSoundCatalog(a, b, c, d)), () => { this.failed = true; });
   }
   /** {path, bytes} (bytes only the first time a path is sent) or undefined. */
   async death(displayId) {
