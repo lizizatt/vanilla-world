@@ -1,5 +1,5 @@
 // WDL ocean tiles sit near -503 yd with stray sea-level spikes; anything higher is land that must not be flooded by the sea-level fill.
-export const LAND_FLOOR=-450,LAND_FRACTION=.1,RIM_BAND=.25,LIQUID=2,COAST_WATER=4;
+export const LAND_FLOOR=-450,LAND_FRACTION=.1,RIM_BAND=.25,SPIKE_CEILING=1,LIQUID=2,COAST_WATER=4;
 const isWater=m=>m===LIQUID||m===COAST_WATER;
 
 /** True when enough of a horizon tile (7 floats per vertex, y at +1) is above the ocean-floor band to count as land. */
@@ -11,14 +11,14 @@ export function isLandTile(vertices,floor=LAND_FLOOR,fraction=LAND_FRACTION) {
 
 /**
  * WDL tiles bordering missing data carry a rim of sea-level (0) vertices that reads as a ridge in open ocean and fights the water plane.
- * When every above-floor vertex of a tile lies within RIM_BAND of its outer edge, flatten them to the tile's lowest height (in place).
+ * When every above-floor vertex of a tile lies within RIM_BAND of its outer edge and none rises above SPIKE_CEILING (real coastal land along a tile edge is taller), flatten them to the tile's lowest height (in place).
  */
 export function trimRimSpikes(vertices,floor=LAND_FLOOR) {
   let x0=Infinity,x1=-Infinity,z0=Infinity,z1=-Infinity,low=Infinity;
   for(let i=0;i<vertices.length;i+=7){if(isWater(vertices[i+6]))continue;x0=Math.min(x0,vertices[i]);x1=Math.max(x1,vertices[i]);z0=Math.min(z0,vertices[i+2]);z1=Math.max(z1,vertices[i+2]);low=Math.min(low,vertices[i+1]);}
   if(!(low<=floor))return vertices;
   const bx=(x1-x0)*RIM_BAND,bz=(z1-z0)*RIM_BAND,rim=i=>vertices[i]-x0<=bx||x1-vertices[i]<=bx||vertices[i+2]-z0<=bz||z1-vertices[i+2]<=bz;
-  for(let i=0;i<vertices.length;i+=7)if(!isWater(vertices[i+6])&&vertices[i+1]>floor&&!rim(i))return vertices;
+  for(let i=0;i<vertices.length;i+=7)if(!isWater(vertices[i+6])&&vertices[i+1]>floor&&(vertices[i+1]>SPIKE_CEILING||!rim(i)))return vertices;
   for(let i=0;i<vertices.length;i+=7)if(!isWater(vertices[i+6])&&vertices[i+1]>floor)vertices[i+1]=low;
   return vertices;
 }
