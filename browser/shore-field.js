@@ -22,7 +22,9 @@ export function buildShoreClasses(sampleBatch,surface,center,rowStart=0,rowCount
     if(s[0]!==0){data[n]=1|SHORE_RAMP_LEVELS<<2;continue;}
     // The beach layer is drawn on the flat sea plane, so inland water at another height (basin ponds, mountain lakes) is not a shore: it would float over/under the terrain.
     if(Number.isNaN(water)||s[1]>=water||Math.abs(water)>SEA_LEVEL_TOLERANCE)continue;
-    data[n]=(out[n*8+7]>0?2:1)|Math.round(Math.min(1,(water-s[1])/SHORE_RAMP_YD)*SHORE_RAMP_LEVELS)<<2;
+    // No ground under the water (open sea past the authored shelf) reads as deep, like the flat fill; NaN would otherwise bake as the shallowest ramp.
+    const ramp=Number.isNaN(s[1])?1:Math.min(1,(water-s[1])/SHORE_RAMP_YD);
+    data[n]=(out[n*8+7]>0?2:1)|Math.round(ramp*SHORE_RAMP_LEVELS)<<2;
   }
   return {origin:[ox,oz],cell:SHORE_CELL,n:SHORE_N,data,rowStart};
 }

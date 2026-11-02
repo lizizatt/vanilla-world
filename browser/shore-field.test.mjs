@@ -79,6 +79,13 @@ test('shore class bytes carry the tile liquid depth ramp, which the clipmap tint
   assert.match(beachShading,/fn beachRamp\(P:vec2f\)->f32/);
 });
 
+test('open sea with no ground under it (water, NaN ground, available) bakes deep, not the shallowest ramp (turquoise patch past the shelf)',()=>{
+  const sample=p=>{const o=new Float64Array(p.length/2*8);return o;};
+  const g=buildShoreClasses(sample,()=>[0,NaN,0,0,0],[0,0],0,N);
+  assert.equal(shoreClass(g.data[7]),1);
+  assert.equal(shoreDepthTexture(g.data)[7],255);
+});
+
 test('buildShoreClasses: unavailable tiles are water, land is 0, waves give class 2',()=>{
   const sample=p=>{const o=new Float64Array(p.length/2*8);for(let n=0;n<p.length/2;n++){o[n*8]=0;o[n*8+7]=p[n*2]>100?0:1;}return o;};
   const surface=(x,z)=>z<0?[1,NaN,NaN,0,0]:z<300?[0,-50,0,0,0]:[0,10,0,0,0];
