@@ -46,7 +46,7 @@ void main(){vec4 t=uTextured>.5?texture(uTex,vUv):vec4(1.0);vec4 c=t*vColor;if(c
 float l=uEmissive>.5?1.0:.42+.58*max(dot(normalize(vN),uLight),0.0);o=vec4(c.rgb*l,c.a);}`;
 
 export class GaragePreview {
-  constructor(host,payload,{doc=document,raf=requestAnimationFrame,caf=cancelAnimationFrame,now=performance.now.bind(performance)}={}) {
+  constructor(host,payload,{doc=document,raf=f=>requestAnimationFrame(f),caf=id=>cancelAnimationFrame(id),now=performance.now.bind(performance)}={}) {
     this.canvas=doc.createElement('canvas');this.canvas.className='garage-preview-canvas';this.canvas.setAttribute('aria-hidden','true');
     this.host=host;this.raf=raf;this.caf=caf;this.now=now;this.textures=new Map();this.angle=.6;this.dragging=false;
     const gl=this.canvas.getContext('webgl2',{antialias:true,alpha:true,powerPreference:'low-power'});

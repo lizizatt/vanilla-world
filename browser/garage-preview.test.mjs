@@ -45,3 +45,16 @@ test('GaragePreview throws when WebGL2 is missing', () => {
   const canvas={setAttribute(){},getContext:()=>null};
   assert.throws(()=>new GaragePreview({},{asset:{vertices:verts,batches:[]},textures:[]},{doc:{createElement:()=>canvas},raf:()=>0,caf:()=>{},now:()=>0}),/WebGL2/);
 });
+
+test('GaragePreview default raf/caf are invoked without the preview as `this` (browser: Illegal invocation)', () => {
+  const gl=new Proxy({},{get:(_,k)=>k==='getShaderParameter'||k==='getProgramParameter'?()=>true:k==='getExtension'?()=>undefined:k===k.toUpperCase()?1:()=>({})});
+  const canvas={clientWidth:1,clientHeight:1,getContext:()=>gl,setAttribute(){},addEventListener(){},removeEventListener(){},remove(){}};
+  const seen=[];
+  globalThis.requestAnimationFrame=function(){seen.push(this);return 1;};globalThis.cancelAnimationFrame=function(){seen.push(this);};
+  try {
+    const p=new GaragePreview({replaceChildren(){}},{asset:{vertices:verts,indices:new Uint32Array([0,1,0]),batches:[]},textures:[]},{doc:{createElement:()=>canvas}});
+    p.dispose();
+  } finally {delete globalThis.requestAnimationFrame;delete globalThis.cancelAnimationFrame;}
+  assert.equal(seen.length,2);
+  assert.ok(seen.every(t=>t===undefined||t===globalThis));
+});
