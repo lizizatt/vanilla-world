@@ -6,7 +6,7 @@ import {SkyService} from './sky.js';
 import {WorldMapService} from './worldmap.js';
 import {HudArtService} from './hud-art.js';
 import {ready,source,world,timings,postFrameVisuals,openWorld,runFrame,restoreWorld,resetWorld,retryWorld,
-  requireWorld,setPopulation,setActorsOn,setWavesOn,waveMask,shoreRows,setMemoryBudget,stopLoadingArt,farAck,farReject,snapshot,settleAfterAction,rebindRenderer,
+  requireWorld,setPopulation,setActorsOn,setCreatureCollisionOn,setWavesOn,waveMask,shoreRows,setMemoryBudget,stopLoadingArt,farAck,farReject,snapshot,settleAfterAction,rebindRenderer,
   finishFrame,scheduleTerrainMaterials,sceneFault} from './world-engine.js';
 import {formatError,validateHop,validateSampleTime,validateParkedPose,validateTuning} from './world-worker-logic.js';
 import {pod} from './world-engine.js';
@@ -18,6 +18,7 @@ let music,sky,worldMap,hudArt;
 export function routeImmediate(data) {
   if(data.action==='stop-loading-art'){stopLoadingArt();return true;}
   if(data.action==='animate'){setActorsOn(data.on!==false);return true;}
+  if(data.action==='creature-collision'){setCreatureCollisionOn(data.on!==false);return true;}
   if(data.action==='waves'){setWavesOn(data.on!==false);return true;}
   if(data.action==='budget'){setMemoryBudget(data.bytes,data.gpu);return true;}
   if(data.action==='music'){

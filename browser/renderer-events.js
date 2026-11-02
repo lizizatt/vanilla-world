@@ -63,7 +63,7 @@ export function reset(r,{keepPlanet=false}={}) {
   for(const asset of r.assets.values()){asset.vertices.destroy();asset.indices.destroy();}r.assets.clear();
   for(const texture of r.textures.values())texture.destroy();r.textures.clear();
   r.items.clear();
-  for(const e of r.poses.values())e.buffer.destroy();r.poses.clear();r.moves?.clear();
+  for(const e of r.poses.values())e.buffer.destroy();r.poses.clear();r.moves?.clear();r.hiddenNpcs=undefined;r.deadNpcs=undefined;
   r.instances=[];r.nearInstances=[];r.farInstances=[];r.farRegion=undefined;
   r.camera=undefined;r.origin=[0,0];
   r.view=undefined;r.terrainView=undefined;
@@ -94,6 +94,7 @@ export function event(r,data) {
   }
   if(data.event==='pose'){r.pose(data);return;}
   if(data.event==='npc-moves'){r.npcMoves(data);return;}
+  if(data.event==='npc-fx'){r.npcFx(data);return;}
   if(data.event==='craft'){
     const craft=r.buildCraft(data,10318,'10318');
     r.releaseCraft();

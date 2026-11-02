@@ -24,7 +24,7 @@ import {localSunAt,solarTime} from './local-sun.js';
 import {SimClock,sanitiseScale,daylightAt,CloudClock} from './sim-clock.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
 import {cameraAxes,AdmissionFade,sceneSelection} from './renderer-helpers.js';
-import {posedAsset,npcMoves,moveMatrix,pose} from './renderer-actors.js';
+import {posedAsset,npcMoves,npcFx,moveMatrix,pose} from './renderer-actors.js';
 import {BEND_ALWAYS} from './terrain-transition.js';
 import {buffer,texture,drawable,setFlags,setGates,releaseMaterial,release,uploadMaterials,drawTerrain,refreshOcean} from './renderer-terrain.js';
 import {destroyCraft,releaseCraft,buildCraft,animateCraft,startWreck,wreckChunk,endWreck,setProps,setCraftOverride,domeDraw} from './renderer-craft.js';
@@ -68,6 +68,7 @@ export class WorldRenderer {
   }
   posedAsset(instance,base){return posedAsset(this,instance,base);}
   npcMoves(data){return npcMoves(this,data);}
+  npcFx(data){return npcFx(this,data);}
   moveMatrix(instance,mv,region,origin){return moveMatrix(this,instance,mv,region,origin);}
   pose(data){return pose(this,data);}
   buffer(data,usage){return buffer(this,data,usage);}
