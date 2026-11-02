@@ -23,6 +23,13 @@ test('rim-only sea-level spikes are flattened, interior land is untouched',() =>
   assert.equal(island[8],100);
 });
 
+test('real land hugging a tile edge is not flattened as a rim spike',() => {
+  const v=(x,y,z)=>[x,y,z,0,1,0,0];
+  const coast=new Float32Array([...v(0,-503,0),...v(100,-503,100),...v(1,109,5),...v(2,60,50),...v(100,-503,0)]);
+  trimRimSpikes(coast);
+  assert.equal(Math.max(...coast.filter((_,i)=>i%7===1)),109);
+});
+
 import {isDeepOcean} from './tile-registry.js';
 test('isDeepOcean flags only known deep ground',()=>{const g=new Float32Array(2048*1024).fill(-Infinity);g[512*2048+1024]=-503;g[512*2048+1025]=50;assert.equal(isDeepOcean(g,0,0),true);assert.equal(isDeepOcean(g,2*Math.PI/2048,0),false);assert.equal(isDeepOcean(g,1,1),false);});
 
