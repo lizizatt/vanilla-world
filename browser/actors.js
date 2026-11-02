@@ -1,4 +1,4 @@
-// Bounded nearby creature animation: the world worker re-poses a few shared Stand loops with the
+﻿// Bounded nearby creature animation: the world worker re-poses a few shared Stand loops with the
 // Rust rig and posts whole vertex buffers; the renderer swaps them in. Visual only: nothing here
 // touches collision, readiness or physics, and unsupported models just stay in bind pose.
 import { npcClass, idSeed, wanders, wanderState, WANDER } from './wander.js';
@@ -37,23 +37,24 @@ export class ActorService {
     this.sent = new Map(); this.walk = new Map(); // poseKey -> bytes
     this.stats = { posts: 0, poses: 0, ms: 0, maxMs: 0, models: 0, failed: 0, groups: 0, bytes: 0 };
     this.closed = false; this.enabled = true;
-    this.cc = new CreatureCollision(); this.sounds = new CreatureSounds(source); this.deathSent = new Map(); this.fxRevision = -1; this.size = [0, 0];     this.assets = undefined;
+    this.cc = new CreatureCollision(); this.sounds = new CreatureSounds(source); this.deathSent = new Map(); this.fxRevision = -1; this.size = [0, 0, 0, 0, 0, 0];     this.assets = undefined;
     this.positionOf = id => this.walk.get(id)?.last;
     this.classOf = i => npcClass(i.path);
     this.durationOf = i => this.models.get(i.key)?.death ?? 0;
     this.sizeOf = i => this.sizeFor(i);
   }
 
-  // Cylinder (radius, height) in yards from the model bounds and instance scale; undefined until the model is resident.
+  // Hit box [halfX, halfY, zLo, zHi, offX, offY] in yards from the model bounds and instance scale (creature-local: x forward, z feet-relative);
+  // undefined until the model is resident. The box, not a centred cylinder: a basilisk's tail makes its bounds 9 yd long but only 1.6 yd half-wide and off-centre.
   sizeFor(i) {
     const b = this.assets?.get(i.key)?.bounds, m = i.matrix;
     if (!b) return undefined;
-    const k = Math.hypot(m[0], m[1], m[2]);
-    this.size[0] = Math.max(b[1][0] - b[0][0], b[1][1] - b[0][1]) * k * 0.5;
-    this.size[1] = (b[1][2] - b[0][2]) * k;
-    return this.size;
+    const k = Math.hypot(m[0], m[1], m[2]), s = this.size;
+    s[0] = (b[1][0] - b[0][0]) * k * 0.5; s[1] = (b[1][1] - b[0][1]) * k * 0.5;
+    s[2] = b[0][2] * k; s[3] = b[1][2] * k;
+    s[4] = (b[1][0] + b[0][0]) * k * 0.5; s[5] = (b[1][1] + b[0][1]) * k * 0.5;
+    return s;
   }
-
   // Craft (source space) vs nearby creatures. Visual/audio only: posts hide/dead sets and one death sound per kill; the craft is never touched.
   collide(instances, assets, x, y, z, displayOf) {
     const cc = this.cc;

@@ -1,10 +1,10 @@
-import test from 'node:test';
+﻿import test from 'node:test';
 import assert from 'node:assert/strict';
 import {CreatureCollision,CREATURE_COLLISION as C,segmentDistance2,sweptOverlap,deathPoseTime} from './creature-collision.js';
 import {ActorService} from './actors.js';
 
 const npc=(n,x,y,z=0,over={})=>({id:`0:npc:${n}`,key:'m',kind:'m2',path:'creature\\wolf\\wolf.m2',skins:[],matrix:[1,0,0,0,0,1,0,0,0,0,1,0,x,y,z,1],...over});
-const noPos=()=>undefined,size=()=>[.6,1.2],cls=()=>'creature',dur=()=>2;
+const noPos=()=>undefined,size=()=>[.6,.6,0,1.2,0,0],cls=()=>'creature',dur=()=>2;
 const isNpc=i=>i.id.includes(':npc:');
 const fresh=(rand=()=>0.99,cfg)=>new CreatureCollision(rand,cfg);
 const run=(cc,list,from,to,t0=0,dt=.04)=>{cc.update(list,isNpc,...from,t0,noPos,size,cls,dur);return cc.update(list,isNpc,...to,t0+dt,noPos,size,cls,dur);};
@@ -12,14 +12,27 @@ const run=(cc,list,from,to,t0=0,dt=.04)=>{cc.update(list,isNpc,...from,t0,noPos,
 test('segment distance and swept overlap catch tunnelling between ticks',()=>{
   assert.equal(segmentDistance2(0,0,10,0,5,3),9);
   assert.equal(segmentDistance2(0,0,0,0,3,4),25);
+  const hit=(az,bz,cx,cy,cz,yaw,hx,hy,zLo,zHi,ox=0,oy=0)=>sweptOverlap(0,0,az,100,0,bz,C.craftRadius,C.craftHalfHeight,cx,cy,cz,yaw,hx,hy,zLo,zHi,ox,oy);
   // creature at x=50 sits between two samples 100 yd apart
-  assert.ok(sweptOverlap(0,0,0,100,0,0,C.craftRadius,C.craftHalfHeight,50,1,0,.5,1));
-  assert.ok(!sweptOverlap(0,0,0,100,0,0,C.craftRadius,C.craftHalfHeight,50,9,0,.5,1));
+  assert.ok(hit(0,0,50,1,0,0,.5,.5,0,1));
+  assert.ok(!hit(0,0,50,9,0,0,.5,.5,0,1));
   // flying well above the creature misses, hovering at its height hits
-  assert.ok(!sweptOverlap(0,0,30,100,0,30,C.craftRadius,C.craftHalfHeight,50,0,0,.5,1));
-  assert.ok(sweptOverlap(0,0,1,100,0,1,C.craftRadius,C.craftHalfHeight,50,0,0,.5,1));
+  assert.ok(!hit(30,30,50,0,0,0,.5,.5,0,1));
+  assert.ok(hit(1,1,50,0,0,0,.5,.5,0,1));
+  // a hovering/flying model's z range sits above its feet: flying under it misses, at its height hits
+  assert.ok(!hit(0,0,50,0,0,0,.5,.5,8,10));
+  assert.ok(hit(9,9,50,0,0,0,.5,.5,8,10));
 });
 
+test('hit box is oriented and offset: a basilisk-shaped body is hit along its tail, not 4 yd off its flank',()=>{
+  // bounds x -6.4..2.7, y +-1.6 (real basilisk): half 4.56 x 1.59, centre 1.85 yd behind the origin
+  const box=[4.56,1.59,0,2.2,-1.85,0];
+  const hit=(cx,cy,yaw,y=0)=>sweptOverlap(0,y,0,48,y,0,C.craftRadius,C.craftHalfHeight,cx,cy,0,yaw,...box);
+  assert.ok(hit(50,0,0));            // flying along its length
+  assert.ok(!hit(58,0,0));           // origin 10 yd ahead of the path end: snout and craft radius still short
+  assert.ok(!hit(50,6,0));           // 6 yd off the flank misses
+  assert.ok(hit(50,6,Math.PI/2));    // turned sideways, the tail now sweeps into the path
+});
 test('speed threshold: slow craft never kills, fast craft does',()=>{
   const list=[npc(1,10,0)];
   assert.equal(run(fresh(),list,[0,0,0],[.5,0,0]).length,0);
@@ -39,8 +52,8 @@ test('disabled setting, wrong class and large creatures are ignored',()=>{
   assert.equal(run(off,list,[0,0,0],[20,0,0]).length,0);
   const a=fresh();a.update(list,isNpc,0,0,0,0,noPos,size,()=>undefined,dur);
   assert.equal(a.update(list,isNpc,20,0,0,.04,noPos,size,()=>undefined,dur).length,0);
-  const b=fresh();b.update(list,isNpc,0,0,0,0,noPos,()=>[C.maxCreatureRadius+1,2],cls,dur);
-  assert.equal(b.update(list,isNpc,20,0,0,.04,noPos,()=>[C.maxCreatureRadius+1,2],cls,dur).length,0);
+  const b=fresh();b.update(list,isNpc,0,0,0,0,noPos,()=>[C.maxCreatureRadius+1,C.maxCreatureRadius+1,0,2,0,0],cls,dur);
+  assert.equal(b.update(list,isNpc,20,0,0,.04,noPos,()=>[C.maxCreatureRadius+1,C.maxCreatureRadius+1,0,2,0,0],cls,dur).length,0);
   const c=fresh();c.update(list,isNpc,0,0,0,0,noPos,()=>undefined,cls,dur);
   assert.equal(c.update(list,isNpc,20,0,0,.04,noPos,()=>undefined,cls,dur).length,0,'unknown size is skipped');
 });
