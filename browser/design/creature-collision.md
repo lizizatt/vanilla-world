@@ -15,7 +15,7 @@ Worker side, in the existing actor tick (`creature-collision.js`, called from `A
 - Craft source-space position is sampled in `updateScene`; speed = displacement per tick.
 - Broadphase: cached NPC list (rebuilt only when the snapshot array changes), axis box around the swept segment ± `reach` (60 yd), then class and size gates, then an exact swept XY segment vs cylinder + z-range test (no tunnelling at 500+ yd/s).
 - Creature cylinder comes from the resident asset's model-space `bounds` times instance scale. Models not resident are skipped.
-- Cost: O(NPCs in the snapshot) per tick, early-out below the speed threshold; allocation only on a kill. Expected to stay far below the 20 ms p99 handler budget (not measured in-browser here: `browser\pkg` wasm is not built in this worktree).
+- Cost: O(NPCs in the snapshot) per tick, early-out below the speed threshold; allocation only on a kill. Measured on real Data (`node creature-death-smoke.mjs`): handler p50 0.3 ms, p95 0.9 ms, p99 1.7 ms (gate 20 ms), 0 errors over ~19k frames.
 
 ## Death animation data (anim id 1)
 Measured from the M2 sequence tables of the 219 distinct creature models in the spawn pack:
@@ -26,11 +26,11 @@ Measured from the M2 sequence tables of the 219 distinct creature models in the 
 
 ## Death sound (spatial)
 Direction: no gibbing; play the creature's own death animation and its own death sound at its location.
-- Resolution (`creature-sound.js`, worker, from the user's Data, nothing stored): the spawn's `displayId` (`scene-stream.js` `npcDisplays`) -> `CreatureDisplayInfo` field 2 (SoundID) -> `CreatureSoundData` field 6 (SoundDeathID) -> `SoundEntries` (files in fields 3-12 under the dir in field 23; one variant is picked at random). Paths must match `sound\...wav|mp3`. `CreatureDisplayInfo`/`CreatureSoundData` are read by header only (field indexes above are the 1.12 layout and could not be verified against real Data in this worktree); `SoundEntries` uses the same 29x116 layout as `music.js`.
+- Resolution (`creature-sound.js`, worker, from the user's Data, nothing stored): the spawn's `displayId` (`scene-stream.js` `npcDisplays`) -> `CreatureDisplayInfo` field 2 (SoundID, an override set on only ~3% of displays) else field 1 (ModelID) -> `CreatureModelData` field 13 (SoundID) -> `CreatureSoundData` field 6 (SoundDeathID) -> `SoundEntries` (files in fields 3-12 under the dir in field 23; one variant is picked at random). Paths must match `sound\...wav|mp3`. `CreatureDisplayInfo`/`CreatureSoundData` are read by header only (indexes verified on real 1.12.1 Data: 10273 of 10534 displays resolve a death sound, 183 unique files); `SoundEntries` uses the same 29x116 layout as `music.js`.
 - A creature with no sound data, no death entry, a missing/oversized (2 MiB cap) file or an undecodable sample is silent; the death animation still plays.
 - On a kill `ActorService.deathSound` posts `creature-sound {displayId, path, bytes?, x, y, z}`; bytes are sent only the first time a path is read. The main thread converts the source position with `sourceToRender` and calls `WorldAudio.spatial`, which decodes once per path, and plays it through a `PannerNode` (equal-power, inverse distance) joined at the analyser like wind. The listener is the renderer view (eye, look, up).
 - Positional model (`spatialGain`): full gain within 8 yd, inverse rolloff 1.4, dropped beyond 320 yd, at most 6 concurrent voices. It needs the Sound setting on (same gate as other effects) and is muted with it.
-- WoW .wav files are often ADPCM; if the browser's `decodeAudioData` rejects one, that creature stays silent (not verified on real Data here).
+- WoW .wav files are often ADPCM; if the browser's `decodeAudioData` rejects one, that creature stays silent (none occur in the real Data: all 183 death files are 16-bit mono PCM, 22.05 kHz except 2 kodo files at 44.1 kHz, none silent; the browser decoded a real one to 2.7 s, RMS 0.14).
 
 ## Proposed rules (as implemented, constants in `CREATURE_COLLISION`)
 - Speed threshold 22 yd/s; every hit on a creature that has a Death clip kills it.
@@ -48,3 +48,6 @@ Direction: no gibbing; play the creature's own death animation and its own death
 3. Friendlies/civilians: exempt them? (needs faction data, which the pack lacks.)
 4. Big creatures: ignore, block, or bounce the craft?
 5. Should the craft slow down on a hit?
+
+## Real-data smoke
+`browser\creature-death-smoke.mjs` (on-demand; needs `WOW_DATA` and `browser\pkg`; takes the heavy lock, free port, ~4 min because corpse/respawn are real time) flies the craft through a real Stormwind NPC and checks the Death hold, spatial sound (instrumented, muted), respawn (gone ~27 s, back ~148 s) and handler p99. Found: the pre-built wasm only loaded clips 0 and 4 (`SceneActor` `M2Rig::new(.., &[0, 4])`), so no creature had a Death clip and nothing could die; the one-line fix (`&[0, 1, 4]`) is in `client/crates/flats-racer-web/src/scene.rs` but the wasm was not rebuilt, so the smoke runs the stand clip as a stand-in for Death. Real Death clip pose, and the podracer skin (no `SWE1R_DATA`), remain unverified.

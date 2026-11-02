@@ -566,7 +566,7 @@ impl SceneActor {
                 vertices.extend(sub.vertex_colors.get(i).copied().unwrap_or([1.0; 4]));
             }
         }
-        let rig = benilla_formats::M2Rig::new(bytes, &bind, &[0, 4]).map_err(|e| e.to_string())?;
+        let rig = benilla_formats::M2Rig::new(bytes, &bind, &[0, 1, 4]).map_err(|e| e.to_string())?;
         if rig.duration(0).is_none() {
             return Err("Actor has no Stand clip".into());
         }

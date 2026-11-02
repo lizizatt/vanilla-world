@@ -55,3 +55,22 @@ test('spatial gain falls off with distance and is dropped beyond maxDistance',()
   assert.equal(at(C.maxDistance+1).audible,false);assert.equal(at(C.maxDistance+1).gain,0);
   assert.equal(spatialGain(eye,[3,4,12]).distance,13);
 });
+
+test('display with no SoundID override falls back to CreatureModelData SoundID (real-Data chain)',()=>{
+  const models=dbc(16,[row({0:7,13:5}),row({0:8,13:0})]);
+  const d=dbc(14,[row({0:200,1:7}),row({0:201,1:8}),row({0:202,1:9}),row({0:203,1:7,2:6})]);
+  const c=new CreatureSoundCatalog(d,data(),entries(),models);
+  assert.deepEqual(c.deathPaths(200),['Sound\\Creature\\Wolf\\WolfDeathA.wav','Sound\\Creature\\Wolf\\WolfDeathB.wav']);
+  assert.deepEqual(c.deathPaths(201),[],'model without sound');assert.deepEqual(c.deathPaths(202),[],'unknown model');
+  assert.deepEqual(c.deathPaths(203),[],'override wins over the model (data 6 has no death)');
+  assert.deepEqual(new CreatureSoundCatalog(d,data(),entries()).deathPaths(200),[],'no model table: silent');
+});
+
+test('service reads CreatureModelData and tolerates it being absent',async()=>{
+  const files=dbcs();files.set('DBFilesClient\\CreatureDisplayInfo.dbc',dbc(14,[row({0:200,1:7})]));
+  files.set('DBFilesClient\\CreatureModelData.dbc',dbc(16,[row({0:7,13:5})]));
+  files.set('Sound\\Creature\\Wolf\\WolfDeathA.wav',new Uint8Array([1]));
+  assert.equal((await new CreatureSounds(source(files),()=>0).death(200)).path,'Sound\\Creature\\Wolf\\WolfDeathA.wav');
+  files.delete('DBFilesClient\\CreatureModelData.dbc');
+  assert.equal(await new CreatureSounds(source(files),()=>0).death(200),undefined);
+});
