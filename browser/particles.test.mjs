@@ -62,6 +62,7 @@ test('exhaust points sit at the rear of each engine; metadata overrides; no engi
   const { vertices, indices } = craft();
   assert.deepEqual(exhaustPoints(vertices, indices).map(p => p.map(Math.round)), [[6, 1.5 * 1, 0], [6, -1.5, 0]].map(p => p.map(Math.round)));
   assert.deepEqual(exhaustPoints(vertices, indices, { exhausts: [[1, 2, 3]] }), [[1, 2, 3]]);
+  assert.deepEqual(exhaustPoints(vertices, indices, undefined, { atHullRear: true }), [[0, 1.5, 0], [0, -1.5, 0]]);
   const body = craft(); body.indices = body.indices.slice(0, 6);
   assert.deepEqual(exhaustPoints(body.vertices, body.indices), [[0, 0, 0]]);
 });
