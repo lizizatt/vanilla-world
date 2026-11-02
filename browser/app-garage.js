@@ -111,7 +111,7 @@ async function updatePreview() {
 }
 function openGarage() {
   if(!app.running||!canSwitch({race:app.race,editing:app.editor.isOpen}))return;
-  keys.clear();app.dragging=false;app.mouseButtons=0;app.garagePick={...app.choice};renderGarage();app.garage.showModal();
+  keys.clear();app.dragging=false;app.mouseButtons=0;app.garagePick={...app.choice};renderGarage();app.garage.showModal();updatePreview();
 }
 $('garage-tabs').addEventListener('click',event=>{const b=event.target.closest('[data-vehicle]');if(b){app.garagePick=normalizeChoice({vehicle:b.dataset.vehicle,skin:b.dataset.vehicle===app.choice.vehicle?app.choice.skin:undefined});renderGarage();}});
 function stepGarage(dir){const skins=VEHICLES[app.garagePick.vehicle].skins;app.garagePick={...app.garagePick,skin:stepSkin(skins,app.garagePick.skin,dir,glbAvailable)};renderGarage();}
