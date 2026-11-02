@@ -314,7 +314,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
     if(fx&&quality>0&&craft?.source&&!this.wreck&&!this.cameraBlocked&&(!flight||this.showCraftInFlight)&&this.cameraMode!=='cockpit') {
       const input=this.fxInput||{},speed=Math.abs(state[5]),scale=craft.metadata.scale;
       fx.frame=pf.bend>0?podParticleFrame(activeFramedBody(),state):undefined;
-      craft.fx??={points:exhaustPoints(craft.source.vertices,craft.source.indices,craft.metadata),length:craft.size[0]};
+      craft.fx??={points:exhaustPoints(craft.source.vertices,craft.source.indices,craft.metadata,{atHullRear:craft.metadata.display===10318}),length:craft.size[0]};
       emitPlumes(fx,{points:craft.fx.points,matrix:craftMatrix(state,origin,scale,this.craftDrop),origin,scale,length:craft.fx.length,speed,
         thrust:input.throttle??Math.min(1,speed/150),boosting:!!input.boosting,dt:Math.min(dt,.1)});
       const wet=overWater(state[1],craft.fx.length),fxArgs={matrix:craftMatrix(state,origin,scale,this.craftDrop),origin,scale,length:craft.fx.length,speed,drift:!!input.drifting,grounded:state[7]>0,dt:Math.min(dt,.1),time:performance.now()/1000};
