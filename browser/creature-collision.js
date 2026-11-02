@@ -1,10 +1,8 @@
 // Craft-vs-creature collision spike (visual/gameplay-light, never touches craft physics): a swept overlap test of the craft
-// against nearby NPC cylinders, probability gating, and a per-creature Death -> corpse -> gone -> respawn state machine.
+// against nearby NPC cylinders and a per-creature Death -> corpse -> gone -> respawn state machine (creatures with no Death clip are left alone).
 // Pure and allocation-light so it can run in the 40 ms actor tick; ActorService owns the poses, the renderer owns the visuals.
 export const CREATURE_COLLISION = Object.freeze({
   minSpeed: 22,        // yd/s craft speed below which creatures are left alone
-  gibSpeed: 70,        // at/above this speed the gib chance is doubled
-  gibChance: 0.12,
   craftRadius: 2.5,    // yd, horizontal
   craftHalfHeight: 1.5,
   maxCreatureRadius: 3, // bigger creatures are ignored (they should block, not die)
@@ -13,7 +11,6 @@ export const CREATURE_COLLISION = Object.freeze({
   maxKillsPerSecond: 8,
   corpseSeconds: 25,
   respawnSeconds: 120,
-  fallbackDeathSeconds: 1.2,
   reach: 60,           // broadphase square half-width around the craft, yd
   classes: Object.freeze(['critter', 'creature', 'civilian']),
 });
@@ -40,21 +37,15 @@ export const deathPoseTime = (age, duration) => Math.min(Math.max(age, 0), Math.
 export class CreatureCollision {
   constructor(rand = Math.random, config = CREATURE_COLLISION) {
     this.rand = rand; this.cfg = config; this.enabled = true;
-    this.states = new Map(); // id -> {state: 'dying'|'dead'|'gone', t0, gib, x, y, z, yaw, duration, posted}
+    this.states = new Map(); // id -> {state: 'dying'|'dead'|'gone', t0, x, y, z, yaw, duration, posted}
     this.events = [];        // kills of the last update (reused array)
     this.list = []; this.listFor = undefined;
     this.prev = new Float64Array(4); this.hasPrev = false;
     this.windowStart = 0; this.windowKills = 0; this.lastSpeed = 0;
-    this.stats = { kills: 0, gibs: 0, tests: 0, maxMs: 0 };
+    this.stats = { kills: 0, skipped: 0, tests: 0, maxMs: 0 };
   }
 
   reset() { this.states.clear(); this.hasPrev = false; this.events.length = 0; this.listFor = undefined; }
-
-  /** Probability gate: critters and small creatures only, gib more likely at high speed. */
-  gibRoll(speed) {
-    const c = this.cfg, p = c.gibChance * (speed >= c.gibSpeed ? 2 : 1);
-    return this.rand() < p;
-  }
 
   isAlive(id) { return !this.states.has(id); }
   isDeadOrDying(id) { const s = this.states.get(id); return !!s && s.state !== 'gone'; }
@@ -96,12 +87,12 @@ export class CreatureCollision {
       if (!size || size[0] > c.maxCreatureRadius || size[1] > c.maxCreatureHeight) continue;
       this.stats.tests++;
       if (!sweptOverlap(ax, ay, az, x, y, z, c.craftRadius, c.craftHalfHeight, cx, cy, cz, size[0], size[1])) continue;
-      const duration = durationOf(i), gib = !(duration > 0) || this.gibRoll(speed);
-      this.states.set(i.id, { state: gib ? 'gone' : 'dying', t0: now, gib, x: cx, y: cy, z: cz, yaw: w?.yaw, duration: duration > 0 ? duration : c.fallbackDeathSeconds,       key: i.key, posted: false, goneAt: now });
-            this.revision = (this.revision || 0) + 1;
-            this.windowKills++; if (!gib) dying++;
-      this.stats.kills++; if (gib) this.stats.gibs++;
-      events.push({ id: i.id, gib, x: cx, y: cy, z: cz, size: Math.max(size[0], size[1] * .5), speed });
+      const duration = durationOf(i);
+      if (!(duration > 0)) { this.stats.skipped++; continue; }
+      this.states.set(i.id, { state: 'dying', t0: now, x: cx, y: cy, z: cz, yaw: w?.yaw, duration, key: i.key, posted: false, goneAt: now });
+      this.revision = (this.revision || 0) + 1;
+      this.windowKills++; dying++; this.stats.kills++;
+      events.push({ id: i.id, x: cx, y: cy, z: cz, speed });
     }
     return events;
   }

@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {CreatureCollision,CREATURE_COLLISION as C,segmentDistance2,sweptOverlap,deathPoseTime} from './creature-collision.js';
 import {ActorService} from './actors.js';
-import {ParticlePool,emitGib} from './particles.js';
 
 const npc=(n,x,y,z=0,over={})=>({id:`0:npc:${n}`,key:'m',kind:'m2',path:'creature\\wolf\\wolf.m2',skins:[],matrix:[1,0,0,0,0,1,0,0,0,0,1,0,x,y,z,1],...over});
 const noPos=()=>undefined,size=()=>[.6,1.2],cls=()=>'creature',dur=()=>2;
@@ -46,19 +45,14 @@ test('disabled setting, wrong class and large creatures are ignored',()=>{
   assert.equal(c.update(list,isNpc,20,0,0,.04,noPos,()=>undefined,cls,dur).length,0,'unknown size is skipped');
 });
 
-test('gib probability gate: seeded rolls, doubled above gibSpeed, forced when no Death clip',()=>{
-  const lo=fresh(()=>C.gibChance*1.5);// above chance, below doubled chance
-  assert.equal(lo.gibRoll(C.minSpeed+1),false);
-  assert.equal(lo.gibRoll(C.gibSpeed),true);
-  assert.equal(fresh(()=>0).gibRoll(C.minSpeed),true);
-  assert.equal(fresh(()=>.999).gibRoll(C.gibSpeed),false);
-  const cc=fresh(()=>.99),list=[npc(1,10,0)];
+test('creatures with no Death clip are skipped, not killed',()=>{
+  const cc=fresh(),list=[npc(1,10,0)];
   cc.update(list,isNpc,0,0,0,0,noPos,size,cls,()=>0);
-  const ev=cc.update(list,isNpc,20,0,0,.04,noPos,size,cls,()=>0);
-  assert.equal(ev[0].gib,true);assert.equal(cc.states.get(list[0].id).state,'gone');
+  assert.equal(cc.update(list,isNpc,20,0,0,.04,noPos,size,cls,()=>0).length,0);
+  assert.ok(cc.isAlive(list[0].id));assert.equal(cc.stats.skipped,1);
 });
 
-test('Death state machine: dying -> dead (held) -> gone -> respawn; gibs skip to gone',()=>{
+test('Death state machine: dying -> dead (held) -> gone -> respawn',()=>{
   const cc=fresh(),list=[npc(1,10,0)],id=list[0].id;
   run(cc,list,[0,0,0],[20,0,0],0);
   assert.equal(cc.states.get(id).state,'dying');assert.ok(!cc.isAlive(id));
@@ -69,8 +63,8 @@ test('Death state machine: dying -> dead (held) -> gone -> respawn; gibs skip to
   const goneAt=cc.states.get(id).goneAt;
   cc.advance(goneAt+C.respawnSeconds-1);assert.ok(cc.states.has(id));
   cc.advance(goneAt+C.respawnSeconds+.1);assert.ok(cc.isAlive(id));
-  // a dead creature is never killed again, a respawned one can be
-  const g=fresh(()=>0);run(g,list,[0,0,0],[20,0,0],0);assert.equal(g.states.get(id).state,'gone');
+  // a dead creature is never killed again
+  const g=fresh();run(g,list,[0,0,0],[20,0,0],0);
   assert.equal(run(g,list,[0,0,0],[20,0,0],.5).length,0);
 });
 
@@ -114,7 +108,7 @@ test('ActorService: kills play Death once, hold the last frame, then remove the 
   const hit=(x)=>s.collide(list,assets,x,0,0);
   tick(1000);hit(0);tick(40);hit(20);
   const fx=posted.filter(m=>m.event==='npc-fx').at(-1);
-  assert.deepEqual(fx.dead,[list[0].id]);assert.deepEqual(fx.hidden,[]);assert.equal(fx.gibs.length,0);
+  assert.deepEqual(fx.dead,[list[0].id]);assert.deepEqual(fx.hidden,[]);
   poseCalls.length=0;
   tick(500);s.update(list,[0,0]);
   const mid=posted.filter(m=>m.event==='pose').at(-1).poses.find(p=>p.phase===`d:${list[0].id}`);
@@ -134,16 +128,26 @@ test('ActorService: kills play Death once, hold the last frame, then remove the 
   s.close();
 });
 
-test('ActorService: gib hides the creature and posts a burst; disabling revives everything',async()=>{
+test('ActorService: a kill posts one positional death sound (bytes only the first time); silent when the display has none',async()=>{
+  const {s,posted,tick}=mkService(),list=[npc(1,10,0),npc(2,12,0)],assets=new Map([['m',{bounds}]]);
+  let reads=0;s.sounds.catalog={deathPaths:d=>d===7?['sound\\creature\\wolf\\death.wav']:[]};s.sounds.loading=Promise.resolve();
+  s.sounds.source={read:async()=>{reads++;return new Uint8Array([1,2,3]);}};
+  s.update(list,[0,0]);await settle();
+  tick(1000);s.collide(list,assets,0,0,0,id=>(id===1?7:9));tick(40);s.collide(list,assets,20,0,0,id=>(id===1?7:9));await settle();
+  const sounds=posted.filter(m=>m.event==='creature-sound');
+  assert.equal(sounds.length,1);assert.equal(sounds[0].path,'sound\\creature\\wolf\\death.wav');assert.deepEqual([sounds[0].x,sounds[0].y],[10,0]);assert.equal(sounds[0].bytes.length,3);
+  assert.equal(await s.sounds.death(7).then(r=>r.bytes),undefined);assert.equal(reads,1);
+  s.close();
+});
+
+test('ActorService: disabling revives everything',async()=>{
   const {s,posted,tick}=mkService(),list=[npc(1,10,0)],assets=new Map([['m',{bounds}]]);
-  s.cc.rand=()=>0;
   s.update(list,[0,0]);await settle();
   tick(1000);s.collide(list,assets,0,0,0);tick(40);s.collide(list,assets,20,0,0);
-  const fx=posted.filter(m=>m.event==='npc-fx').at(-1);
-  assert.deepEqual(fx.hidden,[list[0].id]);assert.equal(fx.gibs.length,1);
+  assert.deepEqual(posted.filter(m=>m.event==='npc-fx').at(-1).dead,[list[0].id]);
   s.cc.enabled=false;tick(40);s.collide(list,assets,20,0,0);
   const off=posted.filter(m=>m.event==='npc-fx').at(-1);
-  assert.deepEqual([off.hidden,off.dead,off.gibs],[[],[],[]]);assert.ok(s.cc.isAlive(list[0].id));
+  assert.deepEqual([off.hidden,off.dead],[[],[]]);assert.ok(s.cc.isAlive(list[0].id));
   s.close();
 });
 
@@ -155,9 +159,4 @@ test('ActorService: a dead wanderer stays frozen instead of walking off',()=>{
   s.wander(list,[0,0],()=>0,100);
   const mv=posts.find(m=>m.event==='npc-moves').moves[0];
   assert.deepEqual(mv.slice(1),[3,4,0,1,0,0]);
-});
-
-test('gib particles stay inside the pool and use only procedural kinds',()=>{
-  const pool=new ParticlePool(64,()=>.5);emitGib(pool,[0,0,0],1);
-  assert.ok(pool.count>0&&pool.count<=64);
 });

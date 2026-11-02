@@ -3,6 +3,7 @@
 // touches collision, readiness or physics, and unsupported models just stay in bind pose.
 import { npcClass, idSeed, wanders, wanderState, WANDER } from './wander.js';
 import { CreatureCollision, deathPoseTime } from './creature-collision.js';
+import { CreatureSounds } from './creature-sound.js';
 
 export const ACTOR = Object.freeze({
   maxWanderers: 48,
@@ -36,7 +37,7 @@ export class ActorService {
     this.sent = new Map(); this.walk = new Map(); // poseKey -> bytes
     this.stats = { posts: 0, poses: 0, ms: 0, maxMs: 0, models: 0, failed: 0, groups: 0, bytes: 0 };
     this.closed = false; this.enabled = true;
-    this.cc = new CreatureCollision(); this.deathSent = new Map(); this.fxRevision = -1; this.size = [0, 0]; this.assets = undefined;
+    this.cc = new CreatureCollision(); this.sounds = new CreatureSounds(source); this.deathSent = new Map(); this.fxRevision = -1; this.size = [0, 0];     this.assets = undefined;
     this.positionOf = id => this.walk.get(id)?.last;
     this.classOf = i => npcClass(i.path);
     this.durationOf = i => this.models.get(i.key)?.death ?? 0;
@@ -53,29 +54,39 @@ export class ActorService {
     return this.size;
   }
 
-  // Craft (source space) vs nearby creatures. Visual-only: posts hide/gib events; the craft is never touched.
-  collide(instances, assets, x, y, z) {
+  // Craft (source space) vs nearby creatures. Visual/audio only: posts hide/dead sets and one death sound per kill; the craft is never touched.
+  collide(instances, assets, x, y, z, displayOf) {
     const cc = this.cc;
     if (this.closed) return;
     if (!cc.enabled || !this.enabled) {
-      if (cc.states.size || this.fxRevision > 0) { cc.reset(); this.fxRevision = -1; this.post({ event: 'npc-fx', hidden: [], dead: [], gibs: [] }, []); }
+      if (cc.states.size || this.fxRevision > 0) { cc.reset(); this.fxRevision = -1; this.post({ event: 'npc-fx', hidden: [], dead: [] }, []); }
       return;
     }
     this.assets = assets;
     const events = cc.update(instances, isActorInstance, x, y, z, this.now() / 1000, this.positionOf, this.sizeOf, this.classOf, this.durationOf);
+    for (const e of events) this.deathSound(e, displayOf);
     if (cc.revision === this.fxRevision && !events.length) return;
     this.fxRevision = cc.revision ?? 0;
     const hidden = [], dead = [];
     for (const [id, s] of cc.states) (s.state === 'gone' ? hidden : s.state === 'dying' || s.state === 'dead' ? dead : []).push(id);
-    const gibs = events.filter(e => e.gib).map(e => [e.x, e.y, e.z, e.size]);
-    this.post({ event: 'npc-fx', hidden, dead, gibs }, []);
+    this.post({ event: 'npc-fx', hidden, dead }, []);
+  }
+
+  // The creature's own death sound at its location (source space); silent when its display has none.
+  deathSound(e, displayOf) {
+    const displayId = displayOf?.(Number(e.id.slice(e.id.lastIndexOf(':') + 1)));
+    if (!displayId) return;
+    void this.sounds.death(displayId).then(r => {
+      if (!r || this.closed) return;
+      this.post({ event: 'creature-sound', displayId, path: r.path, bytes: r.bytes, x: e.x, y: e.y, z: e.z }, r.bytes ? [r.bytes.buffer] : []);
+    });
   }
 
   // Death clip once at the corpse's own pose key, then the final frame is held (posted once) until the creature goes or respawns.
   deathPoses(poses, transfers, removed) {
     const t = this.now() / 1000, n = poses.length;
     for (const [id, s] of this.cc.states) {
-      if (s.gib || s.state === 'gone' || (s.state === 'dead' && s.posted)) continue;
+      if (s.state === 'gone' || (s.state === 'dead' && s.posted)) continue;
       const model = this.models.get(s.key);
       if (!model?.actor || poses.length - n >= this.cc.cfg.maxDying + 4) continue;
       let vertices;

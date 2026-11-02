@@ -4,6 +4,7 @@ import {restoreDataFolder,authorizeDataFolder} from './asset-folder.js';
 import {ARCHIVE_DATA_SOURCE} from './archive-flag.js';
 import {WorldInput} from './world-input.js';
 import {WorldAudio} from './world-audio.js';
+import {sourceToRender} from './renderer-actors.js';
 import {TUNING_FIELDS} from './world-tuning.js';
 import {CameraCollision} from './camera-collision.js';
 import {LoadingArt} from './loading-art.js';
@@ -87,6 +88,7 @@ const client=new WorldClient(data=>{
     evidence.eventRevision=(evidence.eventRevision||0)+1;
     if(data.event==='progress'){if(!evidence.ready){app.report(data.text);app.loadingProgress(data);}}
     else if(data.event==='music')music.event(data);else if(data.event==='climate')app.climate?.event(data);
+    else if(data.event==='creature-sound'){const r=app.renderer,reg=r?.manifest?.regions[r.sceneRegion];if(reg)void audio.spatial(data.path,data.bytes,sourceToRender(reg,[data.x,data.y,data.z]),r.view).catch(()=>{});}
     else if(data.event==='sky')app.renderer.setSky(data);
     else if(data.event==='sky-dome')app.renderer.setSkyDome(data);
     else if(data.event==='worldmap'||data.event==='worldmap-tiles')mapPanel.event(data);
