@@ -1,4 +1,4 @@
-// Craft-vs-creature collision spike (visual/gameplay-light, never touches craft physics): a swept overlap test of the craft
+﻿// Craft-vs-creature collision spike (visual/gameplay-light, never touches craft physics): a swept overlap test of the craft
 // against nearby NPC cylinders and a per-creature Death -> corpse -> gone -> respawn state machine (creatures with no Death clip are left alone).
 // Pure and allocation-light so it can run in the 40 ms actor tick; ActorService owns the poses, the renderer owns the visuals.
 export const CREATURE_COLLISION = Object.freeze({
@@ -23,14 +23,31 @@ export function segmentDistance2(ax, ay, bx, by, px, py) {
   return cx * cx + cy * cy;
 }
 
-/** Craft swept from (ax,ay,az) to (bx,by,bz) against a creature cylinder (feet at z, given radius and height). */
-export function sweptOverlap(ax, ay, az, bx, by, bz, craftRadius, craftHalfHeight, cx, cy, cz, radius, height) {
-  const r = craftRadius + radius;
-  if (segmentDistance2(ax, ay, bx, by, cx, cy) > r * r) return false;
+/**
+ * Craft swept from (ax,ay,az) to (bx,by,bz) against a creature's oriented hit box: model bounds scaled into yards, centred at (px,py) + the
+ * rotated offset (ox,oy), turned by `yaw`, spanning feet-relative z in [zLo,zHi] (hovering and flying models sit above their feet).
+ */
+export function sweptOverlap(ax, ay, az, bx, by, bz, craftRadius, craftHalfHeight, px, py, pz, yaw, hx, hy, zLo, zHi, ox, oy) {
   const lo = Math.min(az, bz) - craftHalfHeight, hi = Math.max(az, bz) + craftHalfHeight;
-  return hi >= cz && lo <= cz + height;
+  if (hi < pz + zLo || lo > pz + zHi) return false;
+  const c = Math.cos(yaw), s = Math.sin(yaw);
+  const local = (x, y, out) => { const dx = x - px, dy = y - py; out[0] = dx * c + dy * s - ox; out[1] = -dx * s + dy * c - oy; };
+  const p = LOCAL_A, q = LOCAL_B; local(ax, ay, p); local(bx, by, q);
+  return segmentHitsBox(p[0], p[1], q[0], q[1], hx + craftRadius, hy + craftRadius);
 }
+const LOCAL_A = [0, 0], LOCAL_B = [0, 0];
 
+/** Segment vs the origin-centred box [-hx,hx]x[-hy,hy] (slab test). */
+function segmentHitsBox(x0, y0, x1, y1, hx, hy) {
+  const dx = x1 - x0, dy = y1 - y0;
+  let t0 = 0, t1 = 1;
+  if (Math.abs(dx) < 1e-9) { if (Math.abs(x0) > hx) return false; }
+  else { let u = (-hx - x0) / dx, v = (hx - x0) / dx; if (u > v) { const t = u; u = v; v = t; } t0 = Math.max(t0, u); t1 = Math.min(t1, v); }
+  if (t0 > t1) return false;
+  if (Math.abs(dy) < 1e-9) return Math.abs(y0) <= hy;
+  let u = (-hy - y0) / dy, v = (hy - y0) / dy; if (u > v) { const t = u; u = v; v = t; }
+  return Math.max(t0, u) <= Math.min(t1, v);
+}
 /** Death hold time: the clip once, then the last frame. Returns the pose time (s) for an animation `age` seconds old. */
 export const deathPoseTime = (age, duration) => Math.min(Math.max(age, 0), Math.max(duration - 0.001, 0));
 
@@ -60,7 +77,7 @@ export class CreatureCollision {
 
   /**
    * One tick. Craft at (x,y,z) source-space at time `now` (s). `positionOf(id)` returns the NPC's current {x,y,z} (wander) or undefined for the authored
-   * home; `sizeOf(instance)` returns [radius,height] in yards or undefined to ignore. Returns the reused events array of new kills.
+   * home; `sizeOf(instance)` returns the hit box [halfX,halfY,zLo,zHi,offX,offY] in yards (creature-local, feet-relative) or undefined to ignore. Returns the reused events array of new kills.
    */
   update(instances, filter, x, y, z, now, positionOf, sizeOf, classOf, durationOf) {
     const c = this.cfg, events = this.events; events.length = 0;
@@ -84,9 +101,10 @@ export class CreatureCollision {
       const cls = classOf(i);
       if (!cls || !c.classes.includes(cls)) continue;
       const size = sizeOf(i);
-      if (!size || size[0] > c.maxCreatureRadius || size[1] > c.maxCreatureHeight) continue;
+      if (!size || Math.sqrt(size[0] * size[1]) > c.maxCreatureRadius || size[3] - size[2] > c.maxCreatureHeight) continue;
       this.stats.tests++;
-      if (!sweptOverlap(ax, ay, az, x, y, z, c.craftRadius, c.craftHalfHeight, cx, cy, cz, size[0], size[1])) continue;
+      const yaw = w?.yaw ?? Math.atan2(m[1], m[0]);
+      if (!sweptOverlap(ax, ay, az, x, y, z, c.craftRadius, c.craftHalfHeight, cx, cy, cz, yaw, size[0], size[1], size[2], size[3], size[4], size[5])) continue;
       const duration = durationOf(i);
       if (!(duration > 0)) { this.stats.skipped++; continue; }
       this.states.set(i.id, { state: 'dying', t0: now, x: cx, y: cy, z: cz, yaw: w?.yaw, duration, key: i.key, posted: false, goneAt: now });

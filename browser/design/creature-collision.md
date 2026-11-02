@@ -51,3 +51,22 @@ Direction: no gibbing; play the creature's own death animation and its own death
 
 ## Real-data smoke
 `browser\creature-death-smoke.mjs` (on-demand; needs `WOW_DATA` and `browser\pkg`; takes the heavy lock, free port, ~4 min because corpse/respawn are real time) flies the craft through a real Stormwind NPC and checks the Death hold, spatial sound (instrumented, muted), respawn (gone ~27 s, back ~148 s) and handler p99. Found: the pre-built wasm only loaded clips 0 and 4 (`SceneActor` `M2Rig::new(.., &[0, 4])`), so no creature had a Death clip and nothing could die; the one-line fix (`&[0, 1, 4]`) is in `client/crates/flats-racer-web/src/scene.rs` but the wasm was not rebuilt, so the smoke runs the stand clip as a stand-in for Death. Real Death clip pose, and the podracer skin (no `SWE1R_DATA`), remain unverified.
+
+## Why some creatures did not react (basilisks) and the fix
+
+Cause: the hit volume was a centred cylinder with radius max(bboxX,bboxY)/2, and creatures with radius > 3 were treated as "big" and ignored. M2 bounds include tails and are off-centre, so basilisks (x -6.41..2.71, y +-1.59, height 2.2 -> radius 4.56) were classed as big even though they have a 1.5 s Death clip. The z test also ignored the bounds' z-min (hovering models).
+
+Fix (JS only, no Rust change; scene.rs already loads clips `[0,1,4]`): the hit volume is an oriented, offset box in the creature's local frame, `sizeOf -> [halfX, halfY, zLo, zHi, offX, offY]`. The "big" gate is footprint `sqrt(halfX*halfY) > 3` or height > 6.
+
+Survey (`node creature-death-survey.mjs`, real Data; 5,434 displays / 51,561 spawns / 219 models):
+
+| | before | after |
+|---|---|---|
+| reacts | 5,075 displays / 43,699 spawns | 5,232 / 48,158 |
+| too-big | 328 / 7,397 | 172 / 3,052 |
+| no-death (11 models: kids, dummies, targets) | 23 / 181 | 23 / 181 |
+| size-varies | 8 / 284 | 7 / 170 |
+
+208 of 219 models have a Death clip. Remaining too-big are genuinely large (dragons, giants, kodo, wyvern, ...), which block rather than die by design.
+
+Real browser run: `SMOKE_PATH=basilisk SMOKE_TRACK=steamwheedle SMOKE_QUICK=1 node creature-death-smoke.mjs` (also `SMOKE_DISPLAYS=id,id`). Basilisk killed, real Death clip held, spatial sound played, handler p99 1.8 ms, 0 page errors.
