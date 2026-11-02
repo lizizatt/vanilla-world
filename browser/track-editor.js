@@ -1,4 +1,5 @@
 // In-game race track editor: the live world rendered top-down is the backdrop, a transparent canvas draws the gizmos.
+import {createDialIn} from './dial-in-ui.js';
 import {TrackDraft,project,unproject,yawToward,gateY,surfaceBase,CLEAR_MIN,CLEAR_DEFAULT,CLEAR_MAX} from './track-edit.js';
 
 const $=id=>document.getElementById(id);
@@ -16,7 +17,7 @@ export function createTrackEditor({view,tracks,body=()=>'azeroth',save,remove:re
   const planeY=()=>ed.draft.start.pos[1];
   const toWorld=(x,y)=>view()&&unproject(view(),cv.width,cv.height,x,y,planeY());
   const toScreen=p=>view()&&project(view(),cv.width,cv.height,p);
-  ed.pose=()=>[cam.x,planeY()+cam.alt,cam.z,0,-1.5];
+  ed.pose=()=>ed.dial.active?ed.dial.pose():[cam.x,planeY()+cam.alt,cam.z,0,-1.5];
 
   function load(draft) {
     ed.draft=draft;ed.selected=-1;savedState=draft.state();drawn=-1;sel=-2;
@@ -59,10 +60,10 @@ export function createTrackEditor({view,tracks,body=()=>'azeroth',save,remove:re
     const keep=dirty();
     if(!keep){if(near&&near[0]<NEAREST_RANGE)load(new TrackDraft(clone(near[1])));else load(TrackDraft.blank(from.slice(),0,body()));}
     fill();
-    ed.isOpen=true;root.hidden=false;ed.tool='select';cv.focus();status(keep?'Restored your unsaved edits.':'Editing. G add · V select · S start · Del delete · Ctrl+Z undo · Wheel zoom · right-drag pan');
+    ed.isOpen=true;root.hidden=false;ed.tool='select';cv.focus();status(keep?'Restored your unsaved edits.':'Editing. G add Â· V select Â· S start Â· Del delete Â· Ctrl+Z undo Â· Wheel zoom Â· right-drag pan');
     refresh(true);
   };
-  ed.close=()=>{if(!ed.isOpen)return;ed.isOpen=false;root.hidden=true;drag=undefined;closed();};
+  ed.close=()=>{if(!ed.isOpen)return;if(ed.dial.active)ed.dial.cancel();ed.isOpen=false;root.hidden=true;drag=undefined;closed();};
 
   function hit(x,y) {
     const s=ed.selected>=0&&ed.draft.gates[ed.selected];
@@ -76,7 +77,7 @@ export function createTrackEditor({view,tracks,body=()=>'azeroth',save,remove:re
   }
   cv.addEventListener('contextmenu',e=>e.preventDefault());
   cv.addEventListener('pointerdown',e=>{
-    if(!ed.isOpen)return;
+    if(!ed.isOpen||ed.dial.active)return;
     cv.focus();cv.setPointerCapture(e.pointerId);
     const x=e.offsetX,y=e.offsetY;
     if(e.button!==0){drag={kind:'pan'};return;}
@@ -94,7 +95,7 @@ export function createTrackEditor({view,tracks,body=()=>'azeroth',save,remove:re
     d.checkpoint();drag={...h,lift:+$('te-height').value||CLEAR_DEFAULT};
   });
   cv.addEventListener('pointermove',e=>{
-    if(!drag||!ed.isOpen)return;
+    if(!drag||!ed.isOpen||ed.dial.active)return;
     const d=ed.draft;
     if(drag.kind==='pan'){const k=cam.alt*2*0.55/cv.height;cam.x-=e.movementX*k;cam.z-=e.movementY*k;return;}
     const world=toWorld(e.offsetX,e.offsetY);if(!world)return;
@@ -105,6 +106,7 @@ export function createTrackEditor({view,tracks,body=()=>'azeroth',save,remove:re
   const end=()=>{const d=drag;drag=undefined;if(d?.kind==='gate')void snapGate(d.i,d.lift);};
   cv.addEventListener('pointerup',end);cv.addEventListener('pointercancel',end);
   cv.addEventListener('wheel',e=>{
+    if(ed.dial.active)return;
     e.preventDefault();
     const d=ed.draft,gate=d.gates[ed.selected];
     if(e.shiftKey&&gate){d.setWidth(ed.selected,gate.width-Math.sign(e.deltaY)*5);return;}
@@ -114,12 +116,13 @@ export function createTrackEditor({view,tracks,body=()=>'azeroth',save,remove:re
   function undo() {if(ed.draft.undo()){ed.selected=Math.min(ed.selected,ed.draft.gates.length-1);status('Undone.');}}
   function remove() {if(ed.selected>=0){ed.draft.deleteGate(ed.selected);ed.selected=-1;}}
   document.addEventListener('keydown',e=>{
-    if(!ed.isOpen||e.defaultPrevented||e.altKey||e.metaKey)return;
+    if(!ed.isOpen||ed.dial.active||e.defaultPrevented||e.altKey||e.metaKey)return;
     const typing=/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName);
     if(e.code==='Escape'||(e.code==='KeyT'&&!typing)){e.preventDefault();ed.close();return;}
     if(typing)return;
     if(e.ctrlKey&&e.code==='KeyZ'){e.preventDefault();undo();return;}
     if(e.ctrlKey)return;
+    if(e.code==='KeyD'){e.preventDefault();openDial();return;}
     if(TOOLS[e.code]){setTool(TOOLS[e.code]);e.preventDefault();}
     else if(e.code==='Delete'||e.code==='Backspace'){e.preventDefault();remove();}
   });
@@ -128,6 +131,7 @@ export function createTrackEditor({view,tracks,body=()=>'azeroth',save,remove:re
   $('te-delete').addEventListener('click',()=>{remove();cv.focus();});
   $('te-undo').addEventListener('click',()=>{undo();cv.focus();});
   $('te-close').addEventListener('click',ed.close);
+  $('te-dial-open').addEventListener('click',openDial);
   $('te-launch-add').addEventListener('click',()=>{setTool('launch');status('Click the map to place the selected launch object.');cv.focus();});
   $('te-launch-turn').addEventListener('click',()=>void ed.launch.rotate($('te-launch-list').value,Number($('te-launch-yaw').value)*Math.PI/180).catch(error=>status(error.message,true)));
   $('te-launch-remove').addEventListener('click',()=>void ed.launch.remove($('te-launch-list').value).catch(error=>status(error.message,true)));
@@ -180,7 +184,7 @@ export function createTrackEditor({view,tracks,body=()=>'azeroth',save,remove:re
     if(gate){if(!drag)void showHeight();$('te-width').value=gate.width;$('te-heading').value=Math.round(((gate.yaw*180/Math.PI)%360+360)%360);}
     $('te-list').replaceChildren(...d.gates.map((gt,i)=>{
       const li=document.createElement('li'),btn=document.createElement('button');
-      btn.type='button';btn.textContent=`Gate ${i+1} · width ${gt.width}`;btn.setAttribute('aria-pressed',String(i===ed.selected));
+      btn.type='button';btn.textContent=`Gate ${i+1} Â· width ${gt.width}`;btn.setAttribute('aria-pressed',String(i===ed.selected));
       btn.addEventListener('click',()=>{ed.selected=i;cam.x=gt.pos[0];cam.z=gt.pos[2];});
       li.append(btn);return li;
     }));
@@ -189,6 +193,7 @@ export function createTrackEditor({view,tracks,body=()=>'azeroth',save,remove:re
 
   ed.frame=()=>{
     if(!ed.isOpen)return;
+    if(ed.dial.active){ed.dial.frame(g2);return;}
     const w=Math.max(1,innerWidth),h=Math.max(1,innerHeight);
     if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h;}
     refresh();
@@ -203,7 +208,7 @@ export function createTrackEditor({view,tracks,body=()=>'azeroth',save,remove:re
     for(const o of objects){
       const p=toScreen(o.pos);if(!p)continue;
       g2.fillStyle=o.kind==='ramp'?'#65d8ff':'#8cffb0';g2.beginPath();g2.arc(p[0],p[1],8,0,Math.PI*2);g2.fill();
-      g2.font='12px sans-serif';g2.fillText(o.kind==='ramp'?`${o.angle}°`:'+15s',p[0]+12,p[1]);
+      g2.font='12px sans-serif';g2.fillText(o.kind==='ramp'?`${o.angle}Â°`:'+15s',p[0]+12,p[1]);
     }
     const d=ed.draft,pts=d.gates.map(gt=>toScreen(gt.pos));
     g2.lineWidth=2;g2.setLineDash([8,6]);g2.strokeStyle='rgba(255,214,102,.9)';g2.beginPath();
@@ -228,6 +233,8 @@ export function createTrackEditor({view,tracks,body=()=>'azeroth',save,remove:re
       g2.fillStyle='#fff';g2.font='bold 12px sans-serif';g2.textAlign='left';g2.fillText('START',s[0]+12,s[1]-10);
     }
   };
+  function openDial() {ed.dial.open(ed.draft,Math.max(0,ed.selected));}
+  ed.dial=createDialIn({cv,view,probe,status,select:i=>{ed.selected=i;},exited:msg=>{const g=ed.draft.gates[ed.selected];if(g){cam.x=g.pos[0];cam.z=g.pos[2];}cv.focus();refresh(true);status(msg);}});
   setTool('select');
   return ed;
 }
