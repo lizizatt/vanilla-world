@@ -34,6 +34,8 @@ export let world,source,manifest,placements,scene,terrain,water,accumulator=0,qu
 export const enqueue=job=>{queue=queue.then(job);return queue;};
 let poseTime,flightFocus,areaTime=-1e9,areaId=0,actors,actorFocus,actorRegion=0,actorsOn=true;
 export const setActorsOn=on=>{actorsOn=on;if(actors)actors.enabled=on;};
+let ccOn=true;const actorCraft=new Float64Array(4);
+export const setCreatureCollisionOn=on=>{ccOn=on;if(actors)actors.cc.enabled=on;};
 // Gerstner sea (wave-config.js): uploaded once after the world exists and re-sent on the settings toggle. An empty array is "off".
 let wavesOn=true,waveSea=false,waveMaelstrom;
 const applyWaves=()=>{waveRev++;if(world)world.set_waves(wavesOn&&waveSea?waveParams({maelstrom:waveMaelstrom}):new Float64Array(0));};
@@ -73,7 +75,7 @@ function applyMemoryBudget() {
 export const stopLoadingArt=()=>source?.stopLoadingArt();
 const actorGround=(sx,sy)=>{const r=manifest?.regions[actorRegion];if(!r||!world)return NaN;
   const s=world.surface(-sy+r.placement[0]+(32-r.tile_origin[0])*1600/3,-sx+r.placement[1]+(32-r.tile_origin[1])*1600/3);return s[0]===0?s[1]:NaN;};
-globalThis.setInterval?.(()=>{if(!arrivalLoading&&actors&&actorFocus&&sceneState){actors.update(sceneState.instances,actorFocus);actors.wander(sceneState.instances,actorFocus,actorGround);}},ACTOR.tickMs);
+globalThis.setInterval?.(()=>{if(!arrivalLoading&&actors&&actorFocus&&sceneState){actors.update(sceneState.instances,actorFocus);actors.wander(sceneState.instances,actorFocus,actorGround);if(actorCraft[3])actors.collide(sceneState.instances,sceneState.assets,actorCraft[0],actorCraft[1],actorCraft[2]);}},ACTOR.tickMs);
 const terrainErrors=new Map();
 let terrainFocus='';
 let craft={ready:false,pending:false};
@@ -411,7 +413,7 @@ export async function rebindRenderer(replay=true) {
   craft={ready:false,pending:false};
   scene.clear(true);terrain.clear();source.refresh();
   if(replay){
-    actors=new ActorService(source,wasmTypes,(message,transfers)=>postMessage(message,transfers));actors.enabled=actorsOn;
+    actors=new ActorService(source,wasmTypes,(message,transfers)=>postMessage(message,transfers));actors.enabled=actorsOn;actors.cc.enabled=ccOn;
     water=new WaterStream(source,wasmTypes,manifest,(message,transfers)=>postMessage(message,transfers));
     await terrain.init(manifest);
     startFarWorker();void replayHorizon(token).catch(error=>{if(token===rebindToken)sceneFault(error);});
@@ -447,6 +449,7 @@ function updateScene(focus,publish=true,restoring) {
   const region=focusRegion(focus);
   sceneRegion=region;
   const body=restoring||pod.telemetry(world),r=manifest.regions[region],signed=body[14] ?? body[5];
+  if(restoring)actorCraft[3]=0;else{const s=sourcePosition(region,body);actorCraft[0]=s[0];actorCraft[1]=s[1];actorCraft[2]=s[2];actorCraft[3]=1;}
   const travel=pod.journey?Math.hypot(...(pod.journey.velocity||[pod.journey.speed,0,0]))*.1+2:0;
   const sweep=restoring?0:Math.max(travel,world.frame_sweep_distance()),radius=4+sweep;
   const verticalRadius=4+(restoring?0:Math.max(travel,world.frame_vertical_sweep_distance()));
@@ -795,7 +798,7 @@ export async function openWorld(message) {
     });
     scene=new SceneStream(source,wasmTypes);if(moon)scene.limits.nearTiles=LIMIT;
     actors?.close();actorFocus=undefined;
-    actors=new ActorService(source,wasmTypes,(message,transfers)=>postMessage(message,transfers));actors.enabled=actorsOn;
+    actors=new ActorService(source,wasmTypes,(message,transfers)=>postMessage(message,transfers));actors.enabled=actorsOn;actors.cc.enabled=ccOn;
     scene.asyncVisuals=true;
     startFarWorker();
     terrain=new TerrainStream(source,wasmTypes,(message,transfers)=>postMessage(message,transfers));terrain.nearOnly=arrivalLoading;actors.enabled=actorsOn;

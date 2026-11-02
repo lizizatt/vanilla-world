@@ -1,6 +1,6 @@
 import {RpcTable} from './worker-rpc.js';
 const renderEvents=new Set(['detail','terrain-material','horizon','horizon-index','horizon-material',
-  'scene','far-scene','pose','npc-moves','craft','craft-error','exterior-water','coast-water']);
+  'scene','far-scene','pose','npc-moves','npc-fx','craft','craft-error','exterior-water','coast-water']);
 export class WorldClient {
   constructor(onEvent,onError,canFrame=()=>true) {
     this.onEvent=onEvent;this.onError=onError;this.requests=new RpcTable();
@@ -19,6 +19,7 @@ export class WorldClient {
   hudArt(){this.worker?.postMessage({action:'hud-art'});}
   worldmap(names){this.worker?.postMessage({action:'worldmap',names});}
   animate(on){this.worker?.postMessage({action:'animate',on});}
+  creatureCollision(on){this.worker?.postMessage({action:'creature-collision',on});}
   waves(on){this.worker?.postMessage({action:'waves',on});}
   budget(bytes,gpu=0){this.worker?.postMessage({action:'budget',bytes,gpu});}
   music(fields){this.worker?.postMessage({action:'music',...fields});}

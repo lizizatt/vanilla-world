@@ -2,6 +2,7 @@
 // Rust rig and posts whole vertex buffers; the renderer swaps them in. Visual only: nothing here
 // touches collision, readiness or physics, and unsupported models just stay in bind pose.
 import { npcClass, idSeed, wanders, wanderState, WANDER } from './wander.js';
+import { CreatureCollision, deathPoseTime } from './creature-collision.js';
 
 export const ACTOR = Object.freeze({
   maxWanderers: 48,
@@ -35,6 +36,59 @@ export class ActorService {
     this.sent = new Map(); this.walk = new Map(); // poseKey -> bytes
     this.stats = { posts: 0, poses: 0, ms: 0, maxMs: 0, models: 0, failed: 0, groups: 0, bytes: 0 };
     this.closed = false; this.enabled = true;
+    this.cc = new CreatureCollision(); this.deathSent = new Map(); this.fxRevision = -1; this.size = [0, 0]; this.assets = undefined;
+    this.positionOf = id => this.walk.get(id)?.last;
+    this.classOf = i => npcClass(i.path);
+    this.durationOf = i => this.models.get(i.key)?.death ?? 0;
+    this.sizeOf = i => this.sizeFor(i);
+  }
+
+  // Cylinder (radius, height) in yards from the model bounds and instance scale; undefined until the model is resident.
+  sizeFor(i) {
+    const b = this.assets?.get(i.key)?.bounds, m = i.matrix;
+    if (!b) return undefined;
+    const k = Math.hypot(m[0], m[1], m[2]);
+    this.size[0] = Math.max(b[1][0] - b[0][0], b[1][1] - b[0][1]) * k * 0.5;
+    this.size[1] = (b[1][2] - b[0][2]) * k;
+    return this.size;
+  }
+
+  // Craft (source space) vs nearby creatures. Visual-only: posts hide/gib events; the craft is never touched.
+  collide(instances, assets, x, y, z) {
+    const cc = this.cc;
+    if (this.closed) return;
+    if (!cc.enabled || !this.enabled) {
+      if (cc.states.size || this.fxRevision > 0) { cc.reset(); this.fxRevision = -1; this.post({ event: 'npc-fx', hidden: [], dead: [], gibs: [] }, []); }
+      return;
+    }
+    this.assets = assets;
+    const events = cc.update(instances, isActorInstance, x, y, z, this.now() / 1000, this.positionOf, this.sizeOf, this.classOf, this.durationOf);
+    if (cc.revision === this.fxRevision && !events.length) return;
+    this.fxRevision = cc.revision ?? 0;
+    const hidden = [], dead = [];
+    for (const [id, s] of cc.states) (s.state === 'gone' ? hidden : s.state === 'dying' || s.state === 'dead' ? dead : []).push(id);
+    const gibs = events.filter(e => e.gib).map(e => [e.x, e.y, e.z, e.size]);
+    this.post({ event: 'npc-fx', hidden, dead, gibs }, []);
+  }
+
+  // Death clip once at the corpse's own pose key, then the final frame is held (posted once) until the creature goes or respawns.
+  deathPoses(poses, transfers, removed) {
+    const t = this.now() / 1000, n = poses.length;
+    for (const [id, s] of this.cc.states) {
+      if (s.gib || s.state === 'gone' || (s.state === 'dead' && s.posted)) continue;
+      const model = this.models.get(s.key);
+      if (!model?.actor || poses.length - n >= this.cc.cfg.maxDying + 4) continue;
+      let vertices;
+      try { vertices = model.actor.pose(1, deathPoseTime(t - s.t0, model.death || s.duration)); } catch { continue; }
+      const phase = `d:${id}`;
+      poses.push({ key: s.key, phase, vertices }); transfers.push(vertices.buffer);
+      this.deathSent.set(id, poseKey(s.key, phase));
+      if (s.state === 'dead') s.posted = true;
+    }
+    for (const [id, pk] of this.deathSent) {
+      const s = this.cc.states.get(id);
+      if (!s || s.state === 'gone') { removed.push(pk); this.deathSent.delete(id); }
+    }
   }
 
   // Nearest actors first, one shared pose per (model, phase), under the group and byte caps.
@@ -105,8 +159,8 @@ export class ActorService {
       const actor = this.wasm.SceneActor.create(bytes, instance.path, JSON.stringify(instance.skins || []), instance.geosets && JSON.stringify(instance.geosets));
       const duration = actor.duration(0);
       if (!(duration > 0)) { actor.free(); retry(Infinity); this.stats.failed++; this.stats.last = `no stand clip: ${instance.path}`; return; }
-      const walk = actor.duration(4), walkSpeed = walk > 0 ? (actor.move_speed?.(4) ?? 0) : 0;
-      this.models.set(instance.key, { actor, duration, walk, walkSpeed, bytes: actor.vertex_count() * 48, used: this.now() });
+      const death = actor.duration(1), walk = actor.duration(4), walkSpeed = walk > 0 ? (actor.move_speed?.(4) ?? 0) : 0;
+      this.models.set(instance.key, { actor, duration, walk, death, walkSpeed, bytes: actor.vertex_count() * 48, used: this.now() });
       this.stats.models = [...this.models.values()].filter(e => e.actor).length;
     } catch (error) {
       if(this.closed)return;
@@ -135,6 +189,7 @@ export class ActorService {
     }
     const removed = [...this.sent.keys()].filter(id => !groups.has(id));
     for (const id of removed) this.sent.delete(id);
+    this.deathPoses(poses, transfers, removed);
     if (poses.length || removed.length) {
       this.post({ event: 'pose', poses, removed }, transfers);
       this.stats.posts++; this.stats.poses += poses.length;
@@ -161,6 +216,14 @@ export class ActorService {
     stats.rejected = 0;
     for (const [, i] of near) {
       if (moves.length >= ACTOR.maxWanderers) break;
+      if (this.cc.states.size && this.cc.isDeadOrDying(i.id)) {
+        const st = this.walk.get(i.id);
+        if (st?.last) {
+          if (st.last.vx || st.last.vy) st.last = { ...st.last, vx: 0, vy: 0 };
+          const l = st.last; moves.push([i.id, l.x, l.y, l.z, l.yaw, 0, 0]); seen.add(i.id);
+        }
+        continue;
+      }
       const cls = npcClass(i.path), seed = idSeed(i.id);
       if (!wanders(cls, seed)) continue;
       let st = this.walk.get(i.id);

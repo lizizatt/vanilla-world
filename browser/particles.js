@@ -18,6 +18,7 @@ export const KINDS = {
   wake: { life: [1.4, 2.6], size: [.6, 3.2], drag: 2.5, lift: 0, stops: [[0, .9, .96, 1, .38, 0], [1, .8, .9, .98, 0, 0]] },
   ripple: { life: [1.6, 2.2], size: [.4, 4.5], drag: 4, lift: 0, stops: [[0, .85, .95, 1, 0, 0], [.2, .85, .95, 1, .28, 0], [1, .8, .9, 1, 0, 0]] },
   burst: { life: [.25, .5], size: [1, 3.5], drag: 4, lift: 0, stops: [[0, 1, .95, .7, 1, 1], [.4, 1, .55, .12, .7, 1], [1, .5, .1, .02, 0, 1]] },
+  chunk: { life: [.7, 1.5], size: [.4, .25], drag: .4, lift: -16, stops: [[0, .5, .06, .05, .95, 0], [.7, .32, .04, .04, .9, 0], [1, .2, .03, .03, 0, 0]] },
   mist: { life: [7, 11], size: [30, 62], drag: .2, lift: .15, stops: [[0, .7, .95, .85, 0, .25], [.25, .72, .96, .86, .09, .25], [.75, .85, .95, .8, .07, .25], [1, .85, .95, .8, 0, .25]] },
 };
 const KIND_IDS = Object.keys(KINDS);
@@ -148,6 +149,15 @@ export function emitPlumes(pool, { points, matrix: m, origin, scale, length, spe
         -fwd[0] * back, -fwd[1] * back + 1.5, -fwd[2] * back, size, length * .04);
     }
   });
+}
+/** Creature gib burst: ballistic dark-red chunks plus a short dust puff. Original procedural effect, no game art; size is roughly the creature's half-height. */
+export function emitGib(pool, [x, y, z], size) {
+  const r = pool.rand, n = Math.round(10 * Math.max(.3, pool.quality) + 4), k = Math.max(.4, Math.min(2, size));
+  for (let i = 0; i < n; i++) {
+    const a = r() * 6.2832, out = 3 + r() * 8, up = 4 + r() * 9;
+    pool.emit('chunk', x, y + k * .5, z, Math.cos(a) * out, up, Math.sin(a) * out, k * (.5 + r() * .8), k * .2);
+  }
+  pool.emit('dust', x, y + k * .3, z, 0, 1, 0, k * 1.6, k * .3);
 }
 /** Explosion at the moment the pod breaks up: fireballs, sparks flung outwards and a smoke column. size is craft length / 3.5. */
 export function emitBurst(pool, [x, y, z], size) {
