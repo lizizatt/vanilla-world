@@ -1,7 +1,7 @@
 import {paramsFromArray} from './wave-math.js';
 import {WAVE_TICKS_PER_SECOND} from './wave-config.js';
 import {CLIP_LEVELS,MASK_N,MASK_REFRESH,clipLevelMesh,clipLevels,packWaveUniform} from './wave-render.js';
-import {SHORE_N,SHORE_REFRESH,shoreTexture} from './shore-field.js';
+import {SHORE_N,SHORE_REFRESH,shoreTexture,shoreDepthTexture} from './shore-field.js';
 import {packBeachUniform} from './beach-waves.js';
 
 // Beach waves read a coarser, camera-centred shore window; it is only built when the eye is low enough to see them.
@@ -25,6 +25,7 @@ export function setShoreField(r,{origin,cell,n,data}) {
   if(n!==SHORE_N||data.length!==n*n)return;
   const tex=shoreTexture(data,n,cell);
   r.device.queue.writeTexture({texture:r.shoreTexture},tex,{bytesPerRow:n*4},[n,n]);
+  r.device.queue.writeTexture({texture:r.shoreDepthTexture},shoreDepthTexture(data,n),{bytesPerRow:n},[n,n]);
   r.shoreField={origin,cell,n,tex,classes:data};
 }
 

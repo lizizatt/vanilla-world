@@ -6,9 +6,12 @@ export const SHORE_N=96,SHORE_CELL=8,SHORE_REFRESH=128;
 export const SHORE_D_MIN=-16,SHORE_D_MAX=80,SEA_LEVEL_TOLERANCE=3;
 const NORMAL_TURN=[.06,.16],NORMAL_ALIGN=[.3,.7];
 const CONTOUR_BLUR=1,NORMAL_BLUR=4,NORMAL_PASSES=3,OPEN_BLUR=8;
+// The tile liquid's depth ramp V is clamp(byte/255) with the sea authored at 1.72 byte/yd (liquid.rs), so V = depth/148.3 yd. Each class byte carries it in bits 2..7 so the wave clipmap can tint like the tile water it replaces.
+export const SHORE_RAMP_YD=148.3,SHORE_RAMP_LEVELS=63;
+export const shoreClass=v=>v&3;
 const smoothstep=(e0,e1,x)=>{const s=Math.min(1,Math.max(0,(x-e0)/(e1-e0)));return s*s*(3-2*s);};
 
-/** Class grid rows: 0 land (or no water), 1 water (or a tile that is not resident yet, so a streaming edge never reads as a coast), 2 water where the physics wave amplitude is > 0 (offshore of tile-granular land, so informational only). Same slicing as buildWaveMask. */
+/** Class grid rows: 0 land (or no water), 1 water (or a tile that is not resident yet, so a streaming edge never reads as a coast), 2 water where the physics wave amplitude is > 0 (offshore of tile-granular land, so informational only). Bits 2..7 hold the liquid depth ramp (63 = deep or unknown). Same slicing as buildWaveMask. */
 export function buildShoreClasses(sampleBatch,surface,center,rowStart=0,rowCount=SHORE_N){
   const ox=Math.round(center[0]/SHORE_CELL-SHORE_N/2)*SHORE_CELL,oz=Math.round(center[1]/SHORE_CELL-SHORE_N/2)*SHORE_CELL;
   const total=rowCount*SHORE_N,base=rowStart*SHORE_N,data=new Uint8Array(total),points=new Float64Array(total*2);
@@ -16,10 +19,10 @@ export function buildShoreClasses(sampleBatch,surface,center,rowStart=0,rowCount
   const out=sampleBatch(points);
   for(let n=0;n<total;n++){
     const s=surface(points[n*2],points[n*2+1]),water=out[n*8];
-    if(s[0]!==0){data[n]=1;continue;}
+    if(s[0]!==0){data[n]=1|SHORE_RAMP_LEVELS<<2;continue;}
     // The beach layer is drawn on the flat sea plane, so inland water at another height (basin ponds, mountain lakes) is not a shore: it would float over/under the terrain.
     if(Number.isNaN(water)||s[1]>=water||Math.abs(water)>SEA_LEVEL_TOLERANCE)continue;
-    data[n]=out[n*8+7]>0?2:1;
+    data[n]=(out[n*8+7]>0?2:1)|Math.round(Math.min(1,(water-s[1])/SHORE_RAMP_YD)*SHORE_RAMP_LEVELS)<<2;
   }
   return {origin:[ox,oz],cell:SHORE_CELL,n:SHORE_N,data,rowStart};
 }
@@ -74,7 +77,7 @@ function openLand(land,n){
 /** Class grid -> {sdf (yd, smoothed), nx, nz (seaward, unit or 0), conf, open}, all Float32 n*n. Pure and deterministic. */
 export function shoreSolve(classes,n=SHORE_N,cell=SHORE_CELL){
   const land=new Uint8Array(n*n),open=new Uint8Array(n*n);
-  for(let k=0;k<n*n;k++){land[k]=classes[k]===0?1:0;open[k]=classes[k]!==0?1:0;}
+  for(let k=0;k<n*n;k++){const c=shoreClass(classes[k]);land[k]=c===0?1:0;open[k]=c!==0?1:0;}
   openLand(land,n);
   const water=land.map(v=>1-v),toLand=distanceTo(land,n),toWater=distanceTo(water,n),signed=new Float32Array(n*n);
   for(let k=0;k<n*n;k++)signed[k]=Math.min(SHORE_D_MAX,Math.max(SHORE_D_MIN,(land[k]?-(toWater[k]-.5):toLand[k]-.5)*cell));
@@ -113,6 +116,12 @@ export function shoreTexture(classes,n=SHORE_N,cell=SHORE_CELL){
     out[k*4]=q((f.sdf[k]-SHORE_D_MIN)/(SHORE_D_MAX-SHORE_D_MIN));out[k*4+1]=q(.5+.5*f.nx[k]);out[k*4+2]=q(.5+.5*f.nz[k]);
     out[k*4+3]=q(f.conf[k]*smoothstep(.12,.35,f.open[k]));
   }
+  return out;
+}
+/** R8 texture bytes of the liquid depth ramp (0 shore .. 255 deep) per cell; land cells are 0, like the tile ramp at the waterline. */
+export function shoreDepthTexture(classes,n=SHORE_N){
+  const out=new Uint8Array(n*n);
+  for(let k=0;k<n*n;k++)out[k]=Math.round((classes[k]>>2)/SHORE_RAMP_LEVELS*255);
   return out;
 }
 /** CPU mirror of the shader read: bilinear shore field at chart (x,z) -> {d, n:[x,z], weight}; weight 0 outside the window. */

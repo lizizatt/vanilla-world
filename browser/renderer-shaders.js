@@ -58,7 +58,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   if(v.material==9.0){
     waveIn=Wave(0.0,v.n.xz/max(v.n.y,.05),v.w.z);
     let bs=beachSurface(v.w.xy,u.eye.xz);waveIn.slope+=bs.slope;waveIn.crest=max(waveIn.crest,bs.crest);if(bs.d<0.0&&bs.sheet<.04){discard;}
-    color=waterColor(v.p,beachRamp(bs),0.0,dx,dy);color=beachFoam(color,bs,v.w.xy);
+    color=waterColor(v.p,beachRamp(v.w.xy),0.0,dx,dy);color=beachFoam(color,bs,v.w.xy);
   }
   // Ocean-sweep debug pass (ocean-sweep.mjs): water pure blue, terrain below sea level pure red (a tear), other terrain pure green.
   if(u.pad[2].z>.5){return vec4f(select(select(vec3f(0.0,1.0,0.0),vec3f(1.0,0.0,0.0),v.p.y<-1.0),vec3f(0.0,0.0,1.0),v.material==2.0||v.material==4.0||v.material==9.0),1);}

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {SHORE_N,SHORE_CELL,SHORE_D_MIN,SHORE_D_MAX,buildShoreClasses,shoreSolve,shoreTexture,shoreAt} from './shore-field.js';
+import {SHORE_N,SHORE_CELL,SHORE_D_MIN,SHORE_D_MAX,buildShoreClasses,shoreSolve,shoreTexture,shoreAt,shoreClass,shoreDepthTexture} from './shore-field.js';
 import {BEACH,beachProfile,beachPeriodFraction,swashEnvelope,packBeachUniform,beachShading} from './beach-waves.js';
 
 const N=SHORE_N;
@@ -59,9 +59,24 @@ test('shoreTexture is deterministic and shoreAt reads it back',()=>{
 test('buildShoreClasses: inland water above or below sea level is not a shore (no floating beach sheet over a dry basin)',()=>{
   const sample=p=>{const o=new Float64Array(p.length/2*8);for(let n=0;n<p.length/2;n++){o[n*8]=p[n*2]<0?-55:0;o[n*8+7]=0;}return o;};
   const g=buildShoreClasses(sample,()=>[0,-100,0,0,0],[0,0],0,N);
-  const at=x=>g.data[Math.floor((x-g.origin[0])/SHORE_CELL)];
+  const at=x=>g.data[Math.floor((x-g.origin[0])/SHORE_CELL)]&3;
   assert.equal(at(-100),0,'pond at y=-55 is land');
   assert.equal(at(100),1,'water at sea level stays water');
+});
+
+test('shore class bytes carry the tile liquid depth ramp, which the clipmap tints with (no blue seam where it replaces the flat fill)',()=>{
+  const sample=p=>{const o=new Float64Array(p.length/2*8);return o;};
+  // Sea bed 14.83 yd under the surface: ramp V = 14.83/148.3 = .1 like the tile liquid's clamp(byte/255) at 1.72 byte/yd.
+  const g=buildShoreClasses(sample,(x,z)=>z<0?[1,NaN,NaN,0,0]:[0,-14.83,0,0,0],[0,0],0,N);
+  const shallow=g.data[N*N-1],unloaded=g.data[0];
+  assert.equal(shoreClass(shallow),1);assert.equal(shoreClass(unloaded),1);
+  const ramp=shoreDepthTexture(g.data);
+  assert.ok(Math.abs(ramp[N*N-1]/255-.1)<.02,`ramp ${ramp[N*N-1]/255}`);
+  assert.equal(ramp[0],255,'a tile that is not resident reads deep, like the fill');
+  const land=new Uint8Array(N*N);
+  assert.equal(shoreDepthTexture(land)[5],0);
+  assert.match(beachShading,/@binding\(9\)[^;]*shoreDepth/);
+  assert.match(beachShading,/fn beachRamp\(P:vec2f\)->f32/);
 });
 
 test('buildShoreClasses: unavailable tiles are water, land is 0, waves give class 2',()=>{

@@ -27,7 +27,7 @@ export function drawable(r,vertices,placement,map=r.emptyMap) {
       {binding:0,resource:{buffer:r.frameUniforms,size:240}},{binding:1,resource:map.createView()},{binding:2,resource:r.mapSampler},
       {binding:3,resource:r.waterNormals.createView()},{binding:4,resource:r.waveSampler},
       {binding:5,resource:{buffer:r.waveUniforms}},{binding:6,resource:r.waveMaskTexture.createView()},
-      {binding:7,resource:{buffer:r.beachUniforms}},{binding:8,resource:r.shoreTexture.createView()}]})};
+      {binding:7,resource:{buffer:r.beachUniforms}},{binding:8,resource:r.shoreTexture.createView()},{binding:9,resource:r.shoreDepthTexture.createView()}]})};
 }
 export function setFlags(r,positions) {
   for(const item of r.flags)r.release(item);
