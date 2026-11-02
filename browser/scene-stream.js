@@ -359,8 +359,9 @@ export class SceneStream {
   setPopulation(pack) {
     this.npcs = validatePopulation(pack);
     this.populationModels = pack.models;
-    this.npcMatrices = new WeakMap();
-    this.populationStatus = `Static local NPC snapshot: ${pack.provenance.source}; no server behavior`;
+    this.npcDisplays = new Map(pack.spawns.map(s => [s.id, s.displayId]));
+        this.npcMatrices = new WeakMap();
+        this.populationStatus = `Static local NPC snapshot: ${pack.provenance.source}; no server behavior`;
     this.revision++;
   }
   npcMatrix(npc,model) {

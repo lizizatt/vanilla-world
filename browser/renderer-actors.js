@@ -1,6 +1,5 @@
 import {ACTOR,actorPhase,poseKey} from './actors.js';
 import {renderMatrix} from './renderer-helpers.js';
-import {emitGib} from './particles.js';
 // Animated NPC poses replace the vertex buffer only when it matches the bind mesh; the wrapper stays stable per base asset.
 export function posedAsset(r,instance,base) {
   if(!base||instance.distant||!instance.id.includes(':npc:'))return base;
@@ -39,11 +38,12 @@ export function pose(r,data) {
     r.device.queue.writeBuffer(entry.buffer,0,p.vertices.buffer,p.vertices.byteOffset,p.vertices.byteLength);
   }
 }
-// Creature-collision effects from the worker: full hidden/dead id sets (gibbed or expired / dying or holding the last Death frame) and one-shot gib bursts in source space.
+// Source-space point (as used by the actor tick) to renderer world space.
+export function sourceToRender(reg,[sx,sy,sz]) {
+  const T=1600/3;
+  return [-sy+reg.placement[0]+(32-reg.tile_origin[0])*T,sz,-sx+reg.placement[1]+(32-reg.tile_origin[1])*T];
+}
+// Creature-collision effects from the worker: full hidden/dead id sets (expired / dying or holding the last Death frame).
 export function npcFx(r,data) {
   r.hiddenNpcs=new Set(data.hidden);r.deadNpcs=new Set(data.dead);
-  const reg=r.manifest?.regions[r.sceneRegion];
-  if(!reg||!r.particles||!(r.particles.quality>0))return;
-  const T=1600/3;
-  for(const [sx,sy,sz,size] of data.gibs)emitGib(r.particles,[-sy+reg.placement[0]+(32-reg.tile_origin[0])*T,sz,-sx+reg.placement[1]+(32-reg.tile_origin[1])*T],size);
 }

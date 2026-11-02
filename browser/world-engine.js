@@ -34,7 +34,7 @@ export let world,source,manifest,placements,scene,terrain,water,accumulator=0,qu
 export const enqueue=job=>{queue=queue.then(job);return queue;};
 let poseTime,flightFocus,areaTime=-1e9,areaId=0,actors,actorFocus,actorRegion=0,actorsOn=true;
 export const setActorsOn=on=>{actorsOn=on;if(actors)actors.enabled=on;};
-let ccOn=true;const actorCraft=new Float64Array(4);
+let ccOn=true;const actorCraft=new Float64Array(4);const npcDisplayOf=id=>scene?.npcDisplays?.get(id);
 export const setCreatureCollisionOn=on=>{ccOn=on;if(actors)actors.cc.enabled=on;};
 // Gerstner sea (wave-config.js): uploaded once after the world exists and re-sent on the settings toggle. An empty array is "off".
 let wavesOn=true,waveSea=false,waveMaelstrom;
@@ -75,7 +75,7 @@ function applyMemoryBudget() {
 export const stopLoadingArt=()=>source?.stopLoadingArt();
 const actorGround=(sx,sy)=>{const r=manifest?.regions[actorRegion];if(!r||!world)return NaN;
   const s=world.surface(-sy+r.placement[0]+(32-r.tile_origin[0])*1600/3,-sx+r.placement[1]+(32-r.tile_origin[1])*1600/3);return s[0]===0?s[1]:NaN;};
-globalThis.setInterval?.(()=>{if(!arrivalLoading&&actors&&actorFocus&&sceneState){actors.update(sceneState.instances,actorFocus);actors.wander(sceneState.instances,actorFocus,actorGround);if(actorCraft[3])actors.collide(sceneState.instances,sceneState.assets,actorCraft[0],actorCraft[1],actorCraft[2]);}},ACTOR.tickMs);
+globalThis.setInterval?.(()=>{if(!arrivalLoading&&actors&&actorFocus&&sceneState){actors.update(sceneState.instances,actorFocus);actors.wander(sceneState.instances,actorFocus,actorGround);if(actorCraft[3])actors.collide(sceneState.instances,sceneState.assets,actorCraft[0],actorCraft[1],actorCraft[2],npcDisplayOf);}},ACTOR.tickMs);
 const terrainErrors=new Map();
 let terrainFocus='';
 let craft={ready:false,pending:false};

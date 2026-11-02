@@ -1,5 +1,6 @@
 import {SFX,HEAT,heatStage,POD_ENGINES,podEngineFor} from './swe1r/sfx.js';
 import {densityAt} from './planet-physics.js';
+import {CREATURE_SOUND,spatialGain} from './creature-sound.js';
 const unit=n=>Number.isFinite(n)?Math.max(0,Math.min(1,n)):0;
 const tone=(hz,t)=>Math.sin(2*Math.PI*hz*t);
 const engine=(hz,t)=>.56*tone(hz,t)+.17*tone(hz*2,t)+.06*tone(hz*3,t);
@@ -147,6 +148,30 @@ export class WorldAudio {
     for(let i=0;i<n;i++){s=(s*1664525+1013904223)>>>0;const t=i/n,w=s/2147483648-1;lp+=(w-lp)*.04;d[i]=lp*Math.exp(-t*4.5)*(1+3*Math.exp(-t*60));}
     const source=ctx.createBufferSource(),g=ctx.createGain();source.buffer=buffer;g.gain.value=gain*8;source.connect(g);g.connect(this.analyser);source.start();
     source.onended=()=>{source.disconnect();g.disconnect();};return true;
+  }
+  /** Positional one-shot at a render-space point (e.g. a creature's death cry). Decodes `bytes` once per `key`; no bytes and no cached buffer means silence. */
+  async spatial(key,bytes,pos,view) {
+    const ctx=this.context;
+    if(!this.enabled||!ctx||ctx.state!=='running'||!view?.eye)return false;
+    if(!spatialGain(view.eye,pos).audible||(this.spatialVoices||0)>=CREATURE_SOUND.maxVoices)return false;
+    const cache=this.spatialBuffers??=new Map();
+    if(!cache.has(key)) {
+      if(!bytes)return false;
+      cache.set(key,undefined);
+      try{cache.set(key,await ctx.decodeAudioData(bytes.slice().buffer));}catch{/* undecodable sample: stays silent */}
+    }
+    const buffer=cache.get(key);
+    if(!buffer||ctx.state!=='running')return false;
+    const l=ctx.listener,[ex,ey,ez]=view.eye,[fx,fy,fz]=view.look,[ux,uy,uz]=view.up;
+    if(l.positionX){l.positionX.value=ex;l.positionY.value=ey;l.positionZ.value=ez;l.forwardX.value=fx;l.forwardY.value=fy;l.forwardZ.value=fz;l.upX.value=ux;l.upY.value=uy;l.upZ.value=uz;}
+    else{l.setPosition(ex,ey,ez);l.setOrientation(fx,fy,fz,ux,uy,uz);}
+    const panner=ctx.createPanner(),gain=ctx.createGain(),source=ctx.createBufferSource();
+    panner.panningModel='equalpower';panner.distanceModel='inverse';panner.refDistance=CREATURE_SOUND.refDistance;panner.maxDistance=CREATURE_SOUND.maxDistance;panner.rolloffFactor=CREATURE_SOUND.rolloff;
+    panner.positionX.value=pos[0];panner.positionY.value=pos[1];panner.positionZ.value=pos[2];gain.gain.value=CREATURE_SOUND.gain;
+    source.buffer=buffer;source.connect(panner);panner.connect(gain);gain.connect(this.analyser);
+    this.spatialVoices=(this.spatialVoices||0)+1;
+    source.onended=()=>{this.spatialVoices--;source.disconnect();panner.disconnect();gain.disconnect();};
+    source.start();return true;
   }
   // Dome ambience (nature rustle) belongs to the place, not the engine: like wind it joins at the analyser.
   setNature(level) {
