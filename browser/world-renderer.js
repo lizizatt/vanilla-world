@@ -326,7 +326,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
       const dome=this.dome?.craft&&domePlacement(activeBody().id);
       if(dome)emitDomeMist(fx,{eye:this.view.eye,level:domeMask(activeBody().id,this.view.eye[0],this.view.eye[2],30,15,this.view.eye[1]-dome.pos[1]),ground:dome.pos[1],dt:Math.min(dt,.1)});
     fx.update(Math.min(dt,.1));
-      const count=fx.fill(this.particleInstances,this.view.eye,activeBody());
+      const count=fx.fill(this.particleInstances,this.view.eye,activeFramedBody());
       if(count){
         this.device.queue.writeBuffer(this.particleBuffer,0,this.particleInstances,0,count*INSTANCE_FLOATS);
         this.device.queue.writeBuffer(this.particleUniformBuffer,0,particleUniform(this.view,near));
