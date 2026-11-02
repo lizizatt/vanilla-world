@@ -2,7 +2,7 @@
 import {validateTrack,breakoffDistance} from './race.js';
 
 export const DEFAULT_WIDTH=70,MIN_WIDTH=20,MAX_WIDTH=200;
-const TAN_HALF=.55; // matches the renderer's 0.55 projection slope
+export const TAN_HALF=.55; // matches the renderer's 0.55 projection slope
 
 // Yaw whose forward (-sin, -cos) points from a to b on the ground plane.
 export const yawToward=(a,b)=>Math.atan2(-(b[0]-a[0]),-(b[2]-a[2]));
@@ -58,6 +58,10 @@ export class TrackDraft {
   state() { return JSON.stringify({id:this.id,name:this.name,body:this.body,vehicle:this.vehicle,mode:this.mode,laps:this.laps,start:this.start,gates:this.gates}); }
   // Call before every mutation so undo can restore it.
   checkpoint() { this.history.push(this.state());if(this.history.length>100)this.history.shift();this.revision++; }
+  // Record a restore point whose gates are `gates` (the state before a multi-step gate session) while everything else is current.
+  checkpointGates(gates) {
+    this.history.push(JSON.stringify({...JSON.parse(this.state()),gates}));if(this.history.length>100)this.history.shift();this.revision++;
+  }
   undo() {
     const s=this.history.pop();if(!s)return false;
     const h=this.history;this.load(JSON.parse(s));this.history=h;this.revision++;return true;

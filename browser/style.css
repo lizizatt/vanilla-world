@@ -168,6 +168,13 @@ dialog h2 { color: #ffb34d; margin-top: 0; }
 #te-panel ol button { width: 100%; text-align: left; }
 #te-panel fieldset { border: 1px solid #7a622b; margin: 6px 0; }
 #te-status[data-bad="true"] { color: #ff7a7a; }
+#te-dial { position: absolute; top: 10px; right: 10px; width: 250px; padding: 10px; background: rgba(26,18,9,.9); border: 2px solid #c8a24a; border-radius: 6px; color: #ffd36a; font-size: .85rem; }
+#te-dial label { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+#te-dial input:not([type=checkbox]) { width: 130px; background: #120c05; color: #ffd36a; border: 1px solid #7a622b; padding: 3px; }
+#te-dial button { background: #3a2a12; color: #ffd36a; border: 1px solid #c8a24a; border-radius: 4px; padding: 5px 9px; cursor: pointer; }
+#te-dial button:disabled { opacity: .45; cursor: default; }
+.td-row { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin: 6px 0; }
+#track-editor.dialing #te-bar, #track-editor.dialing #te-panel, #track-editor.dialing #launch-tools { display: none; }
 
 /* Esc / Game Menu: sections that used to sit on screen */
 #menu-hint { position: fixed; top: max(8px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); margin: 0; font-size: 11px; letter-spacing: 1px; color: #c9bb94; opacity: .7; pointer-events: none; }
