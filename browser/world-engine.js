@@ -49,7 +49,8 @@ export function waveMask(center,rowStart,rowCount){
 }
 /** One slice of the visual-only shore class grid (land / water / open sea) for the beach waves; sampled with the same physics queries, a few ms per slice. */
 export function shoreRows(center,rowStart,rowCount){
-  return buildShoreClasses(points=>world.water_sample_batch(points),(x,z)=>world.surface(x,z),center,rowStart,rowCount);
+  return buildShoreClasses(points=>world.water_sample_batch(points),(x,z)=>world.surface(x,z),center,rowStart,rowCount,
+    waveMaelstrom&&{centre:waveMaelstrom,radius:WHIRLPOOL_DIP.radius});
 }
 export const setWavesOn=on=>{wavesOn=on;applyWaves();};
 // Total residency budget in bytes; each stream gets its share (memory-budget.js). Zero keeps the built-in defaults.

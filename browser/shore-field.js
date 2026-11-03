@@ -8,8 +8,9 @@ const NORMAL_TURN=[.06,.16],NORMAL_ALIGN=[.3,.7];
 const CONTOUR_BLUR=1,NORMAL_BLUR=4,NORMAL_PASSES=3,OPEN_BLUR=8;
 const smoothstep=(e0,e1,x)=>{const s=Math.min(1,Math.max(0,(x-e0)/(e1-e0)));return s*s*(3-2*s);};
 
-/** Class grid rows: 0 land (or no water), 1 water (or a tile that is not resident yet, so a streaming edge never reads as a coast), 2 water where the physics wave amplitude is > 0 (offshore of tile-granular land, so informational only). Same slicing as buildWaveMask. */
-export function buildShoreClasses(sampleBatch,surface,center,rowStart=0,rowCount=SHORE_N){
+/** Class grid rows: 0 land (or no water), 1 water (or a tile that is not resident yet, so a streaming edge never reads as a coast), 2 water where the physics wave amplitude is > 0 (offshore of tile-granular land, so informational only). Same slicing as buildWaveMask.
+ * `whirlpool` ({centre:[x,z],radius}) is the Maelstrom disc: its water sits up to the dip depth below sea level and carries storm waves far above the sea-level tolerance, but it is open sea, not an inland pond. */
+export function buildShoreClasses(sampleBatch,surface,center,rowStart=0,rowCount=SHORE_N,whirlpool){
   const ox=Math.round(center[0]/SHORE_CELL-SHORE_N/2)*SHORE_CELL,oz=Math.round(center[1]/SHORE_CELL-SHORE_N/2)*SHORE_CELL;
   const total=rowCount*SHORE_N,base=rowStart*SHORE_N,data=new Uint8Array(total),points=new Float64Array(total*2);
   for(let n=0;n<total;n++){const t=base+n;points[n*2]=ox+(t%SHORE_N+.5)*SHORE_CELL;points[n*2+1]=oz+(Math.floor(t/SHORE_N)+.5)*SHORE_CELL;}
@@ -18,7 +19,8 @@ export function buildShoreClasses(sampleBatch,surface,center,rowStart=0,rowCount
     const s=surface(points[n*2],points[n*2+1]),water=out[n*8];
     if(s[0]!==0){data[n]=1;continue;}
     // The beach layer is drawn on the flat sea plane, so inland water at another height (basin ponds, mountain lakes) is not a shore: it would float over/under the terrain.
-    if(Number.isNaN(water)||s[1]>=water||Math.abs(water)>SEA_LEVEL_TOLERANCE)continue;
+    const inDip=whirlpool&&Math.hypot(points[n*2]-whirlpool.centre[0],points[n*2+1]-whirlpool.centre[1])<whirlpool.radius;
+    if(Number.isNaN(water)||s[1]>=water||!inDip&&Math.abs(water)>SEA_LEVEL_TOLERANCE)continue;
     data[n]=out[n*8+7]>0?2:1;
   }
   return {origin:[ox,oz],cell:SHORE_CELL,n:SHORE_N,data,rowStart};
