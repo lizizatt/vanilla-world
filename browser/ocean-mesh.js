@@ -15,11 +15,11 @@ export function oceanMeshCached(manifest,cells=96,land=[]) {
   return mesh;
 }
 
-/** Ocean triangles (7 floats per vertex: pos, normal, material 2) local to the ocean origin: a flat quad, or four flat
+/** Ocean triangles (7 floats per vertex: pos, normal, material 4, the opaque ocean look) local to the ocean origin: a flat quad, or four flat
  * quads around a dense displaced square patch when the whirlpool centre lies inside the ocean. */
 export function oceanMesh(manifest,cells=96,land=[]) {
   const [x,z,right,bottom]=manifest.ocean,y=manifest.sea_level,w=right-x,h=bottom-z,out=[];
-  const tri=(x0,z0,x1,z1)=>out.push(x0,y,z0,0,1,0,2,x1,y,z0,0,1,0,2,x1,y,z1,0,1,0,2,x0,y,z0,0,1,0,2,x1,y,z1,0,1,0,2,x0,y,z1,0,1,0,2);
+  const tri=(x0,z0,x1,z1)=>out.push(x0,y,z0,0,1,0,4,x1,y,z0,0,1,0,4,x1,y,z1,0,1,0,4,x0,y,z0,0,1,0,4,x1,y,z1,0,1,0,4,x0,y,z1,0,1,0,4);
   // Land tiles (absolute rects) are cut out of the fill so below-sea-level ground is not flooded; cells touching land split into SUB steps.
   const buckets=new Map(),SUB=5;
   for(const r of land)for(let j=Math.floor((r[1]-z)/OCEAN_CELL);j<=Math.floor((r[3]-z)/OCEAN_CELL);j++)for(let i=Math.floor((r[0]-x)/OCEAN_CELL);i<=Math.floor((r[2]-x)/OCEAN_CELL);i++){
@@ -36,7 +36,7 @@ export function oceanMesh(manifest,cells=96,land=[]) {
   const fan=(x0,z0,x1,z1,flags)=>{
     const ring=[],step=(ax,az,bx,bz,n)=>{ring.push([ax,az]);for(let k=1;k<n;k++)ring.push([ax+(bx-ax)*k/n,az+(bz-az)*k/n]);};
     step(x0,z0,x1,z0,flags[0]);step(x1,z0,x1,z1,flags[1]);step(x1,z1,x0,z1,flags[2]);step(x0,z1,x0,z0,flags[3]);
-    const cx=(x0+x1)/2,cz=(z0+z1)/2,v=(p,q)=>out.push(p,y,q,0,1,0,2);
+    const cx=(x0+x1)/2,cz=(z0+z1)/2,v=(p,q)=>out.push(p,y,q,0,1,0,4);
     for(let k=0;k<ring.length;k++){const a=ring[k],b=ring[(k+1)%ring.length];v(cx,cz);v(a[0],a[1]);v(b[0],b[1]);}
   };
   const cell=(x0,z0,x1,z1,flags)=>{
@@ -86,7 +86,7 @@ export function oceanMesh(manifest,cells=96,land=[]) {
   const vertex=(i,j)=>{
     const dx=-R+2*R*i/cells,dz=-R+2*R*j/cells,r=Math.hypot(dx,dz),q=1-(r/R)**2,drop=r>=R?0:WHIRLPOOL_DIP.depth*q*q;
     const slope=r>=R||r<1e-6?0:4*WHIRLPOOL_DIP.depth*q/(R*R),nx=slope*dx,nz=slope*dz,n=Math.hypot(nx,1,nz);
-    return [x0+2*R*i/cells,y-drop,z0+2*R*j/cells,-nx/n,1/n,-nz/n,2];
+    return [x0+2*R*i/cells,y-drop,z0+2*R*j/cells,-nx/n,1/n,-nz/n,4];
   };
   for(let j=0;j<cells;j++)for(let i=0;i<cells;i++) {
     const a=vertex(i,j),b=vertex(i+1,j),c=vertex(i+1,j+1),d=vertex(i,j+1);

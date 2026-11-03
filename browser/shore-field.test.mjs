@@ -100,6 +100,12 @@ test('buildShoreClasses: the Maelstrom disc is open sea, not an inland pond (no 
   assert.equal(zeros(out),out.data.length,'a pond outside the disc is still land');
 });
 
+test('buildShoreClasses: storm wave crests over open sea are water, not land (no foam-ringed plates across the Maelstrom approach)',()=>{
+  const sample=p=>{const o=new Float64Array(p.length/2*8);for(let n=0;n<p.length/2;n++){o[n*8]=n%2?7:-7;o[n*8+7]=1;}return o;};
+  const g=buildShoreClasses(sample,()=>[0,-1000,0,0,0],[9000,0],0,N);
+  assert.equal(g.data.filter(c=>c===0).length,0);
+});
+
 test('buildShoreClasses: unavailable tiles are water, land is 0, waves give class 2',()=>{
   const sample=p=>{const o=new Float64Array(p.length/2*8);for(let n=0;n<p.length/2;n++){o[n*8]=0;o[n*8+7]=p[n*2]>100?0:1;}return o;};
   const surface=(x,z)=>z<0?[1,NaN,NaN,0,0]:z<300?[0,-50,0,0,0]:[0,10,0,0,0];

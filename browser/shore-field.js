@@ -23,7 +23,9 @@ export function buildShoreClasses(sampleBatch,surface,center,rowStart=0,rowCount
     if(s[0]!==0){data[n]=1|SHORE_RAMP_LEVELS<<2;continue;}
     // The beach layer is drawn on the flat sea plane, so inland water at another height (basin ponds, mountain lakes) is not a shore: it would float over/under the terrain.
     const inDip=whirlpool&&Math.hypot(points[n*2]-whirlpool.centre[0],points[n*2+1]-whirlpool.centre[1])<whirlpool.radius;
-    if(Number.isNaN(water)||s[1]>=water||!inDip&&Math.abs(water)>SEA_LEVEL_TOLERANCE)continue;
+    // Storm waves lift the sampled height past the tolerance across the open Maelstrom sea; where the physics wave amplitude is > 0 the height is wave, not a pond at another level.
+    const waves=out[n*8+7]>0;
+    if(Number.isNaN(water)||s[1]>=water||!inDip&&!waves&&Math.abs(water)>SEA_LEVEL_TOLERANCE)continue;
     // No ground under the water (open sea past the authored shelf) reads as deep, like the flat fill; NaN would otherwise bake as the shallowest ramp.
     const ramp=Number.isNaN(s[1])?1:Math.min(1,(water-s[1])/SHORE_RAMP_YD);
     data[n]=(out[n*8+7]>0?2:1)|Math.round(ramp*SHORE_RAMP_LEVELS)<<2;
