@@ -138,7 +138,7 @@ export function event(r,data) {
     const item=r.drawable(v,[region.placement[0]+(entry.x-region.tile_origin[0])*1600/3,
       region.placement[1]+(entry.y-region.tile_origin[1])*1600/3]);
     let first=v.length/7;
-    while(first>0&&v[(first-1)*7+6]===4)first--;
+    while(first>0&&v[(first-1)*7+5]===.25)first--;
     if(first<v.length/7){
       item.backing={...item,first,count:v.length/7-first};
     }
