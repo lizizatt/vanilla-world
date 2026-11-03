@@ -33,7 +33,7 @@ test('original water normals are deterministic, bounded and fully mip-filtered',
 test('WMO water flags survive batch preparation without introducing texture dependencies',()=>{
   const renderer={scenePipeline:()=>({})};
   const [batch]=WorldRenderer.prototype.prepareBatches.call(renderer,[{water:true,blend:'opaque',texture:null}]);
-  assert.equal(batch.water,true);assert.equal(batch.transparent,false);assert.equal(batch.texture,null);
+  assert.equal(batch.water,true);assert.equal(batch.transparent,true);assert.equal(batch.texture,null);
   assert.throws(()=>WorldRenderer.prototype.prepareBatches.call(renderer,[{water:'yes'}]),/water flag/);
 });
 

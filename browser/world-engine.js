@@ -23,6 +23,7 @@ import {maelstromCentre,WHIRLPOOL_DIP} from './clouds.js';
 import {waveParams} from './wave-config.js';
 import {buildWaveMask} from './wave-render.js';
 import {buildShoreClasses} from './shore-field.js';
+import {smoothLiquidDepth} from './liquid-smooth.js';
 import {TILE,createTerrainIndex,terrainDistance,tileKeyOf,assetPathOf,focusRegionOf,sourcePositionOf,
   nextUnresolvedWindow,isCameraUnknown,isObjectWaiting} from './world-worker-logic.js';
 
@@ -145,7 +146,7 @@ function flushGeometry() {
   const steps=(function*(){
     const tiles=[],seams=[];
     for(const index of geometryPending){
-      tiles.push({index,version:tileVersions.get(index),placement:placements[index],vertices:world.geometry(index)});yield;
+      tiles.push({index,version:tileVersions.get(index),placement:placements[index],vertices:smoothLiquidDepth(world.geometry(index))});yield;
     }
     for(const index of resident){seams.push({index,vertices:world.horizon_seams(index)});yield;}
     return {event:'detail',tiles,removed:[...geometryRemoved],seams};
@@ -314,7 +315,7 @@ async function stream(p,pin,fill=false) {
       scene.commitTile(tileKey(index),read.scene);
       terrainRead=undefined;
       sceneFocus=undefined;
-      const vertices=postFrameVisuals?undefined:world.geometry(index);
+      const vertices=postFrameVisuals?undefined:smoothLiquidDepth(world.geometry(index));
       resident.add(index);loads++;peak=Math.max(peak,resident.size);
       const version=++nextTileVersion;tileVersions.set(index,version);detailReady.delete(index);
       tiles.push({index,version,placement:placements[index],vertices});

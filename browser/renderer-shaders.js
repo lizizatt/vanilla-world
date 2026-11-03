@@ -158,8 +158,9 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   var color=mix(grade(texel.rgb*light),texel.rgb*(1.0+.35*glow),glow);
   // SIDN materials (lit window panes) add their authored night colour on top of the night-graded lit sum.
   if(sidn){color+=texel.rgb*sidnRgb*1.3*nightK();}
-  if(u.settings.z>.5){color=waterColor(v.p,v.uv.x,rampWidth,dx,dy);}
-  return vec4f(mix(color,fogTint(),fog*(1.0-.6*glow)),texel.a);
+  var waterAlpha=texel.a;
+  if(u.settings.z>.5){let lakeShade=waterColorLake(v.p,1.0,rampWidth,dx,dy);color=lakeShade.rgb;waterAlpha=lakeShade.a;}
+  return vec4f(mix(color,fogTint(),fog*(1.0-.6*glow)),waterAlpha);
 }`;
 return {terrainShader,splatShader,sceneShader};
 };
