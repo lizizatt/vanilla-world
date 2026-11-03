@@ -108,7 +108,10 @@ export function surfaceTexel(registry,x,y,w,h,out=[0,0,0,0]) {
 
 /** Bake the registry into an equirect RGBA8 map (rgb colour, alpha = land weight) the globe shaders sample; row 0 is lat +90. */
 export function bakeSurface(registry,w=1024,h=512) {
-  const out=new Uint8Array(w*h*4),texel=[0,0,0,0];
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++)out.set(surfaceTexel(registry,x,y,w,h,texel),(y*w+x)*4);
-  return out;
+  const out=new Uint8Array(w*h*4);bakeRows(registry,out,0,h,w,h);return out;
+}
+/** Bakes rows [y0,y1) of the equirect map into `out`, so a bake can be spread over frames. */
+export function bakeRows(registry,out,y0,y1,w=1024,h=512) {
+  const texel=[0,0,0,0];
+  for(let y=y0;y<y1;y++)for(let x=0;x<w;x++)out.set(surfaceTexel(registry,x,y,w,h,texel),(y*w+x)*4);
 }

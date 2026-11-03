@@ -127,6 +127,9 @@ installFrame(app);
 async function start() {
   try {
     app.renderer=await WorldRenderer.create(canvas,error=>{app.running=false;app.fail(error);});
+    // Scene/terrain uploads are spread over frames (4 ms each) instead of landing as one 20-110 ms message handler.
+    app.renderer.uploadBudget=4;
+    app.renderer.onEventError=(error,data)=>{if(data?.event==='far-scene')app.renderer.clearFar();else app.running=false;app.fail(error);};
     $('select').disabled=false;$('fallback').disabled=false;evidence.started=performance.now();
     app.report('');
     if('serviceWorker' in navigator) {

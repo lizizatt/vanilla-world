@@ -28,7 +28,7 @@ import {posedAsset,npcMoves,npcFx,moveMatrix,pose} from './renderer-actors.js';
 import {BEND_ALWAYS} from './terrain-transition.js';
 import {buffer,texture,drawable,setFlags,setGates,releaseMaterial,release,uploadMaterials,drawTerrain,refreshOcean} from './renderer-terrain.js';
 import {destroyCraft,releaseCraft,buildCraft,animateCraft,startWreck,wreckChunk,endWreck,setProps,setCraftOverride,domeDraw} from './renderer-craft.js';
-import {reset,configure,event,clearFar,swapPlanetState,bodyEvent} from './renderer-events.js';
+import {reset,configure,event,drainEvents,clearFar,swapPlanetState,bodyEvent} from './renderer-events.js';
 import {scenePipeline,prepareBatches,sceneMatrix,drawScene} from './renderer-scene.js';
 import {zoneBlend,setSky,setSkyDome,horizonColour,planetRects,drawPlanet,sharedFrame,drawPatches,drawBodies,drawBodyClouds,drawLights,drawSkyDome,sampleSky,noteLitInstance} from './renderer-sky.js';
 import {drawShadow,enableHighClouds,highCloudGroup,maskEntries,drawClouds} from './renderer-clouds.js';
@@ -96,6 +96,7 @@ export class WorldRenderer {
   bodyEvent(body,data){return bodyEvent(this,body,data);}
   configure(manifest){return configure(this,manifest);}
   event(data){return event(this,data);}
+  drainEvents(budget){return drainEvents(this,budget);}
   setWaveMask(mask){return setWaveMask(this,mask);}
   setShoreField(field){return setShoreField(this,field);}
   waveStats(){return {active:!!this.waveActive,requested:!!this.waveRequest,rev:this.waveMask?.rev,ticks:this.waveSim?.ticks,levels:this.clipItems?.length??0};}
@@ -125,7 +126,7 @@ export class WorldRenderer {
   drawClouds(pass,time,daylight,near,high){return drawClouds(this,pass,time,daylight,near,high);}
   drawScene(pass,draws){return drawScene(this,pass,draws);}
   draw(state,flight,dt,time,settings,lookBack=false) {
-    this.uploadMaterials();
+    this.drainEvents();this.uploadMaterials();
     const canvas=this.canvas,width=Math.max(1,Math.round(canvas.clientWidth*Math.min(devicePixelRatio,2)));
     const height=Math.max(1,Math.round(canvas.clientHeight*Math.min(devicePixelRatio,2)));
     if(!this.depth || canvas.width!==width || canvas.height!==height) {

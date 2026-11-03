@@ -5,7 +5,7 @@ import {WATER_NORMAL_SIZE,waterNormalMips} from './water-shader.js';
 import {shadowShader} from './shadow.js';
 import {cloudShader,CloudMask} from './clouds.js';
 import {ParticlePool,INSTANCE_FLOATS,CAPACITY,particleShader} from './particles.js';
-import {MAX_PATCHES} from './globe-patches.js';
+import {MAX_PATCHES,warmPatches} from './globe-patches.js';
 import {NIGHT_W,NIGHT_H} from './night-lights-wgsl.js';
 import {createColourGrid} from './tile-registry.js';
 import {HEIGHT_W,HEIGHT_H} from './height-bake.js';
@@ -24,6 +24,7 @@ import {skyShader,skyDomeShader} from './sky.js';
 import {sub,cross,unit} from './renderer-helpers.js';
 import {terrainShader,splatShader,sceneShader,surfaceShadersFor} from './renderer-shaders.js';
 export async function initialize(r) {
+  warmPatches();
   const shader=async code=>{
     const module=r.device.createShaderModule({code});
     const info=await module.getCompilationInfo(),errors=info.messages.filter(m=>m.type==='error');
