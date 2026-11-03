@@ -204,7 +204,7 @@ function* detailSteps(r,data) {
       let liquid=openSea?undefined:t.liquid;
       if(liquid===undefined){
         const values=[];
-        for(let i=0;i<t.vertices.length;i+=7)if(t.vertices[i+6]===2)values.push(...t.vertices.subarray(i,i+7));
+        for(let i=0;i<t.vertices.length;i+=7)if(t.vertices[i+6]===2||t.vertices[i+6]===4)values.push(...t.vertices.subarray(i,i+7));
         liquid=new Float32Array(values);
       }
       if(!(liquid instanceof Float32Array)||liquid.length%21||liquid.byteLength>t.vertices.byteLength)
