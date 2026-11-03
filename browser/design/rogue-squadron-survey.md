@@ -126,3 +126,11 @@ Flight constants: done enough to implement now. Assets: feasible but not yet pro
 3. Finish reading the shared flight function (bank/auto-level, ground following, collision) and the object init tables for hull/weapons.
 4. Export one craft mesh (X-wing) to glTF in a local-only script; load in the browser via a `ROGUE_DATA` folder picker.
 5. Add an arcade flight controller using the constants above.
+
+## DAT decoder and Falcon test render (phase 2)
+
+- `browser/rogue/dat.js` is a minimal decoder: `readDirectory` scans DATA.DAT for 32-byte entries (u32 offset, u32 size, -1, 2, char[16] name; several scattered runs) and `parseHob` decodes HOB models.
+- HOB: 5 nodes for the Falcon (0x84 bytes each), mesh records (0x60), i16 x/y/z/pad vertices at 1/256 units, packet lists (tag>>24 = dwords, bit0 quad, bit1 normal indices, u16 index pairs, per-vertex colours, optional 4.12 UVs). Vertices are already model-space; node translations are pivots only.
+- `node browser/rogue/render.mjs <DATA.DAT> falcon_HOB out.png` renders four views (530 tris for the Falcon, 504 for the X-wing); both look correct. Vertex colours only; HMT (materials/textures) is still undecoded.
+- Feasibility: loading HOB models at runtime from the user's local files is straightforward, in the SWE1R_DATA pattern. Next: decode HMT textures, then wire into a viewer.
+
