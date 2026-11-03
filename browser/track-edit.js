@@ -67,11 +67,20 @@ export class TrackDraft {
     const h=this.history;this.load(JSON.parse(s));this.history=h;this.revision++;return true;
   }
   // `body` is the body the gate stands on; it is recorded only when it differs from the track's start body.
+  // The default heading points from the previous gate on the same body (frames differ across a jump); a leg's first gate faces north (yaw 0) until turned.
   addGate(pos,yaw,body) {
     this.checkpoint();
-    const prev=this.gates.at(-1)?.pos||this.start.pos;
-    this.gates.push({pos:[pos[0],pos[1],pos[2]],yaw:yaw??yawToward(prev,pos),width:DEFAULT_WIDTH,...(body&&body!==(this.body??'azeroth')?{body}:{})});
+    const b=body||this.startBody,last=this.gates.at(-1),prev=(last?.body??this.startBody)===b?(last?.pos||this.start.pos):undefined;
+    this.gates.push({pos:[pos[0],pos[1],pos[2]],yaw:yaw??(prev?yawToward(prev,pos):0),width:DEFAULT_WIDTH,...(b!==this.startBody?{body:b}:{})});
+    if(b!==this.startBody&&this.mode==='lap'){this.mode='p2p';this.laps=1;}
     return this.gates.length-1;
+  }
+  get startBody() { return this.body??'azeroth'; }
+  bodyAt(i) { return this.gates[i]?.body??this.startBody; }
+  // Swap gate i with its neighbour d places along the order (+1 later, -1 earlier); returns the gate's new index or -1.
+  moveInOrder(i,d) {
+    const j=i+d;if(!this.gates[i]||!this.gates[j])return -1;
+    this.checkpoint();[this.gates[i],this.gates[j]]=[this.gates[j],this.gates[i]];return j;
   }
   moveGate(i,pos) { this.gates[i].pos=[pos[0],this.gates[i].pos[1],pos[2]];this.revision++; }
   setGateHeight(i,y) { this.gates[i].pos[1]=y;this.revision++; }

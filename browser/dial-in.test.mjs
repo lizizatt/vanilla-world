@@ -98,3 +98,12 @@ test('a rotation gesture that ends where it started leaves no undo entry',()=>{
   const s=new DialSession(draft(),0),y=s.gate.yaw;
   s.begin();s.setYaw(2);s.setYaw(y);s.end();assert.equal(s.undoStack.length,0);assert.equal(s.dirty,false);
 });
+test('a leg limits stepping to that body\'s gates, wraps inside the leg, and labels the body',()=>{
+  const d=TrackDraft.blank([0,10,0],0,'elune');
+  d.addGate([0,10,-100],undefined,'elune');d.addGate([9,10,-9],undefined,'azeroth');d.addGate([0,10,-200],undefined,'elune');d.addGate([9,10,-90],undefined,'azeroth');
+  const s=new DialSession(d,2,{indices:[0,2],name:'Elune'});
+  assert.equal(s.count,2);assert.equal(s.index,2);assert.match(s.label,/Elune/);
+  s.step(1);assert.equal(s.index,0);s.step(-1);assert.equal(s.index,2);
+  assert.equal(s.prevGate(),d.gates[0]);assert.equal(s.nextGate(),d.gates[0]);
+  const all=new DialSession(d,1);assert.equal(all.count,4);assert.equal(all.label,'Gate 2 / 4');
+});

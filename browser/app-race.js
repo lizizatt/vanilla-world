@@ -41,8 +41,22 @@ async function withOverrides(found) {
   } catch {/* no override index: keep the built-in tracks */}
   return list;
 }
+// Swaps to another body with the existing in-page well swap, waiting for its resident engine to finish warming (same wait as the map teleport).
+async function switchBody(id) {
+  if(activeBody().id===id)return;
+  const ready=()=>{const e=app.engines?.[id];return !app.busy&&e?.worker&&e.info&&app.renderer?.bodyPrepared?.(id);};
+  for(let i=0;i<240&&!ready()&&app.engines?.[id];i++){if(i===0)app.report(`Preparing ${id}...`,true);await new Promise(r=>setTimeout(r,250));}
+  if(!(await app.soiSwap(id)))throw new Error(`${id} is not ready yet (its world is still loading).`);
+}
+// Editor jump: swap bodies, put the pod on that body's spawn (the old pose is in another frame), and hand the editor a camera position.
+async function editorJump(id) {
+  await switchBody(id);
+  editorFlight=undefined;app.flight=undefined;
+  client.state=await client.request('reset');app.renderer.camera=undefined;app.gateKey=undefined;
+  return client.state.telemetry.slice(0,3);
+}
 app.editor=createTrackEditor({
-  view:()=>app.renderer?.view,tracks:()=>app.tracks.filter(t=>(t.body??'azeroth')===activeBody().id),body:()=>activeBody().id,shipped:()=>app.shipped.map(t=>t.id),probe:probeSurface,
+  view:()=>app.renderer?.view,tracks:()=>app.tracks,body:()=>activeBody().id,shipped:()=>app.shipped.map(t=>t.id),probe:probeSurface,jump:editorJump,
   save:async track=>{
     await trackOverride(track.id,track);
     const ids=new Set((await trackOverride('~index'))||[]);ids.add(track.id);await trackOverride('~index',[...ids]);
@@ -92,7 +106,7 @@ function syncGates(force) {
   app.gateKey=key;
   const racing=!app.editor.isOpen&&app.race;
   // The editor draws only the draft being edited; every other track shows as its flag.
-  const items=app.editor.isOpen?app.editor.draft.gates.map((gate,i)=>({gate,next:i===app.editor.selected})):
+  const items=app.editor.isOpen?app.editor.draft.gates.flatMap((gate,i)=>app.editor.draft.bodyAt(i)===activeBody().id?[{gate,next:i===app.editor.selected}]:[]):
     racing?[{gate:app.race.track.gates[app.race.gateIndex],next:true,finish:app.race.finishing}]:[];
   app.renderer.setGates(items);
   const own=app.editor.isOpen?app.editor.draft.id:racing?app.race.track.id:undefined;
@@ -102,6 +116,9 @@ function syncGates(force) {
 async function startRace(track) {
   if(app.race||app.busy||!app.running||!client.info)return;
   if(vehicleOf(track)!==app.choice.vehicle)app.selectVehicle({vehicle:vehicleOf(track)});
+  if(trackBody(track)!==activeBody().id){
+    try{await switchBody(trackBody(track));}catch(error){app.report(`Cannot start: ${error.message}`,true);return;}
+  }
   const ready=await app.operation(async()=>{
     app.flight=undefined;
     track=await groundTrack(track);

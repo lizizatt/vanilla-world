@@ -29,24 +29,27 @@ export class OrbitCamera {
 
 export class DialSession {
   // draft: a TrackDraft (mutated in place; the caller keeps it dirty and saves through its normal path).
-  constructor(draft,index=0) {
+  // leg: optional {indices,name}: only those gates (one body's) are stepped through, so a cross-body track is dialled one frame at a time.
+  constructor(draft,index=0,leg) {
     this.draft=draft;this.entry=JSON.stringify(draft.gates);this.originals=draft.gates.map(snapshot);
+    this.order=leg?.indices?.length?leg.indices.slice():draft.gates.map((_,i)=>i);this.name=leg?.name;
     this.undoStack=[];this.redoStack=[];this.cam=new OrbitCamera();this.pending=undefined;
-    this.index=0;this.select(index,true);
+    this.pos=0;this.index=this.order[0];this.select(Math.max(0,this.order.indexOf(index)),true);
     const g=this.gate;if(g)this.cam.yaw=g.yaw;
   }
-  get count() { return this.draft.gates.length; }
+  get count() { return this.order.length; }
   get gate() { return this.draft.gates[this.index]; }
-  get label() { return `Gate ${this.index+1} / ${this.count}`; }
-  select(i,snap) {
+  get label() { return this.name?`${this.name} · gate ${this.index+1} (${this.pos+1}/${this.count})`:`Gate ${this.index+1} / ${this.count}`; }
+  // p is a position within the stepped gates, wrapping.
+  select(p,snap) {
     if(!this.count)return;
     this.end();
-    this.index=((i%this.count)+this.count)%this.count;
+    this.pos=((p%this.count)+this.count)%this.count;this.index=this.order[this.pos];
     this.cam.focus(this.gate.pos,snap);
   }
-  step(d) { this.select(this.index+d); }
-  prevGate() { return this.draft.gates[(this.index+this.count-1)%this.count]; }
-  nextGate() { return this.draft.gates[(this.index+1)%this.count]; }
+  step(d) { this.select(this.pos+d); }
+  prevGate() { return this.draft.gates[this.order[(this.pos+this.count-1)%this.count]]; }
+  nextGate() { return this.draft.gates[this.order[(this.pos+1)%this.count]]; }
 
   // Open one undo entry for the current gesture (a drag or a field edit); end() drops it again if nothing changed.
   begin() {
@@ -81,7 +84,7 @@ export class DialSession {
     this.pending=undefined;
     const e=from.pop();if(!e)return false;
     const g=this.draft.gates[e.i],now=snapshot(g);apply(g,e.before);e.before=now;to.push(e);
-    this.index=e.i;this.draft.revision++;this.cam.focus(g.pos,false);return true;
+    this.index=e.i;this.pos=Math.max(0,this.order.indexOf(e.i));this.draft.revision++;this.cam.focus(g.pos,false);return true;
   }
   get dirty() { return JSON.stringify(this.draft.gates)!==this.entry; }
   // Throw every dial-in edit away.

@@ -1,5 +1,7 @@
 // Dial-in view for the track editor: orbit one gate at a time and move it with a translate gizmo. DOM glue over dial-in.js and gizmo.js.
 import {DialSession} from './dial-in.js';
+import {legs,gatesOn,bodyLabel} from './track-legs.js';
+import {spansBodies} from './race.js';
 import {makeRay,makeDrag,makeRot,pixelRay,pickHandle,pickRing,beginDrag,dragTo,beginRot,rotTo,worldPerPixel,projectInto,PLANE_LO,PLANE_HI,RING_R,SNAP_DEG,AXES,AXIS_KEYS,PICK_PX,GIZMO_PX} from './gizmo.js';
 import {surfaceBase,CLEAR_MIN,CLEAR_MAX,CLEAR_DEFAULT} from './track-edit.js';
 
@@ -7,7 +9,7 @@ const $=id=>document.getElementById(id);
 const COLORS={x:'#ff4d4d',y:'#5cff6b',z:'#4da3ff',xz:'#ffd24d',ring:'#d36bff'};
 const DEG=Math.PI/180,NO_DASH=[],DASH=[8,6];
 
-export function createDialIn({cv,view,draft,select,probe=async()=>[],status,exited}) {
+export function createDialIn({cv,view,draft,select,probe=async()=>[],status,exited,body=()=>'azeroth',goto=async()=>{}}) {
   const dial={active:false,session:undefined,snap:true,snapRot:false};
     const ray=makeRay(),drag=makeDrag(),rot=makeRot(),next=[0,0,0],a=[0,0,0],b=[0,0,0],c=[0,0,0],bp=[0,0,0],bq=[0,0,0];
   let gesture,hover,drawn=-1,drawnIndex=-1,lastNow=0,snapBusy,snapAgain=false,lift=CLEAR_DEFAULT;
@@ -19,10 +21,24 @@ export function createDialIn({cv,view,draft,select,probe=async()=>[],status,exit
   const pick=()=>{const p=dial.session.gate.pos,h=pickHandle(ray,p,len(),tol());return h||(pickRing(ray,p,len(),tol())?'ring':undefined);};
   const rotSnap=e=>(dial.snapRot||e.shiftKey)?SNAP_DEG:0;
 
+  // A track that spans bodies is dialled one body at a time (gates on another body are in a different frame and are not stepped through).
+  const legOf=d=>{
+    if(!spansBodies(d.preview()))return;
+    const here=body(),indices=gatesOn(d.preview(),here);
+    return {indices,name:bodyLabel(here)};
+  };
+  const fillLegs=d=>{
+    const box=$('te-dial-legs'),list=legs(d.preview()).filter(l=>l.count),bodies=[...new Set(list.map(l=>l.body))];
+    box.hidden=bodies.length<2;
+    const sel=box.querySelector('select');
+    sel.replaceChildren(...bodies.map(b=>new Option(`${bodyLabel(b)} (${gatesOn(d.preview(),b).length} gates)`,b)));
+    sel.value=body();
+  };
   dial.open=(d,index=0)=>{
-    if(!d.gates.length){status('Add a gate first.',true);return false;}
-    dial.session=new DialSession(d,index);dial.active=true;lastNow=performance.now();drawn=-1;
-    $('te-dial').hidden=false;$('track-editor').classList.add('dialing');cv.focus();
+    const leg=legOf(d);
+    if(!d.gates.length||(leg&&!leg.indices.length)){status(d.gates.length?`No gates on ${bodyLabel(body())}: jump to a body that has gates.`:'Add a gate first.',true);return false;}
+    dial.session=new DialSession(d,index,leg);dial.active=true;lastNow=performance.now();drawn=-1;
+    $('te-dial').hidden=false;$('track-editor').classList.add('dialing');cv.focus();fillLegs(d);
     $('te-dial-snap').checked=dial.snap;$('te-dial-snaprot').checked=dial.snapRot;sync(true);select(dial.session.index);status('Dial in: drag the arrows, or the purple ring to rotate (Shift snaps 15°). [ ] step · wheel zoom · drag orbit · right-drag pan.');
     return true;
   };
@@ -115,6 +131,7 @@ export function createDialIn({cv,view,draft,select,probe=async()=>[],status,exit
     else if(e.code==='KeyD'||e.code==='Enter'){e.preventDefault();dial.done();}
   });
   $('te-dial-prev').addEventListener('click',()=>{step(-1);cv.focus();});
+  $('te-dial-legs').querySelector('select').addEventListener('change',e=>{if(e.target.value!==body())void goto(e.target.value);});
   $('te-dial-next').addEventListener('click',()=>{step(1);cv.focus();});
   $('te-dial-undo').addEventListener('click',()=>{undo();cv.focus();});
   $('te-dial-redo').addEventListener('click',()=>{redo();cv.focus();});
