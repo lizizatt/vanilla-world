@@ -97,7 +97,7 @@ export function drawTerrain(r,pass,terrain) {
       if(item.region!==undefined){encoder.setIndexBuffer(r.indices.get(item.region),'uint32');encoder.drawIndexed(3072);}
       else encoder.draw(item.count,1,item.first||0);
     };
-    // Tiles with a splat bed hold only their lake surface in `buffer`; it is drawn translucent after the bed.
+    // Inland liquid is drawn translucent after the beds; tiles with a splat bed hold only liquid in `buffer`, so the opaque pass skips them.
     for(const item of terrain)if(!item.material)drawItem(item);
     encoder.setPipeline(r.splatPipeline);
     for(const tile of terrain)if(tile.material){
@@ -105,9 +105,9 @@ export function drawTerrain(r,pass,terrain) {
       encoder.setBindGroup(0,material.group,[tile.offset]);encoder.setVertexBuffer(0,material.vertices);
       encoder.setIndexBuffer(material.indices,'uint32');encoder.drawIndexed(material.count);
     }
-    if(r.lakePipeline&&terrain.some(item=>item.material)){
+    if(r.lakePipeline){
       encoder.setPipeline(r.lakePipeline);
-      for(const item of terrain)if(item.material&&item.count)drawItem(item);
+      for(const item of terrain)drawItem(item);
     }
     r.terrainBundle={items:terrain.slice(),materials:terrain.map(item=>item.material),bundle:encoder.finish()};
     r.terrainBundleBuilds++;

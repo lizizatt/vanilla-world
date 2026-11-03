@@ -68,18 +68,22 @@ test('terrain bundles preserve draws and refresh on residency, order and materia
     ['setPipeline','terrain'],['setBindGroup',0,'far',[0]],['setVertexBuffer',0,'far-vertices'],
     ['setIndexBuffer','horizon-indices','uint32'],['drawIndexed',3072],
     ['setBindGroup',0,'near',[256]],['setVertexBuffer',0,'near-vertices'],['draw',6,1,0],['setPipeline','splat'],
+    ['setPipeline','lake'],['setBindGroup',0,'far',[0]],['setVertexBuffer',0,'far-vertices'],
+    ['setIndexBuffer','horizon-indices','uint32'],['drawIndexed',3072],
+    ['setBindGroup',0,'near',[256]],['setVertexBuffer',0,'near-vertices'],['draw',6,1,0],
   ]);
   renderer.drawTerrain(pass,[horizon,detail]);
   assert.equal(executed[1],executed[0]);assert.equal(renderer.terrainBundleBuilds,1);
   detail.material={group:'layers',vertices:'layer-vertices',indices:'layer-indices',count:12};
   renderer.drawTerrain(pass,[horizon,detail]);
-  assert.deepEqual(executed[2].slice(-8,-4),[
+  assert.deepEqual(executed[2].slice(-12,-8),[
     ['setBindGroup',0,'layers',[256]],['setVertexBuffer',0,'layer-vertices'],
     ['setIndexBuffer','layer-indices','uint32'],['drawIndexed',12],
   ]);
-  // A tile with a splat bed leaves the opaque pass; its liquid-only buffer is drawn translucent after the bed.
-  assert(!executed[2].slice(0,executed[2].indexOf(['setPipeline','splat'])).some(c=>c[0]==='setVertexBuffer'&&c[1]==='near-vertices'));
-  assert.deepEqual(executed[2].slice(-4),[['setPipeline','lake'],['setBindGroup',0,'near',[256]],['setVertexBuffer',0,'near-vertices'],['draw',6,1,0]]);
+  // Inland liquid is drawn translucent after the beds for every tile; a tile with a splat bed leaves the opaque pass.
+  const splatAt=executed[2].findIndex(c=>c[1]==='splat');
+  assert(!executed[2].slice(0,splatAt).some(c=>c[0]==='setVertexBuffer'&&c[1]==='near-vertices'));
+  assert.deepEqual(executed[2].slice(-8,-7),[['setPipeline','lake']]);
   delete detail.material;
   detail.offset=0;horizon.offset=256;
   renderer.drawTerrain(pass,[detail,horizon]);
