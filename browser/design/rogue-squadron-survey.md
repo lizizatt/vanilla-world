@@ -134,3 +134,9 @@ Flight constants: done enough to implement now. Assets: feasible but not yet pro
 - `node browser/rogue/render.mjs <DATA.DAT> falcon_HOB out.png` renders four views (530 tris for the Falcon, 504 for the X-wing); both look correct. Vertex colours only; HMT (materials/textures) is still undecoded.
 - Feasibility: loading HOB models at runtime from the user's local files is straightforward, in the SWE1R_DATA pattern. Next: decode HMT textures, then wire into a viewer.
 
+
+### HMT materials and textures (decoded)
+
+- `parseHmt` in `browser/rogue/dat.js`: u32 material count, u32 texture-table offset. Materials are 36 B (u16 kind 1=textured/2=flat, u16 texture index, floats 0.8/1.0/0, u32 10, char name[16]); a packet's material index selects one. Texture table: u32 count, then 0x34 B records (+0x00 pixel offset, +0x24 header offset, +0x28 u16 w,h, +0x2c flags). Flag byte 2 = 4 means 4-bit greyscale (high nibble first), 3 means 32-bit RGBA (engine glow). Pixels follow a 16 B header that starts with the name.
+- Falcon: 29 materials, 23 textures. Rendering with texture x vertex colour (`render.mjs`) gives a recognisable textured Falcon, so the 'HMT undecoded' item above is resolved. Still open: UV wrap/mirroring flags, palette-less transparency, other craft's HMT variants.
+

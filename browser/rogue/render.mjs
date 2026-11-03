@@ -1,13 +1,15 @@
 // usage: node browser/rogue/render.mjs <DATA.DAT> <asset e.g. falcon_HOB> <out.png>
 // Software-rasterises a decoded HOB model from 4 viewpoints (z-buffer, vertex colour x lambert). Debug tool; output stays untracked.
 import fs from 'node:fs';
-import { readDirectory, parseHob, hobTriangles } from './dat.js';
+import { readDirectory, parseHob, parseHmt, hobTriangles } from './dat.js';
 import { encodePng } from '../swe1r/png.js';
 
 const [dat, asset = 'falcon_HOB', out = 'rogue-render.png'] = process.argv.slice(2);
 const buf = fs.readFileSync(dat), dir = readDirectory(buf), e = dir.get(asset);
 if (!e) { console.error('no such asset; have:', [...dir.keys()].join(' ')); process.exit(1); }
 const hob = parseHob(buf, e.offset, e.size), tris = hobTriangles(hob);
+const he = dir.get(asset.replace(/_HOB$/, '_HMT')), hmt = he && parseHmt(buf, he.offset, he.size);
+const texOf = t => { const m = hmt?.materials[t.material]; return m?.kind === 1 ? hmt.textures[m.tex] : null; };
 console.log(asset, 'nodes', hob.nodes.length, 'meshes', hob.nodes.reduce((a, n) => a + n.meshes.length, 0), 'tris', tris.length, 'bounds', JSON.stringify(hob.bounds));
 
 const W = 480, H = 360, views = [['3/4', 0.6, 0.45], ['top', 0, 1.5], ['side', Math.PI / 2, 0], ['front', 0, 0]];
@@ -35,7 +37,14 @@ views.forEach(([, yaw, pitch], vi) => {
       const zz = l0 * s[0][2] + l1 * s[1][2] + l2 * s[2][2];
       if (zz >= z[y * W + x]) continue;
       z[y * W + x] = zz;
-      const o = ((oy + y) * W * 2 + ox + x) * 4; full[o] = col[0]; full[o + 1] = col[1]; full[o + 2] = col[2];
+      let c = col;
+      const tx = t.uv && texOf(t);
+      if (tx) {
+        const u = l0 * t.uv[0][0] + l1 * t.uv[1][0] + l2 * t.uv[2][0], v = l0 * t.uv[0][1] + l1 * t.uv[1][1] + l2 * t.uv[2][1];
+        const px = ((Math.floor(u * tx.w) % tx.w) + tx.w) % tx.w, py = ((Math.floor(v * tx.h) % tx.h) + tx.h) % tx.h, to = (py * tx.w + px) * 4;
+        c = [0, 1, 2].map(i => col[i] * tx.rgba[to + i] / 255);
+      }
+      const o = ((oy + y) * W * 2 + ox + x) * 4; full[o] = c[0]; full[o + 1] = c[1]; full[o + 2] = c[2];
     }
   }
 });

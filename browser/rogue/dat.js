@@ -66,6 +66,35 @@ export function parseHob(buf, offset, size) {
   return { name, nodes, bounds: { min: [f32(0x64), f32(0x68), f32(0x6c)], max: [f32(0x70), f32(0x74), f32(0x78)] } };
 }
 
+/**
+ * HMT: u32 material count, u32 texture-table offset; materials are 36 B (u16 kind 1=textured/2=flat, u16 texture index,
+ * f32 0.8, f32 1.0, f32 0, u32 10, char name[16]). Texture table: u32 count, then 0x34 B records: +0x00 pixel data
+ * offset, +0x24 header offset, +0x28 u16 width, u16 height, +0x2c flags[4]. Flag byte 2 = 4 selects 4-bit greyscale
+ * (high nibble first, I4), 3 selects 32-bit RGBA; pixel data follows a 16 B header (name at +0).
+ */
+export function parseHmt(buf, offset, size) {
+  const dv = new DataView(buf.buffer, buf.byteOffset + offset, size);
+  const cstr = (p, n) => { let s = ''; for (let i = 0; i < n && dv.getUint8(p + i); i++) s += String.fromCharCode(dv.getUint8(p + i)); return s; };
+  const nm = dv.getUint32(0, true), tOff = dv.getUint32(4, true), nt = dv.getUint32(tOff, true);
+  const materials = Array.from({ length: nm }, (_, i) => {
+    const p = 8 + i * 36;
+    return { kind: dv.getUint16(p, true), tex: dv.getUint16(p + 2, true), name: cstr(p + 20, 16) };
+  });
+  const textures = Array.from({ length: nt }, (_, i) => {
+    const r = tOff + 4 + i * 0x34, off = dv.getUint32(r, true), w = dv.getUint16(r + 0x28, true), h = dv.getUint16(r + 0x2a, true);
+    const rgba = new Uint8Array(w * h * 4), mode = dv.getUint8(r + 0x2e);
+    for (let k = 0; k < w * h; k++) {
+      if (mode === 3) for (let c = 0; c < 4; c++) rgba[k * 4 + c] = dv.getUint8(off + k * 4 + c);
+      else {
+        const b = dv.getUint8(off + (k >> 1)), v = ((k & 1) ? b & 15 : b >> 4) * 17;
+        rgba.set([v, v, v, 255], k * 4);
+      }
+    }
+    return { name: cstr(dv.getUint32(r + 0x24, true), 16), w, h, rgba };
+  });
+  return { materials, textures };
+}
+
 /** Flatten to world-space triangles (quads split). Child nodes repeat their parent's pivot (turret nodes), so only each node's own translation/scale is applied. */
 export function hobTriangles(hob) {
   const tris = [];
@@ -75,7 +104,7 @@ export function hobTriangles(hob) {
       const v = p.idx.map(i => pt(m.verts[i])), nrm = p.nidx?.map(i => m.normals[i]);
       const c = p.colors.map(c => [c & 255, (c >>> 8) & 255, (c >>> 16) & 255]);
       for (const t of p.idx.length === 4 ? [[0, 1, 2], [0, 2, 3]] : [[0, 1, 2]])
-        tris.push({ v: t.map(i => v[i]), n: nrm && t.map(i => nrm[i]), color: t.map(i => c[i]), material: p.material });
+        tris.push({ v: t.map(i => v[i]), n: nrm && t.map(i => nrm[i]), color: t.map(i => c[i]), material: p.material, uv: p.uv && t.map(i => p.uv[i]) });
     }
   }
   return tris;
