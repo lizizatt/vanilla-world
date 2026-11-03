@@ -69,7 +69,11 @@ fn shadeTerrain(v:V)->vec4f {
   let fog=max(clamp(length(v.p-u.eye.xyz)/150000.0,0.0,.93),valleyHaze(v.p))*(1.0-u.pad[0].y);
   return vec4f(mix(color,fogTint(),fog)+limbGlow(v.p),alpha);
 }
-@fragment fn fs(v:V)->@location(0) vec4f {let c=shadeTerrain(v);return vec4f(c.rgb,1.0);}
+@fragment fn fs(v:V)->@location(0) vec4f {
+  // Inland liquid is drawn by the translucent lake pass (fsLake); the ocean-sweep debug view keeps it opaque.
+  if(v.material==2.0 && u.pad[2].z<.5){discard;}
+  let c=shadeTerrain(v);return vec4f(c.rgb,1.0);
+}
 // Translucent lake pass: only inland liquid, drawn after the splat bed it sits on.
 @fragment fn fsLake(v:V)->@location(0) vec4f {
   if(v.material!=2.0){discard;}
