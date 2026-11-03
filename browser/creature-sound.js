@@ -8,11 +8,9 @@ export const CREATURE_SOUND = Object.freeze({
   deathField: 6,          // CreatureSoundData: ID, Exertion, ExertionCritical, Injury, InjuryCritical, InjuryCrushingBlow, Death
   entryFirstFile: 3, entryFileCount: 10, entryDirField: 23,
   maxBytes: 2 * 1024 * 1024,
-  refDistance: 8,         // yd at full gain
-  maxDistance: 320,       // yd beyond which the sound is dropped
-  rolloff: 1.4,
-  gain: .9,
+  gain: .9,               // fixed: death cries are ours, so they do not attenuate with distance
   maxVoices: 6,
+  retryMs: 5000, cachedFiles: 16,
 });
 const SOUND_PATH = /^sound\\[^:*?"<>|]+\.(wav|mp3)$/i;
 
@@ -55,37 +53,43 @@ export class CreatureSoundCatalog {
   }
 }
 
-/** Worker side: resolves a display id to one death sound and reads it once per path. Failures resolve to undefined (silence). */
+/**
+ * Worker side: resolves a display id to one death sound. Every result carries its own copy of the bytes, so the main thread never depends on
+ * an earlier message having been decoded (a dropped first message used to silence that file for the rest of the session). Reads are foreground:
+ * background reads are deferred, and rejected, while terrain streams, which is exactly when a creature is being flown through.
+ * A failed load is retried after retryMs rather than disabling death sounds for good.
+ */
 export class CreatureSounds {
-  constructor(source, rand = Math.random) {
-    this.source = source; this.rand = rand; this.catalog = undefined; this.loading = undefined; this.sent = new Set(); this.failed = false;
+  constructor(source, rand = Math.random, now = Date.now) {
+    this.source = source; this.rand = rand; this.now = now; this.catalog = undefined; this.loading = undefined; this.files = new Map(); this.retryAt = 0;
   }
   load() {
-    const read = n => this.source.read(`DBFilesClient\\${n}.dbc`, { background: true });
-    return this.loading ??= Promise.all([read('CreatureDisplayInfo'), read('CreatureSoundData'),     read('SoundEntries'), read('CreatureModelData').catch(() => undefined)])
-          .then(([a, b, c, d]) => (this.catalog = new CreatureSoundCatalog(a, b, c, d)), () => { this.failed = true; });
+    if (this.catalog || (!this.loading && this.now() < this.retryAt)) return Promise.resolve();
+    const read = n => this.source.read(`DBFilesClient\\${n}.dbc`);
+    return this.loading ??= Promise.all([read('CreatureDisplayInfo'), read('CreatureSoundData'), read('SoundEntries'), read('CreatureModelData').catch(() => undefined)])
+      .then(([a, b, c, d]) => { this.catalog = new CreatureSoundCatalog(a, b, c, d); }, () => { this.loading = undefined; this.retryAt = this.now() + CREATURE_SOUND.retryMs; });
   }
-  /** {path, bytes} (bytes only the first time a path is sent) or undefined. */
+  /** {path, bytes} (a private copy, safe to transfer) or undefined. */
   async death(displayId) {
     try {
-      if (this.failed) return undefined;
+      if (!this.catalog && this.now() < this.retryAt) return undefined;
       await this.load();
       const paths = this.catalog?.deathPaths(displayId);
       if (!paths?.length) return undefined;
       const path = paths[Math.floor(this.rand() * paths.length)];
-      if (this.sent.has(path)) return { path };
-      const bytes = await this.source.read(path, { background: true });
-      if (!(bytes instanceof Uint8Array) || !bytes.length || bytes.length > CREATURE_SOUND.maxBytes) return undefined;
-      this.sent.add(path);
-      return { path, bytes };
+      let bytes = this.files.get(path);
+      if (!bytes) {
+        bytes = await this.source.read(path);
+        if (!(bytes instanceof Uint8Array) || !bytes.length || bytes.length > CREATURE_SOUND.maxBytes) return undefined;
+        if (this.files.size >= CREATURE_SOUND.cachedFiles) this.files.delete(this.files.keys().next().value);
+        this.files.set(path, bytes);
+      }
+      return { path, bytes: bytes.slice() };
     } catch { return undefined; }
   }
 }
 
-/** Positional gain model shared by tests and the panner setup: inverse-distance rolloff, dropped past maxDistance. */
+/** A kill's death cry plays at full gain wherever it is: no distance rolloff and no distance cutoff (left/right panning is the panner's job). */
 export function spatialGain(eye, pos, c = CREATURE_SOUND) {
-  const distance = Math.hypot(pos[0] - eye[0], pos[1] - eye[1], pos[2] - eye[2]);
-  if (!(distance <= c.maxDistance)) return { distance, gain: 0, audible: false };
-  const gain = c.gain * c.refDistance / (c.refDistance + c.rolloff * (Math.max(distance, c.refDistance) - c.refDistance));
-  return { distance, gain, audible: gain > .01 };
+  return { distance: Math.hypot(pos[0] - eye[0], pos[1] - eye[1], pos[2] - eye[2]), gain: c.gain, audible: true };
 }

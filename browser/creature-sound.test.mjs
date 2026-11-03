@@ -37,22 +37,34 @@ test('malformed DBCs are rejected',()=>{
 const source=files=>({read:async p=>{const f=files.get(p);if(!f)throw Object.assign(Error('missing'),{code:'ENOENT'});return f;}});
 const dbcs=()=>new Map([['DBFilesClient\\CreatureDisplayInfo.dbc',displays()],['DBFilesClient\\CreatureSoundData.dbc',data()],['DBFilesClient\\SoundEntries.dbc',entries()]]);
 
-test('service reads a death sound once, then only names it; no sound or missing Data is silent',async()=>{
+test('service gives every kill its own copy of the bytes; no sound or missing Data is silent',async()=>{
   const files=dbcs();files.set('Sound\\Creature\\Wolf\\WolfDeathA.wav',new Uint8Array([1,2,3]));
   const s=new CreatureSounds(source(files),()=>0);
-  const first=await s.death(100);
-  assert.equal(first.path,'Sound\\Creature\\Wolf\\WolfDeathA.wav');assert.equal(first.bytes.length,3);
-  assert.deepEqual(await s.death(100),{path:'Sound\\Creature\\Wolf\\WolfDeathA.wav'});
+  const first=await s.death(100),second=await s.death(100);
+  assert.equal(first.path,'Sound\\Creature\\Wolf\\WolfDeathA.wav');assert.deepEqual([...first.bytes],[1,2,3]);
+  assert.deepEqual([...second.bytes],[1,2,3],'the second kill of the same file still carries bytes (a dropped first message cannot silence it)');
+  assert.notEqual(first.bytes.buffer,second.bytes.buffer,'each is transferable on its own');
   assert.equal(await s.death(101),undefined);assert.equal(await s.death(999),undefined);
   assert.equal(await new CreatureSounds(source(new Map())).death(100),undefined,'no DBCs');
   assert.equal(await new CreatureSounds(source(dbcs())).death(100),undefined,'listed file missing from Data');
 });
 
-test('spatial gain falls off with distance and is dropped beyond maxDistance',()=>{
-  const eye=[0,0,0],at=d=>spatialGain(eye,[d,0,0]);
-  assert.equal(at(1).gain,C.gain);assert.equal(at(C.refDistance).gain,C.gain);
-  assert.ok(at(40).gain<at(20).gain&&at(20).gain<C.gain);
-  assert.equal(at(C.maxDistance+1).audible,false);assert.equal(at(C.maxDistance+1).gain,0);
+test('a deferred/failed table read is retried later instead of silencing death sounds for the session',async()=>{
+  const files=dbcs();files.set('Sound\\Creature\\Wolf\\WolfDeathA.wav',new Uint8Array([1,2,3]));
+  let failing=true,t=0,backgroundReads=0;
+  const src={read:async(p,o)=>{if(o?.background)backgroundReads++;if(failing)throw Object.assign(Error('Background resource deferred'),{code:'DEFERRED'});return files.get(p);}};
+  const s=new CreatureSounds(src,()=>0,()=>t);
+  assert.equal(await s.death(100),undefined,'first kill: reads rejected');
+  failing=false;
+  assert.equal(await s.death(100),undefined,'still inside the retry window');
+  t=C.retryMs+1;
+  assert.deepEqual([...(await s.death(100)).bytes],[1,2,3],'after the window the tables load and the sound plays');
+  assert.equal(backgroundReads,0,'reads are foreground: background reads are deferred while terrain streams');
+});
+
+test('spatial gain does not attenuate with distance and has no cutoff',()=>{
+  const eye=[0,0,0];
+  for(const d of [0,1,8,100,320,321,5000,1e6]){const g=spatialGain(eye,[d,0,0]);assert.equal(g.gain,C.gain);assert.equal(g.audible,true);}
   assert.equal(spatialGain(eye,[3,4,12]).distance,13);
 });
 
