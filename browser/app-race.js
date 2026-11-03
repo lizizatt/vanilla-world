@@ -7,8 +7,9 @@ import {clampTrack} from './track-edit.js';
 import {flagPosition} from './race-flags.js';
 import {gateScene,sceneKey,sceneProps,startLine} from './race-gates.js';
 import {tracksFor,vehicleOf} from './vehicles.js';
-import {gateReach} from './bodies.js';
-import {activeBody} from './body-shaders.js';
+import {gateReach,BODIES,regimeOf} from './bodies.js';
+import {activeBody,activeFramedBody} from './body-shaders.js';
+import {trailChevrons} from './gate-trail.js';
 import {SFX,STINGER,wipeoutBlast,pickRaceMusic} from './swe1r/sfx.js';
 import {pickVoice,raceEndEvents} from './swe1r/voice-map.js';
 import {WRECK_CHUNK,WRECK_CHUNKS} from './wreck.js';
@@ -163,13 +164,15 @@ function raceHud(t) {
   else setText('race-delta','');
   setText('race-lap',lapCount(app.race.lap,app.race.track.laps));
   setText('race-laps',app.race.track.laps>1?lapTimesText(lapTimes(app.race.splits,app.race.track.gates.length),formatTime):'');
-  const gate=app.race.nextGate,p=client.state.telemetry,arrow=$('race-arrow');
-  const guide=gateGuide({pos:p,yaw:p[3],gate,body:activeBody().id,gateBody:gate&&gateBody(app.race.track,gate)});
+  const gate=app.race.nextGate,p=client.state.telemetry,body=activeBody(),target=gate&&gateBody(app.race.track,gate),t0=app.renderer?.timeOfDay;
+  const guide=gateGuide({pos:p,yaw:p[3],gate,body:body.id,gateBody:target,frame:target&&target!==body.id&&Number.isFinite(t0)?{active:activeFramedBody(),target:BODIES[target],t:t0}:undefined});
   setText('race-gate',`Gate ${Math.min(done+1,app.race.totalGates)}/${app.race.totalGates}${guide.label}`);
-  arrow.hidden=!guide.visible;
   setText('race-range',guide.visible?`${guide.range} ${guide.climb}`.trim():'');
-  if(guide.visible){arrow.style.transform=`rotate(${guide.angle}rad)`;arrow.dataset.behind=String(guide.behind);}
+  const quiet=!guide.visible||app.swapHold||app.busy;
+  app.renderer?.setCrumbs(quiet?undefined:trailChevrons({delta:guide.delta,yaw:p[3],behind:guide.behind,straight:guide.cross||regimeOf(p[1],body)==='orbit',
+    final:done+1>=app.race.totalGates,time:performance.now()/1000,reduced:reducedMotion.matches}));
 }
+const reducedMotion=globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')??{matches:false};
 async function recordRun(track,run) {
   let record,rank;
   try {

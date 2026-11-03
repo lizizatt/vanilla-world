@@ -11,6 +11,7 @@ const STATE={
   splat:[true,'less'],
   scene:[true,'less'],
   particles:[false,'less'],
+  hud:[false,'always'],
   sky:[false,'always'],
   dome:[false,'always'],
   space:[true,'always'],

@@ -4,6 +4,7 @@ import {SHORE_N} from './shore-field.js';
 import {WATER_NORMAL_SIZE,waterNormalMips} from './water-shader.js';
 import {shadowShader} from './shadow.js';
 import {cloudShader,CloudMask} from './clouds.js';
+import {chevronShader,CHEVRON_FLOATS,MAX_CHEVRONS} from './gate-trail.js';
 import {ParticlePool,INSTANCE_FLOATS,CAPACITY,particleShader} from './particles.js';
 import {MAX_PATCHES} from './globe-patches.js';
 import {NIGHT_W,NIGHT_H} from './night-lights-wgsl.js';
@@ -76,6 +77,14 @@ export async function initialize(r) {
     vertex:{module:particleModule,entryPoint:'vs',buffers:[{arrayStride:32,stepMode:'instance',attributes:[{shaderLocation:0,offset:0,format:'float32x4'},{shaderLocation:1,offset:16,format:'float32x4'}]}]},
     fragment:{module:particleModule,entryPoint:'fs',targets:[{format:r.format,blend:{color:{srcFactor:'one',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},
     primitive:{topology:'triangle-list',cullMode:'none'},depthStencil:DEPTH_STATE.particles});
+  r.crumbInstances=new Float32Array(MAX_CHEVRONS*CHEVRON_FLOATS);
+  r.crumbBuffer=r.device.createBuffer({size:r.crumbInstances.byteLength,usage:GPUBufferUsage.VERTEX|GPUBufferUsage.COPY_DST});
+  const crumbModule=await shader(chevronShader);
+  r.crumbPipeline=await r.device.createRenderPipelineAsync({layout:'auto',
+    vertex:{module:crumbModule,entryPoint:'vs',buffers:[{arrayStride:CHEVRON_FLOATS*4,stepMode:'instance',attributes:[{shaderLocation:0,offset:0,format:'float32x4'},{shaderLocation:1,offset:16,format:'float32x4'},{shaderLocation:2,offset:32,format:'float32x4'}]}]},
+    fragment:{module:crumbModule,entryPoint:'fs',targets:[{format:r.format,blend:{color:{srcFactor:'one',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},
+    primitive:{topology:'triangle-list',cullMode:'none'},depthStencil:DEPTH_STATE.hud});
+  r.crumbGroup=r.device.createBindGroup({layout:r.crumbPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.particleUniformBuffer}}]});
   r.particleGroup=r.device.createBindGroup({layout:r.particlePipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.particleUniformBuffer}}]});
   r.shadowBuffer=r.device.createBuffer({size:144,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
   const shadowModule=await shader(shadowShader);
