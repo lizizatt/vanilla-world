@@ -1,26 +1,29 @@
 // Dial-in view for the track editor: orbit one gate at a time and move it with a translate gizmo. DOM glue over dial-in.js and gizmo.js.
 import {DialSession} from './dial-in.js';
-import {makeRay,makeDrag,pixelRay,pickHandle,beginDrag,dragTo,worldPerPixel,projectInto,PLANE_LO,PLANE_HI,AXES,AXIS_KEYS,PICK_PX,GIZMO_PX} from './gizmo.js';
+import {makeRay,makeDrag,makeRot,pixelRay,pickHandle,pickRing,beginDrag,dragTo,beginRot,rotTo,worldPerPixel,projectInto,PLANE_LO,PLANE_HI,RING_R,SNAP_DEG,AXES,AXIS_KEYS,PICK_PX,GIZMO_PX} from './gizmo.js';
 import {surfaceBase,CLEAR_MIN,CLEAR_MAX,CLEAR_DEFAULT} from './track-edit.js';
 
 const $=id=>document.getElementById(id);
-const COLORS={x:'#ff4d4d',y:'#5cff6b',z:'#4da3ff',xz:'#ffd24d'};
+const COLORS={x:'#ff4d4d',y:'#5cff6b',z:'#4da3ff',xz:'#ffd24d',ring:'#d36bff'};
 const DEG=Math.PI/180,NO_DASH=[],DASH=[8,6];
 
 export function createDialIn({cv,view,draft,select,probe=async()=>[],status,exited}) {
-  const dial={active:false,session:undefined,snap:true};
-  const ray=makeRay(),drag=makeDrag(),next=[0,0,0],a=[0,0,0],b=[0,0,0],c=[0,0,0],bp=[0,0,0],bq=[0,0,0];
+  const dial={active:false,session:undefined,snap:true,snapRot:false};
+    const ray=makeRay(),drag=makeDrag(),rot=makeRot(),next=[0,0,0],a=[0,0,0],b=[0,0,0],c=[0,0,0],bp=[0,0,0],bq=[0,0,0];
   let gesture,hover,drawn=-1,drawnIndex=-1,lastNow=0,snapBusy,snapAgain=false,lift=CLEAR_DEFAULT;
 
   const sample=async pos=>{const [s]=await probe([[pos[0],pos[2]]]).catch(()=>[]);return s&&{ground:s[1],water:s[2]};};
   const len=()=>worldPerPixel(view(),cv.height,dial.session.gate.pos)*GIZMO_PX;
   const rayAt=e=>pixelRay(view(),cv.width,cv.height,e.offsetX,e.offsetY,ray);
+  const tol=()=>PICK_PX*worldPerPixel(view(),cv.height,dial.session.gate.pos);
+  const pick=()=>{const p=dial.session.gate.pos,h=pickHandle(ray,p,len(),tol());return h||(pickRing(ray,p,len(),tol())?'ring':undefined);};
+  const rotSnap=e=>(dial.snapRot||e.shiftKey)?SNAP_DEG:0;
 
   dial.open=(d,index=0)=>{
     if(!d.gates.length){status('Add a gate first.',true);return false;}
     dial.session=new DialSession(d,index);dial.active=true;lastNow=performance.now();drawn=-1;
     $('te-dial').hidden=false;$('track-editor').classList.add('dialing');cv.focus();
-    $('te-dial-snap').checked=dial.snap;sync(true);select(dial.session.index);status('Dial in: drag the gizmo arrows. [ ] step · wheel zoom · drag orbit · right-drag pan.');
+    $('te-dial-snap').checked=dial.snap;$('te-dial-snaprot').checked=dial.snapRot;sync(true);select(dial.session.index);status('Dial in: drag the arrows, or the purple ring to rotate (Shift snaps 15°). [ ] step · wheel zoom · drag orbit · right-drag pan.');
     return true;
   };
   function leave(msg) {
@@ -64,16 +67,18 @@ export function createDialIn({cv,view,draft,select,probe=async()=>[],status,exit
     const s=dial.session;
     if(e.button!==0){gesture={kind:'pan'};return;}
     rayAt(e);
-    const axis=pickHandle(ray,s.gate.pos,len(),PICK_PX*worldPerPixel(view(),cv.height,s.gate.pos));
+    const axis=pick();
+    if(axis==='ring'){if(beginRot(rot,ray,s.gate.pos,s.gate.yaw)){gesture={kind:'ring'};s.begin();}return;}
     if(axis&&beginDrag(drag,ray,s.gate.pos,axis)){gesture={kind:'axis'};s.begin();if(dial.snap&&axis!=='y')void captureLift();return;}
     gesture={kind:'orbit'};
   });
   cv.addEventListener('pointermove',e=>{
     if(!dial.active)return;
     const s=dial.session;
-    if(!gesture){rayAt(e);const h=pickHandle(ray,s.gate.pos,len(),PICK_PX*worldPerPixel(view(),cv.height,s.gate.pos));if(h!==hover){hover=h;cv.style.cursor=h?'grab':'';}return;}
+    if(!gesture){rayAt(e);const h=pick();if(h!==hover){hover=h;cv.style.cursor=h?'grab':'';}return;}
     if(gesture.kind==='orbit')s.cam.orbit(e.movementX,e.movementY);
     else if(gesture.kind==='pan')s.cam.pan(e.movementX,e.movementY,cv.height);
+    else if(gesture.kind==='ring'){const y=rotTo(rot,rayAt(e),s.gate.pos,rotSnap(e));if(y!==undefined)s.setYaw(y);}
     else if(dragTo(drag,rayAt(e),next)){
       s.setPos(next[0],next[1],next[2]);
       if(dial.snap&&drag.axis!=='y')void snapGround();
@@ -81,6 +86,7 @@ export function createDialIn({cv,view,draft,select,probe=async()=>[],status,exit
   });
   const release=()=>{
     const g=gesture;gesture=undefined;if(!g||!dial.active)return;
+    if(g.kind==='ring'){dial.session.end();return;}
     if(g.kind==='axis'){
       const s=dial.session,finish=()=>{s.end();if(dial.session===s)s.cam.focus(s.gate.pos,false);};
       if(dial.snap&&drag.axis!=='y')void snapGround().finally(finish);else finish();
@@ -116,6 +122,7 @@ export function createDialIn({cv,view,draft,select,probe=async()=>[],status,exit
   $('te-dial-done').addEventListener('click',()=>dial.done());
   $('te-dial-cancel').addEventListener('click',()=>dial.cancel());
   $('te-dial-snap').addEventListener('change',e=>{dial.snap=e.target.checked;if(dial.snap){void captureLift().then(snapGround);}});
+  $('te-dial-snaprot').addEventListener('change',e=>{dial.snapRot=e.target.checked;});
   const xyz=['x','y','z'].map(k=>$('te-dial-'+k));
   const place=()=>{const v=xyz.map(i=>parseFloat(i.value));if(v.every(Number.isFinite)){dial.session.setPos(v[0],v[1],v[2]);dial.session.end();dial.session.cam.focus(dial.session.gate.pos,false);}};
   for(const i of xyz)i.addEventListener('change',place);
@@ -174,6 +181,17 @@ export function createDialIn({cv,view,draft,select,probe=async()=>[],status,exit
       line(g2,o,c,COLORS[k],on?6:3,NO_DASH);
       if(projectInto(v,w,h,c[0],c[1],c[2],b)){g2.fillStyle=COLORS[k];g2.beginPath();g2.arc(b[0],b[1],on?8:6,0,7);g2.fill();g2.fillStyle='#000';g2.font='bold 10px sans-serif';g2.textAlign='center';g2.textBaseline='middle';g2.fillText(k.toUpperCase(),b[0],b[1]+.5);}
     }
+    const ron=hover==='ring'||gesture?.kind==='ring',R=L*RING_R;
+    g2.strokeStyle=COLORS.ring;g2.lineWidth=ron?5:2.5;g2.beginPath();
+    for(let i=0,pen=false;i<=48;i++){
+      const t=i/48*Math.PI*2;
+      if(!projectInto(v,w,h,o[0]+Math.cos(t)*R,o[1],o[2]+Math.sin(t)*R,a)){pen=false;continue;}
+      if(pen)g2.lineTo(a[0],a[1]);else g2.moveTo(a[0],a[1]);
+      pen=true;
+    }
+    g2.stroke();
+    // Knob on the ring where the gate faces.
+    if(projectInto(v,w,h,o[0]-Math.sin(g.yaw)*R,o[1],o[2]-Math.cos(g.yaw)*R,a)){g2.fillStyle=COLORS.ring;g2.beginPath();g2.arc(a[0],a[1],ron?8:6,0,7);g2.fill();}
     const lo=L*PLANE_LO,hi=L*PLANE_HI,on=hover==='xz'||(gesture?.kind==='axis'&&drag.axis==='xz');
     g2.strokeStyle=COLORS.xz;g2.lineWidth=on?4:2;g2.beginPath();
     corner(g2,v,w,h,o,lo,lo,true);corner(g2,v,w,h,o,hi,lo);corner(g2,v,w,h,o,hi,hi);corner(g2,v,w,h,o,lo,hi);corner(g2,v,w,h,o,lo,lo);
