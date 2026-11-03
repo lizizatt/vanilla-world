@@ -1,6 +1,6 @@
-﻿import test from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
-import {CreatureCollision,CREATURE_COLLISION as C,segmentDistance2,sweptOverlap,deathPoseTime} from './creature-collision.js';
+import {CreatureCollision,CREATURE_COLLISION as C,segmentDistance2,sweptOverlap,deathPoseTime,scaleTarget} from './creature-collision.js';
 import {ActorService} from './actors.js';
 
 const npc=(n,x,y,z=0,over={})=>({id:`0:npc:${n}`,key:'m',kind:'m2',path:'creature\\wolf\\wolf.m2',skins:[],matrix:[1,0,0,0,0,1,0,0,0,0,1,0,x,y,z,1],...over});
@@ -40,6 +40,31 @@ test('speed threshold: slow craft never kills, fast craft does',()=>{
   assert.equal(ev.length,1);assert.equal(ev[0].id,list[0].id);
 });
 
+test('hit-volume scale: 1x at low speed, 2x at cruise, 3x boosting, monotonic and smooth',()=>{
+  assert.equal(scaleTarget(0,false),1);assert.equal(scaleTarget(C.scaleFrom,false),1);
+  assert.equal(scaleTarget(C.cruiseSpeed,false),2);assert.equal(scaleTarget(C.cruiseSpeed*3,false),2);
+  assert.equal(scaleTarget(0,true),3);assert.equal(scaleTarget(C.cruiseSpeed,true),3);
+  let prev=1;for(let s=0;s<=C.cruiseSpeed;s+=1){const v=scaleTarget(s,false);assert.ok(v>=prev&&v-prev<.05);prev=v;}
+});
+
+test('hit-volume scale grows the reach: a flank miss at rest hits at cruise (5 yd off) and only boosting (7 yd off)',()=>{
+  const pass=(boost,steps,off)=>{ // flies +x at 150 yd/s; the creature sits 1.5 yd past the last sample, `off` yd to the side
+    const cc=fresh(),list=[npc(1,steps*3-1.5,off)];let n=0;
+    for(let i=0;i<=steps;i++)n+=cc.update(list,isNpc,i*3,0,0,i*.02,noPos,size,cls,dur,boost).length;
+    return {n,scale:cc.scale};
+  };
+  assert.equal(run(fresh(),[npc(1,50,5)],[0,0,0],[100,0,0]).length,0); // 1x: .6 + 2.5 < 5
+  const cruise=pass(false,40,5);assert.equal(cruise.n,1);assert.ok(cruise.scale>1.9&&cruise.scale<=2.0001,`cruise scale ${cruise.scale}`);
+  assert.equal(pass(false,40,7).n,0);                                  // 2x: .6 + 5 < 7
+  const boost=pass(true,80,7);assert.equal(boost.n,1);assert.ok(boost.scale>2.9,`boost scale ${boost.scale}`); // 3x: .6 + 7.5 > 7
+});
+test('hit-volume scale eases: boost onset never pops and scale resets on disable/teleport',()=>{
+  const cc=fresh();let last=1,maxStep=0;
+  for(let i=0;i<60;i++){cc.update([],isNpc,i*3,0,0,i*.02,noPos,size,cls,dur,i>=20);maxStep=Math.max(maxStep,Math.abs(cc.scale-last));last=cc.scale;}
+  assert.ok(maxStep<.2,`max per-tick step ${maxStep}`);
+  cc.update([],isNpc,0,0,0,50,noPos,size,cls,dur,true);assert.equal(cc.scale,1);
+  cc.enabled=false;cc.update([],isNpc,0,0,0,51,noPos,size,cls,dur,true);assert.equal(cc.scale,1);
+});
 test('first sample only primes the swept segment; a teleport gap does not sweep',()=>{
   const cc=fresh(),list=[npc(1,50,0)];
   assert.equal(cc.update(list,isNpc,0,0,0,0,noPos,size,cls,dur).length,0);

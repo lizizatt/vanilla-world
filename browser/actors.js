@@ -1,4 +1,4 @@
-﻿// Bounded nearby creature animation: the world worker re-poses a few shared Stand loops with the
+// Bounded nearby creature animation: the world worker re-poses a few shared Stand loops with the
 // Rust rig and posts whole vertex buffers; the renderer swaps them in. Visual only: nothing here
 // touches collision, readiness or physics, and unsupported models just stay in bind pose.
 import { npcClass, idSeed, wanders, wanderState, WANDER } from './wander.js';
@@ -56,7 +56,7 @@ export class ActorService {
     return s;
   }
   // Craft (source space) vs nearby creatures. Visual/audio only: posts hide/dead sets and one death sound per kill; the craft is never touched.
-  collide(instances, assets, x, y, z, displayOf) {
+  collide(instances, assets, x, y, z, displayOf, boosting = false) {
     const cc = this.cc;
     if (this.closed) return;
     if (!cc.enabled || !this.enabled) {
@@ -64,7 +64,7 @@ export class ActorService {
       return;
     }
     this.assets = assets;
-    const events = cc.update(instances, isActorInstance, x, y, z, this.now() / 1000, this.positionOf, this.sizeOf, this.classOf, this.durationOf);
+    const events = cc.update(instances, isActorInstance, x, y, z, this.now() / 1000, this.positionOf, this.sizeOf, this.classOf, this.durationOf, boosting);
     for (const e of events) this.deathSound(e, displayOf);
     if (cc.revision === this.fxRevision && !events.length) return;
     this.fxRevision = cc.revision ?? 0;

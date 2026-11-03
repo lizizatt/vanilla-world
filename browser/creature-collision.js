@@ -5,6 +5,9 @@ export const CREATURE_COLLISION = Object.freeze({
   minSpeed: 22,        // yd/s craft speed below which creatures are left alone
   craftRadius: 2.5,    // yd, horizontal
   craftHalfHeight: 1.5,
+  // Hit-volume scale (creature hits only): 1x at/below scaleFrom, smoothstep to speedScale at cruiseSpeed (the pod's 150 yd/s Cruise speed),
+  // boostScale while boosting. The scale chases its target with time constant scaleTau (s), so it never pops.
+  scaleFrom: 22, cruiseSpeed: 150, speedScale: 2, boostScale: 3, scaleTau: 0.25,
   maxCreatureRadius: 3, // bigger creatures are ignored (they should block, not die)
   maxCreatureHeight: 6,
   maxDying: 6,
@@ -14,6 +17,13 @@ export const CREATURE_COLLISION = Object.freeze({
   reach: 60,           // broadphase square half-width around the craft, yd
   classes: Object.freeze(['critter', 'creature', 'civilian']),
 });
+
+/** Hit-volume scale target for a craft speed (yd/s): 1 at rest/low speed, smoothly up to cfg.speedScale at cruise; boosting targets cfg.boostScale. */
+export function scaleTarget(speed, boosting, c = CREATURE_COLLISION) {
+  if (boosting) return c.boostScale;
+  const t = Math.min(1, Math.max(0, (speed - c.scaleFrom) / (c.cruiseSpeed - c.scaleFrom)));
+  return 1 + (c.speedScale - 1) * t * t * (3 - 2 * t);
+}
 
 /** Closest approach of segment (ax,ay)->(bx,by) to point (px,py), squared. */
 export function segmentDistance2(ax, ay, bx, by, px, py) {
@@ -58,7 +68,7 @@ export class CreatureCollision {
     this.events = [];        // kills of the last update (reused array)
     this.list = []; this.listFor = undefined;
     this.prev = new Float64Array(4); this.hasPrev = false;
-    this.windowStart = 0; this.windowKills = 0; this.lastSpeed = 0;
+    this.windowStart = 0; this.windowKills = 0; this.lastSpeed = 0; this.scale = 1;
     this.stats = { kills: 0, skipped: 0, tests: 0, maxMs: 0 };
   }
 
@@ -79,14 +89,16 @@ export class CreatureCollision {
    * One tick. Craft at (x,y,z) source-space at time `now` (s). `positionOf(id)` returns the NPC's current {x,y,z} (wander) or undefined for the authored
    * home; `sizeOf(instance)` returns the hit box [halfX,halfY,zLo,zHi,offX,offY] in yards (creature-local, feet-relative) or undefined to ignore. Returns the reused events array of new kills.
    */
-  update(instances, filter, x, y, z, now, positionOf, sizeOf, classOf, durationOf) {
+  update(instances, filter, x, y, z, now, positionOf, sizeOf, classOf, durationOf, boosting = false) {
     const c = this.cfg, events = this.events; events.length = 0;
     this.advance(now);
     const p = this.prev;
-    if (!this.enabled) { this.hasPrev = false; return events; }
-    if (!this.hasPrev || now - p[3] > 1 || now <= p[3]) { p[0] = x; p[1] = y; p[2] = z; p[3] = now; this.hasPrev = true; return events; }
+    if (!this.enabled) { this.hasPrev = false; this.scale = 1; return events; }
+    if (!this.hasPrev || now - p[3] > 1 || now <= p[3]) { p[0] = x; p[1] = y; p[2] = z; p[3] = now; this.hasPrev = true; this.scale = 1; return events; }
     const dt = now - p[3], speed = Math.hypot(x - p[0], y - p[1]) / dt;
     this.lastSpeed = speed;
+    this.scale += (scaleTarget(speed, boosting, c) - this.scale) * (1 - Math.exp(-dt / c.scaleTau));
+    const radius = c.craftRadius * this.scale, halfHeight = c.craftHalfHeight * this.scale, reach = c.reach + radius;
     const ax = p[0], ay = p[1], az = p[2];
     p[0] = x; p[1] = y; p[2] = z; p[3] = now;
     if (speed < c.minSpeed) return events;
@@ -97,14 +109,14 @@ export class CreatureCollision {
       if (this.windowKills >= c.maxKillsPerSecond || dying >= c.maxDying) break;
       if (this.states.has(i.id)) continue;
       const m = i.matrix, w = positionOf(i.id), cx = w ? w.x : m[12], cy = w ? w.y : m[13], cz = w ? w.z : m[14];
-      if (cx < Math.min(ax, x) - c.reach || cx > Math.max(ax, x) + c.reach || cy < Math.min(ay, y) - c.reach || cy > Math.max(ay, y) + c.reach) continue;
+      if (cx < Math.min(ax, x) - reach || cx > Math.max(ax, x) + reach || cy < Math.min(ay, y) - reach || cy > Math.max(ay, y) + reach) continue;
       const cls = classOf(i);
       if (!cls || !c.classes.includes(cls)) continue;
       const size = sizeOf(i);
       if (!size || Math.sqrt(size[0] * size[1]) > c.maxCreatureRadius || size[3] - size[2] > c.maxCreatureHeight) continue;
       this.stats.tests++;
       const yaw = w?.yaw ?? Math.atan2(m[1], m[0]);
-      if (!sweptOverlap(ax, ay, az, x, y, z, c.craftRadius, c.craftHalfHeight, cx, cy, cz, yaw, size[0], size[1], size[2], size[3], size[4], size[5])) continue;
+      if (!sweptOverlap(ax, ay, az, x, y, z, radius, halfHeight, cx, cy, cz, yaw, size[0], size[1], size[2], size[3], size[4], size[5])) continue;
       const duration = durationOf(i);
       if (!(duration > 0)) { this.stats.skipped++; continue; }
       this.states.set(i.id, { state: 'dying', t0: now, x: cx, y: cy, z: cz, yaw: w?.yaw, duration, key: i.key, posted: false, goneAt: now });
