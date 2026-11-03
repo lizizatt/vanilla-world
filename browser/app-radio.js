@@ -1,6 +1,6 @@
 import {RadioPlayer,clampVolume} from './radio.js';
 
-// Hidden-YouTube radio wiring: persisted 'racer.radio' (on/off) and 'racer.radioVolume', controls in Options > Radio.
+// Hidden-YouTube radio wiring: persisted 'racer.radio' (on/off) and 'racer.radioVolume', controls in the Radio panel (Esc > Game > Radio).
 // While the radio plays, the game's zone music is muted (app.syncMusic) so the two never stack; sound effects are untouched.
 export function installRadio(app) {
 const {settings,music}=app;
@@ -26,6 +26,10 @@ $('radio-play').addEventListener('click',()=>radio.toggle());
 $('radio-prev').addEventListener('click',()=>radio.prev());
 $('radio-next').addEventListener('click',()=>radio.next());
 $('radio-volume').addEventListener('input',()=>{radio.setVolume($('radio-volume').value);store('racer.radioVolume',String(radio.volume));});
+// Race menu > Radio opens the panel (Esc closes it natively); the click is the gesture that starts an enabled radio.
+const panel=$('radio-panel');
+$('menu-radio').addEventListener('click',()=>{app.raceMenu.close();panel.showModal();if(radio.snapshot().enabled)radio.play();});
+panel.addEventListener('close',()=>app.canvas.focus());
 // Browsers block audio until a gesture: a persisted-on radio starts on the first click or key.
 if(enabled){
   const start=()=>{removeEventListener('pointerdown',start,true);removeEventListener('keydown',start,true);radio.play();};
