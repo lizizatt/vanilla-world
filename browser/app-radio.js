@@ -28,7 +28,9 @@ $('radio-next').addEventListener('click',()=>radio.next());
 $('radio-volume').addEventListener('input',()=>{radio.setVolume($('radio-volume').value);store('racer.radioVolume',String(radio.volume));});
 // Race menu > Radio opens the panel (Esc closes it natively); the click is the gesture that starts an enabled radio.
 const panel=$('radio-panel');
-$('menu-radio').addEventListener('click',()=>{app.raceMenu.close();panel.showModal();if(radio.snapshot().enabled)radio.play();});
+function openPanel(){app.keys.clear();if(!panel.open)panel.showModal();if(radio.snapshot().enabled)radio.play();}
+$('menu-radio').addEventListener('click',()=>{app.raceMenu.close();openPanel();});
+$('hud-radio').addEventListener('click',openPanel);
 panel.addEventListener('close',()=>app.canvas.focus());
 // Browsers block audio until a gesture: a persisted-on radio starts on the first click or key.
 if(enabled){
