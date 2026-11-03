@@ -112,7 +112,12 @@ const profStop = async () => {
   const sSelf = new Map(), sIncl = new Map();
   for (let i = best.a; i <= best.b; i++) { const dt = profile.timeDeltas[i] || 0; let id = profile.samples[i]; const k = name(byId.get(id)); sSelf.set(k, (sSelf.get(k) || 0) + dt);
     const seen = new Set(); for (; id; id = parent.get(id)) { const kk = name(byId.get(id)); if (!seen.has(kk)) { seen.add(kk); sIncl.set(kk, (sIncl.get(kk) || 0) + dt); } } }
-  return { hot: topK(self, 16, tot), files: topK(byFile, 10, tot), spikeMs: +(best.len / 1000).toFixed(1), spikeSelf: topK(sSelf, 12, best.len || 1), spikeIncl: topK(sIncl, 18, best.len || 1) };
+  // Inclusive ms per function over every sample under a worker message handler (the work the ~20 ms p99 gate times).
+  const hIncl = new Map(); let hTot = 0;
+  profile.samples.forEach((id, i) => { const chain = []; for (let x = id; x; x = parent.get(x)) chain.push(name(byId.get(x))); if (!chain.some(n => n.startsWith('worker.onmessage'))) return;
+    const dt = profile.timeDeltas[i] || 0; hTot += dt; for (const k of new Set(chain)) hIncl.set(k, (hIncl.get(k) || 0) + dt); });
+  return { hot: topK(self, 16, tot), files: topK(byFile, 10, tot), spikeMs: +(best.len / 1000).toFixed(1), spikeSelf: topK(sSelf, 12, best.len || 1), spikeIncl: topK(sIncl, 18, best.len || 1),
+    handlerMs: +(hTot / 1000).toFixed(1), handlerIncl: [...hIncl].sort((a, b) => b[1] - a[1]).slice(0, 30).map(([n, v]) => [n, +(v / 1000).toFixed(1)]) };
 };
 
 const base = { cloudQuality: 'high', weather: true, weatherQuality: 'high', music: false, sound: false, shadows: false, clouds: true, night: false, particles: 'medium', waves: true, scenery: true, distant: true, horizon: true, planet: true, animateNpcs: true };
@@ -146,7 +151,7 @@ async function teleportRun(name, seq, { fly = false } = {}) {
       heapMB: +(last.heap / 1048576).toFixed(1), gpuMB: +(last.gpu / 1048576).toFixed(1), wasmMB: +((last.wasm || 0) / 1048576).toFixed(1), pend: last.pend, nt: last.nt, tiles: last.tiles, textures: last.textures, assets: last.assets, inst: last.inst, horizon: last.horizon,
       ...stats(d, t0, t1), series: sm.filter((_, i) => i % 5 === 0).map(s => [Math.round(s.t - t0), +s.rq, +s.quiet, s.nt, s.tiles, s.pend?.join('')]) };
     rows.push(row);
-    { const pp = await profStop(); if (pp) { row.spikeMs = pp.spikeMs; row.spikeIncl = pp.spikeIncl.slice(0, 14); } await profStart(); }
+    { const pp = await profStop(); if (pp) { row.spikeMs = pp.spikeMs; row.spikeIncl = pp.spikeIncl.slice(0, 14); row.hProfMs = pp.handlerMs; row.hProf = pp.handlerIncl; } await profStart(); }
     console.log(`${name} #${i} ${String(row.to).slice(0, 22).padEnd(22)} gate ${row.gateMs} rq ${row.rqMs} detail ${row.fullDetailMs}${q.capped ? '(cap)' : ''} | frame mean ${row.frameMs?.mean} p99 ${row.frameMs?.p99} max ${row.worstFrame} >25:${row.over25} >100:${row.over100} | task max ${row.tasks.max} handler p99 ${row.handlerMs?.p99} max ${row.handlerMs?.max} | heap ${row.heapMB} gpu ${row.gpuMB} wasm ${row.wasmMB}`);
     // per-teleport rows are captured; keep the recorder arrays small between teleports
     await page.evaluate(() => { const r = __rec; for (const k of ['frames', 'tasks', 'handlers', 'gpu', 'draw', 'rt', 'wp', 'samples']) r[k].length = 0; });

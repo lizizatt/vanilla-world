@@ -173,7 +173,7 @@ export function createRealEngines(real, canvas) {
 export function createRealDial(real, canvas) {
   const ctx = canvas.getContext('2d'), W = canvas.width, H = canvas.height, K = W / 71, cache = {};
   const R = (s, w, h) => resample(s, w * K, h * K), cap = tint(R(real.capsule, 71, 59), '#7fd8ff'), grad = bitmap(R(real.grad, 36, 51)), lampArt = R(real.lamp, 18, 18), ox = 0, oy = 0;
-  return (_speed01, heat01, speed = '000', now = 0) => {
+  const draw = (_speed01, heat01, speed = '000', now = 0) => {
     const heat = Math.min(1, Math.max(0, Number.isFinite(heat01) ? heat01 : 0));
     ctx.clearRect(0, 0, W, H); ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = 'rgba(26,74,90,.8)'; ctx.beginPath(); ctx.ellipse(ox + 35 * K, oy + 36 * K, 33 * K, 20 * K, 0, 0, 2 * Math.PI); ctx.fill();
@@ -186,4 +186,7 @@ export function createRealDial(real, canvas) {
     ctx.lineWidth = 2.2 * K; ctx.strokeStyle = '#04202c'; ctx.fillStyle = '#d8f6ff';
     ctx.strokeText(speed, ox + 24 * K, oy + 38 * K); ctx.fillText(speed, ox + 24 * K, oy + 38 * K);
   };
+  // The first clipped draw (and first text draw) costs ~40 ms; pay it at creation, not in the first flight frame.
+  draw(0, .5, '000', 0); ctx.clearRect(0, 0, W, H);
+  return draw;
 }

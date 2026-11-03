@@ -97,3 +97,9 @@ export function packPatches(patches,out=new Float32Array(MAX_PATCHES*8)) {
 }
 
 export const patchArea=p=>(p[3]-p[2])*(Math.sin(p[1])-Math.sin(p[0]));
+
+/** Runs the selector over a few eyes and altitudes so its first in-flight call is not the one that pays for JIT compilation and the stitch memo fill (a ~60 ms one-off frame). */
+export function warmPatches() {
+  for(const alt of [50,2000,30000,300000])for(const lat of [0,.7])selectPatches(lat,.3,alt);
+  stitchMemo.clear();
+}

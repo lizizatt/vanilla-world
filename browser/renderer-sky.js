@@ -8,7 +8,7 @@ import {AZEROTH,ELUNE,BODIES,planetFactorsFor,farDrawLevel} from './bodies.js';
 import {activeBody,activeFramedBody} from './body-shaders.js';
 import {patchesAt,packPatches,PATCH_GRID} from './globe-patches.js';
 import {makeOtherSet} from './renderer-init.js';
-import {createRegistry,surfaceChunks,bakeSurface,surfaceTexel,splatMinimap} from './tile-registry.js';
+import {createRegistry,surfaceChunks,bakeSurface,bakeRows,surfaceTexel,splatMinimap} from './tile-registry.js';
 import {HEIGHT_W,HEIGHT_H,encodeHeights} from './height-bake.js';
 import {PLANET_RADIUS,WORLD_CENTRE,spaceUniform,FALLBACK_RECTS} from './space.js';
 import {settlementPositions,createNightBake,litSpot,NIGHT_W,NIGHT_H} from './night-lights.js';
@@ -131,11 +131,17 @@ export function drawPlanet(r,pass,pf,near) {
   const rects=r.planetRects(),key=JSON.stringify(rects);
   (r.bodyRects??={})[activeBody().id]=rects;
   if(pf.registry&&r.surfaceKey!==key){
-    r.surfaceRegistry=// With real data the minimap colours own the land: procedural fill would paint green over the unseen coast water.
-    createRegistry(surfaceChunks(rects,!!r.manifest?.world_bounds||!activeBody().sea,r.colourGrid));
-    r.surfaceBytes=bakeSurface(r.surfaceRegistry);r.colourDirty.clear();r.surfaceDirty=true;r.surfaceKey=key;
-  }
-  if(pf.registry&&r.colourDirty.size&&performance.now()-(r.colourAt||0)>1000){
+    // Rows bake a few ms per frame while a previous map is still on screen; a first bake has nothing to show and runs at once.
+    if(r.surfaceBake?.key!==key){
+      // With real data the minimap colours own the land: procedural fill would paint green over the unseen coast water.
+      const registry=createRegistry(surfaceChunks(rects,!!r.manifest?.world_bounds||!activeBody().sea,r.colourGrid));
+      r.surfaceBake={key,registry,out:new Uint8Array(1024*512*4),y:0};
+    }
+    const bake=r.surfaceBake,t0=performance.now(),first=!r.surfaceBytes;
+    do {const y1=Math.min(512,bake.y+16);bakeRows(bake.registry,bake.out,bake.y,y1);bake.y=y1;}
+    while(bake.y<512&&(first||performance.now()-t0<3));
+    if(bake.y>=512){r.surfaceRegistry=bake.registry;r.surfaceBytes=bake.out;r.surfaceDirty=true;r.surfaceKey=key;r.surfaceBake=undefined;}
+  }  if(pf.registry&&r.surfaceBytes&&r.colourDirty.size&&performance.now()-(r.colourAt||0)>1000){
     for(const k of r.colourDirty)r.surfaceBytes.set(surfaceTexel(r.surfaceRegistry,k%1024,Math.floor(k/1024),1024,512),k*4);
     r.colourDirty.clear();r.colourAt=performance.now();r.surfaceDirty=true;
   }
