@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {flyoverRoute,analyseFrame,checkRows,colourStep,DEFAULT_LIMITS} from './ocean-flyover-lib.js';
+import {flyoverRoute,analyseFrame,checkRows,colourStep,DEFAULT_LIMITS,bandStep,checkAltitudeRows} from './ocean-flyover-lib.js';
 
 const frame=(w,h,fn)=>{const d=new Uint8ClampedArray(w*h*4);for(let y=0;y<h;y++)for(let x=0;x<w;x++){const [r,g,b]=fn(x,y);d.set([r,g,b,255],(y*w+x)*4);}return d;};
 
@@ -60,4 +60,25 @@ test('checkRows compares colour steps only within a variant',()=>{
   const rows=[{i:0,d:0,variant:'a',stats:stats([10,80,100])},{i:0,d:0,variant:'b',stats:stats([200,80,100])},{i:1,d:50,variant:'a',stats:stats([12,80,100])}];
   assert.deepEqual(checkRows(rows),[]);
   assert.equal(colourStep([0,0,0],[3,9,1]),9);assert.ok(DEFAULT_LIMITS.maxStep>0);
+});
+
+test('bands: water-coloured pixels give per-band means; bandStep finds a distant-sea jump',()=>{
+  const w=100,h=100,smooth=analyseFrame(frame(w,h,(x,y)=>[20,60+y*.3,120+y*.3]),w,h);
+  assert.equal(smooth.bands.length,8);
+  assert(smooth.bands.every(Boolean));
+  assert(bandStep(smooth.bands).step<8);
+  const seam=analyseFrame(frame(w,h,(x,y)=>y<50?[110,100,100+60]:[20,60,120]),w,h);
+  assert(bandStep(seam.bands).step>40);
+  const land=analyseFrame(frame(w,h,()=>[150,120,60]),w,h);
+  assert(land.bands.every(b=>b===null));
+  assert.equal(bandStep(land.bands).step,0);
+});
+
+test('checkAltitudeRows flags lake-looking jumps, holes, and passes smooth sea',()=>{
+  const w=100,h=100,ok=analyseFrame(frame(w,h,(x,y)=>[20,60+y*.3,120+y*.3]),w,h);
+  const bad=analyseFrame(frame(w,h,(x,y)=>y<50?[110,100,160]:[20,60,120]),w,h);
+  assert.deepEqual(checkAltitudeRows([{altitude:400,variant:'a',d:1,stats:ok}]),[]);
+  const f=checkAltitudeRows([{altitude:400,variant:'a',d:1,stats:bad}]);
+  assert.equal(f.length,1);assert.match(f[0],/water colour step/);
+  assert.match(checkAltitudeRows([{altitude:1,variant:'a',d:1,stats:{...ok,pink:.01}}])[0],/magenta/);
 });

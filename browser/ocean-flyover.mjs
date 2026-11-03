@@ -3,6 +3,7 @@
 // black holes, isolated bright sparkles, horizontal/vertical colour bands, colour jumps between adjacent checkpoints and repeat-frame flicker.
 //   WOW_DATA=<read-only Data folder> node browser/ocean-flyover.mjs          (heavy: takes the machine-wide heavy lock itself)
 // Env: VARIANTS=high,low,down,side  TIMES='[1440]' (half-minutes, 1440 noon)  LABEL=ocean-flyover  START='[x,z]'  STOP_SHORT=1500
+//      ALTITUDES='[20,100,400,1500,5000,15000]' [DISTANCES='[1500,9250]' WEATHERS=clear,storm] switches to the altitude sweep (distant vs loaded sea)
 //      COAST/OPEN/NEAR (checkpoint spacing, yd)  LIMIT=<max checkpoints>  SETTLE_MS=40000  REPEAT_MS=800  WIDTH/HEIGHT
 // Output: browser/test-results/<LABEL>/{report.json,frames/*.png,sheet-*.png} (git-ignored; derived from game data, never commit).
 import {chromium} from 'playwright';
@@ -12,7 +13,7 @@ import {spawn} from 'node:child_process';
 import {mkdir,writeFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {acquireHeavyLock} from './heavy-lock.mjs';
-import {flyoverRoute,analyseFrame,checkRows,DEFAULT_LIMITS} from './ocean-flyover-lib.js';
+import {flyoverRoute,analyseFrame,checkRows,checkAltitudeRows,ALTITUDE_LIMITS,DEFAULT_LIMITS} from './ocean-flyover-lib.js';
 
 assert(process.env.WOW_DATA,'Set WOW_DATA to the read-only local Data folder');
 const label=process.env.LABEL||'ocean-flyover';
@@ -97,7 +98,24 @@ try{
     await page.waitForTimeout(400);
     return Date.now()-t0;
   };
-  for(const time of times)for(const name of names){
+  if(process.env.ALTITUDES){
+    // Altitude sweep: fixed x/z (DISTANCES yd along the route), looking toward the Maelstrom, from each altitude, per time and weather. Each frame spans loaded
+    // chunk water (bottom) to distant sea (top); the water-band colour steps catch a distant sea that looks different from the loaded one.
+    const altitudes=JSON.parse(process.env.ALTITUDES),distances=JSON.parse(process.env.DISTANCES||'[1500,9250]'),weathers=(process.env.WEATHERS||'clear,storm').split(',');
+    const total=Math.hypot(centre[0]-start[0],centre[1]-start[1]);
+    for(const time of times)for(const weather of weathers)for(const d of distances)for(const alt of altitudes){
+      const x=start[0]+(centre[0]-start[0])/total*d,z=start[1]+(centre[1]-start[1])/total*d;
+      await page.evaluate(([x,y,z,yaw,time,weather])=>{worldTest.settings({weather:weather==='storm'});worldTest.timeLock(time);worldTest.focus([x,y,z,yaw,y>=5000?-1.2:-.25]);},[x,alt,z,yaw0,time,weather]);
+      await settle();
+      const variant=`${weather}@${time}`,png=await page.screenshot();
+      const stats=await page.evaluate(([b,c])=>window.__capture(b,c),[png.toString('base64'),`d${Math.round(d)} alt${alt} ${variant}`]);
+      const file=`frames/alt-${variant.replace('@','-')}-d${Math.round(d)}-a${alt}.png`;
+      await writeFile(new URL(file,out),png);
+      rows.push({i:rows.length,d,altitude:alt,variant,file,stats});
+      console.log(`d${d} alt${alt} ${variant}`,stats.bands.map(b=>b?b.map(Math.round).join('/'):'-').join(' '));
+    }
+  }
+  else for(const time of times)for(const name of names){
     const v=VARIANTS[name];
     for(const [i,p] of route.slice(0,limit).entries()){
       await page.evaluate(([x,y,z,yaw,pitch,time])=>{worldTest.timeLock(time);worldTest.focus([x,y,z,yaw,pitch]);},[p.x,v.alt,p.z,yaw0+v.yaw,v.pitch,time]);
@@ -116,7 +134,8 @@ try{
   }
   const sheets=await page.evaluate(async()=>{const r=[];for(const cv of window.__sheets){const b=await cv.convertToBlob({type:'image/png'});r.push(await new Promise(res=>{const f=new FileReader();f.onload=()=>res(f.result.split(',')[1]);f.readAsDataURL(b);}));}return r;});
   for(const [k,b] of sheets.entries())await writeFile(new URL(`sheet-${k}.png`,out),Buffer.from(b,'base64'));
-  failures=checkRows(rows,{...DEFAULT_LIMITS,...(process.env.LIMITS?JSON.parse(process.env.LIMITS):{})});
+  const extra=process.env.LIMITS?JSON.parse(process.env.LIMITS):{};
+  failures=process.env.ALTITUDES?checkAltitudeRows(rows,{...ALTITUDE_LIMITS,...extra}):checkRows(rows,{...DEFAULT_LIMITS,...extra});
   if(errors.length)failures.push(...errors.slice(0,10).map(e=>'page error: '+e));
 }finally{
   await writeFile(new URL('report.json',out),JSON.stringify({failures,rows},null,1));

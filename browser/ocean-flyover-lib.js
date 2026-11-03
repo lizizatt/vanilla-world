@@ -45,7 +45,17 @@ export function analyseFrame(data,width,height,skip=.3){
     return [best,at];
   };
   const [rowStep,rowAt]=step(rows,y0,y1,x1-x0),[colStep,colAt]=step(cols,x0,x1,y1-y0);
-  return {mean:mean.map(v=>v/n),pink:pink/n,black:black/n,sparklesPerMpx:sparkles/(n/1e6),rowStep,rowAt,colStep,colAt};
+  // Mean colour of the water-coloured pixels (blue-dominant) in 8 horizontal bands, bottom (near) to top (distant); null where a band is under 20% water.
+  const bands=[],bh=(y1-y0)/8;
+  for(let k=0;k<8;k++){
+    const a=Math.floor(y1-(k+1)*bh),b=Math.floor(y1-k*bh),m=[0,0,0];let w=0,t=0;
+    for(let y=a;y<b;y++)for(let x=x0;x<x1;x++){
+      const i=(y*width+x)*4;t++;
+      if(data[i+2]>=data[i]+10&&data[i+2]>=data[i+1]&&data[i+3]===255){m[0]+=data[i];m[1]+=data[i+1];m[2]+=data[i+2];w++;}
+    }
+    bands.push(w>t*.2?m.map(v=>v/w):null);
+  }
+  return {mean:mean.map(v=>v/n),pink:pink/n,black:black/n,sparklesPerMpx:sparkles/(n/1e6),rowStep,rowAt,colStep,colAt,bands};
 }
 
 // Whole-frame colour deltas are dominated by rain, lightning and cloud in the Maelstrom storm (stormFrom yd along the route), so only the glitch-specific checks apply there.
@@ -64,6 +74,34 @@ export function checkRows(rows,limits=DEFAULT_LIMITS){
     if(p&&!storm){const d=colourStep(p.stats.mean,s.mean);if(d>limits.maxStep)failures.push(`${tag}: mean colour step ${d.toFixed(1)} from #${p.i}`);}
     prev.set(r.variant,r);
     if(r.repeat&&!storm){const d=colourStep(r.repeat.mean,s.mean);if(d>limits.maxFlicker)failures.push(`${tag}: flicker ${d.toFixed(1)} between repeat frames`);}
+  }
+  return failures;
+}
+
+
+/** Largest colour step between adjacent valid water bands of one frame (near -> distant), and where; 0 when fewer than two bands hold water. */
+export function bandStep(bands){
+  let best=0,at=-1,prev=null;
+  for(const [k,b] of (bands||[]).entries()){
+    if(!b)continue;
+    if(prev){const d=colourStep(prev.b,b);if(d>best){best=d;at=k;}}
+    prev={b,k};
+  }
+  return {step:best,at};
+}
+
+// Calm sea steps smoothly with distance (fresnel + fog); a loaded-chunk -> distant-sea seam or a lake-looking distant fill shows as a jump.
+export const ALTITUDE_LIMITS={maxBandStep:30,maxBandStepHigh:65,maxPink:.0005,maxBlack:.002};
+
+/** Rows: {altitude,variant,d,stats}; one frame per altitude/time/weather/distance. Returns failure strings. */
+export function checkAltitudeRows(rows,limits=ALTITUDE_LIMITS){
+  const failures=[];
+  for(const r of rows){
+    const tag=`d=${Math.round(r.d)} alt=${r.altitude} ${r.variant}`,s=r.stats;
+    if(s.pink>limits.maxPink)failures.push(`${tag}: ${(s.pink*100).toFixed(2)}% magenta pixels`);
+    if(s.black>(r.altitude>=15000?.25:limits.maxBlack))failures.push(`${tag}: ${(s.black*100).toFixed(2)}% black pixels`);
+    const {step,at}=bandStep(s.bands);
+    if(step>(r.altitude>400?limits.maxBandStepHigh:limits.maxBandStep))failures.push(`${tag}: water colour step ${step.toFixed(1)} between bands ${at-1}/${at}`);
   }
   return failures;
 }

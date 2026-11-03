@@ -161,10 +161,14 @@ fn waterShade(p:vec3f,ramp:f32,rampWidth:f32,dx:vec2f,dy:vec2f,lake:f32)->vec4f 
   // Subsurface glow: light through the wave toward a viewer opposite the sun, strongest on steep faces.
   let crest=clamp(length(slope)*1.5+wave.crest,0.0,1.0);
   color+=${v3(WATER_LOOK.scatter)}*pow(clamp(dot(view,-sun),0.0,1.0),4.0)*crest*sunK*1.2*detail;
-  // Crest whitecaps: wave.crest (Jacobian once waves exist) plus steep normal-map faces, broken up by noise, gated by wind.
+  // Crest whitecaps: wave.crest (Jacobian once waves exist) plus steep normal-map faces, gated by wind. The crest term alone is a smooth blob that flattened whole wave faces into grey plates (mottled storm sea),
+  // so the cap is broken up by the fine-normal steepness (foam is streaky, not a sheet) and eases to its small mean coverage with distance, where the breakup is subpixel and the crest blobs would read as patches.
   let capK=smoothstep(.45,.75,windK)*detail*(1.0-lake);
-  let whitecap=  smoothstep(mix(1.4,.95,windK),mix(1.75,1.3,windK),crest+.35*a.b+.5*wave.crest)*capK;
-    color=mix(color,${v3(WATER_LOOK.foam)}*mix(1.0,.35,nightK()),whitecap*.35);
+  let capFar=smoothstep(200.0,900.0,distance);let capAny=smoothstep(.45,.75,windK)*(1.0-lake);
+  let whitecap=smoothstep(mix(1.4,.95,windK),mix(1.75,1.3,windK),crest+.35*a.b+.5*wave.crest);
+  let breakup=smoothstep(.12,.5,length(fine));
+  let capCover=mix(whitecap*breakup*capK,capAny*.12,capFar);
+    color=mix(color,${v3(WATER_LOOK.foam)}*mix(1.0,.35,nightK()),capCover*.35);
   let lap=.012*sin(u.settings.y*1.4+a.r*2.0);
   let foamIn=mix(.0,.05,lake);let foamOut0=mix(.035,.16,lake);let foamOut1=mix(.09,.42,lake);
   let foam=smoothstep(foamIn,foamIn+mix(.015,.12,lake),depth)*(1.0-smoothstep(foamOut0+lap,foamOut1+lap,depth))
