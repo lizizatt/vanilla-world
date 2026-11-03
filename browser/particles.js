@@ -58,7 +58,7 @@ export class ParticlePool {
   }
   get count() { let n = 0; for (let i = 0; i < this.capacity; i++) if (this.data[i * STRIDE + 6] < this.data[i * STRIDE + 7]) n++; return n; }
   /** Write live particles (eye-relative position, size, premultiplied rgba) into out; returns how many. */
-  fill(out, eye, body) {
+  fill(out, eye, body, light = WHITE) {
     const d = this.data; let n = 0;
     const relative=body?planetRelativeFrame(body,eye):undefined;
     for (let i = 0; i < this.capacity; i++) {
@@ -69,11 +69,20 @@ export class ParticlePool {
         out.set(relative(Array.from(d.slice(o,o+3))),q);
       }else{out[q] = d[o] - eye[0]; out[q + 1] = d[o + 1] - eye[1]; out[q + 2] = d[o + 2] - eye[2];}
       out[q + 3] = d[o + 8] + (d[o + 9] - d[o + 8]) * u;
-      out[q + 4] = c[0] * c[3]; out[q + 5] = c[1] * c[3]; out[q + 6] = c[2] * c[3]; out[q + 7] = c[3] * (1 - c[4]);
+      const g = c[4]; // glow 1 = emissive: ignores scene light
+      out[q + 4] = c[0] * c[3] * (light[0] + (1 - light[0]) * g); out[q + 5] = c[1] * c[3] * (light[1] + (1 - light[1]) * g);
+      out[q + 6] = c[2] * c[3] * (light[2] + (1 - light[2]) * g); out[q + 7] = c[3] * (1 - c[4]);
       n++;
     }
     return n;
   }
+}
+
+const WHITE = [1, 1, 1], NIGHT_LIGHT = [.05, .065, .12];
+/** Scene light multiplier for non-emissive particles: moonlit blue floor at night, exactly 1 at full daylight (same daylight the terrain/sky use). */
+export function particleLight(daylight) {
+  const d = Math.min(1, Math.max(0, daylight));
+  return NIGHT_LIGHT.map(n => n + (1 - n) * d);
 }
 
 export function gradient(stops, u) {
