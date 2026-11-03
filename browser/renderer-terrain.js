@@ -92,16 +92,22 @@ export function drawTerrain(r,pass,terrain) {
     terrain.some((item,i)=>cached.items[i]!==item || cached.materials[i]!==item.material)) {
     const encoder=r.device.createRenderBundleEncoder(bundleFormats(r.format));
     encoder.setPipeline(r.pipeline);
-    for(const item of terrain){
+    const drawItem=item=>{
       encoder.setBindGroup(0,item.group,[item.offset]);encoder.setVertexBuffer(0,item.buffer);
       if(item.region!==undefined){encoder.setIndexBuffer(r.indices.get(item.region),'uint32');encoder.drawIndexed(3072);}
       else encoder.draw(item.count,1,item.first||0);
-    }
+    };
+    // Tiles with a splat bed hold only their lake surface in `buffer`; it is drawn translucent after the bed.
+    for(const item of terrain)if(!item.material)drawItem(item);
     encoder.setPipeline(r.splatPipeline);
     for(const tile of terrain)if(tile.material){
       const material=tile.material;
       encoder.setBindGroup(0,material.group,[tile.offset]);encoder.setVertexBuffer(0,material.vertices);
       encoder.setIndexBuffer(material.indices,'uint32');encoder.drawIndexed(material.count);
+    }
+    if(r.lakePipeline&&terrain.some(item=>item.material)){
+      encoder.setPipeline(r.lakePipeline);
+      for(const item of terrain)if(item.material&&item.count)drawItem(item);
     }
     r.terrainBundle={items:terrain.slice(),materials:terrain.map(item=>item.material),bundle:encoder.finish()};
     r.terrainBundleBuilds++;

@@ -77,6 +77,13 @@ export const WATER_LOOK={
 };
 /** CPU mirror of the shader's water body colour for a ramp depth 0..1 (0 at the shore, 1 deep). */
 export const waterBody=depth=>WATER_LOOK.deep.map((d,i)=>d+(WATER_LOOK.shallow[i]-d)*Math.exp(-WATER_LOOK.sigma[i]*depth*WATER_LOOK.column));
+// Inland lakes (tile liquid over real terrain): the ocean's look with calmer normals, no whitecaps and a depth-based opacity so the bed shows through the shallows.
+export const LAKE_LOOK={slope:.4,minAlpha:.35,maxAlpha:.84,absorb:3.2,fresnelAlpha:.6};
+/** CPU mirror of the lake opacity for a ramp depth 0..1 (0 shore, 1 deep) and a Schlick fresnel 0..1: Beer-Lambert absorption clamped to the lake bounds, lifted toward opaque at grazing angles. */
+export const lakeAlpha=(depth,fresnel=0)=>{
+  const d=Math.min(Math.max(depth,0),1),base=Math.min(Math.max(1-Math.exp(-LAKE_LOOK.absorb*d),LAKE_LOOK.minAlpha),LAKE_LOOK.maxAlpha);
+  return base+(1-base)*Math.min(Math.max(fresnel,0),1)*LAKE_LOOK.fresnelAlpha;
+};
 const v3=c=>`vec3f(${c.map(x=>x.toFixed(3)).join(',')})`;
 export const waterShading=`
 @group(0) @binding(3) var waterNormals:texture_2d<f32>;
@@ -96,7 +103,8 @@ fn rainRipples(world:vec2f,t:f32)->vec2f {
   let ph=fract(t*.9+h);let radius=ph*.25;let x=(r-radius)/.035;
   return d/max(r,.001)*exp(-x*x)*(1.0-ph)*cos((r-radius)*70.0)*.8;
 }
-fn waterColor(p:vec3f,ramp:f32,rampWidth:f32,dx:vec2f,dy:vec2f)->vec3f {
+// lake: 0 = ocean (unchanged look), 1 = inland lake. Returns colour and opacity (always 1 for the ocean).
+fn waterShade(p:vec3f,ramp:f32,rampWidth:f32,dx:vec2f,dy:vec2f,lake:f32)->vec4f {
   var world=p.xz+vec2f(u.right.w,u.up.w);
   let wd=p.xz-vec2f(u.sky[1].w,u.sky[2].w);let wr=length(wd);let wt=u.settings.y;
   let wk=u.sky[3].w*(1.0-smoothstep(0.0,${W.radius.toFixed(1)},wr))*(1.0-smoothstep(30000.0,90000.0,length(u.eye.xyz-p)));
@@ -117,7 +125,7 @@ fn waterColor(p:vec3f,ramp:f32,rampWidth:f32,dx:vec2f,dy:vec2f)->vec3f {
   // Bowl: the real mesh dip (ocean-mesh.js profile) gives the slope, boosted so the walls read as lit/shaded from afar.
   let dq=max(1.0-(wr/DIP_R)*(wr/DIP_R),0.0);let bowl=dq*dq;let pit=u.sky[3].w*step(wr,DIP_R);
   let wave=waveField(world,wt,windK);
-  let fine=(a.rg+b.gr-vec2f(1.0))*.9*mix(.7,1.4,windK)*detail+rainRipples(world,wt)*rain*detail*detail;
+  let fine=(a.rg+b.gr-vec2f(1.0))*.9*mix(.7,1.4,windK)*mix(1.0,${LAKE_LOOK.slope.toFixed(2)},lake)*detail+rainRipples(world,wt)*rain*detail*detail;
   var slope=fine+wave.slope-wd/max(wr,1.0)*${W.tilt.toFixed(2)}*wk-wd*4.0*DIP_D*dq/(DIP_R*DIP_R)*${W.wallBoost.toFixed(1)}*pit;
   let normal=normalize(up+vec3f(slope.x,0.0,slope.y));
   // Slope variance the normal map no longer resolves: the faded fine detail plus Toksvig loss of the filtered mip normal. It widens the lobe and blurs the reflection instead of aliasing into moire.
@@ -151,7 +159,7 @@ fn waterColor(p:vec3f,ramp:f32,rampWidth:f32,dx:vec2f,dy:vec2f)->vec3f {
   let crest=clamp(length(slope)*1.5+wave.crest,0.0,1.0);
   color+=${v3(WATER_LOOK.scatter)}*pow(clamp(dot(view,-sun),0.0,1.0),4.0)*crest*sunK*1.2*detail;
   // Crest whitecaps: wave.crest (Jacobian once waves exist) plus steep normal-map faces, broken up by noise, gated by wind.
-  let capK=smoothstep(.45,.75,windK)*detail;
+  let capK=smoothstep(.45,.75,windK)*detail*(1.0-lake);
   let whitecap=  smoothstep(mix(1.4,.95,windK),mix(1.75,1.3,windK),crest+.35*a.b+.5*wave.crest)*capK;
     color=mix(color,${v3(WATER_LOOK.foam)}*mix(1.0,.35,nightK()),whitecap*.35);
   let lap=.012*sin(u.settings.y*1.4+a.r*2.0);
@@ -159,6 +167,11 @@ fn waterColor(p:vec3f,ramp:f32,rampWidth:f32,dx:vec2f,dy:vec2f)->vec3f {
     *min(1.0,rampWidth*400.0)*detail;
   // North is -z, so atan2(-z,x) grows counter-clockwise on the map like the maelstrom arms.
   let spiral=smoothstep(.55,.95,.5+.5*cos(${W.arms.toFixed(1)}*(atan2(-wd.y,wd.x)+${W.pitch.toFixed(2)}*log(max(wr,1.0)/200.0)-wt*${W.spin.toFixed(2)})))*(.6+.6*a.b)*smoothstep(${W.core.toFixed(1)},${(W.core*3).toFixed(1)},wr);
-  return mix(mix(color,vec3f(.65,.79,.76),foam*.5),vec3f(.8,.9,.9)*mix(1.0,.35,nightK()),clamp(spiral*wk*.8,0.0,.8));
+  let lit=mix(mix(color,vec3f(.65,.79,.76),foam*.5),vec3f(.8,.9,.9)*mix(1.0,.35,nightK()),clamp(spiral*wk*.8,0.0,.8));
+  let absorbed=clamp(1.0-exp(-${LAKE_LOOK.absorb.toFixed(2)}*clamp(ramp,0.0,1.0)),${LAKE_LOOK.minAlpha.toFixed(2)},${LAKE_LOOK.maxAlpha.toFixed(2)});
+  let lakeAlpha=absorbed+(1.0-absorbed)*fresnel*${LAKE_LOOK.fresnelAlpha.toFixed(2)};
+  return vec4f(lit,mix(1.0,lakeAlpha,lake));
 }
+fn waterColor(p:vec3f,ramp:f32,rampWidth:f32,dx:vec2f,dy:vec2f)->vec3f {return waterShade(p,ramp,rampWidth,dx,dy,0.0).rgb;}
+fn waterColorLake(p:vec3f,ramp:f32,rampWidth:f32,dx:vec2f,dy:vec2f)->vec4f {return waterShade(p,ramp,rampWidth,dx,dy,1.0);}
 `;

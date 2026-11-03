@@ -172,7 +172,17 @@ async function buildTerrainPipelines(r,terrain,splat) {
     primitive:{topology:'triangle-list',cullMode:'none'},
     depthStencil:DEPTH_STATE.splat,
   });
-  return {pipeline,splatPipeline};
+  const lakePipeline=await r.device.createRenderPipelineAsync({
+    layout:r.device.createPipelineLayout({bindGroupLayouts:[r.terrainLayout]}),
+    vertex:{module:terrain,entryPoint:'vs',buffers:[{arrayStride:28,attributes:[
+      {shaderLocation:0,offset:0,format:'float32x3'},{shaderLocation:1,offset:12,format:'float32x3'},{shaderLocation:2,offset:24,format:'float32'}]}]},
+    fragment:{module:terrain,entryPoint:'fsLake',targets:[{format:r.format,blend:{
+      color:{srcFactor:'src-alpha',dstFactor:'one-minus-src-alpha',operation:'add'},
+      alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha',operation:'add'}}}]},
+    primitive:{topology:'triangle-list',cullMode:'none'},
+    depthStencil:DEPTH_STATE.lake,
+  });
+  return {pipeline,splatPipeline,lakePipeline};
 }
 
 const gpuShader=r=>async code=>{
@@ -185,7 +195,7 @@ const makeSurfaceSet=async(r,body)=>{
   const shader=gpuShader(r),set=surfaceShadersFor(body);
   return {...await buildTerrainPipelines(r,await shader(set.terrainShader),await shader(set.splatShader)),sceneModule:await shader(set.sceneShader),pipelines:new Map()};
 };
-const SURFACE_KEYS=['pipeline','splatPipeline','sceneModule','pipelines'];
+const SURFACE_KEYS=['pipeline','splatPipeline','lakePipeline','sceneModule','pipelines'];
 
 /** Build (but do not activate) a body's pipelines so a later useBody is an instant pointer switch. */
 export function prepareBody(r,body) {
