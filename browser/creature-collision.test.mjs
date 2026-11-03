@@ -166,7 +166,7 @@ test('ActorService: kills play Death once, hold the last frame, then remove the 
   s.close();
 });
 
-test('ActorService: a kill posts one positional death sound (bytes only the first time); silent when the display has none',async()=>{
+test('ActorService: a kill posts one positional death sound (bytes on every event); silent when the display has none',async()=>{
   const {s,posted,tick}=mkService(),list=[npc(1,10,0),npc(2,12,0)],assets=new Map([['m',{bounds}]]);
   let reads=0;s.sounds.catalog={deathPaths:d=>d===7?['sound\\creature\\wolf\\death.wav']:[]};s.sounds.loading=Promise.resolve();
   s.sounds.source={read:async()=>{reads++;return new Uint8Array([1,2,3]);}};
@@ -174,7 +174,7 @@ test('ActorService: a kill posts one positional death sound (bytes only the firs
   tick(1000);s.collide(list,assets,0,0,0,id=>(id===1?7:9));tick(40);s.collide(list,assets,20,0,0,id=>(id===1?7:9));await settle();
   const sounds=posted.filter(m=>m.event==='creature-sound');
   assert.equal(sounds.length,1);assert.equal(sounds[0].path,'sound\\creature\\wolf\\death.wav');assert.deepEqual([sounds[0].x,sounds[0].y],[10,0]);assert.equal(sounds[0].bytes.length,3);
-  assert.equal(await s.sounds.death(7).then(r=>r.bytes),undefined);assert.equal(reads,1);
+  assert.equal((await s.sounds.death(7)).bytes.length,3);assert.equal(reads,1);
   s.close();
 });
 
