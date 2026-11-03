@@ -9,7 +9,7 @@ import {gateScene,sceneKey,sceneProps,startLine} from './race-gates.js';
 import {tracksFor,vehicleOf} from './vehicles.js';
 import {gateReach,BODIES,regimeOf} from './bodies.js';
 import {activeBody,activeFramedBody} from './body-shaders.js';
-import {trailChevrons} from './gate-trail.js';
+import {trailChevrons,trailWanted,stepFade} from './gate-trail.js';
 import {SFX,STINGER,wipeoutBlast,pickRaceMusic} from './swe1r/sfx.js';
 import {pickVoice,raceEndEvents} from './swe1r/voice-map.js';
 import {WRECK_CHUNK,WRECK_CHUNKS} from './wreck.js';
@@ -168,10 +168,14 @@ function raceHud(t) {
   const guide=gateGuide({pos:p,yaw:p[3],gate,body:body.id,gateBody:target,frame:target&&target!==body.id&&Number.isFinite(t0)?{active:activeFramedBody(),target:BODIES[target],t:t0}:undefined});
   setText('race-gate',`Gate ${Math.min(done+1,app.race.totalGates)}/${app.race.totalGates}${guide.label}`);
   setText('race-range',guide.visible?`${guide.range} ${guide.climb}`.trim():'');
-  const quiet=!guide.visible||app.swapHold||app.busy;
-  app.renderer?.setCrumbs(quiet?undefined:trailChevrons({delta:guide.delta,yaw:p[3],behind:guide.behind,straight:guide.cross||regimeOf(p[1],body)==='orbit',
-    final:done+1>=app.race.totalGates,time:performance.now()/1000,reduced:reducedMotion.matches}));
+  const now=performance.now(),quiet=!guide.visible||app.swapHold||app.busy,view=app.renderer?.view;
+  const eye=view?.eye,rel=guide.delta&&eye?[p[0]+guide.delta[0]-eye[0],p[1]+guide.delta[1]-eye[1],p[2]+guide.delta[2]-eye[2]]:undefined;
+  const want=!quiet&&trailWanted({rel,range:guide.rangeYd,cross:guide.cross,view:rel?view:undefined,was:trailFade.want});
+  trailFade.level=quiet?0:stepFade(trailFade.level,want,Math.min(.1,(now-trailFade.at)/1000));trailFade.want=want;trailFade.at=now;
+  app.renderer?.setCrumbs(trailFade.level>0?trailChevrons({delta:guide.delta,yaw:p[3],behind:guide.behind,straight:guide.cross||regimeOf(p[1],body)==='orbit',
+    final:done+1>=app.race.totalGates,time:now/1000,reduced:reducedMotion.matches,fade:trailFade.level}):undefined);
 }
+const trailFade={level:0,want:false,at:0};
 const reducedMotion=globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')??{matches:false};
 async function recordRun(track,run) {
   let record,rank;

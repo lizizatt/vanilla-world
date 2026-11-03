@@ -58,5 +58,6 @@ Concept C shipped (`gate-trail.js`, chevron pass in `world-renderer.js`/`rendere
 - Behind: cyan double chevron that bends in a U-turn and blinks (static under `prefers-reduced-motion`). Final gate: checkered last chevron.
 - Orbit regime and cross-body gates use a straight line along the shared-frame direction; range shows as `Nk yd`. Geometry depends only on direction and the capped length, so it stays finite/bounded at any range. Track format already supports per-gate `body`.
 - Hidden outside races, during body swap, or when there is no next gate. No terrain sampling (altitude is interpolated craft to gate).
+- Subtle by design: overall opacity ×0.58. The trail shows only when the next gate is outside the camera frustum (renderer projection, slope 0.55, aspect-aware; behind the near plane counts as outside) or farther than 1000 yd, and always for cross-body gates. Hysteresis (off only when inside 90% of the frustum and under 900 yd) plus a 0.4 s fade stop flicker at the edges. Frustum test only, no occlusion test.
 - Verified by unit tests only (`gate-trail.test.mjs`, `gate-guide.test.mjs`). Unverified: real-browser render/shader compile, cross-body smoke script, handler p99 (~20 ms) / 0 errors.
 

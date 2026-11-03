@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {trailChevrons,packChevrons,TRAIL_CAP,MAX_CHEVRONS,CHEVRON_FLOATS,GATE_CLEAR} from './gate-trail.js';
+import {trailChevrons,packChevrons,TRAIL_CAP,MAX_CHEVRONS,CHEVRON_FLOATS,GATE_CLEAR,trailWanted,gateInFrustum,stepFade,FAR_ON,FAR_OFF,FADE_SECONDS} from './gate-trail.js';
 import {gateGuide} from './gate-guide.js';
 import {validateTrack,Race,gateBody,trackBody} from './race.js';
 import {AZEROTH,ELUNE} from './bodies.js';
@@ -15,7 +15,8 @@ test('gate dead ahead: straight trail of facing chevrons, fading, capped by the 
   assert.ok(wellFormed(t));
   t.forEach(c=>{assert.ok(Math.abs(c.at[0])<1e-9);assert.ok(c.dir[2]<-.99);});
   assert.ok(Math.abs(reach(t.at(-1))-TRAIL_CAP)<1,'last chevron sits at the cap');
-  assert.ok(t[0].alpha>t.at(-1).alpha+.4,'fades with distance');
+  assert.ok(t[0].alpha>t.at(-1).alpha+.2,'fades with distance');
+  assert.ok(t[0].alpha<=.6&&t[0].alpha>.4,'reduced opacity, still readable');
 });
 
 test('gate to the side: trail leaves along the heading and bends toward the gate', () => {
@@ -117,4 +118,56 @@ test('cross-body direction is stable under f32 rounding of the poses', () => {
   const u=g=>g.delta.map(v=>v/g.rangeYd),ua=u(a),ub=u(b);
   assert.ok(Math.hypot(...ua.map((v,i)=>v-ub[i]))<2e-3,'direction agrees to a fraction of a degree');
   assert.ok(Math.abs(a.rangeYd-b.rangeYd)/a.rangeYd<1e-3);
+});
+
+// Visibility rule: camera looks along -z, right is +x, up is +y.
+const view={eye:[0,0,0],right:[1,0,0],up:[0,1,0],look:[0,0,-1],aspect:16/9,near:.1};
+const wanted=(rel,extra={})=>trailWanted({rel,range:Math.hypot(...rel),view,...extra});
+
+test('trail is off for a gate in view and near, on when in view but beyond 1000 yd', () => {
+  assert.equal(wanted([0,0,-300]),false);
+  assert.equal(wanted([100,20,-500]),false);
+  assert.equal(wanted([0,0,-1500]),true);
+  assert.equal(wanted([0,0,-FAR_ON-1]),true);
+});
+
+test('trail is on for gates off screen at any range, and behind the near plane', () => {
+  assert.equal(wanted([800,0,-100]),true,'far to the side');
+  assert.equal(wanted([0,500,-100]),true,'far above');
+  assert.equal(wanted([30,0,-20]),true,'close but beside');
+  assert.equal(wanted([0,0,300]),true,'behind');
+  assert.equal(wanted([0,0,-.05]),true,'inside the near plane');
+  assert.equal(gateInFrustum([0,0,-300],view),true);
+  assert.equal(gateInFrustum([0,0,300],view),false);
+  assert.equal(gateInFrustum([0,0,-300],undefined),false);
+});
+
+test('hysteresis at the frustum edge and the 1000 yd boundary', () => {
+  const z=-400,edge=.55*(16/9)*400;
+  const near=[edge*.95,0,z],inside=[edge*.5,0,z];
+  assert.equal(wanted(near,{was:false}),false,'in view, trail stays off');
+  assert.equal(wanted(near,{was:true}),true,'trail on: near the edge it stays on');
+  assert.equal(wanted(inside,{was:true}),false,'well inside it switches off');
+  const mid=[0,0,-(FAR_OFF+50)];
+  assert.equal(wanted(mid,{was:false}),false,'between 900 and 1000 off stays off');
+  assert.equal(wanted(mid,{was:true}),true,'between 900 and 1000 on stays on');
+  assert.equal(wanted([0,0,-(FAR_OFF-10)],{was:true}),false);
+});
+
+test('cross-body gates always keep the trail on, whatever the view says', () => {
+  assert.equal(trailWanted({rel:[0,0,-100],range:100,cross:true,view,was:false}),true);
+  assert.equal(trailWanted({rel:[0,0,-8.7e4],range:8.7e4,cross:true,view,was:true}),true);
+  assert.equal(trailWanted({rel:undefined,range:NaN,view,was:false}),true,'unknown geometry fails to on');
+});
+
+test('fade eases in and out over FADE_SECONDS without jumping', () => {
+  let l=0;
+  for(let i=0;i<10;i++)l=stepFade(l,true,FADE_SECONDS/10);
+  assert.ok(Math.abs(l-1)<1e-9);
+  assert.equal(stepFade(1,true,1),1);
+  assert.ok(Math.abs(stepFade(1,false,FADE_SECONDS/2)-.5)<1e-9);
+  assert.equal(stepFade(.1,false,5),0);
+  assert.equal(stepFade(.5,true,-1),.5);
+  const half=trailChevrons({...base,delta:[0,0,-100],fade:.5}),full=trailChevrons({...base,delta:[0,0,-100]});
+  assert.ok(Math.abs(half[0].alpha*2-full[0].alpha)<1e-9);
 });
