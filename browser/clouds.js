@@ -401,10 +401,12 @@ export class CloudMask {
     const key=JSON.stringify(rects);
     if(key===this.key)return;
     this.key=key;
-    const m=this.mask=bakeLandMask(createRegistry(defaultManifest(undefined,rects)));
+    // The bake is a pure function of the rects and costs ~30 ms, so every CloudMask (one per body, rebuilt per session) shares it.
+    const m=this.mask=MASK_BAKES.get(key)??(MASK_BAKES.set(key,bakeLandMask(createRegistry(defaultManifest(undefined,rects)))),MASK_BAKES.get(key));
     this.device.queue.writeTexture({texture:this.texture},m.data,{bytesPerRow:m.w*4},[m.w,m.h]);
   }
 }
+const MASK_BAKES=new Map();
 export class SlowFrameGuard {
   constructor(limitMs=30,windowMs=3000) {Object.assign(this,{limitMs,windowMs,sum:0,n:0,span:0});}
   /** Feed frame deltas (ms); returns true once a full window averaged over the limit. Deltas over 250 ms (tab pauses) are ignored. */

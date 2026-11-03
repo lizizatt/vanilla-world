@@ -32,8 +32,10 @@ export function createRegistry(chunks,radius=PLANET_RADIUS) {
     sample(lat,lon) {
       let land=0,h=OCEAN.h,rgb=OCEAN.rgb,water=OCEAN.water;
       for(const chunk of list) {
-        const weight=feather(chunk,lat,lon);if(weight<=0)continue;
-        const s=chunk.provider.sample(lat,lon);if(s.skip)continue;
+        // Seamless chunks (blend 0, no jitter) are cheapest to reject through their provider; the result is order-independent because both calls are pure.
+        let weight,s;
+        if(chunk.blend<=0&&!chunk.jitter){s=chunk.provider.sample(lat,lon);if(s.skip)continue;weight=feather(chunk,lat,lon);if(weight<=0)continue;}
+        else{weight=feather(chunk,lat,lon);if(weight<=0)continue;s=chunk.provider.sample(lat,lon);if(s.skip)continue;}
         land=Math.max(land,weight);h+=(s.h-h)*weight;rgb=[rgb[0]+(s.rgb[0]-rgb[0])*weight,rgb[1]+(s.rgb[1]-rgb[1])*weight,rgb[2]+(s.rgb[2]-rgb[2])*weight];if(weight>=.5)water=s.water;
       }
       return {land,h,rgb,water};
@@ -56,6 +58,10 @@ export function rectBounds([x0,z0,x1,z1],centre=WORLD_CENTRE,radius=PLANET_RADIU
 /** Hosted default: the two continents as procedural chunks; with WoW data the same entries get an 'adt' provider instead. */
 export function defaultManifest(makeProvider=()=>proceduralProvider(),rects=FALLBACK_RECTS) {
   return rects.map((r,i)=>({id:i?'eastern-kingdoms':'kalimdor',kind:'procedural',blend:2500,jitter:6000,bounds:rectBounds(r),provider:makeProvider(i)}));
+}
+/** Registry chunks for a globe bake. With real data the minimap colours own the land, so the procedural continents never contribute and are left out entirely (same texels, a third of the work). */
+export function surfaceChunks(rects,real,grid) {
+  return [...(real?[]:defaultManifest(undefined,rects)),adtChunk(grid)];
 }
 
 const TILE=1600/3;
