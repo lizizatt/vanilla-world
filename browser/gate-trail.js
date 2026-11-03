@@ -7,6 +7,37 @@ export const GATE_CLEAR=8;       // trail stops this far short of a near gate
 export const MAX_CHEVRONS=14;
 export const CHEVRON_FLOATS=12;  // pos.xyz size | dir.xyz alpha | style 0 amber, 1 behind (cyan, double), 2 final (checkered) + 3 spare
 
+export const TRAIL_OPACITY=.58;  // overall alpha scale; the trail is an aid, not a feature
+export const FAR_ON=1000;        // yd: trail comes on beyond this even when the gate is on screen
+export const FAR_OFF=900;        // ...and goes off again only inside this (hysteresis)
+export const FRUSTUM_SLOPE=.55;  // the renderer's projection: vertical half-extent per unit depth (horizontal is times aspect)
+export const FADE_SECONDS=.4;
+
+/** Is `rel` (gate minus camera eye, world axes) inside the camera frustum? scale<1 shrinks it. Behind the near plane is outside. */
+export function gateInFrustum(rel,view,scale=1) {
+  if(!view||!Array.isArray(rel)||!rel.every(Number.isFinite))return false;
+  const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],z=dot(rel,view.look);
+  if(!(z>(view.near??.1)))return false;
+  const s=FRUSTUM_SLOPE*scale*z;
+  return Math.abs(dot(rel,view.right))<=s*view.aspect&&Math.abs(dot(rel,view.up))<=s;
+}
+
+/**
+ * Should the trail show? On when the gate is off screen or farther than FAR_ON; cross-body gates always. `was` adds hysteresis:
+ * once on, the gate must be well inside the frustum (90%) and nearer than FAR_OFF before it goes off; once off, it comes on at the edge.
+ */
+export function trailWanted({rel,range,cross=false,view,was=false}) {
+  if(cross||!view||!Number.isFinite(range))return true;
+  if(was)return !(gateInFrustum(rel,view,.9)&&range<FAR_OFF);
+  return !gateInFrustum(rel,view,1)||range>FAR_ON;
+}
+
+/** Eases a 0..1 level toward `want` over FADE_SECONDS. */
+export function stepFade(level,want,dt) {
+  const step=Math.max(0,dt)/FADE_SECONDS;
+  return want?Math.min(1,level+step):Math.max(0,level-step);
+}
+
 const len=v=>Math.hypot(v[0],v[1],v[2]);
 const mix=(a,b,t)=>[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t];
 const unit=(v,fallback)=>{const n=len(v);return n>1e-9&&Number.isFinite(n)?[v[0]/n,v[1]/n,v[2]/n]:fallback;};
@@ -17,7 +48,7 @@ const unit=(v,fallback)=>{const n=len(v);return n>1e-9&&Number.isFinite(n)?[v[0]
  * heading and bends toward the gate (a U-turn to the gate's side when it is behind); `straight` (orbit, other body) is a plain line.
  * Returns [] when there is nothing to show. alpha fades with distance along the trail and, unless `reduced`, pulses.
  */
-export function trailChevrons({delta,yaw,behind=false,straight=false,final=false,time=0,reduced=false,cap=TRAIL_CAP,spacing=TRAIL_SPACING}) {
+export function trailChevrons({delta,yaw,behind=false,straight=false,final=false,time=0,reduced=false,fade=1,cap=TRAIL_CAP,spacing=TRAIL_SPACING}) {
   if(!Array.isArray(delta)||delta.length!==3||!delta.every(Number.isFinite))return [];
   const range=len(delta),reach=Math.min(range-GATE_CLEAR,cap);
   if(!(reach>=TRAIL_START))return [];
@@ -35,6 +66,7 @@ export function trailChevrons({delta,yaw,behind=false,straight=false,final=false
     const dir=unit([2*(b[0]-a[0]),2*(b[1]-a[1]),2*(b[2]-a[2])],d);
     let alpha=.95-.75*u;
     if(!reduced)alpha*=behind?(Math.sin(time*9)>0?1:.45):.75+.25*Math.sin(time*6-i*.9);
+    alpha*=TRAIL_OPACITY*fade;
     out.push({at,dir,size:1.4+.05*len(at),alpha:Math.max(0,Math.min(1,alpha)),style:final&&i===count-1?2:behind?1:0});
   }
   return out;
