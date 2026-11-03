@@ -126,3 +126,27 @@ Flight constants: done enough to implement now. Assets: feasible but not yet pro
 3. Finish reading the shared flight function (bank/auto-level, ground following, collision) and the object init tables for hull/weapons.
 4. Export one craft mesh (X-wing) to glTF in a local-only script; load in the browser via a `ROGUE_DATA` folder picker.
 5. Add an arcade flight controller using the constants above.
+
+## DAT decoder and Falcon test render (phase 2)
+
+- `browser/rogue/dat.js` is a minimal decoder: `readDirectory` scans DATA.DAT for 32-byte entries (u32 offset, u32 size, -1, 2, char[16] name; several scattered runs) and `parseHob` decodes HOB models.
+- HOB: 5 nodes for the Falcon (0x84 bytes each), mesh records (0x60), i16 x/y/z/pad vertices at 1/256 units, packet lists (tag>>24 = dwords, bit0 quad, bit1 normal indices, u16 index pairs, per-vertex colours, optional 4.12 UVs). Vertices are already model-space; node translations are pivots only.
+- `node browser/rogue/render.mjs <DATA.DAT> falcon_HOB out.png` renders four views (530 tris for the Falcon, 504 for the X-wing); both look correct. Vertex colours only; HMT (materials/textures) is still undecoded.
+- Feasibility: loading HOB models at runtime from the user's local files is straightforward, in the SWE1R_DATA pattern. Next: decode HMT textures, then wire into a viewer.
+
+
+### HMT materials and textures (decoded)
+
+- `parseHmt` in `browser/rogue/dat.js`: u32 material count, u32 texture-table offset. Materials are 36 B (u16 kind 1=textured/2=flat, u16 texture index, floats 0.8/1.0/0, u32 10, char name[16]); a packet's material index selects one. Texture table: u32 count, then 0x34 B records (+0x00 pixel offset, +0x24 header offset, +0x28 u16 w,h, +0x2c flags). Flag byte 2 = 4 means 4-bit greyscale (high nibble first), 3 means 32-bit RGBA (engine glow). Pixels follow a 16 B header that starts with the name.
+- Falcon: 29 materials, 23 textures. Rendering with texture x vertex colour (`render.mjs`) gives a recognisable textured Falcon, so the 'HMT undecoded' item above is resolved. Still open: UV wrap/mirroring flags, palette-less transparency, other craft's HMT variants.
+
+
+### Whole-archive decode (phase 3)
+
+- **Segments:** `DATA.HDR` is 32-byte records (char name[28], u32 base) = `data` 0, `dbg_data` 0x1e1cfe0, and a third at 0x1e1d730. Directory entry offsets are relative to the segment that holds the directory run, so `readDirectory(buf, readSegments(hdr))` is required to resolve the second-segment `koelsch` (the Koellsch/Rebel prototype craft) and `c_kolsch` assets.
+- **Coverage:** 533 directory entries; every `*_HOB` (about 130 models) and `*_HMT` decodes, and the test asserts in-range vertex/normal indices for all of them. `opkg2_*` are empty 8-12 byte stubs. The rest of the archive is music (`*_SNG` MIDI-like songs, `*_SND`), UI/fonts/images, `*_DEM` demo data, `*_ANM`/`*_walk` animations, `tl_clouds`, and `weapon_info` / `medal_info` tables (not decoded).
+- **Vehicles with models (HOB+HMT):** flying: `xwing`, `awing`, `ywing`, `vwing`, `falcon`, `snowspeeder`, `koelsch`, `t16` (skyhopper), `tiefighter`, `tiebomber`, `tieinter`, `tie_d`, `rmobil`, `shuttle`/`hvyshut`/`bosshut`, `raptor`, `cloudcar`, `assboat`, `wskimmer`; ground: `atst` (+ `_hi`), `atat` (+ `_lo`), `tankdroid`, `train`, `r_transp`/`r_combat`/`r_train`, many turrets (`gun_turret`, `mis_turret`, `megaturret`, `g5turret`, `dsturret`, `tal_turret`, `r_turret`), `pwrgen`, `radardish`, `lplatform`. `c_*` are cockpit/low-LOD variants; `wm*` are weapon/mission-select previews. Skyboxes are `sky_*`.
+- **Texture formats (flags at +0x2e/+0x2f):** 0/4 = 4-bit intensity, 1/5 = 8-bit intensity, 2 = 16-bit (rare, unverified), 3 = RGB24 or RGBA32 when flag bit 7 is set. Textures are intensity-only; colour comes from the per-vertex colours (the vertex-colour x texture modulation gives the right look).
+- **Normals:** tag bit 1 marks a normal-index block, but sky/box packets fill it with 0xFFFF sentinels (no normals), so such indices are dropped. About 2% of packets (tags like 0x7148/0x5146) have lengths that do not match the simple size formula; they are walked by the length field so vertex indices stay valid.
+- **Open items:** (1) articulated models (AT-ST, AT-AT legs/head) decode as separate parts at joint-local positions; the node record has no usable translation (+0x50 is zero), so the rest-pose assembly probably comes from the `*_walk`/`*_start` animation entries, which are undecoded. (2) UV wrap/clamp flags (TIE wing panels show striping). (3) Collision hulls (`c_*`) and the `weapon_info` table. (4) Level terrain is not in this archive, it is in the other ROGUE files.
+- **Feasibility update:** all static vehicle models and textures can be loaded at runtime from the user's local `DATA.DAT`/`DATA.HDR` (SWE1R_DATA pattern) in about 250 lines of JS, with no committed assets. Articulated walkers need the animation format before they assemble.
