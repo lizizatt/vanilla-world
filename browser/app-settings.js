@@ -19,7 +19,7 @@ $('memory-budget').addEventListener('change',()=>{try{localStorage.setItem('race
 function syncSettings() {
   for(const key of ['horizon','scenery','distant','sound','clouds','planet'])$(key).checked=settings[key];
   $('particles').value=settings.particles;$('time-scale').value=String(TIME_SCALES.indexOf(sanitiseScale(settings.timeScale)));$('time-scale-label').textContent=sanitiseScale(settings.timeScale)?sanitiseScale(settings.timeScale)+'x':'Paused';$('cloud-quality').value=settings.cloudQuality;$('weather').checked=settings.weather!==false;$('weather-quality').value=settings.weatherQuality;$('animate-npcs').checked=settings.animateNpcs;$('creature-collision').checked=settings.creatureCollision!==false;$('ocean-waves').checked=settings.waves!==false;
-  music.setEnabled(settings.music);$('music-on').checked=settings.music;
+  app.syncMusic?app.syncMusic():music.setEnabled(settings.music);$('music-on').checked=settings.music;
   $('control-profile').value=settings.controls;$('camera-distance').value=settings.cameraDistance;
   $('keyboard-guide').textContent=settings.controls==='legacy'
     ?'W/S thrust/reverse · A/D steer · Up/Down pod pitch · X/Space brake · J hop · Shift boost · C drift · U unstuck · F9 reset.'
@@ -89,7 +89,7 @@ $('camera-distance').addEventListener('input',()=>{
   settings.cameraDistance=Number($('camera-distance').value);
   if(settings.cockpit){settings.cockpit=false;app.renderer.camera=undefined;}
 });
-$('music-on').addEventListener('change',()=>{settings.music=$('music-on').checked;music.setEnabled(settings.music);try{localStorage.setItem('racer.music',settings.music?'1':'0');}catch{/* storage unavailable (private mode): setting is not persisted */}});
+$('music-on').addEventListener('change',()=>{settings.music=$('music-on').checked;app.syncMusic?app.syncMusic():music.setEnabled(settings.music);try{localStorage.setItem('racer.music',settings.music?'1':'0');}catch{/* storage unavailable (private mode): setting is not persisted */}});
 $('master-volume').value=String(Math.round(audio.volume*100));
 $('master-volume').addEventListener('input',()=>{audio.setVolume(Number($('master-volume').value)/100);try{localStorage.setItem('racer.masterVolume',$('master-volume').value);}catch{/* storage unavailable (private mode): setting is not persisted */}});
 $('music-volume').addEventListener('input',()=>music.setVolume(Number($('music-volume').value)/100));
