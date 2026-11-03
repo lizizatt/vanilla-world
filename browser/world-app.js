@@ -19,6 +19,7 @@ import {SFX,HEAT,WIPEOUT_NAMES,POD_ENGINES,loadSfx} from './swe1r/sfx.js';
 import {loadHudSprites,loadCountdownSprites,createDial,createHeatGauge} from './swe1r/hud.js';
 import {installHud} from './app-hud.js';
 import {installSettings} from './app-settings.js';
+import {installRadio} from './app-radio.js';
 import {installLoading} from './app-loading.js';
 import {installPose} from './app-pose.js';
 import {installInput} from './app-input.js';
@@ -115,6 +116,7 @@ const client=new WorldClient(data=>{
 Object.assign(app,{canvas,keys,input,audio,cameraCollision,evidence,defaults,settings,gib,gibMem,loading,loadingArt,mapPanel,music,client});
 installHud(app);
 installSettings(app);
+installRadio(app);
 installLoading(app);
 installPose(app);
 installInput(app);
