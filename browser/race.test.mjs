@@ -1,4 +1,4 @@
-import test from 'node:test';
+﻿import test from 'node:test';
 import assert from 'node:assert/strict';
 import {lapTimes,Race,crossesGate,crossingAt,breakoffDistance,validateTrack,BREAKOFF_MARGIN,formatTime,bearing,addScore,validScores,SCORE_LIMIT,unstuckPoses,UNSTUCK_YD} from './race.js';
 
@@ -157,3 +157,47 @@ test('a gate pass counts high above the ground when the reach is widened (low gr
     assert.equal(r.update([0,300,-40],3.2),passes?'finish':null);
   }
 });
+
+// Close-gate regressions (orgrimmar: two gates ~30 yd apart).
+const close=(over={})=>mk({gates:[{pos:[0,0,-100],yaw:0,width:20},{pos:[0,0,-105],yaw:0,width:20},{pos:[0,0,-400],yaw:0,width:20}],...over});
+test('two gates a few yards apart are both credited in order when one update crosses both',()=>{
+  const r=go(new Race(close()));
+  assert.equal(r.update([0,0,-110],4),'gate');assert.equal(r.next,2);
+  assert.equal(r.splits.length,2);assert.ok(r.splits[0]<=r.splits[1]);
+  assert.ok(Math.abs(r.splits[0]-(1-0)*(100/110))<1e-6);
+});
+test('4000 yd/s and a 2 fps hitch cannot tunnel past a thin close pair',()=>{
+  const r=go(new Race(close()));
+  assert.equal(r.update([0,0,-4000],3.5),'finish');assert.equal(r.splits.length,3);
+  const t=go(new Race(mk({gates:[{pos:[0,0,-100],yaw:0,width:20},{pos:[0,0,-100.01],yaw:0,width:20}]})));
+  t.update([0,0,-8000],5);assert.equal(t.next,2);
+});
+test('a gate crossed before N by the chord but within the same update still counts after N',()=>{
+  // Gate A faces -z at z=-100; gate B faces +x at x=5 and is crossed first by the chord, then A.
+  const A={pos:[0,0,-100],yaw:0,width:200},B={pos:[5,0,-60],yaw:-Math.PI/2,width:200};
+  const r=go(new Race(mk({gates:[A,B,{pos:[0,0,-900],yaw:0,width:20}]})));
+  // forward of B (yaw -pi/2) is +x: segment goes (-10,0,-40)->(20,0,-120) crossing B's plane at x=5 (z~-80) before A's z=-100 plane
+  r.last=[-10,0,-40];r.lastT=3;
+  assert.equal(r.update([20,0,-120],4),'gate');assert.equal(r.next,2);
+  assert.ok(r.splits[1]>=r.splits[0]);
+});
+test('a gate crossed in an earlier update before N was credited does not count',()=>{
+  const r=go(new Race(close()));
+  r.update([0,0,-50],4);r.next=0;
+  const far=go(new Race(mk()));
+  far.update([0,0,-350],4); // far gate only; first gate crossed in same update, then second
+  assert.equal(far.next,2);
+  const skip=go(new Race(mk({gates:[{pos:[0,0,-100],yaw:0,width:20},{pos:[0,0,-300],yaw:0,width:20}]})));
+  skip.update([100,0,-50],4);skip.update([100,0,-350],5); // misses gate 0 laterally, then flies past gate 1 wide too
+  assert.equal(skip.next,0);
+  const late=go(new Race(mk()));
+  late.update([60,0,-150],4);late.update([0,0,-350],5);   // gate 0 missed (wide), gate 1 crossed alone
+  assert.equal(late.next,0);
+});
+test('angled close gates credit both gates from one long step',()=>{
+  const a=Math.PI/6,g=(x,z,yaw)=>({pos:[x,0,z],yaw,width:60});
+  const r=go(new Race(mk({gates:[g(-50,-86.6,a),g(-52,-91,a),g(0,-900,0)]})));
+  assert.equal(r.update([-200,0,-346.4],4),'gate');assert.equal(r.next,2);
+});
+
+
