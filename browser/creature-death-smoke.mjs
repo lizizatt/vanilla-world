@@ -1,4 +1,4 @@
-﻿import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {readFile,mkdir,writeFile} from 'node:fs/promises';
 import {extname} from 'node:path';
@@ -17,7 +17,7 @@ const patches={
   '/world-worker-protocol.js':s=>s.replace('const result=await handle(data),start=performance.now();',
     "const began=performance.now(),result=await handle(data),start=performance.now();if(data.action==='frame')result.testHandlerMs=start-began;"),
   '/world-engine.js':s=>s.replace('actors.collide(sceneState.instances,sceneState.assets,actorCraft[0],actorCraft[1],actorCraft[2],npcDisplayOf);}','actors.collide(sceneState.instances,sceneState.assets,actorCraft[0],actorCraft[1],actorCraft[2],npcDisplayOf);if(performance.now()-(globalThis.__dt||0)>400){globalThis.__dt=performance.now();const near=[];for(const i of sceneState.instances){if(!i.id.includes(":npc:"))continue;const d=Math.hypot(i.matrix[12]-actorCraft[0],i.matrix[13]-actorCraft[1]);if(d<25)near.push({id:i.id,d,cls:actors.classOf(i),size:actors.sizeOf(i)?.slice(),dur:actors.durationOf(i),z:i.matrix[14]});}const durs={};for(const i of sceneState.instances){if(i.id.includes(":npc:"))durs[i.path.slice(-28)]=actors.durationOf(i);}if(near.length)postMessage({durs,event:"cc-diag",stats:actors.cc.stats,speed:actors.cc.lastSpeed,en:actors.cc.enabled,craft:actorCraft.slice(0,4),near:near.slice(0,4)});}}'),
-  '/actors.js':s=>s.replace('if (!displayId) return;','this.post({event:"cc-diag",sd:{displayId:displayId??null,id:e.id}},[]);if (!displayId) return;').replace('if (!r || this.closed) return;','this.post({event:"cc-diag",sdr:r?{path:r.path,len:r.bytes?.length}:null},[]);if (!r || this.closed) return;'),
+  '/actors.js':s=>s.replace('if (!displayId) return;','this.post({event:"cc-diag",sd:{displayId:displayId??null,id:e.id,at:Date.now()}},[]);if (!displayId) return;').replace('if (!r || this.closed) return;','this.post({event:"cc-diag",sdr:r?{path:r.path,len:r.bytes?.length,at:Date.now()}:null},[]);if (!r || this.closed) return;'),
   '/world-app.js':s=>s.replace('const client=new WorldClient(data=>{',
     "const client=new WorldClient(data=>{if(data.event==='creature-sound'||data.event==='npc-fx'||data.event==='cc-diag'){(globalThis.__cc??=[]).push({t:performance.now(),event:data.event,path:data.path,bytes:data.bytes?.length,diag:data.event==='cc-diag'?data:undefined,dead:data.dead,hidden:data.hidden,x:data.x,y:data.y,z:data.z});}"),
 };
@@ -33,11 +33,15 @@ const server=createServer(async(req,res)=>{
 }).listen(0,'127.0.0.1');
 await new Promise(r=>server.once('listening',r));
 const browser=await chromium.launch({channel:'msedge',headless:true,args:['--mute-audio']}),errors=[],result={errors,attempts:[]};
-const pct=(a,p)=>a.length?[...a].sort((x,y)=>x-y)[Math.min(a.length-1,Math.floor(a.length*p))]:NaN;
+const OUT_RMS_MIN=.01,pct=(a,p)=>a.length?[...a].sort((x,y)=>x-y)[Math.min(a.length-1,Math.floor(a.length*p))]:NaN;
 try{
   await mkdir(out,{recursive:true});
   const context=await browser.newContext({viewport:{width:1280,height:720},serviceWorkers:'block'});
-  await context.addInitScript(()=>{delete Navigator.prototype.serviceWorker;navigator.getGamepads=()=>[];});
+  await context.addInitScript(()=>{delete Navigator.prototype.serviceWorker;navigator.getGamepads=()=>[];
+    // Output tap: the first AnalyserNode is the master bus every voice joins before the destination. Polled faster than its window so no sound slips between reads.
+    window.__tap={peak:0,rms:0,log:[]};const mk=AudioContext.prototype.createAnalyser;
+    AudioContext.prototype.createAnalyser=function(){const a=mk.call(this);if(!window.__tapNode){window.__tapNode=a;a.fftSize=2048;const buf=new Float32Array(2048);
+      setInterval(()=>{a.getFloatTimeDomainData(buf);let s=0,p=0;for(const v of buf){s+=v*v;p=Math.max(p,Math.abs(v));}const r=Math.sqrt(s/buf.length);if(p>0)__tap.log.push({t:performance.now(),peak:p,rms:r});__tap.peak=Math.max(__tap.peak,p);__tap.rms=Math.max(__tap.rms,r);},20);}return a;};});
   const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
   await page.goto(`http://127.0.0.1:${server.address().port}/?test`);
   await page.waitForFunction(()=>!document.getElementById('select').disabled);
@@ -46,10 +50,11 @@ try{
     window.__spatial=[];window.__dpose=[];window.__handlers=[];
     const spatial=WorldAudio.prototype.spatial;
     WorldAudio.prototype.spatial=async function(key,bytes,pos,view){
-      const r=await spatial.call(this,key,bytes,pos,view),buf=this.spatialBuffers?.get(key);
+      const eye=view?.eye,g=eye?{d:Math.hypot(pos[0]-eye[0],pos[1]-eye[1],pos[2]-eye[2])}:{},gate={enabled:this.enabled,state:this.context?.state,hasEye:!!eye,dist:g.d,voices:this.spatialVoices||0,hadBytes:!!bytes,wall:Date.now(),t0:performance.now()};
+      const r=await spatial.call(this,key,bytes,pos,view),buf=await Promise.resolve(this.spatialBuffers?.get(key)).catch(()=>undefined);
       let rms=0,duration=0,peak=0;
       if(buf?.getChannelData){const d=buf.getChannelData(0);duration=buf.duration;for(const v of d){rms+=v*v;peak=Math.max(peak,Math.abs(v));}rms=Math.sqrt(rms/d.length);}
-      __spatial.push({key,played:r,duration,rms,peak,ctx:this.ctx?.state,t:performance.now()});return r;
+      __spatial.push({key,gate,played:r,reason:this.lastSpatial?.reason,duration,rms,peak,ctx:this.ctx?.state,t:performance.now()});return r;
     };
     const pose=WorldRenderer.prototype.pose;
     WorldRenderer.prototype.pose=function(data){
@@ -64,18 +69,22 @@ try{
   await page.locator('#world').click();
   // Default: Stormwind. SMOKE_PATH=basilisk SMOKE_TRACK=steamwheedle: focus on the creature spawn of that model path nearest the track start instead.
   const pack=JSON.parse(await readFile(new URL('npc-pack.public.json',root),'utf8')),track=process.env.SMOKE_TRACK&&JSON.parse(await readFile(new URL(`tracks/${process.env.SMOKE_TRACK}.json`,root),'utf8'));
-  result.focus=await page.evaluate(([spawns,wantPath,start])=>{
+  result.focus=await page.evaluate(([spawns,wantPath,start,mapId])=>{
     worldTest.settings({sound:true,creatureCollision:true});
     const m=worldEvidence.info.manifest,T=1600/3,at=(r,x,y)=>[-y+r.placement[0]+(32-r.tile_origin[0])*T,-x+r.placement[1]+(32-r.tile_origin[1])*T];
     if(!wantPath){const r=m.regions.find(r=>r.map==='Azeroth');worldTest.focus([-650+r.placement[0]+(32-r.tile_origin[0])*T,130,8850+r.placement[1]+(32-r.tile_origin[1])*T,0,-.3]);return{stormwind:true};}
-    const r=m.regions.find(r=>r.map==='Kalimdor'),best=spawns.map(s=>({s,p:at(r,s[2]/10,s[3]/10)})).sort((a,b)=>Math.hypot(a.p[0]-start[0],a.p[1]-start[2])-Math.hypot(b.p[0]-start[0],b.p[1]-start[2]))[0];
+    const r=m.regions.find(r=>r.map===(mapId===0?'Azeroth':'Kalimdor')),best=spawns.map(s=>({s,p:at(r,s[2]/10,s[3]/10)})).sort((a,b)=>Math.hypot(a.p[0]-start[0],a.p[1]-start[2])-Math.hypot(b.p[0]-start[0],b.p[1]-start[2]))[0];
     worldTest.focus([best.p[0],s0z(best.s),best.p[1],0,-.3]);return{spawn:best.s,render:best.p,distToStart:Math.hypot(best.p[0]-start[0],best.p[1]-start[2])};
     function s0z(s){return s[4]/10+40;}
-  },[pack.spawns.filter(s=>s[0]===1&&process.env.SMOKE_DISPLAYS?.split(',').includes(String(s[1]))),process.env.SMOKE_PATH||'',track?.start.pos||[0,0,0]]);
+  },[pack.spawns.filter(s=>s[0]===Number(process.env.SMOKE_MAP??1)&&process.env.SMOKE_DISPLAYS?.split(',').includes(String(s[1]))),process.env.SMOKE_PATH||'',track?.start.pos||[0,0,0],Number(process.env.SMOKE_MAP??1)]);
   console.log('focus',JSON.stringify(result.focus));  if(await page.locator('#drive').evaluate(e=>!e.hidden).catch(()=>false)){await page.locator('#drive').evaluate(e=>e.click());}
   await page.locator('#world').focus();
   await page.waitForFunction(()=>worldTest.renderer().moves?.size>5,null,{timeout:120000});
   await page.waitForTimeout(4000);
+  if(result.focus.render){   // far spawn: move the craft there and let its creatures stream in
+    await page.evaluate(([x,z,y])=>worldTest.restore([x,y,z,0]),[result.focus.render[0],result.focus.render[1],result.focus.spawn[4]/10+60]);
+    await page.waitForTimeout(8000);
+  }
   await page.evaluate(()=>{let last;setInterval(()=>{const s=worldEvidence.state;if(s!==last&&Number.isFinite(s?.testHandlerMs))__handlers.push(s.testHandlerMs);last=s;},4);});
   const candidates=()=>page.evaluate(want=>{
     const r=worldTest.renderer(),eye=Array.from(worldEvidence.state.telemetry),reg=r.manifest.regions[r.sceneRegion],T=1600/3,R=m=>[-m[13]+reg.placement[0]+(32-reg.tile_origin[0])*T,m[14],-m[12]+reg.placement[1]+(32-reg.tile_origin[1])*T];
@@ -94,11 +103,13 @@ try{
   result.calibration={h0,h1,sign};console.log('calibration',JSON.stringify(result.calibration));
   const killed=[];console.log('candidates',JSON.stringify(await page.evaluate(()=>{const r=worldTest.renderer(),n=r.instances.filter(i=>i.id.includes(':npc:'));return{npcs:n.length,paths:[...new Set(n.map(i=>String(i.path||i.key).split('\\\\').pop()))].slice(0,20),eye:Array.from(worldEvidence.state.telemetry).slice(0,3)};})),(await candidates()).length);
   const cc=()=>page.evaluate(()=>({events:__cc??[],sounds:__spatial,hold:__dpose.length}));
+  for(let i=0;i<60&&!(await candidates()).length;i++)await page.waitForTimeout(1000);   // creatures stream in after a far focus
+  console.log('eye',JSON.stringify(await telemetry()),'candidates matching',(await candidates()).length);
   for(const [attempt,c0] of (await candidates()).slice(0,40).entries()){
     const target=c0.render,dist=130,approach=Math.random()*Math.PI*2,start=[target[0]+Math.cos(approach)*dist,target[1]+3,target[2]+Math.sin(approach)*dist];
     const want=Math.atan2(target[2]-start[2],target[0]-start[0]),yaw=wrap((want-h0)/sign);
     try{await page.evaluate(p=>worldTest.restore(p),[...start,yaw]);}catch(e){console.log('restore failed',String(e.message).slice(0,60));continue;}await page.locator('#world').focus();
-    await page.keyboard.down('KeyW');await page.keyboard.down('ShiftLeft');
+    await page.keyboard.down('KeyW');if(!process.env.SMOKE_SLOW)await page.keyboard.down('ShiftLeft');
     let hit,closest=1e9,vert=0,speed=0;const t0=Date.now();
     while(Date.now()-t0<6000&&!hit){await page.waitForTimeout(100);
       const s=await page.evaluate(id=>({dead:worldTest.renderer().deadNpcs?.has(id),tel:Array.from(worldEvidence.state.telemetry)}),c0.id);hit=s.dead;
@@ -118,6 +129,11 @@ try{
   const state2=await page.evaluate(id=>({n:__dpose.filter(p=>p.id===id).length,dead:worldTest.renderer().deadNpcs?.has(id)}),kill.id);
   await page.screenshot({path:fileURLToPath(new URL('corpse.png',out))});
   const snap=await cc();
+  // Measured output: the loudest RMS the master analyser saw while each played death sound was sounding (the buffer's own RMS only proves the decode).
+  const tapLog=await page.evaluate(()=>__tap.log);
+  result.tap=await page.evaluate(()=>({peak:__tap.peak,rms:__tap.rms,state:__tapNode?.context.state,n:__tap.log.length}));
+  for(const s of snap.sounds)s.outRms=Math.max(0,...tapLog.filter(l=>l.t>=s.gate.t0&&l.t<=s.t+s.duration*1000+100).map(l=>l.rms));
+  console.log('tap',JSON.stringify(result.tap),'outRms',JSON.stringify(snap.sounds.map(s=>({key:s.key.split('\\').pop(),played:s.played,dist:s.gate.dist,outRms:s.outRms}))));
   result.death={id:kill.id,deathPosesPosted:n1,distinctDeathFrames:new Set(state1.dpose.map(p=>p.h)).size,heldDeadAfter14s:state2.dead,postsDuringHold:state2.n-n1,sounds:snap.sounds,soundEvents:snap.events.filter(e=>e.event==='creature-sound'),soundDiag:snap.events.filter(e=>e.diag&&(e.diag.sd||e.diag.sdr)).map(e=>e.diag)};console.log('soundDiag',JSON.stringify(result.death.soundDiag));
   console.log('death',JSON.stringify(result.death));
   // The corpse goes (hidden) then respawns: wait it out in real time.
@@ -135,7 +151,7 @@ try{
   assert(n1>1&&result.death.distinctDeathFrames>1,'death clip did not animate');
   assert.equal(result.death.postsDuringHold,0,'corpse pose was re-posted during hold');
   assert(state2.dead,'corpse not held');
-  assert(result.death.sounds.some(s=>s.played&&s.duration>0&&s.rms>.003),'no audible spatial death sound');
+  assert(result.death.sounds.some(s=>s.played&&s.duration>0&&s.rms>.003&&s.outRms>OUT_RMS_MIN),`no death sound reached the output (analyser rms ${JSON.stringify(result.death.sounds.map(s=>s.outRms))})`);
   assert(process.env.SMOKE_QUICK||(gone&&back),'creature did not go and respawn');
   assert(result.handler.p99<=20,`handler p99 ${result.handler.p99}`);
   assert.deepEqual([...errors,...result.pageErrors],[]);

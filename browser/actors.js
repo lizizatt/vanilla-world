@@ -64,6 +64,7 @@ export class ActorService {
       return;
     }
     this.assets = assets;
+    void this.sounds.load();   // have the sound tables ready before the first kill (a no-op once loaded)
     const events = cc.update(instances, isActorInstance, x, y, z, this.now() / 1000, this.positionOf, this.sizeOf, this.classOf, this.durationOf);
     for (const e of events) this.deathSound(e, displayOf);
     if (cc.revision === this.fxRevision && !events.length) return;
