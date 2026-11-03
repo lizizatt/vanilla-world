@@ -93,18 +93,22 @@ export class Race {
     if(this.state!=='running'||body===null){this.last=here;this.lastT=now;return null;}
     if(this.last) {
       const a=this.last,t0=this.lastT??now;
-      let from=a,done=0;
+      // Every gate is tested against the WHOLE segment, so a close or angled gate N+1 that the chord crosses before gate N
+      // (the real path curved through N first) still counts in the same update; it is credited no earlier than N so splits
+      // stay monotonic. A gate crossed in an earlier update, before N was credited, never counts (no skipping required gates).
+      let done=0;const credited=new Set();
       while(this.state==='running') {
-        const gate=this.track.gates[this.gateIndex];
+        const idx=this.gateIndex;
+        if(credited.has(idx))break; // one crossing of a gate is credited once per update
+        const gate=this.track.gates[idx];
         if(body!==undefined&&gateBody(this.track,gate)!==body)break;
-        const u=crossingAt(gate,from,pos,this.reach);
+        const u=crossingAt(gate,a,pos,this.reach);
         if(u<0)break;
-        const total=done+(1-done)*u,at=t0+(now-t0)*total;
+        credited.add(idx);
+        done=Math.max(done,u);const at=t0+(now-t0)*done;
         this.splits.push(at-this.t0);this.next++;event='gate';
         if(this.next>=this.totalGates){this.state='finished';this.time=at-this.t0;event='finish';}
         else if(this.gateIndex===0)this.lap++;
-        done=Math.min(1,total+1e-6);if(done>=1)break; // step past the plane so the same gate cannot re-trigger
-        from=[a[0]+(pos[0]-a[0])*done,a[1]+(pos[1]-a[1])*done,a[2]+(pos[2]-a[2])*done];
       }
     }
     this.last=pos;this.lastT=now;
