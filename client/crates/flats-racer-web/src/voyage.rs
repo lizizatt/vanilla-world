@@ -1493,7 +1493,7 @@ impl Voyage {
                         (nw[0] - f64::from(v[0])) as f32,
                     ]
                 });
-                let n = if material == 2.0 {
+                let n = if material == 2.0 || material == 4.0 {
                     None
                 } else {
                     let a = [p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2]];
@@ -1532,11 +1532,13 @@ impl Voyage {
             emit(&chunk.positions, None, &chunk.indices, 0.0).map_err(|e| JsValue::from_str(&e))?;
             for liquid in &chunk.liquids {
                 if matches!(liquid.kind, LiquidKind::Still | LiquidKind::Ocean) {
+                    // Material 2 is inland (lake) liquid; 4 is ocean-kind coast water, which keeps the opaque ocean look.
+                    let material = if liquid.kind == LiquidKind::Ocean { 4.0 } else { 2.0 };
                     emit(
                         &liquid.positions,
                         Some(&liquid.depths),
                         &liquid.indices,
-                        2.0,
+                        material,
                     )
                     .map_err(|e| JsValue::from_str(&e))?;
                 }

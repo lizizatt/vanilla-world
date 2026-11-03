@@ -97,8 +97,8 @@ export function drawTerrain(r,pass,terrain) {
       if(item.region!==undefined){encoder.setIndexBuffer(r.indices.get(item.region),'uint32');encoder.drawIndexed(3072);}
       else encoder.draw(item.count,1,item.first||0);
     };
-    // Inland liquid is drawn translucent after the beds; tiles with a splat bed hold only liquid in `buffer`, so the opaque pass skips them.
-    for(const item of terrain)if(!item.material)drawItem(item);
+    // Inland liquid (material 2) is discarded here and drawn translucent after the beds; ocean-kind coast water (4) and unsplatted terrain draw opaque, including the liquid-only buffers of splat tiles.
+    for(const item of terrain)drawItem(item);
     encoder.setPipeline(r.splatPipeline);
     for(const tile of terrain)if(tile.material){
       const material=tile.material;

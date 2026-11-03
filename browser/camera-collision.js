@@ -31,14 +31,16 @@ function triangleHit(vertices,i,from,direction) {
   const t=(bx*qx+by*qy+bz*qz)/determinant;
   return t>=0 && t<=1?t:Infinity;
 }
+/** Kind 2 is any tile liquid: inland (2) and open-ocean coast water (4). */
+const isKind=(m,kind)=>kind===2?m===2||m===4:m===kind;
 function terrainTile(tile,kind=0,source=tile.vertices) {
   const buckets=Array.from({length:CELLS*CELLS},()=>[]);
   let count=0;
-  for(let i=0;i<source.length;i+=21)if(source[i+6]===kind)count+=9;
+  for(let i=0;i<source.length;i+=21)if(isKind(source[i+6],kind))count+=9;
   const positions=new Float32Array(count);
   count=0;
   for(let i=0;i<source.length;i+=21) {
-    if(source[i+6]!==kind)continue;
+    if(!isKind(source[i+6],kind))continue;
     const first=count;
     for(let v=0;v<3;v++)for(let a=0;a<3;a++)positions[count++]=source[i+v*7+a];
     const x0=cell(Math.min(source[i],source[i+7],source[i+14]));
@@ -58,9 +60,9 @@ export function prepareDetail(data) {
     tile.camera=terrainTile(tile);
     tile.camera.water=terrainTile(tile,2);
     let count=0;
-    for(let i=0;i<tile.vertices.length;i+=7)if(tile.vertices[i+6]===2)count+=7;
+    for(let i=0;i<tile.vertices.length;i+=7)if(isKind(tile.vertices[i+6],2))count+=7;
     tile.liquid=new Float32Array(count);let offset=0;
-    for(let i=0;i<tile.vertices.length;i+=7)if(tile.vertices[i+6]===2){
+    for(let i=0;i<tile.vertices.length;i+=7)if(isKind(tile.vertices[i+6],2)){
       tile.liquid.set(tile.vertices.subarray(i,i+7),offset);offset+=7;
     }
   }
