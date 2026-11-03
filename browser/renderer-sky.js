@@ -8,7 +8,7 @@ import {AZEROTH,ELUNE,BODIES,planetFactorsFor,farDrawLevel} from './bodies.js';
 import {activeBody,activeFramedBody} from './body-shaders.js';
 import {patchesAt,packPatches,PATCH_GRID} from './globe-patches.js';
 import {makeOtherSet} from './renderer-init.js';
-import {createRegistry,defaultManifest,bakeSurface,surfaceTexel,splatMinimap,adtChunk} from './tile-registry.js';
+import {createRegistry,surfaceChunks,bakeSurface,surfaceTexel,splatMinimap} from './tile-registry.js';
 import {HEIGHT_W,HEIGHT_H,encodeHeights} from './height-bake.js';
 import {PLANET_RADIUS,WORLD_CENTRE,spaceUniform,FALLBACK_RECTS} from './space.js';
 import {settlementPositions,createNightBake,litSpot,NIGHT_W,NIGHT_H} from './night-lights.js';
@@ -53,7 +53,17 @@ export function otherSurface(r,body,state,now) {
   if(state.surfaceBytes&&!state.farVersion)return state.surfaceBytes;
   if(state.farBytes&&(state.farBakedVersion===state.farVersion||now-(state.farBakedAt||0)<2000))return state.farBytes;
   const real=!!r.bodyManifests?.[body.id]?.world_bounds||!body.sea,rects=r.bodyRects?.[body.id]??FALLBACK_RECTS;
-  state.farBytes=bakeSurface(createRegistry([...defaultManifest(undefined,rects).map(c=>real?{...c,provider:{sample:()=>({skip:true})}}:c),adtChunk(state.farGrid??state.colourGrid)]));
+  // Tiles streamed since the last bake touch a few texels of the colour grid: patch a copy of the previous bake instead of re-sampling all 524k texels.
+  const key=JSON.stringify(rects)+real;
+  if(state.farBytes&&state.farRegistry&&state.farRegistryKey===key&&state.farRegistryGrid===state.farGrid&&state.farGrid&&state.farDirty&&state.farBakedVersion!==undefined){
+    const next=state.farBytes.slice();
+    for(const k of state.farDirty)next.set(surfaceTexel(state.farRegistry,k%1024,Math.floor(k/1024),1024,512),k*4);
+    state.farDirty.clear();state.farBytes=next;
+  } else {
+    const grid=state.farGrid??state.colourGrid;
+    state.farRegistry=createRegistry(surfaceChunks(rects,real,grid));state.farRegistryKey=key;state.farRegistryGrid=state.farGrid;state.farDirty?.clear();
+    state.farBytes=bakeSurface(state.farRegistry);
+  }
   state.farBakedVersion=state.farVersion;state.farBakedAt=now;
   return state.farBytes;
 }
@@ -122,7 +132,7 @@ export function drawPlanet(r,pass,pf,near) {
   (r.bodyRects??={})[activeBody().id]=rects;
   if(pf.registry&&r.surfaceKey!==key){
     r.surfaceRegistry=// With real data the minimap colours own the land: procedural fill would paint green over the unseen coast water.
-    createRegistry([...defaultManifest(undefined,rects).map(c=>r.manifest?.world_bounds||!activeBody().sea?{...c,provider:{sample:()=>({skip:true})}}:c),adtChunk(r.colourGrid)]);
+    createRegistry(surfaceChunks(rects,!!r.manifest?.world_bounds||!activeBody().sea,r.colourGrid));
     r.surfaceBytes=bakeSurface(r.surfaceRegistry);r.colourDirty.clear();r.surfaceDirty=true;r.surfaceKey=key;
   }
   if(pf.registry&&r.colourDirty.size&&performance.now()-(r.colourAt||0)>1000){

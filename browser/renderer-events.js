@@ -14,7 +14,7 @@ import {NIGHT_H} from './night-lights.js';
 import {AdmissionFade,terrainEdgeMask,readySceneInstances} from './renderer-helpers.js';
 // Ocean mesh padding: about half the planet circumference per side (3.04 R), so the fill never wraps over itself.
 const OCEAN_FILL=Math.round(PLANET_RADIUS*3.04);
-const PLANET_STATE=['heightGrid','colourGrid','colourDirty','horizonMini','surfaceRegistry','surfaceBytes','surfaceKey','nightBake','litCells','litQueue','lightsKey','landRects','farGrid','farMini','farVersion'];
+const PLANET_STATE=['heightGrid','colourGrid','colourDirty','horizonMini','surfaceRegistry','surfaceBytes','surfaceKey','nightBake','litCells','litQueue','lightsKey','landRects','farGrid','farMini','farVersion','farBytes','farBakedVersion','farBakedAt','farRegistry','farRegistryKey','farRegistryGrid','farDirty'];
 /** Parks the departing body's globe state (height/colour grids, baked surface and night lights) and restores the arriving body's, so a repeat swap re-bakes nothing; a first visit starts from empty grids. */
 export function swapPlanetState(r,from,to) {
   r.bodyStates??=new Map();(r.bodyManifests??={})[from]=r.manifest;
@@ -23,7 +23,7 @@ export function swapPlanetState(r,from,to) {
   r.heightDirty=true;r.heightAt=0;r.surfaceDirty=!!r.surfaceBytes;if(r.nightBake)r.nightBake.rows=[0,NIGHT_H-1];
 }
 const emptyPlanetState=r=>({heightGrid:new Float32Array(r.heightGrid.length).fill(-Infinity),colourGrid:createColourGrid(),colourDirty:new Set(),horizonMini:new Map(),
-  surfaceRegistry:undefined,surfaceBytes:undefined,surfaceKey:undefined,nightBake:undefined,litCells:undefined,litQueue:undefined,lightsKey:undefined,landRects:[],farGrid:createColourGrid(),farMini:new Map(),farVersion:0});
+  surfaceRegistry:undefined,surfaceBytes:undefined,surfaceKey:undefined,nightBake:undefined,litCells:undefined,litQueue:undefined,lightsKey:undefined,landRects:[],farGrid:createColourGrid(),farMini:new Map(),farVersion:0,farBytes:undefined,farBakedVersion:undefined,farBakedAt:undefined,farRegistry:undefined,farRegistryKey:undefined,farRegistryGrid:undefined,farDirty:undefined});
 /** Parked globe state of a body that is not the active chart, created on first use. */
 export function bodyState(r,id) {
   r.bodyStates??=new Map();
@@ -34,8 +34,9 @@ export function bodyState(r,id) {
 /** Minimap colour for a body's far globe, kept apart from the active globe's own colour grid so it never changes what the active far renderer draws. A tile needs both its WDL placement and its minimap, in either order. */
 export function farColour(s,body,key,part) {
   if(!s.farGrid)return;
+  s.farDirty??=new Set();
   const e={...s.farMini.get(key),...part};s.farMini.set(key,e);
-  if(e.placement&&e.rgba){splatMinimap(s.farGrid,e.rgba,MINIMAP_SIZE,e.placement,body.centre,body.radius,new Set(),s.heightGrid);s.farMini.delete(key);s.farVersion=(s.farVersion??0)+1;}
+  if(e.placement&&e.rgba){splatMinimap(s.farGrid,e.rgba,MINIMAP_SIZE,e.placement,body.centre,body.radius,s.farDirty??new Set(),s.heightGrid);s.farMini.delete(key);s.farVersion=(s.farVersion??0)+1;}
 }
 export function bodyEvent(r,body,data) {
   if(!r.heightGrid)return false;

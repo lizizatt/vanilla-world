@@ -10,13 +10,14 @@ export const track = JSON.parse(fs.readFileSync(new URL('./tracks/steamwheedle.j
 export const out = path.resolve('..', 'runtime', 'gate-preview');
 fs.mkdirSync(out, { recursive: true });
 
-export async function openLab({ swe1r = true, width = 1280, height = 720, clouds = false } = {}) {
+export async function openLab({ swe1r = true, width = 1280, height = 720, clouds = false, setup, args = [] } = {}) {
   const { WOW_DATA, SWE1R_DATA } = process.env;
   if (!WOW_DATA) throw new Error('WOW_DATA required');
   const ctx = await chromium.launchPersistentContext(process.env.LAB_PROFILE || fs.mkdtempSync(path.join(os.tmpdir(), 'edge-gatelab-')),
-    { channel: process.env.LAB_CHANNEL || 'msedge', headless: !process.env.LAB_HEADED, args: ['--mute-audio', ...(process.env.LAB_UNCAPPED ? ['--disable-frame-rate-limit', '--disable-gpu-vsync'] : [])], ignoreDefaultArgs: ['--autoplay-policy=no-user-gesture-required'], viewport: { width, height }, serviceWorkers: 'block' });
+    { channel: process.env.LAB_CHANNEL || 'msedge', headless: !process.env.LAB_HEADED, args: ['--mute-audio', ...args, ...(process.env.LAB_UNCAPPED ? ['--disable-frame-rate-limit', '--disable-gpu-vsync'] : [])], ignoreDefaultArgs: ['--autoplay-policy=no-user-gesture-required'], viewport: { width, height }, serviceWorkers: 'block' });
   const page = ctx.pages()[0] || await ctx.newPage();
   const errors = [];
+  if (setup) await setup(ctx, page);
   page.on('pageerror', e => errors.push(e.message));
   if (process.env.LAB_LOG) page.on('console', m => console.log('page', m.type(), m.text().slice(0, 400)));
   await page.goto(`http://127.0.0.1:${process.env.PORT || 4183}/?test`);
