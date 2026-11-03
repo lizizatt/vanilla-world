@@ -39,7 +39,7 @@ const fly=async race=>{
       worldTest.gamepads([pad]);
       const s=cb.samples.at(-1);
       if(!s||t-s.at>100||(race&&r&&(s.next!==r.next||s.body!==cbBody().id)))cb.samples.push({at:t,body:cbBody().id,jp:j?.parent??null,p:worldEvidence.state.telemetry.slice(0,6),
-        state:r?.state,next:r?.next,pod:pod&&{rem:pod.remaining,spent:pod.spent?.length,mode:j?.mode},gateText:document.getElementById('race-gate').textContent,arrowHidden:document.getElementById('race-arrow').hidden,props:worldTest.propCount?.(),swaps:worldEvidence.bodySwaps});
+        state:r?.state,next:r?.next,pod:pod&&{rem:pod.remaining,spent:pod.spent?.length,mode:j?.mode},gateText:document.getElementById('race-gate').textContent,rangeText:document.getElementById('race-range').textContent,props:worldTest.propCount?.(),swaps:worldEvidence.bodySwaps});
       requestAnimationFrame(record);
     };requestAnimationFrame(record);
   },race);
@@ -150,11 +150,11 @@ try{
   assert(!res.boardHidden&&res.board.includes('Moon to home'));assert.equal(res.scores?.runs?.length,1);
   const S=res.samples;
   const first=S.find(s=>s.state==='running'&&s.body==='elune'&&s.next===0);
-  assert(first&&first.arrowHidden===false&&/^Gate 1\/2$/.test(first.gateText),`gate 1 HUD on Elune: ${JSON.stringify(first)}`);
+  assert(first&&first.rangeText&&/^Gate 1\/2$/.test(first.gateText),`gate 1 HUD on Elune: ${JSON.stringify(first)}`);
   const away=S.find(s=>s.state==='running'&&s.body==='elune'&&s.next===1);
-  assert(away&&away.arrowHidden===true&&/Gate 2\/2 \(azeroth\)/.test(away.gateText),`cross-body HUD: ${JSON.stringify(away)}`);
+  assert(away&&away.rangeText&&/Gate 2\/2 \(azeroth\)/.test(away.gateText),`cross-body HUD: ${JSON.stringify(away)}`);
   const home=S.find(s=>s.state==='running'&&s.body==='azeroth'&&s.jp!=='elune'&&s.next===1);
-  assert(home&&home.arrowHidden===false&&/^Gate 2\/2$/.test(home.gateText)&&home.props>0,`Azeroth HUD and finish gantry: ${JSON.stringify(home)}`);
+  assert(home&&home.rangeText&&/^Gate 2\/2$/.test(home.gateText)&&home.props>0,`Azeroth HUD and finish gantry: ${JSON.stringify(home)}`);
   assert(!S.some(s=>s.state==='cancelled'));
   const p99=res.frames.toSorted((a,b)=>a-b)[Math.floor(res.frames.length*.99)];
   assert(p99<=20,`frame p99=${p99}ms`);

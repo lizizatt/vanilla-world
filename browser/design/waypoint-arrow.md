@@ -49,3 +49,14 @@ Screenshots (kept out of git, in the session files folder `C:\Users\liz\.copilot
 ## Suggested implementation sketch (for later)
 
 Extend `gateGuide` with `elevation` (atan2(dy, horizontal range)); add a tiny overlay module that projects `gate.pos` with the renderer's view-projection, clamps to an inset ellipse when outside, and sets CSS custom properties; reuse existing `#race-range` text. Honour `prefers-reduced-motion` for the pulse.
+
+## Implemented
+
+Concept C shipped (`gate-trail.js`, chevron pass in `world-renderer.js`/`renderer-init.js`, wired in `app-race.js`). The small compass (`#race-arrow`) is removed; `#race-range` stays. No extra gate marker was added.
+
+- Trail of up to 14 chevrons capped to 70 yd, bending from the heading toward the gate, fading with distance; unlit so it stays readable at night; black outline, no depth test.
+- Behind: cyan double chevron that bends in a U-turn and blinks (static under `prefers-reduced-motion`). Final gate: checkered last chevron.
+- Orbit regime and cross-body gates use a straight line along the shared-frame direction; range shows as `Nk yd`. Geometry depends only on direction and the capped length, so it stays finite/bounded at any range. Track format already supports per-gate `body`.
+- Hidden outside races, during body swap, or when there is no next gate. No terrain sampling (altitude is interpolated craft to gate).
+- Verified by unit tests only (`gate-trail.test.mjs`, `gate-guide.test.mjs`). Unverified: real-browser render/shader compile, cross-body smoke script, handler p99 (~20 ms) / 0 errors.
+

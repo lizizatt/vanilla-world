@@ -11,6 +11,7 @@ import {partMatrix,wreckFrame,WRECK_SECONDS} from './wreck.js';
 import {maelstromCentre,resolveCloudQuality,SlowFrameGuard,sunDirection} from './clouds.js';
 import {exhaustPoints,emitPlumes,emitDebris,emitHeatSmoke,emitGroundDust,emitWaterFx,overWater,QUALITY,INSTANCE_FLOATS,particleUniform,emitLamps,emitDomeMist,particleLight} from './particles.js';
 import {domePlacement} from './dome-shell.js';
+import {packChevrons,CHEVRON_FLOATS} from './gate-trail.js';
 import {domeMask} from './elune-sites.js';
 import {beamState} from './beam.js';
 import {advanceIntake,writeIntakeMatrix} from './swe1r/intakes.js';
@@ -77,6 +78,8 @@ export class WorldRenderer {
   drawable(vertices,placement,map){return drawable(this,vertices,placement,map);}
   setFlags(positions){return setFlags(this,positions);}
   setGates(items){return setGates(this,items);}
+  /** Breadcrumb chevrons (craft-local, see gate-trail.js); drawn for 250 ms, so a stalled caller lets them lapse. */
+  setCrumbs(list){this.crumbs=list?.length?{list,until:performance.now()+250}:undefined;}
   releaseMaterial(item){return releaseMaterial(this,item);}
   release(item){return release(this,item);}
   destroyCraft(craft){return destroyCraft(this,craft);}
@@ -336,6 +339,18 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
           depthStencilAttachment:depthAttachment('fx',this.depth.createView())});
         fxPass.setPipeline(this.particlePipeline);fxPass.setBindGroup(0,this.particleGroup);fxPass.setVertexBuffer(0,this.particleBuffer);
         fxPass.draw(6,count);fxPass.end();
+      }
+    }
+    const crumbs=this.crumbs;
+    if(crumbs&&performance.now()<crumbs.until&&this.crumbPipeline&&!this.cameraBlocked&&!this.wreck) {
+      const eye=this.view.eye,n=packChevrons(crumbs.list,[state[0]-eye[0],state[1]-eye[1],state[2]-eye[2]],this.crumbInstances);
+      if(n) {
+        this.device.queue.writeBuffer(this.crumbBuffer,0,this.crumbInstances,0,n*CHEVRON_FLOATS);
+        this.device.queue.writeBuffer(this.particleUniformBuffer,0,particleUniform(this.view,near));
+        const crumbPass=encoder.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}],
+          depthStencilAttachment:depthAttachment('fx',this.depth.createView())});
+        crumbPass.setPipeline(this.crumbPipeline);crumbPass.setBindGroup(0,this.crumbGroup);crumbPass.setVertexBuffer(0,this.crumbBuffer);
+        crumbPass.draw(6,n);crumbPass.end();
       }
     }
     if(fx&&quality>0&&this.wreck&&wreckFrameNow&&craft?.fx) {
