@@ -1,22 +1,27 @@
 // usage: node browser/rogue/render.mjs <DATA.DAT> <asset e.g. falcon_HOB> <out.png>
 // Software-rasterises a decoded HOB model from 4 viewpoints (z-buffer, vertex colour x lambert). Debug tool; output stays untracked.
 import fs from 'node:fs';
-import { readDirectory, parseHob, parseHmt, hobTriangles } from './dat.js';
+import path from 'node:path';
+import { readDirectory, readSegments, parseHob, parseHmt, hobTriangles } from './dat.js';
 import { encodePng } from '../swe1r/png.js';
 
 const [dat, asset = 'falcon_HOB', out = 'rogue-render.png'] = process.argv.slice(2);
-const buf = fs.readFileSync(dat), dir = readDirectory(buf), e = dir.get(asset);
+const buf = fs.readFileSync(dat), hdrPath = path.join(path.dirname(dat), 'DATA.HDR');
+const dir = readDirectory(buf, fs.existsSync(hdrPath) ? readSegments(fs.readFileSync(hdrPath)) : [0]), e = dir.get(asset);
 if (!e) { console.error('no such asset; have:', [...dir.keys()].join(' ')); process.exit(1); }
 const hob = parseHob(buf, e.offset, e.size), tris = hobTriangles(hob);
 const he = dir.get(asset.replace(/_HOB$/, '_HMT')), hmt = he && parseHmt(buf, he.offset, he.size);
 const texOf = t => { const m = hmt?.materials[t.material]; return m?.kind === 1 ? hmt.textures[m.tex] : null; };
 console.log(asset, 'nodes', hob.nodes.length, 'meshes', hob.nodes.reduce((a, n) => a + n.meshes.length, 0), 'tris', tris.length, 'bounds', JSON.stringify(hob.bounds));
 
+// header bounds are not reliable for every model, so measure the decoded triangles
+const bmin = [Infinity, Infinity, Infinity], bmax = [-Infinity, -Infinity, -Infinity];
+for (const t of tris) for (const v of t.v) for (let i = 0; i < 3; i++) { bmin[i] = Math.min(bmin[i], v[i]); bmax[i] = Math.max(bmax[i], v[i]); }
 const W = 480, H = 360, views = [['3/4', 0.6, 0.45], ['top', 0, 1.5], ['side', Math.PI / 2, 0], ['front', 0, 0]];
 const img = new Uint8Array(W * H * 2 * 4 * 1).fill(0);
 const full = new Uint8Array(W * 2 * H * 2 * 4);
 for (let i = 3; i < full.length; i += 4) full[i] = 255;
-const ctr = [0, 1, 2].map(i => (hob.bounds.min[i] + hob.bounds.max[i]) / 2), R = Math.hypot(...hob.bounds.max.map((x, i) => x - hob.bounds.min[i])) / 2;
+const ctr = [0, 1, 2].map(i => (bmin[i] + bmax[i]) / 2), R = Math.hypot(...bmax.map((x, i) => x - bmin[i])) / 2;
 views.forEach(([, yaw, pitch], vi) => {
   const ox = (vi % 2) * W, oy = (vi >> 1) * H, z = new Float32Array(W * H).fill(1e9);
   const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);

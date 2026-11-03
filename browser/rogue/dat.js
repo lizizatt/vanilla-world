@@ -2,18 +2,25 @@
 // Verified against the Falcon (see browser/design/rogue-squadron-survey.md, "DAT decoder").
 const SCALE = 1 / 256;
 
-/** The asset directory sits near the end of DATA.DAT as 32-byte entries: u32 offset, u32 size, i32 -1, u32 2, char name[16]. */
-export function readDirectory(buf) {
+/** DATA.HDR: 32-byte records, char name[28] + u32 segment base. Directory offsets are relative to the segment that holds the directory. */
+export function readSegments(hdr) {
+  const segs = [];
+  for (let o = 0; o + 32 <= hdr.length; o += 32) segs.push(hdr.readUInt32LE(o + 28));
+  return segs.sort((a, b) => a - b);
+}
+
+/** Asset directories are runs of 32-byte entries in DATA.DAT: u32 offset, u32 size, i32 -1, u32 2, char name[16]. Pass segment bases (readSegments) to resolve all segments. */
+export function readDirectory(buf, segments = [0]) {
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   const isEntry = o => o >= 0 && o + 32 <= buf.length && dv.getInt32(o + 8, true) === -1 && dv.getUint32(o + 12, true) === 2 &&
     dv.getUint32(o, true) < buf.length && buf[o + 16] > 32;
   const out = new Map();
-  // directories are scattered (one per data segment): take every run of two or more consecutive entries
   for (let p = 0; p + 64 <= buf.length; p += 4) {
     if (!isEntry(p) || !isEntry(p + 32)) continue;
+    const base = segments.filter(s => s <= p).pop() ?? 0;
     for (; isEntry(p); p += 32) {
       let n = ''; for (let i = 16; i < 32 && buf[p + i]; i++) n += String.fromCharCode(buf[p + i]);
-      if (!out.has(n)) out.set(n, { offset: dv.getUint32(p, true), size: dv.getUint32(p + 4, true) });
+      if (!out.has(n)) out.set(n, { offset: base + dv.getUint32(p, true), size: dv.getUint32(p + 4, true) });
     }
   }
   if (!out.size) throw Error('DATA.DAT directory not found');
@@ -31,6 +38,7 @@ export function readDirectory(buf) {
  *    u16 normal indices (optional), ABGR vertex colours, optional (u,v) u16 pairs in 4.12 fixed point.
  */
 export function parseHob(buf, offset, size) {
+  if (size < 0x80) return { name: '', nodes: [], bounds: { min: [0, 0, 0], max: [0, 0, 0] } }; // empty placeholder entries (e.g. opkg2)
   const dv = new DataView(buf.buffer, buf.byteOffset + offset, size);
   const u32 = o => dv.getUint32(o, true), u16 = o => dv.getUint16(o, true), f32 = o => dv.getFloat32(o, true);
   let name = ''; for (let i = 8; i < 24 && dv.getUint8(i); i++) name += String.fromCharCode(dv.getUint8(i));
@@ -45,7 +53,7 @@ export function parseHob(buf, offset, size) {
       let p = o + 12;
       const rdIdx = () => { const r = []; for (let i = 0; i < nvt; i++) r.push(u16(p + (i >> 1) * 4 + (i & 1) * 2)); p += 8; return r; };
       const poly = { material: u32(o + 8) >>> 16, tag, idx: rdIdx() };
-      if (tag & 2) poly.nidx = rdIdx();
+      if (tag & 2) { const ni = rdIdx(); if (ni.every(i => i < nn)) poly.nidx = ni; } // 0xFFFF sentinels = unused normals
       poly.colors = []; for (let i = 0; i < nvt; i++, p += 4) poly.colors.push(u32(p));
       if (o + len * 4 - p >= nvt * 4) { poly.uv = []; for (let i = 0; i < nvt; i++, p += 4) poly.uv.push([u16(p) / 4096, u16(p + 2) / 4096]); }
       mesh.polys.push(poly);
@@ -69,10 +77,12 @@ export function parseHob(buf, offset, size) {
 /**
  * HMT: u32 material count, u32 texture-table offset; materials are 36 B (u16 kind 1=textured/2=flat, u16 texture index,
  * f32 0.8, f32 1.0, f32 0, u32 10, char name[16]). Texture table: u32 count, then 0x34 B records: +0x00 pixel data
- * offset, +0x24 header offset, +0x28 u16 width, u16 height, +0x2c flags[4]. Flag byte 2 = 4 selects 4-bit greyscale
- * (high nibble first, I4), 3 selects 32-bit RGBA; pixel data follows a 16 B header (name at +0).
+ * offset, +0x24 header offset, +0x28 u16 width, u16 height, +0x2e format, +0x2f flags. Formats: 0/4 = 4-bit intensity
+ * (high nibble first), 1/5 = 8-bit intensity, 2 = 16-bit 565 (rare, unverified), 3 = RGB24, or RGBA32 when flags bit 7 is
+ * set (engine glow); pixel data follows a 16 B header holding the name.
  */
 export function parseHmt(buf, offset, size) {
+  if (size < 16) return { materials: [], textures: [] };
   const dv = new DataView(buf.buffer, buf.byteOffset + offset, size);
   const cstr = (p, n) => { let s = ''; for (let i = 0; i < n && dv.getUint8(p + i); i++) s += String.fromCharCode(dv.getUint8(p + i)); return s; };
   const nm = dv.getUint32(0, true), tOff = dv.getUint32(4, true), nt = dv.getUint32(tOff, true);
@@ -82,15 +92,16 @@ export function parseHmt(buf, offset, size) {
   });
   const textures = Array.from({ length: nt }, (_, i) => {
     const r = tOff + 4 + i * 0x34, off = dv.getUint32(r, true), w = dv.getUint16(r + 0x28, true), h = dv.getUint16(r + 0x2a, true);
-    const rgba = new Uint8Array(w * h * 4), mode = dv.getUint8(r + 0x2e);
+    const rgba = new Uint8Array(w * h * 4), fmt = dv.getUint8(r + 0x2e), flag = dv.getUint8(r + 0x2f);
     for (let k = 0; k < w * h; k++) {
-      if (mode === 3) for (let c = 0; c < 4; c++) rgba[k * 4 + c] = dv.getUint8(off + k * 4 + c);
-      else {
-        const b = dv.getUint8(off + (k >> 1)), v = ((k & 1) ? b & 15 : b >> 4) * 17;
-        rgba.set([v, v, v, 255], k * 4);
-      }
+      let c;
+      if (fmt === 3) c = flag & 0x80 ? [0, 1, 2, 3].map(j => dv.getUint8(off + k * 4 + j)) : [0, 1, 2].map(j => dv.getUint8(off + k * 3 + j)).concat(255);
+      else if (fmt === 2) { const v = dv.getUint16(off + k * 2, true); c = [(v >> 11 & 31) * 8, (v >> 5 & 63) * 4, (v & 31) * 8, 255]; }
+      else if (fmt === 1 || fmt === 5) { const v = dv.getUint8(off + k); c = [v, v, v, 255]; }
+      else { const b = dv.getUint8(off + (k >> 1)), v = ((k & 1) ? b & 15 : b >> 4) * 17; c = [v, v, v, 255]; }
+      rgba.set(c, k * 4);
     }
-    return { name: cstr(dv.getUint32(r + 0x24, true), 16), w, h, rgba };
+    return { name: cstr(dv.getUint32(r + 0x24, true), 16), w, h, format: fmt, flags: flag, rgba };
   });
   return { materials, textures };
 }
