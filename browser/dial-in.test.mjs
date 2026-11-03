@@ -80,3 +80,21 @@ test('a real exported race (Orgrimmar) dials through every gate and stays valid'
   assert.ok(d.toTrack());
   while(s.undo());assert.equal(JSON.stringify(d.gates),s.entry);
 });
+
+import {normalizeTrack,formatTrack} from './track-normalize.js';
+test('rotation edits undo/redo as one gesture and survive normalize + export round trip',()=>{
+  const s=new DialSession(draft(),1),y0=s.gate.yaw;
+  s.begin();s.setYaw(.4);s.setYaw(.9);s.setYaw(1.2);s.end();
+  assert.equal(s.gate.yaw,1.2);assert.equal(s.undoStack.length,1);
+  assert.ok(s.undo());assert.equal(s.gate.yaw,y0);
+  assert.ok(s.redo());assert.equal(s.gate.yaw,1.2);
+  const norm=normalizeTrack(s.draft.toTrack(),()=>({ground:0,water:0}));
+  assert.equal(norm.track.gates[1].yaw,1.2);
+  const back=JSON.parse(formatTrack(norm.track));
+  assert.equal(back.gates[1].yaw,1.2);assert.deepEqual(Object.keys(back.gates[1]).sort(),['pos','width','yaw']);
+  s.begin();s.setYaw(y0);s.end();s.cancel();assert.equal(s.gate.yaw,y0);
+});
+test('a rotation gesture that ends where it started leaves no undo entry',()=>{
+  const s=new DialSession(draft(),0),y=s.gate.yaw;
+  s.begin();s.setYaw(2);s.setYaw(y);s.end();assert.equal(s.undoStack.length,0);assert.equal(s.dirty,false);
+});

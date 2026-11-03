@@ -88,6 +88,35 @@ export function dragTo(drag,ray,out) {
   return true;
 }
 
+// Rotation ring: a horizontal circle of radius len*RING_R about the gate's vertical axis (gates only carry a yaw in the track format).
+export const RING_R=.8,SNAP_DEG=15,TWO_PI=Math.PI*2;
+export const wrapAngle=a=>{const r=((a%TWO_PI)+TWO_PI)%TWO_PI;return r>Math.PI?r-TWO_PI:r;};
+export const snapAngle=(a,deg=SNAP_DEG)=>{const st=deg*Math.PI/180;return Math.round(a/st)*st;};
+// Yaw whose forward (-sin,-cos) points from the origin at the ground hit, the convention of yawToward().
+const hitYaw=(ray,origin,out)=>{
+  if(Math.abs(ray.d[1])<1e-6)return false;
+  const s=(origin[1]-ray.o[1])/ray.d[1];if(s<=0)return false;
+  const dx=ray.o[0]+ray.d[0]*s-origin[0],dz=ray.o[2]+ray.d[2]*s-origin[2];
+  out.yaw=Math.atan2(-dx,-dz);out.r=Math.hypot(dx,dz);return true;
+};
+const yawScratch={yaw:0,r:0};
+// True when the ray crosses the ring plane within tol of the ring.
+export function pickRing(ray,origin,len,tol) {
+  return hitYaw(ray,origin,yawScratch)&&Math.abs(yawScratch.r-len*RING_R)<=tol;
+}
+export const makeRot=()=>({yaw0:0,grab:0,tmp:{yaw:0,r:0}});
+// Start rotating a gate whose yaw is `yaw`; returns false if the ray misses the ring plane.
+export function beginRot(rot,ray,origin,yaw) {
+  if(!hitYaw(ray,origin,rot.tmp))return false;
+  rot.yaw0=yaw;rot.grab=rot.tmp.yaw;return true;
+}
+// New yaw for the current ray (the grabbed point follows the cursor); snapDeg>0 rounds it. Returns undefined on a degenerate ray.
+export function rotTo(rot,ray,origin,snapDeg=0) {
+  if(!hitYaw(ray,origin,rot.tmp))return;
+  const y=wrapAngle(rot.yaw0+rot.tmp.yaw-rot.grab);
+  return snapDeg>0?wrapAngle(snapAngle(y,snapDeg)):y;
+}
+
 // Writes the projected screen point into out [sx,sy,depth]; returns false behind the eye.
 export function projectInto(view,w,h,x,y,z,out) {
   const rx=x-view.eye[0],ry=y-view.eye[1],rz=z-view.eye[2];
