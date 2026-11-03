@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {SHORE_N,SHORE_CELL,SHORE_D_MIN,SHORE_D_MAX,buildShoreClasses,shoreSolve,shoreTexture,shoreAt,shoreClass,shoreDepthTexture} from './shore-field.js';
 import {BEACH,beachProfile,beachPeriodFraction,swashEnvelope,packBeachUniform,beachShading} from './beach-waves.js';
+import {dipDepth} from './ocean-mesh.js';
 
 const N=SHORE_N;
 // Land is z rows >= 60 (seaward normal -z); optional inlet and tidepools.
@@ -84,6 +85,19 @@ test('open sea with no ground under it (water, NaN ground, available) bakes deep
   const g=buildShoreClasses(sample,()=>[0,NaN,0,0,0],[0,0],0,N);
   assert.equal(shoreClass(g.data[7]),1);
   assert.equal(shoreDepthTexture(g.data)[7],255);
+});
+
+test('buildShoreClasses: the Maelstrom disc is open sea, not an inland pond (no square hole in the beach layer over the whirlpool)',()=>{
+  const wp={centre:[0,0],radius:1800};
+  // Dip plus storm waves: water far below the sea-level tolerance and varying cell to cell.
+  const sample=p=>{const o=new Float64Array(p.length/2*8);for(let n=0;n<p.length/2;n++){const r=Math.hypot(p[n*2],p[n*2+1]);o[n*8]=-dipDepth(r,{radius:1800,depth:380})+8*Math.sin(n);}return o;};
+  const surface=()=>[0,-1000,0,0,0];
+  const zeros=g=>g.data.filter(c=>c===0).length;
+  assert.ok(zeros(buildShoreClasses(sample,surface,[0,0],0,N))>0,'without the disc the lowered water reads as land');
+  assert.equal(zeros(buildShoreClasses(sample,surface,[0,0],0,N,wp)),0,'every cell inside the disc is water');
+  const pond=p=>{const o=new Float64Array(p.length/2*8);o.fill(-55);return o;};
+  const out=buildShoreClasses(pond,surface,[5000,0],0,N,wp);
+  assert.equal(zeros(out),out.data.length,'a pond outside the disc is still land');
 });
 
 test('buildShoreClasses: unavailable tiles are water, land is 0, waves give class 2',()=>{
