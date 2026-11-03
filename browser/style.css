@@ -300,3 +300,7 @@ details.welcome-help summary { cursor: pointer; } details.welcome-help p { margi
 #garage-preview canvas:active { cursor: grabbing; }
 #garage-preview-note { position: absolute; inset: 0; margin: 0; display: grid; place-items: center; font-size: .8rem; opacity: .7; pointer-events: none; }
 #garage-preview-note:empty { display: none; }
+
+#te-bodybar { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
+#te-list li.te-jump { list-style: none; text-align: center; font-size: .75rem; color: #1a1209; background: #c8a24a; border-radius: 3px; padding: 2px 4px; margin: 3px 0; }
+#te-dial-legs { display: block; margin: 4px 0; }

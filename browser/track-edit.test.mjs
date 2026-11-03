@@ -99,3 +99,25 @@ test('drafts keep their body: moon tracks stay on the moon, Azeroth tracks stay 
   const az=TrackDraft.blank([1,2,3],0);az.addGate([1,2,-40]);
   assert.equal('body' in az.toTrack(),false);
 });
+
+test('cross-body drafting: gates record their body, p2p is forced, and headings never use another body\'s frame',()=>{
+  const d=TrackDraft.blank([0,10,0],0,'elune');
+  d.mode='lap';
+  const a=d.addGate([0,10,-100],undefined,'elune');
+  assert.equal(d.gates[a].body,undefined);assert.equal(d.gates[a].yaw,yawToward([0,10,0],[0,10,-100]));
+  const b=d.addGate([5000,10,9000],undefined,'azeroth');
+  assert.equal(d.gates[b].body,'azeroth');assert.equal(d.gates[b].yaw,0);
+  assert.equal(d.mode,'p2p');assert.equal(d.laps,1);
+  const c=d.addGate([5000,10,8900],undefined,'azeroth');
+  assert.equal(d.gates[c].yaw,yawToward([5000,10,9000],[5000,10,8900]));
+  assert.deepEqual([0,1,2].map(i=>d.bodyAt(i)),['elune','azeroth','azeroth']);
+});
+
+test('moveInOrder swaps neighbours, keeps each gate body, undoes, and refuses out-of-range moves',()=>{
+  const d=TrackDraft.blank([0,10,0],0,'elune');
+  d.addGate([0,10,-100],undefined,'elune');d.addGate([0,10,-200],undefined,'elune');d.addGate([9,10,-9],undefined,'azeroth');
+  assert.equal(d.moveInOrder(1,1),2);
+  assert.deepEqual([0,1,2].map(i=>d.bodyAt(i)),['elune','azeroth','elune']);
+  assert.equal(d.moveInOrder(0,-1),-1);assert.equal(d.moveInOrder(2,1),-1);assert.equal(d.moveInOrder(5,1),-1);
+  assert.ok(d.undo());assert.deepEqual([0,1,2].map(i=>d.bodyAt(i)),['elune','elune','azeroth']);
+});
