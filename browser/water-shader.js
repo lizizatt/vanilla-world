@@ -78,7 +78,7 @@ export const WATER_LOOK={
 /** CPU mirror of the shader's water body colour for a ramp depth 0..1 (0 at the shore, 1 deep). */
 export const waterBody=depth=>WATER_LOOK.deep.map((d,i)=>d+(WATER_LOOK.shallow[i]-d)*Math.exp(-WATER_LOOK.sigma[i]*depth*WATER_LOOK.column));
 // Inland lakes (tile liquid over real terrain): the ocean's look with calmer normals, no whitecaps and a depth-based opacity so the bed shows through the shallows.
-export const LAKE_LOOK={slope:.4,minAlpha:.35,maxAlpha:.84,absorb:3.2,fresnelAlpha:.6,edgeFade:.45,skyCalm:.75,foam:.3};
+export const LAKE_LOOK={slope:.4,minAlpha:.35,maxAlpha:.84,absorb:3.2,fresnelAlpha:.6,edgeFade:.45,skyCalm:1,foam:.3};
 /** CPU mirror of the lake opacity for a ramp depth 0..1 (0 shore, 1 deep) and a Schlick fresnel 0..1: Beer-Lambert absorption clamped to the lake bounds, lifted toward opaque at grazing angles. */
 export const lakeAlpha=(depth,fresnel=0)=>{
   const d=Math.min(Math.max(depth,0),1),base=Math.min(Math.max(1-Math.exp(-LAKE_LOOK.absorb*d),LAKE_LOOK.minAlpha),LAKE_LOOK.maxAlpha);
@@ -166,7 +166,8 @@ fn waterShade(p:vec3f,ramp:f32,rampWidth:f32,dx:vec2f,dy:vec2f,lake:f32)->vec4f 
   let whitecap=  smoothstep(mix(1.4,.95,windK),mix(1.75,1.3,windK),crest+.35*a.b+.5*wave.crest)*capK;
     color=mix(color,${v3(WATER_LOOK.foam)}*mix(1.0,.35,nightK()),whitecap*.35);
   let lap=.012*sin(u.settings.y*1.4+a.r*2.0);
-  let foam=smoothstep(0.0,.015,depth)*(1.0-smoothstep(.035+lap,.09+lap,depth))
+  let foamIn=mix(.0,.05,lake);let foamOut0=mix(.035,.16,lake);let foamOut1=mix(.09,.42,lake);
+  let foam=smoothstep(foamIn,foamIn+mix(.015,.12,lake),depth)*(1.0-smoothstep(foamOut0+lap,foamOut1+lap,depth))
     *min(1.0,rampWidth*400.0)*detail;
   // North is -z, so atan2(-z,x) grows counter-clockwise on the map like the maelstrom arms.
   let spiral=smoothstep(.55,.95,.5+.5*cos(${W.arms.toFixed(1)}*(atan2(-wd.y,wd.x)+${W.pitch.toFixed(2)}*log(max(wr,1.0)/200.0)-wt*${W.spin.toFixed(2)})))*(.6+.6*a.b)*smoothstep(${W.core.toFixed(1)},${(W.core*3).toFixed(1)},wr);

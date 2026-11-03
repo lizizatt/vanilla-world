@@ -28,12 +28,12 @@ try{
   await page.waitForFunction(()=>worldEvidence.ready||worldEvidence.errors.length,null,{timeout:180000});
   assert.deepEqual(await page.evaluate(()=>worldEvidence.errors),[]);
   for(const p of poses){
-    const pose=await page.evaluate(({map,wow,yaw,pitch})=>{
+    const pose=p.raw||await page.evaluate(({map,wow,yaw,pitch})=>{
       const r=worldEvidence.info.manifest.regions.find(r=>r.map===map);
       return [-wow[1]+r.placement[0]+(32-r.tile_origin[0])*1600/3,wow[2],
         -wow[0]+r.placement[1]+(32-r.tile_origin[1])*1600/3,yaw,pitch];
     },p);
-    await page.evaluate(({pose,time})=>{worldTest.focus(pose);if(time!==undefined)worldTest.timeLock(time);},{pose,time:p.time});
+    await page.evaluate(({pose,time,raw})=>{if(raw)worldTest.restore(pose);else worldTest.focus(pose);if(time!==undefined)worldTest.timeLock(time);},{pose,time:p.time,raw:!!p.raw});
     await page.waitForTimeout(Number(process.env.SETTLE_MS||15000));
     await page.screenshot({path:fileURLToPath(new URL(`${p.name}.png`,out))});
     result.views.push({name:p.name,pose,sky:await page.evaluate(()=>worldTest.sky()),errors:await page.evaluate(()=>worldEvidence.errors)});
