@@ -33,12 +33,18 @@ Direction: no gibbing; play the creature's own death animation and its own death
 - WoW .wav files are often ADPCM; if the browser's `decodeAudioData` rejects one, that creature stays silent (none occur in the real Data: all 183 death files are 16-bit mono PCM, 22.05 kHz except 2 kodo files at 44.1 kHz, none silent; the browser decoded a real one to 2.7 s, RMS 0.14).
 
 ## Proposed rules (as implemented, constants in `CREATURE_COLLISION`)
-- Speed threshold 22 yd/s; every hit on a creature that has a Death clip kills it.
+- Speed threshold 22 yd/s (hit volume grows with speed, see above); every hit on a creature that has a Death clip kills it.
 - Classes: critter, creature, civilian. Large creatures (radius > 3 or height > 6: dragons, giants, elementals) are ignored so they can later block instead.
 - No craft impulse or slowdown for now; later options: light slowdown on hits, hard block for large creatures.
 - Rate limits: 8 kills/s, 6 simultaneously dying.
 - Dead wanderers freeze in place.
 
+## Speed- and boost-scaled hit volume
+The craft's creature hit volume (`craftRadius` 2.5 yd, `craftHalfHeight` 1.5 yd) is multiplied by a scale `s` (`CreatureCollision.scale`, constants in `CREATURE_COLLISION`):
+- 1x at rest / low speed (<= `scaleFrom` 22 yd/s, which is also the kill threshold), smoothstep up to 2x (`speedScale`) at `cruiseSpeed` 150 yd/s (the pod's default Cruise speed, `world-tuning.js`), 2x beyond that.
+- 3x (`boostScale`) while boosting. Boosting = boost key held with throttle > 0 (`message.flags & 2`), sampled into `actorCraft[4]` in `world-engine.js` and passed through `ActorService.collide` to `update(..., boosting)`.
+- Never pops: `s` chases `scaleTarget(speed, boosting)` with an exponential ease (`scaleTau` 0.25 s, frame-rate independent), so boost onset takes ~1 s to reach ~3x and release eases back. Speed is the measured horizontal displacement per actor tick. `s` resets to 1 on disable, first sample or a teleport gap.
+- Scales the swept craft box radius and half-height, and the broadphase `reach` (60 yd + scaled radius). Nothing else: no terrain/physics/camera/pod code reads it; it only changes which creatures are hit. Creature-size gates are unchanged.
 ## Tests
 `creature-collision.test.mjs`: swept overlap/tunnelling, speed threshold, priming/gap reset, class/size/disabled filters, no-Death-clip skip, Death state machine (dying/dead/gone/respawn), rate limits, pose hold-last-frame, no per-tick refilter, ActorService poses/`npc-fx`/removal/death-sound post, wander freeze. `creature-sound.test.mjs`: DBC chain with synthetic tables, malformed DBCs, read-once service and silent fallbacks, spatial gain.
 

@@ -1,4 +1,4 @@
-﻿import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {readFile,mkdir,writeFile} from 'node:fs/promises';
 import {extname} from 'node:path';
@@ -16,7 +16,7 @@ const mime={'.html':'text/html','.js':'text/javascript','.wasm':'application/was
 const patches={
   '/world-worker-protocol.js':s=>s.replace('const result=await handle(data),start=performance.now();',
     "const began=performance.now(),result=await handle(data),start=performance.now();if(data.action==='frame')result.testHandlerMs=start-began;"),
-  '/world-engine.js':s=>s.replace('actors.collide(sceneState.instances,sceneState.assets,actorCraft[0],actorCraft[1],actorCraft[2],npcDisplayOf);}','actors.collide(sceneState.instances,sceneState.assets,actorCraft[0],actorCraft[1],actorCraft[2],npcDisplayOf);if(performance.now()-(globalThis.__dt||0)>400){globalThis.__dt=performance.now();const near=[];for(const i of sceneState.instances){if(!i.id.includes(":npc:"))continue;const d=Math.hypot(i.matrix[12]-actorCraft[0],i.matrix[13]-actorCraft[1]);if(d<25)near.push({id:i.id,d,cls:actors.classOf(i),size:actors.sizeOf(i)?.slice(),dur:actors.durationOf(i),z:i.matrix[14]});}const durs={};for(const i of sceneState.instances){if(i.id.includes(":npc:"))durs[i.path.slice(-28)]=actors.durationOf(i);}if(near.length)postMessage({durs,event:"cc-diag",stats:actors.cc.stats,speed:actors.cc.lastSpeed,en:actors.cc.enabled,craft:actorCraft.slice(0,4),near:near.slice(0,4)});}}'),
+  '/world-engine.js':s=>s.replace('actors.collide(sceneState.instances,sceneState.assets,actorCraft[0],actorCraft[1],actorCraft[2],npcDisplayOf,actorCraft[4]===1);}','actors.collide(sceneState.instances,sceneState.assets,actorCraft[0],actorCraft[1],actorCraft[2],npcDisplayOf,actorCraft[4]===1);if(performance.now()-(globalThis.__dt||0)>400){globalThis.__dt=performance.now();const near=[];for(const i of sceneState.instances){if(!i.id.includes(":npc:"))continue;const d=Math.hypot(i.matrix[12]-actorCraft[0],i.matrix[13]-actorCraft[1]);if(d<25)near.push({id:i.id,d,cls:actors.classOf(i),size:actors.sizeOf(i)?.slice(),dur:actors.durationOf(i),z:i.matrix[14]});}const durs={};for(const i of sceneState.instances){if(i.id.includes(":npc:"))durs[i.path.slice(-28)]=actors.durationOf(i);}if(near.length)postMessage({durs,event:"cc-diag",stats:actors.cc.stats,speed:actors.cc.lastSpeed,scale:actors.cc.scale,en:actors.cc.enabled,craft:actorCraft.slice(0,4),near:near.slice(0,4)});}}'),
   '/actors.js':s=>s.replace('if (!displayId) return;','this.post({event:"cc-diag",sd:{displayId:displayId??null,id:e.id}},[]);if (!displayId) return;').replace('if (!r || this.closed) return;','this.post({event:"cc-diag",sdr:r?{path:r.path,len:r.bytes?.length}:null},[]);if (!r || this.closed) return;'),
   '/world-app.js':s=>s.replace('const client=new WorldClient(data=>{',
     "const client=new WorldClient(data=>{if(data.event==='creature-sound'||data.event==='npc-fx'||data.event==='cc-diag'){(globalThis.__cc??=[]).push({t:performance.now(),event:data.event,path:data.path,bytes:data.bytes?.length,diag:data.event==='cc-diag'?data:undefined,dead:data.dead,hidden:data.hidden,x:data.x,y:data.y,z:data.z});}"),
@@ -130,6 +130,7 @@ try{
   await page.screenshot({path:fileURLToPath(new URL('respawn.png',out))});
   const h=await page.evaluate(()=>__handlers);
   result.handler={frames:h.length,p50:pct(h,.5),p95:pct(h,.95),p99:pct(h,.99),max:Math.max(...h)};
+  result.scale={max:Math.max(0,...(await page.evaluate(()=>(globalThis.__cc||[]).map(e=>e.diag?.scale??0)))),note:'craft hit-volume scale seen in cc-diag (3x while boosting)'};console.log('scale',JSON.stringify(result.scale));
   result.pageErrors=await page.evaluate(()=>worldEvidence.errors);
   console.log('handler',JSON.stringify(result.handler),'errors',JSON.stringify(errors),JSON.stringify(result.pageErrors));
   assert(n1>1&&result.death.distinctDeathFrames>1,'death clip did not animate');
