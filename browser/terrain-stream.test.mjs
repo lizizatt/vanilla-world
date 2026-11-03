@@ -51,7 +51,7 @@ test('scene and craft batches validate paths and prepare invariant draw state on
 
 test('terrain bundles preserve draws and refresh on residency, order and material changes',()=>{
   const renderer=Object.create(WorldRenderer.prototype),executed=[];
-  Object.assign(renderer,{format:'bgra8unorm',pipeline:'terrain',splatPipeline:'splat',
+  Object.assign(renderer,{format:'bgra8unorm',pipeline:'terrain',splatPipeline:'splat',lakePipeline:'lake',
     indices:new Map([[0,'horizon-indices']]),terrainBundleBuilds:0});
   renderer.device={createRenderBundleEncoder:descriptor=>{
     assert.deepEqual(descriptor,{colorFormats:['bgra8unorm'],depthStencilFormat:'depth24plus'});
@@ -73,10 +73,14 @@ test('terrain bundles preserve draws and refresh on residency, order and materia
   assert.equal(executed[1],executed[0]);assert.equal(renderer.terrainBundleBuilds,1);
   detail.material={group:'layers',vertices:'layer-vertices',indices:'layer-indices',count:12};
   renderer.drawTerrain(pass,[horizon,detail]);
-  assert.deepEqual(executed[2].slice(-4),[
+  assert.deepEqual(executed[2].slice(-8,-4),[
     ['setBindGroup',0,'layers',[256]],['setVertexBuffer',0,'layer-vertices'],
     ['setIndexBuffer','layer-indices','uint32'],['drawIndexed',12],
   ]);
+  // A tile with a splat bed leaves the opaque pass; its liquid-only buffer is drawn translucent after the bed.
+  assert(!executed[2].slice(0,executed[2].indexOf(['setPipeline','splat'])).some(c=>c[0]==='setVertexBuffer'&&c[1]==='near-vertices'));
+  assert.deepEqual(executed[2].slice(-4),[['setPipeline','lake'],['setBindGroup',0,'near',[256]],['setVertexBuffer',0,'near-vertices'],['draw',6,1,0]]);
+  delete detail.material;
   detail.offset=0;horizon.offset=256;
   renderer.drawTerrain(pass,[detail,horizon]);
   assert.equal(renderer.terrainBundleBuilds,3);

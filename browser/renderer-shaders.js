@@ -35,7 +35,7 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
     (z-u.settings.w)*u.eye.w/(u.eye.w-u.settings.w),z);
   v.p=position;v.n=normal;v.material=material;v.uv=p.xz/(1600.0/3.0);v.w=lattice;return v;
 }
-@fragment fn fs(v:V)->@location(0) vec4f {
+fn shadeTerrain(v:V)->vec4f {
   nightOver=localNight(v.p);
   if(v.material==9.0 && ((u.wave.z>0.0 && max(abs(v.w.x-u.wave.x),abs(v.w.y-u.wave.y))<u.wave.z) || !clipLive(v.w.xy))){discard;}
   if(v.material==2.0 && v.n.z<.5 && wv.head.x>.5 && max(abs(v.p.x-wv.clip.x),abs(v.p.z-wv.clip.y))<wv.clip.z && waveMaskInner(v.p.xz) && waveAmp(v.p.xz)>=${MASK_FILL_EPS}){discard;}
@@ -52,7 +52,11 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
     let kind=v.material-5.0;
     color=select(select(select(vec3f(1.0,.72,.1),vec3f(.95),kind==2.0),vec3f(.85,.08,.06),kind==1.0),vec3f(.22,.22,.24),kind==0.0)*select(max(light,.8),1.0,kind==3.0);
   }
-  if(v.material==2.0 || v.material==4.0){
+  var alpha=1.0;
+  if(v.material==2.0){
+    let lakeShade=waterColorLake(v.p,select(1.0,v.n.x,v.n.z>.5),rampWidth,dx,dy);color=lakeShade.rgb;alpha=lakeShade.a;
+  }
+  if(v.material==4.0){
     color=waterColor(v.p,select(1.0,v.n.x,v.n.z>.5),rampWidth,dx,dy);
   }
   if(v.material==9.0){
@@ -63,7 +67,13 @@ struct V {@builtin(position) clip:vec4f,@location(0) p:vec3f,@location(1) n:vec3
   // Ocean-sweep debug pass (ocean-sweep.mjs): water pure blue, terrain below sea level pure red (a tear), other terrain pure green.
   if(u.pad[2].z>.5){return vec4f(select(select(vec3f(0.0,1.0,0.0),vec3f(1.0,0.0,0.0),v.p.y<-1.0),vec3f(0.0,0.0,1.0),v.material==2.0||v.material==4.0||v.material==9.0),1);}
   let fog=max(clamp(length(v.p-u.eye.xyz)/150000.0,0.0,.93),valleyHaze(v.p))*(1.0-u.pad[0].y);
-  return vec4f(mix(color,fogTint(),fog)+limbGlow(v.p),1);
+  return vec4f(mix(color,fogTint(),fog)+limbGlow(v.p),alpha);
+}
+@fragment fn fs(v:V)->@location(0) vec4f {let c=shadeTerrain(v);return vec4f(c.rgb,1.0);}
+// Translucent lake pass: only inland liquid, drawn after the splat bed it sits on.
+@fragment fn fsLake(v:V)->@location(0) vec4f {
+  if(v.material!=2.0){discard;}
+  return shadeTerrain(v);
 }`;
 const splatShader=`
 struct U {eye:vec4f,right:vec4f,up:vec4f,forward:vec4f,body:vec4f,settings:vec4f,tile:vec4f,pad:array<vec4f,3>,sky:array<vec4f,4>};

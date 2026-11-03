@@ -9,6 +9,7 @@ export const DEPTH_CLEAR=1;
 const STATE={
   terrain:[true,'less'],
   splat:[true,'less'],
+  lake:[false,'less'],
   scene:[true,'less'],
   particles:[false,'less'],
   hud:[false,'always'],
