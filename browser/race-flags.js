@@ -3,7 +3,7 @@
 import {validateTrack} from './race.js';
 
 export const FLAG_RANGE=70;
-const TRACK_FILES=['./tracks/steamwheedle.json','./tracks/track-to-sea.json','./tracks/if-airport-track.json','./tracks/elune-loop.json','./tracks/orgrimmar-loop.json','./tracks/elune-to-azeroth.json'];
+const TRACK_FILES=['./tracks/steamwheedle.json','./tracks/track-to-sea.json','./tracks/if-airport-track.json','./tracks/elune-loop.json','./tracks/orgrimmar-loop.json','./tracks/to-azeroth.json'];
 
 const FACES=[[[1,0,0],[[1,0,0],[1,1,0],[1,1,1],[1,0,1]]],[[-1,0,0],[[0,0,1],[0,1,1],[0,1,0],[0,0,0]]],
   [[0,1,0],[[0,1,0],[0,1,1],[1,1,1],[1,1,0]]],[[0,-1,0],[[0,0,1],[0,0,0],[1,0,0],[1,0,1]]],
