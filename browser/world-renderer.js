@@ -9,8 +9,9 @@ import {cameraView,craftMatrix} from './world-camera.js';
 import {rigidPodMatrix,podParticleFrame} from './pod-render-frame.js';
 import {partMatrix,wreckFrame,WRECK_SECONDS} from './wreck.js';
 import {maelstromCentre,resolveCloudQuality,SlowFrameGuard,sunDirection} from './clouds.js';
-import {exhaustPoints,emitPlumes,emitDebris,emitHeatSmoke,emitGroundDust,emitWaterFx,overWater,QUALITY,INSTANCE_FLOATS,particleUniform,emitLamps,emitDomeMist} from './particles.js';
+import {exhaustPoints,emitPlumes,emitDebris,emitHeatSmoke,emitGroundDust,emitWaterFx,overWater,QUALITY,INSTANCE_FLOATS,particleUniform,emitLamps,emitDomeMist,particleLight} from './particles.js';
 import {domePlacement} from './dome-shell.js';
+import {packChevrons,CHEVRON_FLOATS} from './gate-trail.js';
 import {domeMask} from './elune-sites.js';
 import {beamState} from './beam.js';
 import {advanceIntake,writeIntakeMatrix} from './swe1r/intakes.js';
@@ -24,11 +25,11 @@ import {localSunAt,solarTime} from './local-sun.js';
 import {SimClock,sanitiseScale,daylightAt,CloudClock} from './sim-clock.js';
 import {sceneVisible,boundsVisible,viewChanged} from './world-view.js';
 import {cameraAxes,AdmissionFade,sceneSelection} from './renderer-helpers.js';
-import {posedAsset,npcMoves,moveMatrix,pose} from './renderer-actors.js';
+import {posedAsset,npcMoves,npcFx,moveMatrix,pose} from './renderer-actors.js';
 import {BEND_ALWAYS} from './terrain-transition.js';
 import {buffer,texture,drawable,setFlags,setGates,releaseMaterial,release,uploadMaterials,drawTerrain,refreshOcean} from './renderer-terrain.js';
-import {destroyCraft,releaseCraft,buildCraft,startWreck,wreckChunk,endWreck,setProps,setCraftOverride,domeDraw} from './renderer-craft.js';
-import {reset,configure,event,clearFar,swapPlanetState,bodyEvent} from './renderer-events.js';
+import {destroyCraft,releaseCraft,buildCraft,animateCraft,startWreck,wreckChunk,endWreck,setProps,setCraftOverride,domeDraw} from './renderer-craft.js';
+import {reset,configure,event,drainEvents,clearFar,swapPlanetState,bodyEvent} from './renderer-events.js';
 import {scenePipeline,prepareBatches,sceneMatrix,drawScene} from './renderer-scene.js';
 import {zoneBlend,setSky,setSkyDome,horizonColour,planetRects,drawPlanet,sharedFrame,drawPatches,drawBodies,drawBodyClouds,drawLights,drawSkyDome,sampleSky,noteLitInstance} from './renderer-sky.js';
 import {drawShadow,enableHighClouds,highCloudGroup,maskEntries,drawClouds} from './renderer-clouds.js';
@@ -68,6 +69,7 @@ export class WorldRenderer {
   }
   posedAsset(instance,base){return posedAsset(this,instance,base);}
   npcMoves(data){return npcMoves(this,data);}
+  npcFx(data){return npcFx(this,data);}
   moveMatrix(instance,mv,region,origin){return moveMatrix(this,instance,mv,region,origin);}
   pose(data){return pose(this,data);}
   buffer(data,usage){return buffer(this,data,usage);}
@@ -76,6 +78,8 @@ export class WorldRenderer {
   drawable(vertices,placement,map){return drawable(this,vertices,placement,map);}
   setFlags(positions){return setFlags(this,positions);}
   setGates(items){return setGates(this,items);}
+  /** Breadcrumb chevrons (craft-local, see gate-trail.js); drawn for 250 ms, so a stalled caller lets them lapse. */
+  setCrumbs(list){this.crumbs=list?.length?{list,until:performance.now()+250}:undefined;}
   releaseMaterial(item){return releaseMaterial(this,item);}
   release(item){return release(this,item);}
   destroyCraft(craft){return destroyCraft(this,craft);}
@@ -95,6 +99,7 @@ export class WorldRenderer {
   bodyEvent(body,data){return bodyEvent(this,body,data);}
   configure(manifest){return configure(this,manifest);}
   event(data){return event(this,data);}
+  drainEvents(budget){return drainEvents(this,budget);}
   setWaveMask(mask){return setWaveMask(this,mask);}
   setShoreField(field){return setShoreField(this,field);}
   waveStats(){return {active:!!this.waveActive,requested:!!this.waveRequest,rev:this.waveMask?.rev,ticks:this.waveSim?.ticks,levels:this.clipItems?.length??0};}
@@ -124,7 +129,7 @@ export class WorldRenderer {
   drawClouds(pass,time,daylight,near,high){return drawClouds(this,pass,time,daylight,near,high);}
   drawScene(pass,draws){return drawScene(this,pass,draws);}
   draw(state,flight,dt,time,settings,lookBack=false) {
-    this.uploadMaterials();
+    this.drainEvents();this.uploadMaterials();
     const canvas=this.canvas,width=Math.max(1,Math.round(canvas.clientWidth*Math.min(devicePixelRatio,2)));
     const height=Math.max(1,Math.round(canvas.clientHeight*Math.min(devicePixelRatio,2)));
     if(!this.depth || canvas.width!==width || canvas.height!==height) {
@@ -247,15 +252,16 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
     const wreckAge=this.wreck?performance.now()/1000-this.wreck.t0:0;
     this.intakeAngle=advanceIntake(this.intakeAngle||0,time===0?0:dt,this.fxInput?.throttle,state[5]);
     if(this.wreck&&wreckAge>WRECK_SECONDS)this.endWreck();
+    if(this.craft&&!this.wreck)animateCraft(this,this.craft,time===0?0:dt,state[5]);
     const wreckFrameNow=this.wreck&&wreckFrame(this.wreck,wreckAge);
     if(wreckFrameNow)this.wreck.parts.forEach((p,i)=>append(p.asset,p.instance,partMatrix(wreckFrameNow.subarray(i*7,i*7+7),p.center,this.wreck.scale,origin),this.craft.textures,this.craft.items));
     else if((!flight||this.showCraftInFlight)&&this.craft&&this.cameraMode!=='cockpit')append(this.craft.asset,this.craft.instance,
-      craftMatrix(state,origin,this.craft.metadata.scale),this.craft.textures,this.craft.items,true);
+      craftMatrix(state,origin,this.craft.metadata.scale,this.craftDrop),this.craft.textures,this.craft.items,true);
     for(const p of [...(this.props||[]),...(this.launchProps||[]),...[domeDraw(this,activeBody().id,time)].filter(Boolean)]){const c=Math.cos(p.yaw),s=Math.sin(p.yaw),k=p.scale;
       append(p.craft.asset,p.craft.instance,p.space==='craft'?craftMatrix([p.pos[0],p.pos[1],p.pos[2],p.yaw,0],origin,k):
         new Float32Array([c*k,0,-s*k,0,0,k,0,0,s*k,0,c*k,0,p.pos[0]-origin[0],p.pos[1],p.pos[2]-origin[1],1]),p.craft.textures,p.craft.items);}
     if(!this.wreck&&!flight&&this.craft?.flame&&this.cameraMode!=='cockpit') {
-      const m=craftMatrix(state,origin,this.craft.metadata.scale),k=(.35+.9*Math.min(1,Math.abs(state[5])/150))*(1+.08*Math.sin(time*45));
+      const m=craftMatrix(state,origin,this.craft.metadata.scale,this.craftDrop),k=(.35+.9*Math.min(1,Math.abs(state[5])/150))*(1+.08*Math.sin(time*45));
       for(const part of this.craft.flame.parts) {
         const [x,y,z]=part.at,f=new Float32Array(m);
         for(let i=0;i<3;i++){f[i]=m[i]*k;f[12+i]=m[12+i]+m[i]*x+m[4+i]*y+m[8+i]*z;}
@@ -312,12 +318,12 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
     if(fx&&quality>0&&craft?.source&&!this.wreck&&!this.cameraBlocked&&(!flight||this.showCraftInFlight)&&this.cameraMode!=='cockpit') {
       const input=this.fxInput||{},speed=Math.abs(state[5]),scale=craft.metadata.scale;
       fx.frame=pf.bend>0?podParticleFrame(activeFramedBody(),state):undefined;
-      craft.fx??={points:exhaustPoints(craft.source.vertices,craft.source.indices,craft.metadata),length:craft.size[0]};
-      emitPlumes(fx,{points:craft.fx.points,matrix:craftMatrix(state,origin,scale),origin,scale,length:craft.fx.length,speed,
+      craft.fx??={points:exhaustPoints(craft.source.vertices,craft.source.indices,craft.metadata,{atHullRear:craft.metadata.display===10318}),length:craft.size[0]};
+      emitPlumes(fx,{points:craft.fx.points,matrix:craftMatrix(state,origin,scale,this.craftDrop),origin,scale,length:craft.fx.length,speed,
         thrust:input.throttle??Math.min(1,speed/150),boosting:!!input.boosting,dt:Math.min(dt,.1)});
-      const wet=overWater(state[1],craft.fx.length),fxArgs={matrix:craftMatrix(state,origin,scale),origin,scale,length:craft.fx.length,speed,drift:!!input.drifting,grounded:state[7]>0,dt:Math.min(dt,.1),time:performance.now()/1000};
+      const wet=overWater(state[1],craft.fx.length),fxArgs={matrix:craftMatrix(state,origin,scale,this.craftDrop),origin,scale,length:craft.fx.length,speed,drift:!!input.drifting,grounded:state[7]>0,dt:Math.min(dt,.1),time:performance.now()/1000};
       if(wet)emitWaterFx(fx,fxArgs);else emitGroundDust(fx,fxArgs);
-      if(input.heat)emitHeatSmoke(fx,{points:craft.fx.points,matrix:craftMatrix(state,origin,scale),origin,length:craft.fx.length,heat:input.heat,dt:Math.min(dt,.1)});
+      if(input.heat)emitHeatSmoke(fx,{points:craft.fx.points,matrix:craftMatrix(state,origin,scale,this.craftDrop),origin,length:craft.fx.length,heat:input.heat,dt:Math.min(dt,.1)});
       fx.frame=undefined;
     }
     if(fx&&quality>0&&!this.cameraBlocked){
@@ -325,7 +331,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
       const dome=this.dome?.craft&&domePlacement(activeBody().id);
       if(dome)emitDomeMist(fx,{eye:this.view.eye,level:domeMask(activeBody().id,this.view.eye[0],this.view.eye[2],30,15,this.view.eye[1]-dome.pos[1]),ground:dome.pos[1],dt:Math.min(dt,.1)});
     fx.update(Math.min(dt,.1));
-      const count=fx.fill(this.particleInstances,this.view.eye,activeBody());
+      const count=fx.fill(this.particleInstances,this.view.eye,activeFramedBody(),particleLight(daylight));
       if(count){
         this.device.queue.writeBuffer(this.particleBuffer,0,this.particleInstances,0,count*INSTANCE_FLOATS);
         this.device.queue.writeBuffer(this.particleUniformBuffer,0,particleUniform(this.view,near));
@@ -333,6 +339,18 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
           depthStencilAttachment:depthAttachment('fx',this.depth.createView())});
         fxPass.setPipeline(this.particlePipeline);fxPass.setBindGroup(0,this.particleGroup);fxPass.setVertexBuffer(0,this.particleBuffer);
         fxPass.draw(6,count);fxPass.end();
+      }
+    }
+    const crumbs=this.crumbs;
+    if(crumbs&&performance.now()<crumbs.until&&this.crumbPipeline&&!this.cameraBlocked&&!this.wreck) {
+      const eye=this.view.eye,n=packChevrons(crumbs.list,[state[0]-eye[0],state[1]-eye[1],state[2]-eye[2]],this.crumbInstances);
+      if(n) {
+        this.device.queue.writeBuffer(this.crumbBuffer,0,this.crumbInstances,0,n*CHEVRON_FLOATS);
+        this.device.queue.writeBuffer(this.particleUniformBuffer,0,particleUniform(this.view,near));
+        const crumbPass=encoder.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}],
+          depthStencilAttachment:depthAttachment('fx',this.depth.createView())});
+        crumbPass.setPipeline(this.crumbPipeline);crumbPass.setBindGroup(0,this.crumbGroup);crumbPass.setVertexBuffer(0,this.crumbBuffer);
+        crumbPass.draw(6,n);crumbPass.end();
       }
     }
     if(fx&&quality>0&&this.wreck&&wreckFrameNow&&craft?.fx) {

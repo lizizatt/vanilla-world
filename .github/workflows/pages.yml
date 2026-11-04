@@ -43,7 +43,7 @@ jobs:
         run: node --test browser
       - name: Build dist (levers from deploy.env)
         run: |
-          grep -E '^[A-Z_]+=' deploy.env >> "$GITHUB_ENV"
+          set -a; . <(grep -E '^[A-Z_]+=' deploy.env); set +a
           INCLUDE_NPC_PACK=1 node browser/build-dist.mjs dist
       - uses: actions/upload-pages-artifact@v3
         with:

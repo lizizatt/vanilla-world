@@ -2,7 +2,10 @@ import {ACTOR,actorPhase,poseKey} from './actors.js';
 import {renderMatrix} from './renderer-helpers.js';
 // Animated NPC poses replace the vertex buffer only when it matches the bind mesh; the wrapper stays stable per base asset.
 export function posedAsset(r,instance,base) {
-  if(!base||instance.distant||!r.poses?.size||!instance.id.includes(':npc:'))return base;
+  if(!base||instance.distant||!instance.id.includes(':npc:'))return base;
+  if(r.hiddenNpcs?.size&&r.hiddenNpcs.has(instance.id))return undefined;
+  if(!r.poses?.size)return base;
+  if(r.deadNpcs?.size&&r.deadNpcs.has(instance.id)){const d=r.poses.get(poseKey(instance.key,'d:'+instance.id));if(d&&d.size===base.vertices.size){if(!d.asset||d.asset.base!==base)d.asset={...base,vertices:d.buffer,base};return d.asset;}}
   const ph=actorPhase(instance.id),mv=r.moves?.get(instance.id);
   const entry=(mv&&(mv.vx||mv.vy)&&r.poses.get(poseKey(instance.key,ph+ACTOR.phases)))||r.poses.get(poseKey(instance.key,ph));
   if(!entry||entry.size!==base.vertices.size)return base;
@@ -34,4 +37,13 @@ export function pose(r,data) {
     }
     r.device.queue.writeBuffer(entry.buffer,0,p.vertices.buffer,p.vertices.byteOffset,p.vertices.byteLength);
   }
+}
+// Source-space point (as used by the actor tick) to renderer world space.
+export function sourceToRender(reg,[sx,sy,sz]) {
+  const T=1600/3;
+  return [-sy+reg.placement[0]+(32-reg.tile_origin[0])*T,sz,-sx+reg.placement[1]+(32-reg.tile_origin[1])*T];
+}
+// Creature-collision effects from the worker: full hidden/dead id sets (expired / dying or holding the last Death frame).
+export function npcFx(r,data) {
+  r.hiddenNpcs=new Set(data.hidden);r.deadNpcs=new Set(data.dead);
 }

@@ -3,6 +3,7 @@
 html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 body { text-shadow: 0 1px 3px #000, 0 0 2px #000, 1px 0 1px #000, -1px 0 1px #000; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+#radio-host { position: fixed; left: -9999px; top: 0; width: 1px; height: 1px; overflow: hidden; pointer-events: none; }
 .viewport { position: fixed; inset: 0; overflow: hidden; background: #152632; }
 canvas { display: block; width: 100%; height: 100%; outline-offset: -4px; }
 .interface { position: fixed; inset: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); display: flex; flex-direction: column; align-items: flex-start; gap: 8px; pointer-events: none; }
@@ -141,13 +142,11 @@ dialog h2 { color: #ffb34d; margin-top: 0; }
 
 #race-delta { font-weight: 700; color: #ff6b6b; }
 #race-delta[data-ahead=true] { color: #6bff9a; }
-#race-arrow { display: inline-block; font-size: 22px; line-height: 1; color: #ffd36a; text-shadow: 0 0 4px rgba(0,0,0,.8); }
-#race-arrow[data-behind=true] { color: #ff6b6b; animation: engine-blink .6s steps(2) infinite; }
 #race-range { font-variant-numeric: tabular-nums; color: #bff4ff; }
 #race-board { position: fixed; right: 16px; top: 120px; min-width: 210px; padding: 10px 14px; background: rgba(0,0,0,.6); border: 1px solid rgba(255,200,60,.8); border-radius: 6px; color: #fff; font-variant-numeric: tabular-nums; pointer-events: none; }
 #race-board strong { display: block; margin-bottom: 4px; color: #ffd36a; }
 #race-board .this { color: #6bff9a; font-weight: 700; }
-#race-hud[hidden], #race-board[hidden], #race-arrow[hidden] { display: none; }
+#race-hud[hidden], #race-board[hidden] { display: none; }
 #race-menu { min-width: 240px; padding: 16px 20px; background: #1a1209; border: 3px double #c8a24a; border-radius: 6px; color: #ffd36a; }
 #race-menu::backdrop { background: rgba(0,0,0,.55); }
 #race-menu h2 { margin: 0 0 12px; font-size: 1.1rem; text-align: center; }
@@ -168,6 +167,13 @@ dialog h2 { color: #ffb34d; margin-top: 0; }
 #te-panel ol button { width: 100%; text-align: left; }
 #te-panel fieldset { border: 1px solid #7a622b; margin: 6px 0; }
 #te-status[data-bad="true"] { color: #ff7a7a; }
+#te-dial { position: absolute; top: 10px; right: 10px; width: 250px; padding: 10px; background: rgba(26,18,9,.9); border: 2px solid #c8a24a; border-radius: 6px; color: #ffd36a; font-size: .85rem; }
+#te-dial label { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+#te-dial input:not([type=checkbox]) { width: 130px; background: #120c05; color: #ffd36a; border: 1px solid #7a622b; padding: 3px; }
+#te-dial button { background: #3a2a12; color: #ffd36a; border: 1px solid #c8a24a; border-radius: 4px; padding: 5px 9px; cursor: pointer; }
+#te-dial button:disabled { opacity: .45; cursor: default; }
+.td-row { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin: 6px 0; }
+#track-editor.dialing #te-bar, #track-editor.dialing #te-panel, #track-editor.dialing #launch-tools { display: none; }
 
 /* Esc / Game Menu: sections that used to sit on screen */
 #menu-hint { position: fixed; top: max(8px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); margin: 0; font-size: 11px; letter-spacing: 1px; color: #c9bb94; opacity: .7; pointer-events: none; }
@@ -224,23 +230,30 @@ dialog h2 { color: #ffb34d; margin-top: 0; }
 #race-menu button:hover, #race-menu button:focus-visible { background: linear-gradient(#6a4a1e, #43300f); border-color: var(--gold); color: #fff3c4; text-decoration: none; }
 #race-menu #menu-tabs button[aria-selected=true] { background: linear-gradient(#7a5622, #4d3511); color: #fff3c4; }
 #menu-hint { font-family: var(--serif); color: var(--gold); }
+#hud-garage, #hud-radio { position: fixed; top: calc(max(8px, env(safe-area-inset-top)) + 26px); right: max(12px, env(safe-area-inset-right)); width: 38px; height: 38px; padding: 0; display: grid; place-items: center; color: var(--gold); background: rgba(19, 13, 7, .72); border: 1px solid var(--gold-dim); border-radius: 6px; cursor: pointer; pointer-events: auto; }
+#hud-radio { top: calc(max(8px, env(safe-area-inset-top)) + 72px); }
+#hud-garage:hover, #hud-garage:focus-visible, #hud-radio:hover, #hud-radio:focus-visible { border-color: var(--gold); background: rgba(58, 42, 20, .85); }
 
 .welcome-note { margin: 0.9rem 0 0; font-size: 0.72rem; line-height: 1.4; opacity: 0.7; }
 
-#garage { min-width: min(640px, 92vw); padding: 18px 22px; background: linear-gradient(#2b2013, #17100a); border: 2px solid #c8a24a; border-radius: 6px; color: #e8d9aa; font-family: Georgia, serif; }
-#garage::backdrop { background: rgba(0,0,0,.55); }
-#garage h2 { color: #ffd36a; text-align: center; letter-spacing: 3px; text-transform: uppercase; margin: 0 0 10px; }
+#garage, #radio-panel { min-width: min(640px, 92vw); padding: 18px 22px; background: linear-gradient(#2b2013, #17100a); border: 2px solid #c8a24a; border-radius: 6px; color: #e8d9aa; font-family: Georgia, serif; }
+#garage::backdrop, #radio-panel::backdrop { background: rgba(0,0,0,.55); }
+#garage h2, #radio-panel h2 { color: #ffd36a; text-align: center; letter-spacing: 3px; text-transform: uppercase; margin: 0 0 10px; }
 #garage h3 { margin: 10px 0 4px; color: #ffd36a; font-size: .9rem; }
-#garage button { background: linear-gradient(#4a3417, #2e200e); color: #ffd36a; border: 1px solid #a98836; border-radius: 4px; padding: 6px 12px; font: inherit; cursor: pointer; }
-#garage button:hover, #garage button:focus-visible { background: linear-gradient(#6a4a1e, #43300f); color: #fff3c4; }
+#garage button, #radio-panel button { background: linear-gradient(#4a3417, #2e200e); color: #ffd36a; border: 1px solid #a98836; border-radius: 4px; padding: 6px 12px; font: inherit; cursor: pointer; }
+#garage button:hover, #garage button:focus-visible, #radio-panel button:hover, #radio-panel button:focus-visible { background: linear-gradient(#6a4a1e, #43300f); color: #fff3c4; }
 #garage [aria-selected=true], #garage [aria-checked=true] { outline: 2px solid #ffd36a; }
-#garage button[disabled] { opacity: .4; cursor: not-allowed; }
+#garage button[disabled], #radio-panel button[disabled] { opacity: .4; cursor: not-allowed; }
 #garage-body { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 10px; }
 #garage-skins { display: grid; grid-template-columns: auto 1fr auto; gap: 6px; align-items: center; align-content: start; text-align: center; }
 #garage-stats div { display: grid; grid-template-columns: 70px 1fr; align-items: center; gap: 8px; margin: 3px 0; }
 #garage-stats i { display: block; height: 8px; background: #ffd36a; border-radius: 4px; }
 #garage-races { margin: 0; padding-left: 18px; }
-#garage footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+#radio-panel { min-width: min(420px, 92vw); }
+#radio-panel fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: 8px; }
+#radio-panel legend { display: none; }
+#radio-panel :is(label, #radio-title) { font-family: inherit; }
+#garage footer, #radio-panel footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 #garage-hint { font-size: .75rem; opacity: .7; margin: 8px 0 0; }#hit-flash { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, transparent 40%, rgba(220,20,20,.85) 100%); }
 #hit-flash[hidden] { display: none; }
 #boost-fx { position: fixed; inset: 0; pointer-events: none; background: repeating-conic-gradient(from 0deg at 50% 50%, rgba(160,220,255,.5) 0 .6deg, transparent .6deg 7deg); -webkit-mask-image: radial-gradient(ellipse at center, transparent 45%, #000 100%); mask-image: radial-gradient(ellipse at center, transparent 45%, #000 100%); }
@@ -281,3 +294,13 @@ details.welcome-help summary { cursor: pointer; } details.welcome-help p { margi
 #archive-dialog progress { width: 100%; }
 #archive-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 #archive-dialog label { display: block; margin: 8px 0; }
+
+#garage-preview { position: relative; margin-top: 8px; height: 190px; border: 1px solid #a98836; border-radius: 4px; background: radial-gradient(ellipse at 50% 70%, #3a2a14, #130d07); overflow: hidden; }
+#garage-preview canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+#garage-preview canvas:active { cursor: grabbing; }
+#garage-preview-note { position: absolute; inset: 0; margin: 0; display: grid; place-items: center; font-size: .8rem; opacity: .7; pointer-events: none; }
+#garage-preview-note:empty { display: none; }
+
+#te-bodybar { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
+#te-list li.te-jump { list-style: none; text-align: center; font-size: .75rem; color: #1a1209; background: #c8a24a; border-radius: 3px; padding: 2px 4px; margin: 3px 0; }
+#te-dial-legs { display: block; margin: 4px 0; }

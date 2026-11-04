@@ -1,6 +1,6 @@
 /*
   X-Content-Type-Options: nosniff
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; media-src blob:; img-src 'self' blob:; font-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://www.youtube.com; frame-src https://www.youtube.com; style-src 'self'; media-src blob:; img-src 'self' blob:; font-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'
 /sw.js
   Cache-Control: no-cache
 /index.html

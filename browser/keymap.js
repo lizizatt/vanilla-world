@@ -54,6 +54,7 @@ export const ACTIONS=Object.freeze([
   press('editor.start','Set start','Editor','editor',['Digit3']),
   press('editor.delete','Delete','Editor','editor',['Delete','Backspace']),
   press('editor.undo','Undo','Editor','editor',['Ctrl+KeyZ']),
+  press('editor.dial','Dial in','Editor','editor',['KeyD']),
   press('debug.pose','Export pose link','Debug','ui',['F8','Ctrl+Alt+KeyY'],'',{debug:true}),
   press('debug.wind','Wind tuning panel','Debug','ui',['Ctrl+Alt+KeyW'],'',{debug:true}),
   press('debug.crash','Test crash','Debug','ui',['Ctrl+Alt+KeyK'],'',{debug:true}),

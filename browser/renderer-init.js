@@ -4,8 +4,9 @@ import {SHORE_N} from './shore-field.js';
 import {WATER_NORMAL_SIZE,waterNormalMips} from './water-shader.js';
 import {shadowShader} from './shadow.js';
 import {cloudShader,CloudMask} from './clouds.js';
+import {chevronShader,CHEVRON_FLOATS,MAX_CHEVRONS} from './gate-trail.js';
 import {ParticlePool,INSTANCE_FLOATS,CAPACITY,particleShader} from './particles.js';
-import {MAX_PATCHES} from './globe-patches.js';
+import {MAX_PATCHES,warmPatches} from './globe-patches.js';
 import {NIGHT_W,NIGHT_H} from './night-lights-wgsl.js';
 import {createColourGrid} from './tile-registry.js';
 import {HEIGHT_W,HEIGHT_H} from './height-bake.js';
@@ -24,6 +25,7 @@ import {skyShader,skyDomeShader} from './sky.js';
 import {sub,cross,unit} from './renderer-helpers.js';
 import {terrainShader,splatShader,sceneShader,surfaceShadersFor} from './renderer-shaders.js';
 export async function initialize(r) {
+  warmPatches();
   const shader=async code=>{
     const module=r.device.createShaderModule({code});
     const info=await module.getCompilationInfo(),errors=info.messages.filter(m=>m.type==='error');
@@ -44,7 +46,8 @@ export async function initialize(r) {
     {binding:5,visibility:GPUShaderStage.VERTEX|GPUShaderStage.FRAGMENT,buffer:{type:'uniform'}},
     {binding:6,visibility:GPUShaderStage.VERTEX|GPUShaderStage.FRAGMENT,texture:{sampleType:'float'}},
     {binding:7,visibility:GPUShaderStage.VERTEX|GPUShaderStage.FRAGMENT,buffer:{type:'uniform'}},
-    {binding:8,visibility:GPUShaderStage.VERTEX|GPUShaderStage.FRAGMENT,texture:{sampleType:'float'}}]});
+    {binding:8,visibility:GPUShaderStage.VERTEX|GPUShaderStage.FRAGMENT,texture:{sampleType:'float'}},
+    {binding:9,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float'}}]});
   r.splatLayout=r.device.createBindGroupLayout({entries:[uniformEntry(224),
     {binding:1,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float',viewDimension:'2d-array'}},
     {binding:2,visibility:GPUShaderStage.FRAGMENT,texture:{sampleType:'float',viewDimension:'2d-array'}},
@@ -76,6 +79,14 @@ export async function initialize(r) {
     vertex:{module:particleModule,entryPoint:'vs',buffers:[{arrayStride:32,stepMode:'instance',attributes:[{shaderLocation:0,offset:0,format:'float32x4'},{shaderLocation:1,offset:16,format:'float32x4'}]}]},
     fragment:{module:particleModule,entryPoint:'fs',targets:[{format:r.format,blend:{color:{srcFactor:'one',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},
     primitive:{topology:'triangle-list',cullMode:'none'},depthStencil:DEPTH_STATE.particles});
+  r.crumbInstances=new Float32Array(MAX_CHEVRONS*CHEVRON_FLOATS);
+  r.crumbBuffer=r.device.createBuffer({size:r.crumbInstances.byteLength,usage:GPUBufferUsage.VERTEX|GPUBufferUsage.COPY_DST});
+  const crumbModule=await shader(chevronShader);
+  r.crumbPipeline=await r.device.createRenderPipelineAsync({layout:'auto',
+    vertex:{module:crumbModule,entryPoint:'vs',buffers:[{arrayStride:CHEVRON_FLOATS*4,stepMode:'instance',attributes:[{shaderLocation:0,offset:0,format:'float32x4'},{shaderLocation:1,offset:16,format:'float32x4'},{shaderLocation:2,offset:32,format:'float32x4'}]}]},
+    fragment:{module:crumbModule,entryPoint:'fs',targets:[{format:r.format,blend:{color:{srcFactor:'one',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}}}]},
+    primitive:{topology:'triangle-list',cullMode:'none'},depthStencil:DEPTH_STATE.hud});
+  r.crumbGroup=r.device.createBindGroup({layout:r.crumbPipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.particleUniformBuffer}}]});
   r.particleGroup=r.device.createBindGroup({layout:r.particlePipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:r.particleUniformBuffer}}]});
   r.shadowBuffer=r.device.createBuffer({size:144,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
   const shadowModule=await shader(shadowShader);
@@ -143,6 +154,7 @@ export async function initialize(r) {
   r.beachUniforms=r.device.createBuffer({size:32,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
   r.beachUniformData=new Float32Array(8);
   r.shoreTexture=r.device.createTexture({size:[SHORE_N,SHORE_N],format:'rgba8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});
+  r.shoreDepthTexture=r.device.createTexture({size:[SHORE_N,SHORE_N],format:'r8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});
   const points=[[0,.25,-2.7],[-1.2,0,1.3],[1.2,0,1.3],[0,.65,.8],[0,-.35,.6]],vertices=[];
   for(const face of [[0,1,3],[0,3,2],[1,2,3],[0,4,1],[0,2,4],[1,4,2]]) {
     const [a,b,c]=face.map(i=>points[i]),n=unit(cross(sub(b,a),sub(c,a)));
@@ -172,7 +184,17 @@ async function buildTerrainPipelines(r,terrain,splat) {
     primitive:{topology:'triangle-list',cullMode:'none'},
     depthStencil:DEPTH_STATE.splat,
   });
-  return {pipeline,splatPipeline};
+  const lakePipeline=await r.device.createRenderPipelineAsync({
+    layout:r.device.createPipelineLayout({bindGroupLayouts:[r.terrainLayout]}),
+    vertex:{module:terrain,entryPoint:'vs',buffers:[{arrayStride:28,attributes:[
+      {shaderLocation:0,offset:0,format:'float32x3'},{shaderLocation:1,offset:12,format:'float32x3'},{shaderLocation:2,offset:24,format:'float32'}]}]},
+    fragment:{module:terrain,entryPoint:'fsLake',targets:[{format:r.format,blend:{
+      color:{srcFactor:'src-alpha',dstFactor:'one-minus-src-alpha',operation:'add'},
+      alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha',operation:'add'}}}]},
+    primitive:{topology:'triangle-list',cullMode:'none'},
+    depthStencil:DEPTH_STATE.lake,
+  });
+  return {pipeline,splatPipeline,lakePipeline};
 }
 
 const gpuShader=r=>async code=>{
@@ -185,7 +207,7 @@ const makeSurfaceSet=async(r,body)=>{
   const shader=gpuShader(r),set=surfaceShadersFor(body);
   return {...await buildTerrainPipelines(r,await shader(set.terrainShader),await shader(set.splatShader)),sceneModule:await shader(set.sceneShader),pipelines:new Map()};
 };
-const SURFACE_KEYS=['pipeline','splatPipeline','sceneModule','pipelines'];
+const SURFACE_KEYS=['pipeline','splatPipeline','lakePipeline','sceneModule','pipelines'];
 
 /** Build (but do not activate) a body's pipelines so a later useBody is an instant pointer switch. */
 export function prepareBody(r,body) {

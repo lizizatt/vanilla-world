@@ -137,15 +137,6 @@ export class MapPanel {
       button.addEventListener('click',()=>{this.dialog.close();this.teleport({id:body.id,label:body.label,body:body.id});});button.addEventListener('pointerdown',e=>e.preventDefault());
       this.stage.append(button);
     }
-    const poleBodies=[{id:'azeroth',label:'Azeroth'},...this.bodies()];
-    poleBodies.forEach((body,row)=>['N','S'].forEach((pole,col)=>{ // poles are procedural caps on every body; plain buttons stacked bottom-left
-      const button=this.stage.ownerDocument.createElement('button'),name=pole==='N'?'North':'South';
-      button.type='button';button.className='map-icon map-pole';button.dataset.pole=pole;button.dataset.poleBody=body.id;button.textContent=`${body.label} ${name} Pole`;
-      button.title=button.ariaLabel=`Teleport to the ${name} Pole of ${body.label}`;
-      button.style.left=`${8+col*150}px`;button.style.bottom=`${8+row*34}px`;button.style.top='auto';button.style.right='auto';
-      button.addEventListener('click',()=>{this.dialog.close();this.teleport({id:`pole-${pole}`,label:`${name} Pole of ${body.label}`,body:body.id,pole});});button.addEventListener('pointerdown',e=>e.preventDefault());
-      this.stage.append(button);
-    }));
     for(const t of this.tracks()) { // race start markers (a flagpole + beacon stands there in the world); informational, not teleports
       const [u,v]=this.place(t.start.pos[0],t.start.pos[2]),pin=this.stage.ownerDocument.createElement('span');
       pin.className='map-track';pin.dataset.track=t.id;pin.title=pin.ariaLabel=`Race start: ${t.name??t.id}`;pin.textContent='\u2691';

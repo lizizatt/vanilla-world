@@ -27,7 +27,7 @@ export function drawable(r,vertices,placement,map=r.emptyMap) {
       {binding:0,resource:{buffer:r.frameUniforms,size:240}},{binding:1,resource:map.createView()},{binding:2,resource:r.mapSampler},
       {binding:3,resource:r.waterNormals.createView()},{binding:4,resource:r.waveSampler},
       {binding:5,resource:{buffer:r.waveUniforms}},{binding:6,resource:r.waveMaskTexture.createView()},
-      {binding:7,resource:{buffer:r.beachUniforms}},{binding:8,resource:r.shoreTexture.createView()}]})};
+      {binding:7,resource:{buffer:r.beachUniforms}},{binding:8,resource:r.shoreTexture.createView()},{binding:9,resource:r.shoreDepthTexture.createView()}]})};
 }
 export function setFlags(r,positions) {
   for(const item of r.flags)r.release(item);
@@ -92,16 +92,22 @@ export function drawTerrain(r,pass,terrain) {
     terrain.some((item,i)=>cached.items[i]!==item || cached.materials[i]!==item.material)) {
     const encoder=r.device.createRenderBundleEncoder(bundleFormats(r.format));
     encoder.setPipeline(r.pipeline);
-    for(const item of terrain){
+    const drawItem=item=>{
       encoder.setBindGroup(0,item.group,[item.offset]);encoder.setVertexBuffer(0,item.buffer);
       if(item.region!==undefined){encoder.setIndexBuffer(r.indices.get(item.region),'uint32');encoder.drawIndexed(3072);}
       else encoder.draw(item.count,1,item.first||0);
-    }
+    };
+    // Inland liquid (material 2) is discarded here and drawn translucent after the beds; ocean-kind coast water (4) and unsplatted terrain draw opaque, including the liquid-only buffers of splat tiles.
+    for(const item of terrain)drawItem(item);
     encoder.setPipeline(r.splatPipeline);
     for(const tile of terrain)if(tile.material){
       const material=tile.material;
       encoder.setBindGroup(0,material.group,[tile.offset]);encoder.setVertexBuffer(0,material.vertices);
       encoder.setIndexBuffer(material.indices,'uint32');encoder.drawIndexed(material.count);
+    }
+    if(r.lakePipeline){
+      encoder.setPipeline(r.lakePipeline);
+      for(const item of terrain)drawItem(item);
     }
     r.terrainBundle={items:terrain.slice(),materials:terrain.map(item=>item.material),bundle:encoder.finish()};
     r.terrainBundleBuilds++;

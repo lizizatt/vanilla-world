@@ -32,3 +32,6 @@
 
 # User-painted world map, built on WoW map art: local only.
 /browser/world-map-art.jpg
+
+# Rogue Squadron 3D spike data (copyrighted LucasArts game files): local only.
+/browser/rogue-data/

@@ -87,3 +87,5 @@ test('zone lighting blends out with altitude (zone factor)',()=>{
   const lo=cloudUniform(view,0,1,manifest,1,g,undefined,1440,{bend:0,space:0,zone:1}),hi=cloudUniform(view,0,1,manifest,1,g,undefined,1440,{bend:1,space:1,zone:0});
   assert.deepEqual([...lo.slice(24,27)].map(v=>+v.toFixed(2)),[.2,.4,.9]);assert.deepEqual([...hi.slice(24,27)],[1,1,1]);assert.deepEqual([...hi.slice(36,39)].map(v=>+v.toFixed(2)),[1,.96,.88]);
 });
+
+test('maelstromCentre tolerates a moon manifest without world_bounds', () => { assert.deepEqual(maelstromCentre({ocean:[0,0,1,1]}), [1e9,1e9]); });

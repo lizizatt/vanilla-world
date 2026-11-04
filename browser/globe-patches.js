@@ -26,7 +26,20 @@ export function selectPatches(lat,lon,altitude,{radius=PLANET_RADIUS,cull=true,r
     } else out.push([la0,la1,lo0,lo1,level]);
   };
   for(let i=0;i<4;i++)for(let j=0;j<2;j++)visit(-HALF+j*HALF,j*HALF,-Math.PI+i*HALF,-Math.PI+(i+1)*HALF,0);
-  return stitch(out,limit);
+  return stitchCached(out,limit);
+}
+
+// Leaf sets repeat for many frames while the eye moves inside one cell; stitch is deterministic in them, so reuse its output (read-only to callers).
+const stitchMemo=new Map();
+function stitchCached(leaves,limit) {
+  const key=limit+':'+leaves.map(p=>cellKey(p[4],(p[0]+p[1])/2,(p[2]+p[3])/2)).join(',');
+  let hit=stitchMemo.get(key);
+  if(!hit){
+    hit=stitch(leaves,limit);
+    if(stitchMemo.size>=8)stitchMemo.delete(stitchMemo.keys().next().value);
+    stitchMemo.set(key,hit);
+  }
+  return hit;
 }
 
 // Square cells: at level L both lat and lon span HALF/2^L.
@@ -84,3 +97,9 @@ export function packPatches(patches,out=new Float32Array(MAX_PATCHES*8)) {
 }
 
 export const patchArea=p=>(p[3]-p[2])*(Math.sin(p[1])-Math.sin(p[0]));
+
+/** Runs the selector over a few eyes and altitudes so its first in-flight call is not the one that pays for JIT compilation and the stitch memo fill (a ~60 ms one-off frame). */
+export function warmPatches() {
+  for(const alt of [50,2000,30000,300000])for(const lat of [0,.7])selectPatches(lat,.3,alt);
+  stitchMemo.clear();
+}

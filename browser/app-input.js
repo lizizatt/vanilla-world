@@ -2,7 +2,7 @@ import {nearElune} from './elune-pose.js';
 import {podInSpace} from './pod-attitude.js';
 import {sharedKeymap} from './keymap.js';
 // Press actions other modules own (their listeners ask the same keymap): Esc layering, the F1 hold overlay, the editor's own keys and the debug panels.
-export const EXTERNAL_PRESS=Object.freeze(['ui.menu','ui.cheatsheet','editor.add','editor.select','editor.start','editor.delete','editor.undo','debug.pose','debug.wind']);
+export const EXTERNAL_PRESS=Object.freeze(['ui.menu','ui.cheatsheet','editor.add','editor.select','editor.start','editor.delete','editor.undo','editor.dial','debug.pose','debug.wind']);
 /** One handler per press action owned here; each returns true when it acted. */
 export function pressHandlers(app) {
 const {settings,mapPanel}=app;

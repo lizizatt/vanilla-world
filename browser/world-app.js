@@ -4,6 +4,7 @@ import {restoreDataFolder,authorizeDataFolder} from './asset-folder.js';
 import {ARCHIVE_DATA_SOURCE} from './archive-flag.js';
 import {WorldInput} from './world-input.js';
 import {WorldAudio} from './world-audio.js';
+import {sourceToRender} from './renderer-actors.js';
 import {TUNING_FIELDS} from './world-tuning.js';
 import {CameraCollision} from './camera-collision.js';
 import {LoadingArt} from './loading-art.js';
@@ -19,6 +20,7 @@ import {SFX,HEAT,WIPEOUT_NAMES,POD_ENGINES,loadSfx} from './swe1r/sfx.js';
 import {loadHudSprites,loadCountdownSprites,createDial,createHeatGauge} from './swe1r/hud.js';
 import {installHud} from './app-hud.js';
 import {installSettings} from './app-settings.js';
+import {installRadio} from './app-radio.js';
 import {installLoading} from './app-loading.js';
 import {installPose} from './app-pose.js';
 import {applyUiArt} from './ui-art.js';
@@ -38,7 +40,7 @@ window.worldEvidence=evidence;
 app.choice=bootChoice();app.tracks=[];app.race=undefined;app.raceBest=undefined;app.promptTrack=undefined;app.goUntil=0;app.boardTimer=0;app.againTrack=undefined;app.againUntil=0;
 app.landmarkCache=undefined;app.flightSpeed=0;app.renderer=undefined;app.folder=undefined;app.flight=undefined;app.running=false;app.busy=false;app.last=0;app.frames=0;app.hudTime=0;app.hudFrames=0;app.permissionNeeded=false;
 app.orbit=[0,0];app.dragging=false;app.mouseButtons=0;app.soundAttempt=0;app.soundError='';app.soundTime=0;app.reportTimer=undefined;app.testPads=undefined;app.frozenPresentation=false;app.tuningValues=TUNING_FIELDS.map(f=>f[1]);
-const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:true,cockpit:false,clouds:true,planet:true,globeMesh:true,globeRegistry:true,cloudQuality:'auto',weather:true,weatherQuality:'auto',music:true,particles:'medium',animateNpcs:true,waves:true,timeScale:1};
+const defaults={horizon:true,scenery:true,distant:true,controls:'native',cameraDistance:15,cameraSeconds:.5,sound:true,cockpit:false,clouds:true,planet:true,globeMesh:true,globeRegistry:true,cloudQuality:'auto',weather:true,weatherQuality:'auto',music:true,particles:'medium',animateNpcs:true,creatureCollision:true,waves:true,timeScale:1};
 const settings={...defaults};
 const gib={on:true,speed:100,overheat:true};const gibMem={};
 const loading=$('loading-screen');
@@ -89,6 +91,7 @@ const client=new WorldClient(data=>{
     evidence.eventRevision=(evidence.eventRevision||0)+1;
     if(data.event==='progress'){if(!evidence.ready){app.report(data.text);app.loadingProgress(data);}}
     else if(data.event==='music')music.event(data);else if(data.event==='climate')app.climate?.event(data);
+    else if(data.event==='creature-sound'){const r=app.renderer,reg=r?.manifest?.regions[r.sceneRegion];if(reg)void audio.spatial(data.path,data.bytes,sourceToRender(reg,[data.x,data.y,data.z]),r.view).catch(()=>{});}
     else if(data.event==='sky')app.renderer.setSky(data);
     else if(data.event==='sky-dome')app.renderer.setSkyDome(data);
     else if(data.event==='worldmap'||data.event==='worldmap-tiles')mapPanel.event(data);
@@ -118,6 +121,7 @@ const client=new WorldClient(data=>{
 Object.assign(app,{canvas,keys,input,audio,cameraCollision,evidence,defaults,settings,gib,gibMem,loading,loadingArt,mapPanel,music,client});
 installHud(app);
 installSettings(app);
+installRadio(app);
 installLoading(app);
 installPose(app);
 installInput(app);
@@ -128,6 +132,9 @@ installFrame(app);
 async function start() {
   try {
     app.renderer=await WorldRenderer.create(canvas,error=>{app.running=false;app.fail(error);});
+    // Scene/terrain uploads are spread over frames (4 ms each) instead of landing as one 20-110 ms message handler.
+    app.renderer.uploadBudget=4;
+    app.renderer.onEventError=(error,data)=>{if(data?.event==='far-scene')app.renderer.clearFar();else app.running=false;app.fail(error);};
     $('select').disabled=false;$('fallback').disabled=false;evidence.started=performance.now();
     app.report('');
     if('serviceWorker' in navigator) {

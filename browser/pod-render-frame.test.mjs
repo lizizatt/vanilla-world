@@ -7,6 +7,7 @@ import {AZEROTH,ELUNE,toInertial,fromInertial} from './bodies.js';
 import {setActiveBody} from './body-shaders.js';
 import {chartAxes} from './shared-flight.js';
 import {beginRamp,stepLaunch,launchTelemetry} from './pod-launch.js';
+import {frameCentre} from './frames.js';
 import {simEpoch} from './sim-clock.js';
 const dot=(a,b)=>a.reduce((sum,v,i)=>sum+v*b[i],0);
 const close=(a,b,tolerance=1e-6)=>assert(Math.hypot(...a.map((v,i)=>v-b[i]))<tolerance,`${a} != ${b}`);
@@ -68,4 +69,17 @@ test('SOI swap preserves cockpit and chase inertial eye and all orientation axes
     for(const key of ['eye','look','up'])close(frames[0][key],frames[1][key],1e-7);
   }
   setActiveBody(AZEROTH);
+});
+
+test('engine particles stay on the craft in a pole frame (spawned and drawn against the same framed body)',()=>{
+  for(const id of ['N','S']){
+    const body={...ELUNE,centre:frameCentre(id,ELUNE.centre)},state=[4.37,-57.4,-48.8,-2.77,0],eye=[state[0]-8,state[1]+3,state[2]+10];
+    const pool=new ParticlePool(4,()=>.5);pool.frame=podParticleFrame(body,state);pool.emit('plume',state[0],state[1],state[2]);pool.frame=undefined;
+    const out=new Float32Array(32);
+    assert.equal(pool.fill(out,eye,body),1);
+    const want=rigidPodMatrix(new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]),state,eye,body).slice(12,15);
+    close(Array.from(out.slice(0,3)),Array.from(want),1e-3);
+    pool.frame=podParticleFrame(body,state);pool.emit('plume',state[0],state[1],state[2]);pool.frame=undefined;
+    pool.fill(out,eye,ELUNE);assert(Math.hypot(...Array.from(out.slice(0,3)).map((v,i)=>v-want[i]))>1,'unframed body must not match');
+  }
 });

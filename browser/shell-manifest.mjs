@@ -37,7 +37,7 @@ export function archiveStamp(source, on) {
 export function stampHeaders(source, on) {
   return on ? source.replaceAll("object-src 'none';", "object-src 'none'; connect-src 'self' https://archive.org https://*.archive.org;") : source;
 }
-export const CSP = on => stampHeaders("default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; media-src blob:; img-src 'self' blob:; font-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'", on);
+export const CSP = on => stampHeaders("default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://www.youtube.com; frame-src https://www.youtube.com; style-src 'self'; media-src blob:; img-src 'self' blob:; font-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'", on);
 
 /** Walks the graph. Missing files fail closed unless `allowMissing` (dev server before a wasm build). */
 export async function shellManifest({ allowMissing = false, archive = archiveEnabled() } = {}) {
