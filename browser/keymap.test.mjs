@@ -40,9 +40,9 @@ test('menu markup carries no hard-coded key hints; help is generated',async()=>{
   assert.ok(html.includes('id="bindings"')&&html.includes('id="cheatsheet"'));
 });
 
-test('new defaults: race start R, cockpit H, fly/drive Tab, F unbound',()=>{
+test('new defaults: race start R, cockpit H, fly/drive F4, F unbound',()=>{
   const k=presetKeymap('native');
-  assert.equal(k.label('race.start'),'R');assert.equal(k.label('cam.cockpit'),'H');assert.equal(k.label('ui.flyDrive'),'Tab');
+  assert.equal(k.label('race.start'),'R');assert.equal(k.label('cam.cockpit'),'H');assert.equal(k.label('ui.flyDrive'),'F4');
   for(const a of ACTIONS)assert.ok(!k.keys(a.id).includes('KeyF'),a.id);
 });
 
@@ -53,4 +53,11 @@ test('menu has a page and a main-menu entry for every sub-page, plus a back bar'
     assert.ok(html.includes(`data-page="${page}"`),page);assert.ok(html.includes(`<button type="button" data-tab="${page}">`),page);
   }
   assert.ok(html.includes('id="menu-back"'));
+});
+
+test('radio is Shift+R and fly/drive is F4, Tab unbound',()=>{
+  const k=presetKeymap('native');
+  assert.equal(k.label('ui.radio'),'Shift+R');assert.equal(k.label('ui.flyDrive'),'F4');
+  assert.ok(k.matches('ui.radio',{code:'KeyR',shiftKey:true}));assert.ok(!k.matches('ui.radio',{code:'KeyR'}));
+  assert.ok(!k.matches('ui.flyDrive',{code:'Tab'}));
 });
