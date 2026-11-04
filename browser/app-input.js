@@ -1,25 +1,45 @@
-import {DRIVE_KEYS} from './world-input.js';
 import {nearElune} from './elune-pose.js';
 import {podInSpace} from './pod-attitude.js';
-export function installInput(app) {
-const {canvas,keys,input,settings,mapPanel}=app;
+import {sharedKeymap} from './keymap.js';
+// Press actions other modules own (their listeners ask the same keymap): Esc layering, the F1 hold overlay, the editor's own keys and the debug panels.
+export const EXTERNAL_PRESS=Object.freeze(['ui.menu','ui.cheatsheet','editor.add','editor.select','editor.start','editor.delete','editor.undo','debug.pose','debug.wind']);
+/** One handler per press action owned here; each returns true when it acted. */
+export function pressHandlers(app) {
+const {settings,mapPanel}=app;
 const $=id=>document.getElementById(id);
+const running=fn=>()=>app.running?fn()!==false:false;
+return {
+  'debug.crash':running(()=>{void app.testCrash();}),
+  'ui.map':running(()=>{mapPanel.toggle();}),
+  'ui.elune':running(()=>{if(app.race||!app.renderer.sharedSpace)return false;void app.arrival(()=>{app.flight=nearElune(30000,app.renderer.timeOfDay??0);app.space=undefined;settings.planet=true;}).catch(app.fail);}),
+  'ui.unstuck':running(()=>{if(app.flight)return false;$('unstuck').click();}),
+  'ui.garage':running(()=>{app.openGarage();}),
+  'ui.editor':running(()=>{app.toggleEditor();}),
+  'ui.options':running(()=>{app.openRaceMenu('options');}),
+  'ui.keybinds':running(()=>{app.openRaceMenu('keys');}),
+  'ui.flyDrive':running(()=>{if(app.race)return false;$(app.flight?'drive':'fly').click();}),
+  'cam.cockpit':running(()=>{app.cockpit();}),
+  'drive.reset':()=>{$('reset').click();return true;},
+  'race.start':()=>{
+    const again=app.raceAgain();
+    if(again&&!app.race)app.startRace(again);else if(app.promptTrack&&!app.race)app.startRace(app.promptTrack);else return false;
+    return true;
+  },
+};
+}
+export function installInput(app) {
+const {canvas,keys,input,mapPanel}=app;
+const keymap=app.keymap??=sharedKeymap(),handlers=pressHandlers(app);
 canvas.addEventListener('keydown',event=>{
-  if(!event.repeat && event.code==='KeyK' && event.ctrlKey && event.altKey && app.running){event.preventDefault();app.testCrash();return;}
-  if(!event.repeat && event.code==='KeyM' && !event.ctrlKey && !event.altKey && !event.metaKey && app.running){event.preventDefault();mapPanel.toggle();}
-  if(!event.repeat && event.code==='KeyL' && !event.ctrlKey && !event.altKey && !event.metaKey && app.running && !app.race && app.renderer.sharedSpace){event.preventDefault();void app.arrival(()=>{app.flight=nearElune(30000,app.renderer.timeOfDay??0);app.space=undefined;settings.planet=true;}).catch(app.fail);return;}
-  if(!event.repeat && event.code==='KeyU' && !event.ctrlKey && !event.altKey && !event.metaKey && app.running && !app.flight){event.preventDefault();$('unstuck').click();return;}
-  if(!event.repeat && event.code==='KeyG' && !event.ctrlKey && !event.altKey && !event.metaKey && app.running){event.preventDefault();app.openGarage();return;}
-  if(!event.repeat && event.code==='KeyT' && !event.ctrlKey && !event.altKey && !event.metaKey && app.running){event.preventDefault();app.toggleEditor();return;}
   if(!event.repeat && event.code==='Escape' && mapPanel.open){event.preventDefault();mapPanel.dialog.close();return;}
   if(!event.repeat && event.code==='Escape' && app.running && !app.raceMenu.open){event.preventDefault();app.openRaceMenu();return;}
-  if(DRIVE_KEYS.has(event.code)) {
-    event.preventDefault();keys.add(event.code);if(!event.repeat)input.keyboard();
-    if(!event.repeat && event.code==='F9')$('reset').click();
-    if(!event.repeat && event.code==='KeyF' && !event.ctrlKey && !event.altKey){const again=app.raceAgain();if(again&&!app.race)app.startRace(again);else if(app.promptTrack&&!app.race)app.startRace(app.promptTrack);else app.cockpit();}
-    if(!event.repeat && event.code==='KeyV' && event.ctrlKey && event.altKey && !event.shiftKey)app.cockpit();
-    app.resumeAudio(true);
+  let handled=false;
+  if(!event.repeat)for(const action of keymap.actionsFor(event,a=>a.kind==='press'&&handlers[a.id])) {
+    handled=true;event.preventDefault();
+    if(handlers[action.id](event))break;
   }
+  if(keymap.heldCodes().has(event.code)){event.preventDefault();keys.add(event.code);handled=true;}
+  if(handled){if(!event.repeat)input.keyboard();app.resumeAudio(true);}
 });
 canvas.addEventListener('pointerdown',event=>{
   canvas.focus();app.resumeAudio(true);
