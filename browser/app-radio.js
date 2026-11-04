@@ -10,7 +10,7 @@ let enabled=false,volume=50;
 try{enabled=localStorage.getItem('racer.radio')==='1';const v=localStorage.getItem('racer.radioVolume');if(v!==null&&v!=='')volume=clampVolume(v);}catch{/* storage unavailable (private mode): setting is not persisted */}
 function mount(){const host=document.createElement('div');host.id='radio-host';host.setAttribute('aria-hidden','true');document.body.append(host);const slot=document.createElement('div');host.append(slot);return slot;}
 const radio=new RadioPlayer({mount,enabled,volume,onChange:render});
-Object.assign(app,{radio,syncMusic});
+Object.assign(app,{radio,syncMusic,openRadio:()=>openPanel()});
 function syncMusic(){music.setEnabled(settings.music&&!radio.playing);}
 function render(){
   const s=radio.snapshot();

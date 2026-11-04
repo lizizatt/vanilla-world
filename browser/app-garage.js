@@ -1,4 +1,5 @@
 import {renderCheatsheet,installCheatsheet} from './keys-ui.js';
+import {installTutorial} from './tutorial.js';
 import {loadVehicleModel} from './vehicle-model.js';
 import {writeChoice,tracksFor,VEHICLES,canSwitch,normalizeChoice,skinOf,stepSkin,garageIconVisible,ridePlan,TUNING_HOVER,ROCKET_DISPLAY} from './vehicles.js';
 import {getSwe1r,attachSwe1r} from './swe1r/ui.js';
@@ -9,7 +10,7 @@ export function installGarage(app) {
 const {canvas,keys,mapPanel,client}=app;
 const $=id=>document.getElementById(id);
 Object.assign(app,{openRaceMenu,applySkin,selectVehicle,renderGarage,openGarage,sendTuning,userTuning});
-app.raceMenu=$('race-menu');installCheatsheet(app);
+app.raceMenu=$('race-menu');installCheatsheet(app);app.tutorial=installTutorial(app);
 function openRaceMenu(page='game') {
   if(app.raceMenu.open){menuTab(typeof page==='string'?page:'game');return;}
   keys.clear();app.dragging=false;app.mouseButtons=0;menuTab(typeof page==='string'?page:'game');
@@ -66,9 +67,8 @@ async function applySkin() {
 }
 function selectVehicle(next) {
   if(!canSwitch({race:app.race,editing:app.editor.isOpen}))return false;
-  const wasFree=app.choice.vehicle==='free-flight';app.choice=normalizeChoice(next);writeChoice(app.choice);
-  if(app.choice.vehicle==='free-flight'){if(!app.flight&&client.state){const p=client.state.telemetry;app.flight=[p[0],p[1]+20,p[2]+20,p[3],-.25];}}
-  else if(wasFree||app.flight){app.flight=undefined;app.renderer.camera=undefined;}
+  app.choice=normalizeChoice(next);writeChoice(app.choice);
+  if(app.flight){app.flight=undefined;app.renderer.camera=undefined;}
   app.syncGates(true);applySkin();return true;
 }
 function glbAvailable(skin) {
@@ -82,9 +82,8 @@ function renderGarage() {
     const b=document.createElement('button');b.type='button';b.role='tab';b.textContent=x.name;b.dataset.vehicle=x.id;b.setAttribute('aria-selected',String(x.id===v.id));return b;}));
   const at=Math.max(0,v.skins.findIndex(s=>s.id===app.garagePick.skin)),cur=v.skins[at],arrow=(dir,text)=>{
     const b=document.createElement('button');b.type='button';b.textContent=text;b.dataset.step=dir;b.setAttribute('aria-label',dir<0?'Previous skin':'Next skin');b.disabled=v.skins.length<2;return b;},
-    label=document.createElement('span');label.id='garage-skin-name';label.setAttribute('aria-live','polite');label.textContent=`${cur.name} Ã‚Â· ${at+1} / ${v.skins.length}`;
-  $('garage-skins').replaceChildren(arrow(-1,'Ã¢â€”â‚¬'),label,arrow(1,'Ã¢â€“Â¶'));
-  $('garage-note').textContent=v.note;
+    label=document.createElement('span');label.id='garage-skin-name';label.setAttribute('aria-live','polite');label.textContent=`${cur.name} \u00b7 ${at+1} / ${v.skins.length}`;
+$('garage-skins').replaceChildren(arrow(-1,'\u2039'),label,arrow(1,'\u203a'));
   $('garage-stats').replaceChildren(...Object.entries(v.stats).map(([k,n])=>{
     const row=document.createElement('div'),bar=document.createElement('i');row.append(k,bar);bar.style.width=`${Math.round(n*100)}%`;return row;}));
   const list=tracksFor(app.tracks,v.id);

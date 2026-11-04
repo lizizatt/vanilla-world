@@ -13,6 +13,7 @@ return {
   'ui.map':running(()=>{mapPanel.toggle();}),
   'ui.elune':running(()=>{if(app.race||!app.renderer.sharedSpace)return false;void app.arrival(()=>{app.flight=nearElune(30000,app.renderer.timeOfDay??0);app.space=undefined;settings.planet=true;}).catch(app.fail);}),
   'ui.unstuck':running(()=>{if(app.flight)return false;$('unstuck').click();}),
+  'ui.radio':running(()=>{app.openRadio?.();}),
   'ui.garage':running(()=>{app.openGarage();}),
   'ui.editor':running(()=>{app.toggleEditor();}),
   'ui.options':running(()=>{app.openRaceMenu('options');}),
@@ -20,7 +21,8 @@ return {
   'ui.flyDrive':running(()=>{if(app.race)return false;$(app.flight?'drive':'fly').click();}),
   'cam.cockpit':running(()=>{app.cockpit();}),
   'drive.reset':()=>{$('reset').click();return true;},
-  'race.start':()=>{
+  'race.start':event=>{
+    if(event?.shiftKey)return false;
     const again=app.raceAgain();
     if(again&&!app.race)app.startRace(again);else if(app.promptTrack&&!app.race)app.startRace(app.promptTrack);else return false;
     return true;
