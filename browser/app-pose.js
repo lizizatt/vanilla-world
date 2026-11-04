@@ -1,4 +1,5 @@
 
+import {sharedKeymap} from './keymap.js';
 import {SimClock,simEpoch} from './sim-clock.js';
 import {activeBody} from './body-shaders.js';
 import {poseBody} from './pose-body.js';
@@ -48,5 +49,5 @@ async function applyUrlPose() {
     await place();
   },'Restoring linked position');
 }window.exportPose=exportPose;
-window.addEventListener('keydown',event=>{if(!event.repeat&&app.running&&(event.code==='F8'||(event.code==='KeyY'&&event.ctrlKey&&event.altKey))){event.preventDefault();event.stopPropagation();exportPose();}},true);
+window.addEventListener('keydown',event=>{if(!event.repeat&&app.running&&sharedKeymap().matches('debug.pose',event)){event.preventDefault();event.stopPropagation();exportPose();}},true);
 }

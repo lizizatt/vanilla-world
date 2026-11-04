@@ -32,3 +32,16 @@ test('every press action has a handler or an external owner',()=>{
 });
 
 test('cheatsheet lists actions',()=>{assert.ok(JSON.stringify(cheatsheet(presetKeymap('native'),'all')).length>100);});
+
+test('menu markup carries no hard-coded key hints; help is generated',async()=>{
+  const {readFile}=await import('node:fs/promises');
+  const html=await readFile(new URL('./index.html',import.meta.url),'utf8');
+  for(const stale of ['(F9)','(U)','(M)','(G)','(T)','id="keyboard-guide"','N night'])assert.ok(!html.includes(stale),stale);
+  assert.ok(html.includes('id="bindings"')&&html.includes('id="cheatsheet"'));
+});
+
+test('new defaults: race start R, cockpit H, fly/drive Tab, F unbound',()=>{
+  const k=presetKeymap('native');
+  assert.equal(k.label('race.start'),'R');assert.equal(k.label('cam.cockpit'),'H');assert.equal(k.label('ui.flyDrive'),'Tab');
+  for(const a of ACTIONS)assert.ok(!k.keys(a.id).includes('KeyF'),a.id);
+});

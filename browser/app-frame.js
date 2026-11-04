@@ -35,7 +35,7 @@ function frame(now) {
   try {
     const focused=document.hasFocus(),editing=app.raceMenu.open||app.editor.isOpen;
     const accepts=document.activeElement===canvas && focused && !editing;
-    const controls={...input.sample(keys,app.testPads || Array.from(navigator.getGamepads?.() || []),accepts,settings.controls,!focused||!editing,
+    const controls={...input.sample(keys,app.testPads || Array.from(navigator.getGamepads?.() || []),accepts,app.keymap,!focused||!editing,
       !app.flight&&app.choice.vehicle==='podracer')};
     if(app.launchFrame())return;
     if(controls.reset)$('reset').click();
@@ -58,17 +58,17 @@ function frame(now) {
       // The attitude quaternion is authoritative while this frame loop owns the pose (no Euler round trip, so no gimbal reset near +-90 degrees pitch).
       // A pose set from outside (fresh, loaded, or moved by a test hook) is rebuilt from its quaternion if consistent, else from its yaw/pitch.
       let q=app.attitude?.ref===app.flight?app.attitude.q:app.flight.length>=9&&Math.abs(Math.sin(yaw-app.flight[3]))<1e-6&&Math.abs(pitch-app.flight[4])<1e-6?app.flight.slice(5,9):fromEuler(app.flight[3],app.flight[4]);
-      const dk=k=>Number(keys.has(k));
-      q=keys.has('KeyX')?fromEuler(toEuler(q,app.flight[3])[0],-FLIGHT_PITCH):stepOrient(q,{yaw:(dk('ArrowLeft')-dk('ArrowRight'))*dt-cameraOrbit[0]*.004,pitch:(dk('ArrowUp')-dk('ArrowDown'))*dt-cameraOrbit[1]*.004},app.flight[1],dt);
+      const fk=app.keymap.canonical(keys,'fly'),dk=k=>Number(fk.has(k));
+      q=fk.has('KeyX')?fromEuler(toEuler(q,app.flight[3])[0],-FLIGHT_PITCH):stepOrient(q,{yaw:(dk('ArrowLeft')-dk('ArrowRight'))*dt-cameraOrbit[0]*.004,pitch:(dk('ArrowUp')-dk('ArrowDown'))*dt-cameraOrbit[1]*.004},app.flight[1],dt);
       const aim=basis(q);
       if(app.renderer.sharedSpace){
-        const down=k=>Number(keys.has(k));
+        const down=dk;
         if(app.flight!==app.spacePose){app.space=undefined;app.flightFrame=app.pendingFrame??'E';app.pendingFrame=undefined;}// pose set from outside (teleport, overview, test focus): restart inertial state there
-        const r=stepShared(app.space,app.flight,aim,{forward:down('KeyW')-down('KeyS'),strafe:down('KeyD')-down('KeyA'),lift:down('KeyE')-down('KeyQ'),fast:keys.has('ShiftLeft')||keys.has('ShiftRight')        },dt,app.renderer.timeOfDay??0,(app.renderer.timeLock!==undefined?0:2*Math.min(sanitiseScale(settings.timeScale),app.renderer.warpCap??Infinity)),        activeBody().id,app.flightFrame??'E');
+        const r=stepShared(app.space,app.flight,aim,{forward:down('KeyW')-down('KeyS'),strafe:down('KeyD')-down('KeyA'),lift:down('KeyE')-down('KeyQ'),fast:fk.has('ShiftLeft')},dt,app.renderer.timeOfDay??0,(app.renderer.timeLock!==undefined?0:2*Math.min(sanitiseScale(settings.timeScale),app.renderer.warpCap??Infinity)),        activeBody().id,app.flightFrame??'E');
                 app.flightFrame=r.frame;app.space=r.space;app.flight=r.pose;app.spacePose=r.pose;
                 if(r.swapped&&r.parent!==activeBody().id)swap=r.parent;
         if(r.aim)q=fromBasis(r.aim.right,r.aim.up,r.aim.look);// same physical attitude in the new parent's chart (no orientation reset at the swap)
-      } else app.flight=moveFlight(app.flight,keys,dt,aim);if(app.flight.poleFlip)q=turnAround(q);const [ny,np]=toEuler(q,app.flight[3]);app.flightSpeed=dt>0?Math.hypot(app.flight[0]-before[0],app.flight[1]-before[1],app.flight[2]-before[2])/dt:0;
+      } else app.flight=moveFlight(app.flight,fk,dt,aim);if(app.flight.poleFlip)q=turnAround(q);const [ny,np]=toEuler(q,app.flight[3]);app.flightSpeed=dt>0?Math.hypot(app.flight[0]-before[0],app.flight[1]-before[1],app.flight[2]-before[2])/dt:0;
       app.flight[3]=ny;app.flight[4]=np;app.flight.length=5;app.flight.push(...q);app.attitude={ref:app.flight,q};
       if(swap){app.swapHold=true;const release=()=>{app.swapHold=false;};app.soiSwap(swap,{seamless:true}).then(ok=>{if(!ok)app.soiHandoff(swap,app.flight);}).catch(error=>{console.error('SOI swap failed',error);app.soiHandoff(swap,app.flight);}).finally(release);}
     }
@@ -84,7 +84,7 @@ function frame(now) {
         if(app.renderer.shoreRequest&&!app.shoreBusy){app.shoreBusy=true;fetchShoreField(client,app.renderer.shoreRequest).then(f=>app.renderer.setShoreField(f),()=>{}).finally(()=>{app.shoreBusy=false;});}    app.renderer.fxInput={throttle:Math.max(0,controls.throttle),boosting:(controls.flags&2)!==0,heat:app.dial?client.state.telemetry[6]:0,health:[client.state.telemetry[15]??1,client.state.telemetry[16]??1],drifting:(controls.flags&4)!==0};
         app.climate??=new ClimateTracker(fields=>client.music(fields));app.climate.update(client.state.area);app.renderer.weatherArea=app.weatherOverride??app.climate.info;    // During a gravity-well swap the renderer still holds the old body's chart; keep presenting the last frame instead of drawing the new pose on it.
     setActiveFrame(app.flight?(app.flightFrame??'E'):['E','N','S'][client.state.frame?.[0]??0]);const stats=app.swapHold&&app.lastStats?app.lastStats:app.renderer.draw(app.frozenPresentation || app.flight?client.state.telemetry:client.presentation(),app.flight,dt,app.frozenPresentation?0:now/1000,
-      {...settings,podAim:app.podAim?.q,podTime:journey?.time,cameraLook:controls.look,cameraOrbit,cameraSteer:right&&!orbital,cameraRecentre:keyDrive&&!app.dragging&&!orbital?.active},keys.has('KeyV')&&!keys.has('AltLeft')&&!keys.has('AltRight'));
+      {...settings,podAim:app.podAim?.q,podTime:journey?.time,cameraLook:controls.look,cameraOrbit,cameraSteer:right&&!orbital,cameraRecentre:keyDrive&&!app.dragging&&!orbital?.active},app.keymap.down('cam.lookBack',keys)&&!keys.has('AltLeft')&&!keys.has('AltRight'));
     app.lastStats=stats;
     app.editor.frame();
     updateTimeHud(app);
@@ -107,7 +107,7 @@ function frame(now) {
       const held=!!scene?.waitingCollision || !!p[8];
       app.promptTrack=app.race||app.flight?undefined:nearestFlag(tracksFor(app.tracks,app.choice.vehicle,activeBody().id),p);
       const again=app.race||app.flight?undefined:app.raceAgain();
-      $('race-prompt').hidden=!app.promptTrack&&!again;if(again)$('race-prompt').textContent='Press F to race again';else if(app.promptTrack)$('race-prompt').textContent=`Press F to start race: ${app.promptTrack.name||app.promptTrack.id}`;
+      $('race-prompt').hidden=!app.promptTrack&&!again;if(again)$('race-prompt').textContent=`Press ${app.keymap.label('race.start')} to race again`;else if(app.promptTrack)$('race-prompt').textContent=`Press ${app.keymap.label('race.start')} to start race: ${app.promptTrack.name||app.promptTrack.id}`;
       $('speed').textContent=app.flight?'FLY':p[5]<10000?p[5].toFixed(0).padStart(3,'0'):p[5].toExponential(1);
       $('direction').textContent=app.flight?'FREE':p[14]<-.1?'REV':p[14]>.1?'FWD':p[5]<.1?'IDLE':'--';
       $('drive-state').textContent=app.flight?'':scene?.waitingCollision||p[8]===1?'WAIT':p[8]===3?'CONTACT':p[8]===2?'NO GROUND':'';

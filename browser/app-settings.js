@@ -1,9 +1,13 @@
 import {sanitiseScale,TIME_SCALES} from './sim-clock.js';
+import {sharedKeymap} from './keymap.js';
+import {renderBindings} from './keys-ui.js';
 import {worldTuning} from './world-store.js';
 import {deriveBudget,BUDGET_SETTINGS} from './memory-budget.js';
 import {TUNING_FIELDS,validateTuningRecord} from './world-tuning.js';
 export function installSettings(app) {
 const {canvas,keys,input,audio,evidence,settings,gib,music,client}=app;
+const keymap=app.keymap??=sharedKeymap();
+const bindingsUi=renderBindings(document.getElementById('bindings'),keymap,{onChange(){settings.controls=keymap.profile;keys.clear();input.keyboard();syncSettings();}});
 const $=id=>document.getElementById(id);
 Object.assign(app,{applyMemoryBudget,syncSettings,syncSound,pauseAudio,resumeAudio,zoom,cockpit,});
 try{gib.on=localStorage.getItem('racer.gib')!=='0';gib.overheat=localStorage.getItem('racer.overheat')!=='0';gib.durable=localStorage.getItem('racer.durability')!=='0';gib.speed=Math.max(20,Math.min(400,Number(localStorage.getItem('racer.gibSpeed'))||100));}catch{/* storage unavailable (private mode): setting is not persisted */}
@@ -20,11 +24,8 @@ function syncSettings() {
   for(const key of ['horizon','scenery','distant','sound','clouds','planet'])$(key).checked=settings[key];
   $('particles').value=settings.particles;$('time-scale').value=String(TIME_SCALES.indexOf(sanitiseScale(settings.timeScale)));$('time-scale-label').textContent=sanitiseScale(settings.timeScale)?sanitiseScale(settings.timeScale)+'x':'Paused';$('cloud-quality').value=settings.cloudQuality;$('weather').checked=settings.weather!==false;$('weather-quality').value=settings.weatherQuality;$('animate-npcs').checked=settings.animateNpcs;$('ocean-waves').checked=settings.waves!==false;
   music.setEnabled(settings.music);$('music-on').checked=settings.music;
-  $('control-profile').value=settings.controls;$('camera-distance').value=settings.cameraDistance;
-  $('keyboard-guide').textContent=settings.controls==='legacy'
-    ?'W/S thrust/reverse · A/D steer · Up/Down pod pitch · X/Space brake · J hop · Shift boost · C drift · U unstuck · F9 reset.'
-    :'W/S thrust/reverse · A/D steer · Up/Down pod pitch · X brake · J hop · Shift boost · Space/C drift · U unstuck · F9 reset.';
-  canvas.setAttribute('aria-label',`World. ${$('keyboard-guide').textContent} More controls in Controls and settings.`);
+  keymap.setProfile(settings.controls,{keep:true});bindingsUi?.redraw();$('camera-distance').value=settings.cameraDistance;
+  canvas.setAttribute('aria-label',`World. ${keymap.label('drive.throttle')}/${keymap.label('drive.reverse')} thrust and reverse, ${keymap.label('drive.left')}/${keymap.label('drive.right')} steer, Esc menu, ${keymap.label('ui.cheatsheet')} controls.`);
   syncSound();
 }
 function syncSound() {
@@ -83,7 +84,6 @@ $('weather').addEventListener('change',()=>{settings.weather=$('weather').checke
 $('weather-quality').addEventListener('change',()=>{settings.weatherQuality=$('weather-quality').value;try{localStorage.setItem('racer.weatherQuality',settings.weatherQuality);}catch{/* storage unavailable: not persisted */}});
 $('cloud-quality').addEventListener('change',()=>{settings.cloudQuality=$('cloud-quality').value;try{localStorage.setItem('racer.cloudQuality',settings.cloudQuality);}catch{/* storage unavailable (private mode): setting is not persisted */}});
 $('distant').addEventListener('change',()=>{settings.distant=$('distant').checked;});
-$('control-profile').addEventListener('change',()=>{settings.controls=$('control-profile').value;keys.clear();input.keyboard();syncSettings();});
 $('camera-distance').addEventListener('input',()=>{
   settings.cameraDistance=Number($('camera-distance').value);
   if(settings.cockpit){settings.cockpit=false;app.renderer.camera=undefined;}

@@ -1,8 +1,9 @@
 // In-game race track editor: the live world rendered top-down is the backdrop, a transparent canvas draws the gizmos.
+import {sharedKeymap} from './keymap.js';
 import {TrackDraft,project,unproject,yawToward,gateY,surfaceBase,CLEAR_MIN,CLEAR_DEFAULT,CLEAR_MAX} from './track-edit.js';
 
 const $=id=>document.getElementById(id);
-const TOOLS={KeyG:'add',KeyV:'select',KeyS:'start'};
+const TOOLS={'editor.add':'add','editor.select':'select','editor.start':'start'};
 const NEAREST_RANGE=5000,ALT_MIN=60,ALT_MAX=3000;
 const fwd=g=>[-Math.sin(g.yaw),-Math.cos(g.yaw)],side=g=>[Math.cos(g.yaw),-Math.sin(g.yaw)];
 const clone=o=>JSON.parse(JSON.stringify(o));
@@ -53,13 +54,18 @@ export function createTrackEditor({view,tracks,body=()=>'azeroth',save,remove:re
     else load(TrackDraft.blank(ed.from.slice(),0,body()));
     fill();status(found?`Loaded "${found.name||id}".`:'New track.');
   }
-  ed.open=from=>{
+  function keyLabels() {
+    const km=sharedKeymap(),set=(el,text,id)=>{if(el)el.textContent=`${text} (${km.label(id)})`;};
+    for(const [id,tool] of Object.entries(TOOLS))set(root.querySelector(`[data-tool=${tool}]`),{add:'Add gate',select:'Select/Move',start:'Set start'}[tool],id);
+    set($('te-delete'),'Delete','editor.delete');set($('te-close'),'Close','ui.editor');
+  }
+  ed.open=from=>{keyLabels();
     ed.from=from;
     const list=tracks(),near=list.map(t=>[Math.hypot(t.start.pos[0]-from[0],t.start.pos[2]-from[2]),t]).sort((a,b)=>a[0]-b[0])[0];
     const keep=dirty();
     if(!keep){if(near&&near[0]<NEAREST_RANGE)load(new TrackDraft(clone(near[1])));else load(TrackDraft.blank(from.slice(),0,body()));}
     fill();
-    ed.isOpen=true;root.hidden=false;ed.tool='select';cv.focus();status(keep?'Restored your unsaved edits.':'Editing. G add · V select · S start · Del delete · Ctrl+Z undo · Wheel zoom · right-drag pan');
+    ed.isOpen=true;root.hidden=false;ed.tool='select';cv.focus();status(keep?'Restored your unsaved edits.':`Editing. ${(()=>{const k=sharedKeymap();return [['add','editor.add'],['select','editor.select'],['start','editor.start'],['delete','editor.delete'],['undo','editor.undo']].map(([n,id])=>n+' '+k.label(id)).join(' · ');})()} · Wheel zoom · right-drag pan`);
     refresh(true);
   };
   ed.close=()=>{if(!ed.isOpen)return;ed.isOpen=false;root.hidden=true;drag=undefined;closed();};
@@ -116,12 +122,13 @@ export function createTrackEditor({view,tracks,body=()=>'azeroth',save,remove:re
   document.addEventListener('keydown',e=>{
     if(!ed.isOpen||e.defaultPrevented||e.altKey||e.metaKey)return;
     const typing=/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName);
-    if(e.code==='Escape'||(e.code==='KeyT'&&!typing)){e.preventDefault();ed.close();return;}
+    const km=sharedKeymap();
+    if(e.code==='Escape'||(km.matches('ui.editor',e)&&!typing)){e.preventDefault();ed.close();return;}
     if(typing)return;
-    if(e.ctrlKey&&e.code==='KeyZ'){e.preventDefault();undo();return;}
-    if(e.ctrlKey)return;
-    if(TOOLS[e.code]){setTool(TOOLS[e.code]);e.preventDefault();}
-    else if(e.code==='Delete'||e.code==='Backspace'){e.preventDefault();remove();}
+    if(km.matches('editor.undo',e)){e.preventDefault();undo();return;}
+    const tool=Object.keys(TOOLS).find(id=>km.matches(id,e));
+    if(tool){setTool(TOOLS[tool]);e.preventDefault();}
+    else if(km.matches('editor.delete',e)){e.preventDefault();remove();}
   });
   function setTool(t) {ed.tool=t;for(const b of root.querySelectorAll('[data-tool]'))b.setAttribute('aria-pressed',String(b.dataset.tool===t));}
   for(const b of root.querySelectorAll('[data-tool]'))b.addEventListener('click',()=>{setTool(b.dataset.tool);cv.focus();});

@@ -1,3 +1,4 @@
+import {renderCheatsheet,installCheatsheet} from './keys-ui.js';
 import {loadVehicleModel} from './vehicle-model.js';
 import {writeChoice,tracksFor,VEHICLES,canSwitch,normalizeChoice,skinOf,stepSkin} from './vehicles.js';
 import {getSwe1r,attachSwe1r} from './swe1r/ui.js';
@@ -6,9 +7,10 @@ export function installGarage(app) {
 const {canvas,keys,mapPanel,client}=app;
 const $=id=>document.getElementById(id);
 Object.assign(app,{openRaceMenu,applySkin,selectVehicle,renderGarage,openGarage});
-app.raceMenu=$('race-menu');
-function openRaceMenu() {
-  keys.clear();app.dragging=false;app.mouseButtons=0;menuTab('game');
+app.raceMenu=$('race-menu');installCheatsheet(app);
+function openRaceMenu(page='game') {
+  if(app.raceMenu.open){menuTab(typeof page==='string'?page:'game');return;}
+  keys.clear();app.dragging=false;app.mouseButtons=0;menuTab(typeof page==='string'?page:'game');
   $('race-restart').hidden=$('race-abandon').hidden=!app.race;$('menu-garage').hidden=!!app.race;$('race-editor').hidden=!!app.race;
   app.race?.pause(performance.now()/1000);app.raceMenu.showModal();
 }
@@ -17,6 +19,7 @@ $('race-restart').addEventListener('click',()=>{const track=app.race?.track;app.
 $('race-abandon').addEventListener('click',()=>{app.race?.cancel('abandoned');app.raceMenu.close();});
 $('race-editor').addEventListener('click',()=>{app.raceMenu.close();app.toggleEditor();});
 function menuTab(name) {
+  if(name==='controls')renderCheatsheet($('controls-sheet'),app.keymap);
   for(const tab of app.raceMenu.querySelectorAll('[data-tab]'))tab.setAttribute('aria-selected',String(tab.dataset.tab===name));
   for(const page of app.raceMenu.querySelectorAll('[data-page]'))page.hidden=page.dataset.page!==name;
 }
