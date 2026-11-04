@@ -127,6 +127,6 @@ $('tuning-defaults').addEventListener('click',()=>{
   applyTuning({version:1,values:TUNING_FIELDS.map(f=>f[1]),cameraSeconds:.5})
     .catch(error=>{$('tuning-status').textContent=error.message;}).finally(()=>{app.busy=false;});
 });
-}
 const hint=()=>{document.getElementById('menu-hint').textContent=`Esc \u00b7 Menu   ${keymap.label('ui.cheatsheet')} \u00b7 Controls`;};hint();
 installOptions(document.querySelector('[data-page=options]'));
+}
