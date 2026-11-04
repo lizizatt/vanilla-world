@@ -27,6 +27,9 @@
 /target-browser/
 /dist/
 
+# WoW UI art extracted locally for the ui-pass design mock only: never commit.
+/browser/design/ui-assets/
+
 # User-painted world map, built on WoW map art: local only.
 /browser/world-map-art.jpg
 
