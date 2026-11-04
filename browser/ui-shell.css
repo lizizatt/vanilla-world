@@ -36,3 +36,18 @@ html.has-art #cheatsheet { max-height: 80vh; overflow: auto; }
 #race-menu .wow-tabs button:hover { color: #fff1c4; background: #2a1f0e; }
 #race-menu .wow-tabs button[aria-selected=true] { background: #3a2b12; color: #ffe9a8; border-color: #8a6a2c; padding-bottom: 7px; }
 #cheatsheet .wow-tabs { pointer-events: none; }
+#tutorial { position: fixed; inset: 6vh 8vw auto; z-index: 31; max-height: 86vh; overflow: auto; padding: 14px 18px; background: rgba(26,18,9,.97); border: 3px double #c8a24a; border-radius: 6px; color: #ffd36a; text-align: center; }
+#tutorial[hidden] { display: none; }
+#tutorial h2 { margin: 0 0 6px; font-size: 1.1rem; }
+.tut-body h3 { margin: 8px 0 4px; font-size: .85rem; color: #ffe9a8; }
+.tut-foot { margin: 10px 0 0; color: #fff1c4; }
+.tut-keyboard { display: inline-flex; flex-direction: column; gap: 3px; align-items: center; }
+.tut-row { display: flex; gap: 3px; justify-content: center; }
+.tut-key { box-sizing: border-box; width: 3.3em; min-height: 2.5em; padding: 2px; border: 1px solid #4a3a1a; border-radius: 4px; background: #1b140a; color: #8f7d52; font-size: .6rem; line-height: 1.1; overflow: hidden; }
+.tut-key.space { width: 18em; }
+.tut-key b { display: block; font-size: .7rem; font-weight: 700; }
+.tut-key.bound, .tut-btn.bound { background: #3a2b12; border-color: #c8a24a; color: #fff1c4; }
+.tut-key span, .tut-btn span { display: block; }
+.tut-pad { display: grid; grid-template-columns: repeat(4, minmax(7em, 1fr)); gap: 4px; max-width: 40em; margin: 0 auto; }
+.tut-btn { padding: 4px; border: 1px solid #4a3a1a; border-radius: 8px; background: #1b140a; color: #8f7d52; font-size: .65rem; }
+.tut-btn b { display: block; font-size: .75rem; }

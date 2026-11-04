@@ -1,4 +1,5 @@
 import {renderCheatsheet,installCheatsheet} from './keys-ui.js';
+import {installTutorial} from './tutorial.js';
 import {loadVehicleModel} from './vehicle-model.js';
 import {writeChoice,tracksFor,VEHICLES,canSwitch,normalizeChoice,skinOf,stepSkin,garageIconVisible,ridePlan,TUNING_HOVER,ROCKET_DISPLAY} from './vehicles.js';
 import {getSwe1r,attachSwe1r} from './swe1r/ui.js';
@@ -9,7 +10,7 @@ export function installGarage(app) {
 const {canvas,keys,mapPanel,client}=app;
 const $=id=>document.getElementById(id);
 Object.assign(app,{openRaceMenu,applySkin,selectVehicle,renderGarage,openGarage,sendTuning,userTuning});
-app.raceMenu=$('race-menu');installCheatsheet(app);
+app.raceMenu=$('race-menu');installCheatsheet(app);app.tutorial=installTutorial(app);
 function openRaceMenu(page='game') {
   if(app.raceMenu.open){menuTab(typeof page==='string'?page:'game');return;}
   keys.clear();app.dragging=false;app.mouseButtons=0;menuTab(typeof page==='string'?page:'game');

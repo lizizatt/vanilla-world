@@ -1,5 +1,6 @@
 // Cheatsheet (F1), Controls page and Key Bindings page, all generated from keymap.js so the on-screen help cannot drift from the real bindings.
 import {tablist} from './tablist.js';
+import {renderTutorial} from './tutorial.js';
 import {sharedKeymap,cheatsheet,FILTERS,PROFILES,chordOf,actionById,keyLabel} from './keymap.js';
 
 const el=(tag,props={},...kids)=>{const e=Object.assign(document.createElement(tag),props);for(const k of kids)e.append(k);return e;};
@@ -19,13 +20,15 @@ function sheetTable(keymap,filter,debug) {
   return root;
 }
 
+const TABS=[...FILTERS,{id:'diagram',label:'Diagram'}];
 /** Filter tabs plus the grouped table. Re-renders itself when the filter changes. */
 export function renderCheatsheet(host,keymap=sharedKeymap(),{debug=false,filter='all'}={}) {
   host.replaceChildren();
   const strip=tablist(document,{label:'Controls'});
-  for(const f of FILTERS)strip.add(f.label,f.id,()=>{renderCheatsheet(host,keymap,{debug,filter:f.id});host.querySelector('[aria-selected=true]')?.focus();});
-  strip.mark(strip.tabs[FILTERS.findIndex(f=>f.id===filter)]);
-  host.append(strip.bar,sheetTable(keymap,filter,debug));
+  for(const f of TABS)strip.add(f.label,f.id,()=>{renderCheatsheet(host,keymap,{debug,filter:f.id});host.querySelector('[aria-selected=true]')?.focus();});
+  strip.mark(strip.tabs[TABS.findIndex(f=>f.id===filter)]);
+  host.append(strip.bar);
+  if(filter==='diagram'){const d=el('div',{className:'tut-body'});renderTutorial(d,keymap);host.append(d);}else host.append(sheetTable(keymap,filter,debug));
 }
 
 /** The editable list. Click a key slot, press the new key; Esc cancels, Backspace clears. A taken key is swapped, and the swap is said out loud. */
@@ -75,13 +78,8 @@ export function renderBindings(host,keymap,{onChange=()=>{},debug=false}={}) {
 export function installCheatsheet(app) {
   const keymap=app.keymap??=sharedKeymap(),overlay=document.getElementById('cheatsheet'),body=overlay.querySelector('.sheet-body');
   const hide=()=>{overlay.hidden=true;};
-  let noticed=false;
   const show=()=>{renderCheatsheet(body,keymap,{debug:app.debug});overlay.hidden=false;};
   window.addEventListener('keydown',event=>{
-    if(app.running&&!noticed){
-      noticed=true;
-      try{if(!localStorage.getItem('racer.controlsNotice')){localStorage.setItem('racer.controlsNotice','1');app.report?.(`Controls changed: ${keymap.label('race.start')} starts a race, ${keymap.label('cam.cockpit')} cockpit, ${keymap.label('ui.flyDrive')} fly/drive. ${keymap.label('ui.cheatsheet')} shows all controls.`,true);}}catch{/* storage unavailable: the notice is skipped */}
-    }
     if(!keymap.matches('ui.cheatsheet',event))return;
     event.preventDefault();if(event.repeat||!app.running)return;
     if(app.raceMenu?.open){app.openRaceMenu('controls');return;}
