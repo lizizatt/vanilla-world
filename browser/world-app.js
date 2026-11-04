@@ -21,6 +21,7 @@ import {installHud} from './app-hud.js';
 import {installSettings} from './app-settings.js';
 import {installLoading} from './app-loading.js';
 import {installPose} from './app-pose.js';
+import {applyUiArt} from './ui-art.js';
 import {installInput} from './app-input.js';
 import {sharedKeymap} from './keymap.js';
 import {installGarage} from './app-garage.js';
@@ -92,6 +93,7 @@ const client=new WorldClient(data=>{
     else if(data.event==='sky-dome')app.renderer.setSkyDome(data);
     else if(data.event==='worldmap'||data.event==='worldmap-tiles')mapPanel.event(data);
     else if(data.event==='hud-art')app.flightHud?.art(data);
+    else if(data.event==='ui-art')void applyUiArt(data);
     else if(data.event==='loading-art')loadingArt.event(data);
     else if(data.event==='loading-art-warning'){
       console.warn(data.message);

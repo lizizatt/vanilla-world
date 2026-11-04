@@ -45,3 +45,12 @@ test('new defaults: race start R, cockpit H, fly/drive Tab, F unbound',()=>{
   assert.equal(k.label('race.start'),'R');assert.equal(k.label('cam.cockpit'),'H');assert.equal(k.label('ui.flyDrive'),'Tab');
   for(const a of ACTIONS)assert.ok(!k.keys(a.id).includes('KeyF'),a.id);
 });
+
+test('menu has a page and a main-menu entry for every sub-page, plus a back bar',async()=>{
+  const {readFile}=await import('node:fs/promises');
+  const html=await readFile(new URL('./index.html',import.meta.url),'utf8');
+  for(const page of ['options','keys','controls','diagnostics','data']){
+    assert.ok(html.includes(`data-page="${page}"`),page);assert.ok(html.includes(`<button type="button" data-tab="${page}">`),page);
+  }
+  assert.ok(html.includes('id="menu-back"'));
+});

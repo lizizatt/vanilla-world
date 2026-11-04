@@ -18,12 +18,20 @@ app.raceMenu.addEventListener('close',()=>{app.race?.resume(performance.now()/10
 $('race-restart').addEventListener('click',()=>{const track=app.race?.track;app.raceMenu.close();app.race=undefined;if(track)app.startRace(track);});
 $('race-abandon').addEventListener('click',()=>{app.race?.cancel('abandoned');app.raceMenu.close();});
 $('race-editor').addEventListener('click',()=>{app.raceMenu.close();app.toggleEditor();});
+const PAGE_TITLES={game:'Game Menu',options:'Options',keys:'Key Bindings',controls:'Controls',diagnostics:'Diagnostics',data:'Data & Saves'};
 function menuTab(name) {
+  if(!(name in PAGE_TITLES))name='game';
   if(name==='controls')renderCheatsheet($('controls-sheet'),app.keymap);
-  for(const tab of app.raceMenu.querySelectorAll('[data-tab]'))tab.setAttribute('aria-selected',String(tab.dataset.tab===name));
+  for(const k of app.raceMenu.querySelectorAll('kbd[data-key]'))k.textContent=app.keymap.label(k.dataset.key);
   for(const page of app.raceMenu.querySelectorAll('[data-page]'))page.hidden=page.dataset.page!==name;
+  $('race-menu-title').textContent=PAGE_TITLES[name];$('menu-back').hidden=name==='game';app.menuPage=name;
+  (app.raceMenu.querySelector(`[data-page=${name}] :is(input,select,button)`)??app.raceMenu.querySelector('[autofocus]'))?.focus();
 }
-$('menu-tabs').addEventListener('click',event=>{const tab=event.target.closest('[data-tab]');if(tab)menuTab(tab.dataset.tab);});
+// Esc steps back one layer: a sub-page returns to the menu, the menu closes.
+const escBack=event=>{if(app.menuPage&&app.menuPage!=='game'){event.preventDefault();menuTab('game');return true;}return false;};
+app.raceMenu.addEventListener('cancel',escBack);
+app.raceMenu.addEventListener('keydown',event=>{if(event.code==='Escape'&&!event.repeat&&escBack(event))event.stopPropagation();});
+app.raceMenu.addEventListener('click',event=>{const tab=event.target.closest('[data-tab]');if(tab){event.preventDefault();menuTab(tab.dataset.tab);}});
 app.raceMenu.addEventListener('click',event=>{if(event.target.closest('[data-close]'))app.raceMenu.close();});
 $('menu-map').addEventListener('click',()=>{app.raceMenu.close();if(app.running)mapPanel.toggle();});
 app.garage=$('garage');const glbPresent=new Map();

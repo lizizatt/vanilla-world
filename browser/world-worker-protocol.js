@@ -5,6 +5,7 @@ import {MusicService} from './music.js';
 import {SkyService} from './sky.js';
 import {WorldMapService} from './worldmap.js';
 import {HudArtService} from './hud-art.js';
+import {UiArtService} from './ui-art.js';
 import {ready,source,world,timings,postFrameVisuals,openWorld,runFrame,restoreWorld,resetWorld,retryWorld,
   requireWorld,setPopulation,setActorsOn,setWavesOn,waveMask,shoreRows,setMemoryBudget,stopLoadingArt,farAck,farReject,snapshot,settleAfterAction,rebindRenderer,
   finishFrame,scheduleTerrainMaterials,sceneFault} from './world-engine.js';
@@ -12,7 +13,7 @@ import {formatError,validateHop,validateSampleTime,validateParkedPose,validateTu
 import {pod} from './world-engine.js';
 import {validatePodControl} from './pod-attitude.js';
 
-let music,sky,worldMap,hudArt;
+let music,sky,worldMap,hudArt,uiArt;
 
 // Messages that must never wait behind the serialized world queue; returns true when consumed.
 export function routeImmediate(data) {
@@ -46,6 +47,13 @@ export function routeImmediate(data) {
     const owner=source;
     if(hudArt?.source!==owner)hudArt=new HudArtService(owner,(data,transfers)=>postMessage(data,transfers),wasmTypes);
     void hudArt.request(()=>source!==owner);
+    return true;
+  }
+  if(data.action==='ui-art'){
+    if(!source)return true;
+    const owner=source;
+    if(uiArt?.source!==owner)uiArt=new UiArtService(owner,(data,transfers)=>postMessage(data,transfers),wasmTypes);
+    void uiArt.request(()=>source!==owner);
     return true;
   }
   if(data.action==='far-ack'){farAck(data.token,data.producer);return true;}

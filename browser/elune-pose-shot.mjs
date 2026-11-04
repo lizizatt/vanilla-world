@@ -17,7 +17,7 @@ for(const [name,pose] of Object.entries(poses)) {
   await page.waitForFunction(()=>!document.getElementById('select').disabled,null,{timeout:60000});
   await page.locator('#files').setInputFiles(WOW_DATA);
   await page.waitForFunction(()=>worldEvidence.ready||worldEvidence.errors.length,null,{timeout:300000});
-  await page.keyboard.press('Escape');if(await page.locator('[data-tab=options]').isVisible()){await page.locator('[data-tab=options]').click();await page.keyboard.press('Escape');}await page.evaluate(()=>document.getElementById('welcome')?.remove());
+  await page.keyboard.press('Escape');if(await page.locator('[data-tab=options]').isVisible()){await page.locator('[data-tab=options]').click();await page.keyboard.press('Escape');await page.keyboard.press('Escape');}await page.evaluate(()=>document.getElementById('welcome')?.remove());
   await page.waitForTimeout(+WAIT);
   if(process.env.SET){await page.evaluate(s=>worldTest.settings(JSON.parse(s)),process.env.SET);await page.waitForTimeout(4000);}
   if(process.env.FILT){await page.evaluate(k=>{const r=worldTest.renderer();const d=Object.getOwnPropertyDescriptor(r,'instances');let v=r.instances.filter(i=>i.kind!==k);Object.defineProperty(r,'instances',{get:()=>v,set:x=>{v=x.filter(i=>i.kind!==k);},configurable:true});},process.env.FILT);await page.waitForTimeout(3000);}

@@ -20,3 +20,15 @@ kbd { display: inline-block; min-width: 1.4em; padding: 1px 6px; margin-right: 4
 #cheatsheet .sheet-filters { pointer-events: none; }
 #cheatsheet .sheet-groups { max-height: none; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
 .sheet-foot { margin: 8px 0 0; text-align: center; font-size: .8rem; opacity: .7; }
+/* Menu shell: the sub-page bar and key hints on the main page. */
+#race-menu .menu-page[data-page="game"] button { text-align: left; }
+#race-menu button kbd { float: right; margin-left: 12px; opacity: .85; }
+#menu-back { display: flex; gap: 8px; margin-top: 10px; }
+#menu-back[hidden] { display: none; }
+/* Direction C: WoW dialog frame, plaque and type around flat gold-outline controls. Variables are filled at runtime from the user's own Data (ui-art.js). */
+html[data-fontfriz] #race-menu, html[data-fontfriz] #cheatsheet, html[data-fontfriz] #garage, html[data-fontfriz] kbd { font-family: "WoW Friz", Georgia, serif; }
+html[data-fontmorpheus] #race-menu h2, html[data-fontmorpheus] #garage h2 { font-family: "WoW Morpheus", "WoW Friz", Georgia, serif; }
+html.has-art #race-menu, html.has-art #garage, html.has-art #cheatsheet { overflow: visible; border: 16px solid transparent; border-image: var(--dlg-border) 32 / 16px stretch; border-radius: 0; padding: 30px 18px 14px; background: var(--dlg-bg) padding-box, #120d06; background-size: 64px; }
+html.has-art #race-menu h2, html.has-art #garage h2 { position: absolute; left: 50%; top: -40px; transform: translateX(-50%); margin: 0; min-width: 240px; padding: 14px 40px 20px; font-size: 15px; background: var(--dlg-header) center / 100% 100% no-repeat; }
+html.has-art #cheatsheet { max-height: 80vh; overflow: auto; }
+#race-menu :focus-visible, #cheatsheet :focus-visible { outline: 2px solid #fff1c4; outline-offset: 1px; }
