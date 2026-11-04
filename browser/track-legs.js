@@ -65,6 +65,7 @@ export function checkTrack(t,surfaces=[]) {
     if(Number.isFinite(base)&&g.pos[1]<base-GROUND_SLACK)errors.push(`Gate ${i+1} is ${(base-g.pos[1]).toFixed(0)} yd inside the ground on ${bodyLabel(gateBody(t,g))}; raise it.`);
   });
   const sb=surfaceBase(surfaces[0]);
-  if(Number.isFinite(sb)&&t.start.pos[1]<sb-GROUND_SLACK)errors.push('The start is inside the ground; raise it.');
+  // The start is raised to the surface when a race begins (clampTrack), so this is advice, not a blocker.
+  if(Number.isFinite(sb)&&t.start.pos[1]<sb-GROUND_SLACK)warnings.push(`The start on ${bodyLabel(trackBody(t))} is ${(sb-t.start.pos[1]).toFixed(0)} yd inside the ground; it will be raised to the surface.`);
   return {errors,warnings};
 }

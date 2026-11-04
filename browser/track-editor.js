@@ -201,6 +201,8 @@ export function createTrackEditor({view,tracks,body=()=>'azeroth',save,remove:re
       const samples=await probe(here.map(x=>[x.p[0],x.p[2]])).catch(()=>[]),surfaces=[];
       here.forEach((x,n)=>{const s=samples[n];if(s)surfaces[x.k]={ground:s[1],water:s[2]};});
       const {errors,warnings}=checkTrack(t,surfaces);
+      const sb=surfaceBase(surfaces[0]);
+      if(Number.isFinite(sb)&&d.start.pos[1]<sb){d.checkpoint();d.start.pos[1]=sb;t.start.pos[1]=sb;warnings.push('The start was below the ground and has been raised to the surface.');}
       if(spansBodies(t))warnings.push(`Terrain was checked on ${bodyLabel(body())} only; gates on the other body are checked when you save from there.`);
       if(errors.length){status(errors.join(' '),true);return;}
       return {track:t,warnings};

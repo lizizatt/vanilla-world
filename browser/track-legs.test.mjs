@@ -61,7 +61,7 @@ test('checkTrack flags gates and starts below the sampled ground, per gate', () 
   const t=sample(),surf=[{ground:0,water:null},{ground:0},{ground:50},undefined,{ground:0}];
   const r=checkTrack(t,surf);
   assert.equal(r.errors.length,1);assert.match(r.errors[0],/Gate 2 is 40 yd inside the ground on Elune/);
-  assert.match(checkTrack(t,[{ground:100}]).errors[0],/start is inside the ground/);
+  const s=checkTrack(t,[{ground:100}]);assert.equal(s.errors.length,0);assert.match(s.warnings[0],/start on Elune is 90 yd inside the ground/);
 });
 
 test('every shipped track passes validation and the authoring checks without errors', () => {
@@ -80,4 +80,10 @@ test('a drafted cross-body track round-trips through toTrack with per-gate bodie
   assert.equal(t.mode,'p2p');
   assert.deepEqual(validateTrack(t).gates.map(g=>g.body),[undefined,undefined,'azeroth','azeroth']);
   assert.deepEqual(checkTrack(t).errors,[]);
+});
+
+test('checkTrack: surfaces are per point, so a start on one body is never judged against another body', () => {
+  const t=moon([{pos:[0,30,-100],yaw:0,width:60},{pos:[500,5,500],yaw:0,width:60,body:'azeroth'}]);
+  const r=checkTrack(t,[{ground:5},{ground:10}]);
+  assert.equal(r.errors.length,0);assert.equal(r.warnings.length,0);
 });
