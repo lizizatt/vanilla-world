@@ -1,3 +1,4 @@
+import {tablist} from './tablist.js';
 // Options page: tab strip, search, per-tab reset and persistence for the controls that had no storage of their own.
 export const OPTION_TABS=[['graphics','Graphics'],['sound','Sound'],['gameplay','Gameplay'],['handling','Handling']];
 export const PERSISTED_IDS=['clouds','particles','horizon','scenery','distant','sound','music-volume','camera-distance'];
@@ -25,15 +26,13 @@ export function installOptions(root,{storage=globalThis.localStorage,windToggle=
   const defaults=new Map();
   for(const section of sections)for(const el of section.querySelectorAll('input,select'))if(el.id)defaults.set(el.id,readValue(el));
   let tab='graphics';
-  const bar=doc.createElement('div');bar.className='opt-tabs';bar.setAttribute('role','tablist');
+  const strip=tablist(doc,{label:'Options'});const bar=strip.bar;
   const search=doc.createElement('input');search.type='search';search.id='opt-search';search.placeholder='Search options';search.setAttribute('aria-label','Search options');
   const reset=doc.createElement('button');reset.type='button';reset.id='opt-reset';reset.textContent='Reset tab to defaults';
   const empty=doc.createElement('p');empty.id='opt-empty';empty.hidden=true;empty.textContent='No options match.';
   const buttons=new Map();
   for(const [id,label] of OPTION_TABS){
-    const b=doc.createElement('button');b.type='button';b.role='tab';b.textContent=label;b.dataset.optTab=id;
-    b.addEventListener('click',()=>{search.value='';select(id);});
-    bar.append(b);buttons.set(id,b);
+    const b=strip.add(label,id,()=>{search.value='';select(id);});b.dataset.optTab=id;buttons.set(id,b);
   }
   root.prepend(bar,search,empty);
   root.append(reset);
@@ -58,7 +57,7 @@ export function installOptions(root,{storage=globalThis.localStorage,windToggle=
       }
       s.hidden=!show;any||=show;
     }
-    for(const [id,b] of buttons){b.setAttribute('aria-selected',String(!q&&id===tab));b.classList.toggle('on',!q&&id===tab);}
+    strip.mark(q?null:buttons.get(tab));
     reset.hidden=Boolean(q);empty.hidden=any;
   }
   function select(id){tab=id;refresh();const d=doc.getElementById('tuning-panel');if(id==='handling'&&d)d.open=true;}

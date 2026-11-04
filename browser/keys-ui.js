@@ -1,4 +1,5 @@
 // Cheatsheet (F1), Controls page and Key Bindings page, all generated from keymap.js so the on-screen help cannot drift from the real bindings.
+import {tablist} from './tablist.js';
 import {sharedKeymap,cheatsheet,FILTERS,PROFILES,chordOf,actionById,keyLabel} from './keymap.js';
 
 const el=(tag,props={},...kids)=>{const e=Object.assign(document.createElement(tag),props);for(const k of kids)e.append(k);return e;};
@@ -21,9 +22,10 @@ function sheetTable(keymap,filter,debug) {
 /** Filter tabs plus the grouped table. Re-renders itself when the filter changes. */
 export function renderCheatsheet(host,keymap=sharedKeymap(),{debug=false,filter='all'}={}) {
   host.replaceChildren();
-  const tabs=el('div',{className:'sheet-filters',role:'tablist'});
-  for(const f of FILTERS)tabs.append(el('button',{type:'button',role:'tab',textContent:f.label,ariaSelected:String(f.id===filter),onclick:()=>renderCheatsheet(host,keymap,{debug,filter:f.id})}));
-  host.append(tabs,sheetTable(keymap,filter,debug));
+  const strip=tablist(document,{label:'Controls'});
+  for(const f of FILTERS)strip.add(f.label,f.id,()=>{renderCheatsheet(host,keymap,{debug,filter:f.id});host.querySelector('[aria-selected=true]')?.focus();});
+  strip.mark(strip.tabs[FILTERS.findIndex(f=>f.id===filter)]);
+  host.append(strip.bar,sheetTable(keymap,filter,debug));
 }
 
 /** The editable list. Click a key slot, press the new key; Esc cancels, Backspace clears. A taken key is swapped, and the swap is said out loud. */
