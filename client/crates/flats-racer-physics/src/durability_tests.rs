@@ -1,14 +1,20 @@
 use super::*;
 
 #[test]
-fn heat_damage_only_in_the_overheat_band() {
+fn heat_damage_only_once_the_boost_tank_is_fully_used() {
     assert_eq!(heat_damage_rate(0.0), 0.0);
     assert_eq!(heat_damage_rate(HEAT_WARN), 0.0);
-    assert_eq!(heat_damage_rate(HEAT_DAMAGE_START), 0.0);
-    assert!((heat_damage_rate(0.95) - HEAT_DAMAGE_PER_SEC / 2.0).abs() < 1e-6);
+    assert_eq!(heat_damage_rate(0.9), 0.0);
+    assert_eq!(heat_damage_rate(0.999), 0.0, "no engine damage while any boost remains");
+    assert_eq!(heat_damage_rate(1.0), HEAT_DAMAGE_PER_SEC);
     assert!((1.0 / heat_damage_rate(1.0) - 6.667).abs() < 0.01, "a whole engine in about 6.7 s at full heat");
 }
 
+#[test]
+fn boost_tank_lasts_half_as_long() {
+    assert!((1.0 / HEAT_RISE_PER_SEC - 3.75).abs() < 1e-4);
+    assert!((1.0 / HEAT_COOL_PER_SEC - 5.0).abs() < 1e-4);
+}
 #[test]
 fn impact_damage_ramps_from_safe_speed_to_lethal() {
     assert_eq!(impact_damage(10.0, 100.0), 0.0);

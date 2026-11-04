@@ -15,22 +15,21 @@ pub const FIXED_DT: f32 = 1.0 / 120.0;
 pub const PITCH_LIMIT: f32 = 20.0 * std::f32::consts::PI / 180.0;
 pub const POWERED_THRUST: f32 = 172.0;
 const PITCH_RESPONSE: f64 = 8.0;
-/// Engine heat per second while boosting (7.5 s from cold to 1.0) and while cooling (10 s from full). Boost has no
-/// reserve: it is always available and heat is the only limiter.
-pub const HEAT_RISE_PER_SEC: f32 = 0.4 / 3.0;
-pub const HEAT_COOL_PER_SEC: f32 = 0.1;
-/// Heat at or above this fraction is the warning zone (about 6 s of continuous boost); 1.0 is overheated.
+/// The heat bar is the boost tank, 1.0 = fully used. Heat rises per second while boosting (3.75 s from cold to 1.0, half the
+/// former 7.5 s tank) and falls while cooling (5 s from full). Boost has no other reserve: it is always available.
+pub const HEAT_RISE_PER_SEC: f32 = 0.8 / 3.0;
+pub const HEAT_COOL_PER_SEC: f32 = 0.2;
+/// Heat at or above this fraction is the warning zone (about 3 s of continuous boost); 1.0 is overheated.
 pub const HEAT_WARN: f32 = 0.8;
-/// Durability: each engine (left pod, right pod) has health in [0, 1]. From HEAT_DAMAGE_START heat, damage ramps to
-/// HEAT_DAMAGE_PER_SEC at 1.0 (about 7 s to kill one engine at full heat). Impact damage ramps linearly from 0 at
+/// Durability: each engine (left pod, right pod) has health in [0, 1]. Heat damages engines only once the tank is fully
+/// used (heat 1.0), at HEAT_DAMAGE_PER_SEC (about 6.7 s to kill one engine). Impact damage ramps linearly from 0 at
 /// IMPACT_SAFE_SPEED to a whole engine at the lethal (instant-wreck) speed.
-pub const HEAT_DAMAGE_START: f32 = 0.9;
 pub const HEAT_DAMAGE_PER_SEC: f32 = 0.15;
 pub const IMPACT_SAFE_SPEED: f32 = 20.0;
 
 /// Engine health lost per second at this heat.
 pub fn heat_damage_rate(heat: f32) -> f32 {
-    ((heat - HEAT_DAMAGE_START) / (1.0 - HEAT_DAMAGE_START)).clamp(0.0, 1.0) * HEAT_DAMAGE_PER_SEC
+    if heat >= 1.0 { HEAT_DAMAGE_PER_SEC } else { 0.0 }
 }
 
 /// Health fraction one engine loses from an impact at `speed`.

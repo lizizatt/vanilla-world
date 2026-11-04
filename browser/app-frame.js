@@ -160,6 +160,6 @@ function frame(now) {
 function updateTimeHud(app) {
   const r=app.renderer,d=document,t=r?.timeOfDay;if(t===undefined)return;
   const c=d.getElementById('ist-clock'),text=istText(t);if(c.textContent!==text)c.textContent=text;
-  d.getElementById('time-speed').hidden=!app.flight;
+  d.getElementById('time-hud').hidden=!app.flight;
   app.music.setNight(daylightAt(t)<.5);
 }

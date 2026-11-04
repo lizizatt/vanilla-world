@@ -315,7 +315,7 @@ fn crest_is_ballistic_and_reacquisition_recovers_without_free_flight() {
         assert!(speed(&state) > 0.0);
         assert!(state.heat > 0.0);
     }
-    assert!((state.heat - 0.2 / 3.0).abs() < 0.00001);
+    assert!((state.heat - 0.4 / 3.0).abs() < 0.00001);
     assert!((state.velocity[1] - (12.0 - GRAVITY * 60.0 * FIXED_DT)).abs() < 0.001);
     for _ in 0..600 {
         tick(&mut state, Input::default());
@@ -509,7 +509,7 @@ fn airborne_boost_continues_after_hop_without_vertical_lift() {
             .unwrap();
     }
     assert!(speed(&state) > before + 1.0);
-    assert!((state.heat - (heat + 0.4 / 3.0)).abs() < 0.00001);
+    assert!((state.heat - (heat + 0.8 / 3.0)).abs() < 0.00001);
     assert!(state.velocity[1] < -20.0);
 }
 
@@ -567,24 +567,24 @@ fn heat_rises_while_boosting_and_boost_never_cuts_out() {
         boost: true,
         ..Input::default()
     };
-    for _ in 0..720 {
+    for _ in 0..360 {
         tick(&mut state, held);
     }
-    assert!(state.heat >= HEAT_WARN - 0.001 && state.heat < 0.85, "6 s of boost reaches the warning zone");
-    for _ in 0..180 {
+    assert!(state.heat >= HEAT_WARN - 0.001 && state.heat < 0.85, "3 s of boost reaches the warning zone");
+    for _ in 0..90 {
         tick(&mut state, held);
     }
-    assert!((state.heat - 1.0).abs() < 0.00001, "7.5 s of boost overheats");
+    assert!((state.heat - 1.0).abs() < 0.00001, "3.75 s of boost overheats");
     let capped = speed(&state);
     for _ in 0..240 {
         tick(&mut state, held);
     }
     assert_eq!(state.heat, 1.0, "heat caps at 1.0");
     assert!(speed(&state) >= capped - 0.001, "boost never cuts out at full heat");
-    for _ in 0..600 {
+    for _ in 0..300 {
         tick(&mut state, Input::default());
     }
-    assert!((state.heat - HEAT_COOL_PER_SEC * 5.0).abs() < 0.001, "cooling is 10 s from full");
+    assert!((state.heat - HEAT_COOL_PER_SEC * 2.5).abs() < 0.001, "cooling is 5 s from full");
 }
 
 #[test]
@@ -614,7 +614,7 @@ fn airborne_boost_from_rest_preserves_gravity_and_heat_rules() {
             }
             assert!((speed(&normal) - tuning.acceleration * air_control).abs() < 0.001);
             assert!((speed(&boosted) - (tuning.acceleration + tuning.boost_acceleration) * air_control).abs() < 0.001);
-            let expected = if air_control > 0.0 { 0.4 / 3.0 } else { 0.0 };
+            let expected = if air_control > 0.0 { 0.8 / 3.0 } else { 0.0 };
             assert!((boosted.heat - expected).abs() < 0.00001);
             assert_eq!(normal.heat, 0.0);
         }
