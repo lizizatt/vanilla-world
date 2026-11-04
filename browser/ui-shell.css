@@ -43,8 +43,8 @@ html.has-art #cheatsheet { max-height: 80vh; overflow: auto; }
 .tut-foot { margin: 10px 0 0; color: #fff1c4; }
 .tut-keyboard { display: inline-flex; flex-direction: column; gap: 3px; align-items: center; }
 .tut-row { display: flex; gap: 3px; justify-content: center; }
-.tut-key { box-sizing: border-box; width: 3.3em; min-height: 2.5em; padding: 2px; border: 1px solid #4a3a1a; border-radius: 4px; background: #1b140a; color: #8f7d52; font-size: .6rem; line-height: 1.1; overflow: hidden; }
-.tut-key.space { width: 18em; }
+.tut-key { box-sizing: border-box; width: 5.2em; min-height: 3em; padding: 2px 3px; border: 1px solid #4a3a1a; border-radius: 4px; background: #1b140a; color: #8f7d52; font-size: .62rem; line-height: 1.15; overflow: hidden; overflow-wrap: anywhere; }
+.tut-key.space { width: 26em; }
 .tut-key b { display: block; font-size: .7rem; font-weight: 700; }
 .tut-key.bound, .tut-btn.bound { background: #3a2b12; border-color: #c8a24a; color: #fff1c4; }
 .tut-key span, .tut-btn span { display: block; }

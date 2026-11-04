@@ -10,7 +10,7 @@ const store=()=>{const m=new Map();return {getItem:k=>m.get(k)??null,setItem:(k,
 test('keyboard diagram follows the keymap, including rebinds', () => {
   const km=new Keymap();
   assert.ok(keyOf(keyboardModel(km),'KeyR').actions.some(a=>a.text==='Start race / race again'));
-  assert.ok(keyOf(keyboardModel(km),'KeyR').actions.some(a=>a.text==='Shift+Radio'));
+  assert.ok(keyOf(keyboardModel(km),'KeyR').actions.some(a=>a.text==='Shift: Radio'));
   assert.ok(keyOf(keyboardModel(km),'F4').actions.some(a=>a.text==='Fly / Drive'));
   assert.equal(keyOf(keyboardModel(km),'Tab'),undefined);
   km.bind('ui.garage',0,'KeyB');
