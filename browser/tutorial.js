@@ -32,7 +32,7 @@ export function keyboardModel(keymap) {
     if(!code)continue;
     const mods=chord.slice(0,chord.length-code.length);
     if(!by.has(code))by.set(code,[]);
-    const list=by.get(code),text=mods?`: ${a.label}`:a.label;
+    const list=by.get(code),text=mods?`${mods.slice(0,-1)}: ${a.label}`:a.label;
     if(!list.some(x=>x.id===a.id&&x.text===text))list.push({id:a.id,text,category:a.category});
   }
   return KEY_ROWS.map(row=>row.map(code=>({code,label:keyLabel(code),actions:by.get(code)??[]})));
