@@ -1,6 +1,4 @@
-export const DRIVE_KEYS=new Set(['KeyW','KeyS','KeyA','KeyD','KeyQ','KeyE','KeyC','KeyJ','KeyV','KeyX','KeyF',
-  'ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','ShiftLeft','ShiftRight',
-  'AltLeft','AltRight','F9']);
+import {presetKeymap} from './keymap.js';
 const axis=(value,deadzone)=>Number.isFinite(value) && Math.abs(value)>deadzone
   ?Math.sign(value)*(Math.min(1,Math.abs(value))-deadzone)/(1-deadzone):0;
 const button=(pad,index)=>pad.buttons[index]?.pressed || (pad.buttons[index]?.value || 0)>.5;
@@ -16,6 +14,7 @@ export class WorldInput {
   constructor(){this.device='keyboard';this.active=undefined;this.previous=new Map();}
   keyboard(){this.device='keyboard';}
   sample(keys,pads,accepts,profile='native',brakeWhenInactive=true,podracer=false) {
+    const keymap=typeof profile==='string'?presetKeymap(profile):profile;
     const connected=pads.filter(p=>p?.connected && p.mapping==='standard');
     const keyboardHeld=keys.size>0;
     if(accepts&&keyboardHeld)this.device='keyboard';
@@ -45,12 +44,10 @@ export class WorldInput {
           :(button(pad,5)?2:0)|(button(pad,4)?4:0)|(button(pad,0)?8:0),
         look:a.slice(3,5),orient:podracer&&button(pad,4)};
     }
-    const down=k=>Number(keys.has(k)),legacy=profile==='legacy';
+    const canon=keymap.canonical(keys,'drive'),down=k=>Number(canon.has(k));
     return {...idle,...actions,throttle:down('KeyW')-down('KeyS'),steer:down('KeyA')-down('KeyD'),
       pitch:podracer?(POD_PITCH_SIGN*(down('ArrowUp')-down('ArrowDown'))||0):0,
-      flags:(down('KeyX')||(legacy && down('Space')))|((down('ShiftLeft')||down('ShiftRight'))<<1)
-        |((down('KeyC')||(!legacy && down('Space')))<<2)
-        |(down('KeyJ')<<3),
+      flags:down('KeyX')|(down('ShiftLeft')<<1)|(down('KeyC')<<2)|(down('KeyJ')<<3),
       look:[down('ArrowRight')-down('ArrowLeft'),podracer?0:down('ArrowUp')-down('ArrowDown')]};
   }
 }

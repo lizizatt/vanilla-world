@@ -23,13 +23,15 @@ import {installSettings} from './app-settings.js';
 import {installRadio} from './app-radio.js';
 import {installLoading} from './app-loading.js';
 import {installPose} from './app-pose.js';
+import {applyUiArt} from './ui-art.js';
 import {installInput} from './app-input.js';
+import {sharedKeymap} from './keymap.js';
 import {installGarage} from './app-garage.js';
 import {installRace} from './app-race.js';
 import {installFrame} from './app-frame.js';
 import {installLaunch} from './app-launch.js';
 import {createWorldTest} from './app-hooks.js';
-const app={};
+const app={keymap:sharedKeymap()};
 const $=id=>document.getElementById(id);const canvas=$('world');const keys=new Set();
 const input=new WorldInput();const audio=new WorldAudio();
 const cameraCollision=new CameraCollision();
@@ -82,7 +84,7 @@ const mapPanel=new MapPanel({dialog:$('map-panel'),canvas:$('map-canvas'),stage:
   },`Loading ${icon.label}`).catch(error=>app.fail(error)),
 });
 mapPanel.dialog.addEventListener('close',()=>canvas.focus());
-mapPanel.dialog.addEventListener('keydown',event=>{if(event.code==='KeyM'&&!event.repeat){event.preventDefault();mapPanel.toggle();}});
+mapPanel.dialog.addEventListener('keydown',event=>{if(app.keymap.matches('ui.map',event)&&!event.repeat){event.preventDefault();mapPanel.toggle();}});
 const music=new MusicPlayer({request:fields=>client.music(fields),context:()=>audio.context});
 const client=new WorldClient(data=>{
   try {
@@ -94,6 +96,7 @@ const client=new WorldClient(data=>{
     else if(data.event==='sky-dome')app.renderer.setSkyDome(data);
     else if(data.event==='worldmap'||data.event==='worldmap-tiles')mapPanel.event(data);
     else if(data.event==='hud-art')app.flightHud?.art(data);
+    else if(data.event==='ui-art')void applyUiArt(data);
     else if(data.event==='loading-art')loadingArt.event(data);
     else if(data.event==='loading-art-warning'){
       console.warn(data.message);

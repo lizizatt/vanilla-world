@@ -12,7 +12,7 @@ await page.goto(`http://127.0.0.1:${PORT}/?test&flight&planet`);
 await page.waitForFunction(()=>!document.getElementById('select').disabled,null,{timeout:60000});
 await page.locator('#files').setInputFiles(WOW_DATA);
 await page.waitForFunction(()=>worldEvidence.ready||worldEvidence.errors.length,null,{timeout:300000});
-await page.keyboard.press('Escape');if(await page.locator('[data-tab=options]').isVisible()){await page.locator('[data-tab=options]').click();await page.keyboard.press('Escape');}await page.evaluate(()=>document.getElementById('welcome')?.remove());await page.locator('#world').click();
+await page.keyboard.press('Escape');if(await page.locator('[data-tab=options]').isVisible()){await page.locator('[data-tab=options]').click();await page.keyboard.press('Escape');await page.keyboard.press('Escape');}await page.evaluate(()=>document.getElementById('welcome')?.remove());await page.locator('#world').click();
 await page.waitForTimeout(15000);
 const flights=JSON.parse(process.env.FLIGHTS),time=+process.env.TIME;
 for(const [n,flight] of flights.entries()){

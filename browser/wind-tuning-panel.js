@@ -1,6 +1,7 @@
 // TEMPORARY dust/spray tuning panel. One removable module: delete this file and its single `import './wind-tuning-panel.js'` in app-hooks.js.
 // Everything it changes lives in WIND_TUNE (wind-config.js), which the wind code reads every frame, so edits apply live. Hidden until opened:
 // Ctrl+Alt+W, or open the page with #windtune, or call window.windTuning.toggle() in the console. Values persist in localStorage.
+import {sharedKeymap} from './keymap.js';
 import {WIND_TUNE,WIND_TUNE_DEFAULTS} from './wind-config.js';
 
 // Versioned: bump when WIND_TUNE_DEFAULTS are re-baked so values saved against older defaults can't mask the new ones.
@@ -76,7 +77,7 @@ function install() {
   };
   const toggle=()=>{if(!root)build();root.hidden=!root.hidden;};
   window.windTuning={toggle,get values(){return {...WIND_TUNE};},snippet:tuneSnippet,reset:()=>{resetTune();save();if(root)sync();}};
-  addEventListener('keydown',e=>{if(e.code==='KeyW'&&e.ctrlKey&&e.altKey&&!e.repeat){e.preventDefault();toggle();}},true);
+  addEventListener('keydown',e=>{if(sharedKeymap().matches('debug.wind',e)&&!e.repeat){e.preventDefault();toggle();}},true);
   if(location.hash.includes('windtune'))toggle();
 }
 if(typeof document!=='undefined'&&typeof localStorage!=='undefined')install();

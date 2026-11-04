@@ -1,3 +1,4 @@
+import {presetKeymap} from './keymap.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {podInSpace,movePodAim,aimQuaternion,slewAim,validatePodControl} from './pod-attitude.js';
@@ -28,7 +29,7 @@ test('actual pointer handlers separate body turning from camera orbit and clear 
   const app={canvas,keys:new Set(),input:{},settings:{},mapPanel:{},choice:{vehicle:'podracer'},
     client:{state:{pod:{journey:orbit()}}},orbit:[0,0],resumeAudio(){},pauseAudio(){}};
   const source=(await readFile(new URL('./app-input.js',import.meta.url),'utf8')).replace(/^import [^;]*;\r?\n/gm,'').replace(/^export /gm,'');
-  const context=createContext({app,window,document,podInSpace});
+  const context=createContext({app,window,document,podInSpace,sharedKeymap:()=>presetKeymap('native')});
   runInContext(source+'\ninstallInput(app);',context);
   const fire=(name,values={})=>canvas.handlers[name](values);
   fire('pointerdown',{button:2,buttons:2,pointerId:1});assert.equal(canvas.style.cursor,'grabbing');

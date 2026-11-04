@@ -1,3 +1,4 @@
+import {renderCheatsheet,installCheatsheet} from './keys-ui.js';
 import {loadVehicleModel} from './vehicle-model.js';
 import {writeChoice,tracksFor,VEHICLES,canSwitch,normalizeChoice,skinOf,stepSkin,garageIconVisible,ridePlan,TUNING_HOVER,ROCKET_DISPLAY} from './vehicles.js';
 import {getSwe1r,attachSwe1r} from './swe1r/ui.js';
@@ -8,9 +9,10 @@ export function installGarage(app) {
 const {canvas,keys,mapPanel,client}=app;
 const $=id=>document.getElementById(id);
 Object.assign(app,{openRaceMenu,applySkin,selectVehicle,renderGarage,openGarage,sendTuning,userTuning});
-app.raceMenu=$('race-menu');
-function openRaceMenu() {
-  keys.clear();app.dragging=false;app.mouseButtons=0;menuTab('game');
+app.raceMenu=$('race-menu');installCheatsheet(app);
+function openRaceMenu(page='game') {
+  if(app.raceMenu.open){menuTab(typeof page==='string'?page:'game');return;}
+  keys.clear();app.dragging=false;app.mouseButtons=0;menuTab(typeof page==='string'?page:'game');
   $('race-restart').hidden=$('race-abandon').hidden=!app.race;$('menu-garage').hidden=!!app.race;$('race-editor').hidden=!!app.race;
   app.race?.pause(performance.now()/1000);app.raceMenu.showModal();
 }
@@ -18,11 +20,20 @@ app.raceMenu.addEventListener('close',()=>{app.race?.resume(performance.now()/10
 $('race-restart').addEventListener('click',()=>{const track=app.race?.track;app.raceMenu.close();app.race=undefined;if(track)app.startRace(track);});
 $('race-abandon').addEventListener('click',()=>{app.race?.cancel('abandoned');app.raceMenu.close();});
 $('race-editor').addEventListener('click',()=>{app.raceMenu.close();app.toggleEditor();});
+const PAGE_TITLES={game:'Game Menu',options:'Options',keys:'Key Bindings',controls:'Controls',diagnostics:'Diagnostics',data:'Data & Saves'};
 function menuTab(name) {
-  for(const tab of app.raceMenu.querySelectorAll('[data-tab]'))tab.setAttribute('aria-selected',String(tab.dataset.tab===name));
+  if(!(name in PAGE_TITLES))name='game';
+  if(name==='controls')renderCheatsheet($('controls-sheet'),app.keymap);
+  for(const k of app.raceMenu.querySelectorAll('kbd[data-key]'))k.textContent=app.keymap.label(k.dataset.key);
   for(const page of app.raceMenu.querySelectorAll('[data-page]'))page.hidden=page.dataset.page!==name;
+  $('race-menu-title').textContent=PAGE_TITLES[name];$('menu-back').hidden=name==='game';app.menuPage=name;
+  (app.raceMenu.querySelector(`[data-page=${name}] :is(input,select,button)`)??app.raceMenu.querySelector('[autofocus]'))?.focus();
 }
-$('menu-tabs').addEventListener('click',event=>{const tab=event.target.closest('[data-tab]');if(tab)menuTab(tab.dataset.tab);});
+// Esc steps back one layer: a sub-page returns to the menu, the menu closes.
+const escBack=event=>{if(app.menuPage&&app.menuPage!=='game'){event.preventDefault();menuTab('game');return true;}return false;};
+app.raceMenu.addEventListener('cancel',escBack);
+app.raceMenu.addEventListener('keydown',event=>{if(event.code==='Escape'&&!event.repeat&&escBack(event))event.stopPropagation();});
+app.raceMenu.addEventListener('click',event=>{const tab=event.target.closest('[data-tab]');if(tab){event.preventDefault();menuTab(tab.dataset.tab);}});
 app.raceMenu.addEventListener('click',event=>{if(event.target.closest('[data-close]'))app.raceMenu.close();});
 $('menu-map').addEventListener('click',()=>{app.raceMenu.close();if(app.running)mapPanel.toggle();});
 app.garage=$('garage');const glbPresent=new Map();
@@ -71,8 +82,8 @@ function renderGarage() {
     const b=document.createElement('button');b.type='button';b.role='tab';b.textContent=x.name;b.dataset.vehicle=x.id;b.setAttribute('aria-selected',String(x.id===v.id));return b;}));
   const at=Math.max(0,v.skins.findIndex(s=>s.id===app.garagePick.skin)),cur=v.skins[at],arrow=(dir,text)=>{
     const b=document.createElement('button');b.type='button';b.textContent=text;b.dataset.step=dir;b.setAttribute('aria-label',dir<0?'Previous skin':'Next skin');b.disabled=v.skins.length<2;return b;},
-    label=document.createElement('span');label.id='garage-skin-name';label.setAttribute('aria-live','polite');label.textContent=`${cur.name} · ${at+1} / ${v.skins.length}`;
-  $('garage-skins').replaceChildren(arrow(-1,'◀'),label,arrow(1,'▶'));
+    label=document.createElement('span');label.id='garage-skin-name';label.setAttribute('aria-live','polite');label.textContent=`${cur.name} Ã‚Â· ${at+1} / ${v.skins.length}`;
+  $('garage-skins').replaceChildren(arrow(-1,'Ã¢â€”â‚¬'),label,arrow(1,'Ã¢â€“Â¶'));
   $('garage-note').textContent=v.note;
   $('garage-stats').replaceChildren(...Object.entries(v.stats).map(([k,n])=>{
     const row=document.createElement('div'),bar=document.createElement('i');row.append(k,bar);bar.style.width=`${Math.round(n*100)}%`;return row;}));

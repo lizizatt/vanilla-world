@@ -1,11 +1,12 @@
 // In-game race track editor: the live world rendered top-down is the backdrop, a transparent canvas draws the gizmos.
+import {sharedKeymap} from './keymap.js';
 import {createDialIn} from './dial-in-ui.js';
 import {TrackDraft,project,unproject,yawToward,gateY,surfaceBase,CLEAR_MIN,CLEAR_DEFAULT,CLEAR_MAX} from './track-edit.js';
 import {transitions,checkTrack,bodyLabel} from './track-legs.js';
 import {spansBodies} from './race.js';
 
 const $=id=>document.getElementById(id);
-const TOOLS={KeyG:'add',KeyV:'select',KeyS:'start'};
+const TOOLS={'editor.add':'add','editor.select':'select','editor.start':'start'};
 const NEAREST_RANGE=5000,ALT_MIN=60,ALT_MAX=3000;
 const fwd=g=>[-Math.sin(g.yaw),-Math.cos(g.yaw)],side=g=>[Math.cos(g.yaw),-Math.sin(g.yaw)];
 const clone=o=>JSON.parse(JSON.stringify(o));
@@ -69,6 +70,12 @@ export function createTrackEditor({view,tracks,body=()=>'azeroth',save,remove:re
     else load(TrackDraft.blank(ed.from.slice(),0,body()));
     fill();status(found?`Loaded "${found.name||id}".`:'New track.');
   }
+  function keyLabels() {
+    const km=sharedKeymap(),set=(el,text,id)=>{if(el)el.textContent=`${text} (${km.label(id)})`;};
+    for(const [id,tool] of Object.entries(TOOLS))set(root.querySelector(`[data-tool=${tool}]`),{add:'Add gate',select:'Select/Move',start:'Set start'}[tool],id);
+    set($('te-delete'),'Delete','editor.delete');set($('te-close'),'Close','ui.editor');
+    set($('te-dial-open'),'Dial in','editor.dial');
+  }
   // Swap to another body mid-edit (a dial-in in progress is applied first); the draft keeps every gate it already has.
   async function gotoBody(target) {
     if(target===body())return true;
@@ -78,7 +85,7 @@ export function createTrackEditor({view,tracks,body=()=>'azeroth',save,remove:re
     try{
       if(wasDial)ed.dial.done();
       if(ed.dial.active)return false;
-      status(`Jumping to ${bodyLabel(target)}…`);
+      status(`Jumping to ${bodyLabel(target)}ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦`);
       ed.from=await jump(target);ed.selected=-1;
       if(ed.draft)frameCamera();
       if(ed.draft)refresh(true);
@@ -90,13 +97,13 @@ export function createTrackEditor({view,tracks,body=()=>'azeroth',save,remove:re
     finally{jumping=false;}
   }
   ed.jumpTo=gotoBody;
-  ed.open=from=>{
+  ed.open=from=>{keyLabels();
     ed.from=from;
     const list=tracks().filter(t=>(t.body??'azeroth')===body()),near=list.map(t=>[Math.hypot(t.start.pos[0]-from[0],t.start.pos[2]-from[2]),t]).sort((a,b)=>a[0]-b[0])[0];
     const keep=dirty();
     if(!keep){if(near&&near[0]<NEAREST_RANGE)load(new TrackDraft(clone(near[1])));else load(TrackDraft.blank(from.slice(),0,body()));}
     fill();
-    ed.isOpen=true;root.hidden=false;ed.tool='select';cv.focus();status(keep?'Restored your unsaved edits.':'Editing. G add Â· V select Â· S start Â· Del delete Â· Ctrl+Z undo Â· Wheel zoom Â· right-drag pan');
+    ed.isOpen=true;root.hidden=false;ed.tool='select';cv.focus();status(keep?'Restored your unsaved edits.':`Editing. ${(()=>{const k=sharedKeymap();return [['add','editor.add'],['select','editor.select'],['start','editor.start'],['delete','editor.delete'],['undo','editor.undo']].map(([n,id])=>n+' '+k.label(id)).join(' ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ');})()} ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· Wheel zoom ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· right-drag pan`);
     refresh(true);
   };
   ed.close=()=>{if(!ed.isOpen)return;if(ed.dial.active)ed.dial.cancel();ed.isOpen=false;root.hidden=true;drag=undefined;closed();};
@@ -163,13 +170,14 @@ export function createTrackEditor({view,tracks,body=()=>'azeroth',save,remove:re
   document.addEventListener('keydown',e=>{
     if(!ed.isOpen||ed.dial.active||e.defaultPrevented||e.altKey||e.metaKey)return;
     const typing=/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName);
-    if(e.code==='Escape'||(e.code==='KeyT'&&!typing)){e.preventDefault();ed.close();return;}
+    const km=sharedKeymap();
+    if(e.code==='Escape'||(km.matches('ui.editor',e)&&!typing)){e.preventDefault();ed.close();return;}
     if(typing)return;
-    if(e.ctrlKey&&e.code==='KeyZ'){e.preventDefault();undo();return;}
-    if(e.ctrlKey)return;
-    if(e.code==='KeyD'){e.preventDefault();openDial();return;}
-    if(TOOLS[e.code]){setTool(TOOLS[e.code]);e.preventDefault();}
-    else if(e.code==='Delete'||e.code==='Backspace'){e.preventDefault();remove();}
+    if(km.matches('editor.undo',e)){e.preventDefault();undo();return;}
+    if(km.matches('editor.dial',e)){e.preventDefault();openDial();return;}
+    const tool=Object.keys(TOOLS).find(id=>km.matches(id,e));
+    if(tool){setTool(TOOLS[tool]);e.preventDefault();}
+    else if(km.matches('editor.delete',e)){e.preventDefault();remove();}
   });
   function setTool(t) {ed.tool=t;for(const b of root.querySelectorAll('[data-tool]'))b.setAttribute('aria-pressed',String(b.dataset.tool===t));}
   for(const b of root.querySelectorAll('[data-tool]'))b.addEventListener('click',()=>{setTool(b.dataset.tool);cv.focus();});
@@ -251,9 +259,9 @@ export function createTrackEditor({view,tracks,body=()=>'azeroth',save,remove:re
     const rows=[];
     d.gates.forEach((gt,i)=>{
       const x=jumpAt.get(i);
-      if(x){const sep=document.createElement('li');sep.className='te-jump';sep.textContent=`jump ${bodyLabel(x.from)} → ${bodyLabel(x.to)}`;rows.push(sep);}
+      if(x){const sep=document.createElement('li');sep.className='te-jump';sep.textContent=`jump ${bodyLabel(x.from)} ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ ${bodyLabel(x.to)}`;rows.push(sep);}
       const li=document.createElement('li'),btn=document.createElement('button');
-      btn.type='button';btn.textContent=`Gate ${i+1} · ${bodyLabel(d.bodyAt(i))} · width ${gt.width}`;btn.setAttribute('aria-pressed',String(i===ed.selected));
+      btn.type='button';btn.textContent=`Gate ${i+1} ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ${bodyLabel(d.bodyAt(i))} ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· width ${gt.width}`;btn.setAttribute('aria-pressed',String(i===ed.selected));
       btn.addEventListener('click',async()=>{
         if(d.bodyAt(i)!==body()&&!await gotoBody(d.bodyAt(i)))return;
         ed.selected=i;cam.x=gt.pos[0];cam.z=gt.pos[2];
@@ -281,7 +289,7 @@ export function createTrackEditor({view,tracks,body=()=>'azeroth',save,remove:re
     for(const o of objects){
       const p=toScreen(o.pos);if(!p)continue;
       g2.fillStyle=o.kind==='ramp'?'#65d8ff':'#8cffb0';g2.beginPath();g2.arc(p[0],p[1],8,0,Math.PI*2);g2.fill();
-      g2.font='12px sans-serif';g2.fillText(o.kind==='ramp'?`${o.angle}Â°`:'+15s',p[0]+12,p[1]);
+      g2.font='12px sans-serif';g2.fillText(o.kind==='ramp'?`${o.angle}ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°`:'+15s',p[0]+12,p[1]);
     }
     const d=ed.draft,here=body(),pts=d.gates.map(gt=>toScreen(gt.pos));
     g2.lineWidth=2;g2.setLineDash([8,6]);g2.strokeStyle='rgba(255,214,102,.9)';g2.beginPath();
