@@ -1,13 +1,14 @@
 import {sanitiseScale,TIME_SCALES} from './sim-clock.js';
 import {sharedKeymap} from './keymap.js';
 import {renderBindings} from './keys-ui.js';
+import {installOptions} from './options-ui.js';
 import {worldTuning} from './world-store.js';
 import {deriveBudget,BUDGET_SETTINGS} from './memory-budget.js';
 import {TUNING_FIELDS,validateTuningRecord} from './world-tuning.js';
 export function installSettings(app) {
 const {canvas,keys,input,audio,evidence,settings,gib,music,client}=app;
 const keymap=app.keymap??=sharedKeymap();
-const bindingsUi=renderBindings(document.getElementById('bindings'),keymap,{onChange(){settings.controls=keymap.profile;keys.clear();input.keyboard();syncSettings();}});
+const bindingsUi=renderBindings(document.getElementById('bindings'),keymap,{onChange(){settings.controls=keymap.profile;hint();keys.clear();input.keyboard();syncSettings();}});
 const $=id=>document.getElementById(id);
 Object.assign(app,{applyMemoryBudget,syncSettings,syncSound,pauseAudio,resumeAudio,zoom,cockpit,});
 try{gib.on=localStorage.getItem('racer.gib')!=='0';gib.overheat=localStorage.getItem('racer.overheat')!=='0';gib.durable=localStorage.getItem('racer.durability')!=='0';gib.speed=Math.max(20,Math.min(400,Number(localStorage.getItem('racer.gibSpeed'))||100));}catch{/* storage unavailable (private mode): setting is not persisted */}
@@ -126,3 +127,5 @@ $('tuning-defaults').addEventListener('click',()=>{
     .catch(error=>{$('tuning-status').textContent=error.message;}).finally(()=>{app.busy=false;});
 });
 }
+const hint=()=>{document.getElementById('menu-hint').textContent=`Esc \u00b7 Menu   ${keymap.label('ui.cheatsheet')} \u00b7 Controls`;};hint();
+installOptions(document.querySelector('[data-page=options]'));
