@@ -3,7 +3,6 @@ export {sceneVisible} from './world-view.js';
 export {craftMatrix} from './world-camera.js';
 export {cameraAxes,renderMatrix,sceneSelection,terrainEdgeMask,readySceneInstances,AdmissionFade} from './renderer-helpers.js';
 import {depthAttachment,depthTexture} from './render-passes.js';
-import {drawGodrays} from './renderer-godrays.js';
 import {sceneReady} from './scene-stream.js';
 import {MINIMAP_SIZE} from './terrain-stream.js';
 import {cameraView,craftMatrix} from './world-camera.js';
@@ -140,7 +139,7 @@ export class WorldRenderer {
         entries:[{binding:0,resource:{buffer:this.shadowBuffer}},{binding:1,resource:this.depth.createView()}]});
       this.cloudGroup=this.device.createBindGroup({layout:this.cloudPipeline.getBindGroupLayout(0),
         entries:[{binding:0,resource:{buffer:this.cloudBuffer}},{binding:1,resource:this.depth.createView()},...this.maskEntries()]});
-      this.cloudHighGroup=this.cloudHigh&&this.highCloudGroup();this.godrayGroup=null;weatherGroups(this);
+      this.cloudHighGroup=this.cloudHigh&&this.highCloudGroup();weatherGroups(this);
     }
     const origin=flight?[Math.round(flight[0]),Math.round(flight[2])]:[state[11],state[12]];
     const p=[state[0]-origin[0],state[1],state[2]-origin[1]];
@@ -302,8 +301,7 @@ if(batch.beam&&instance.craft&&beam)u.set(beam,base+56);else u.fill(0,base+56,ba
       const cloudPass=encoder.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}]});
       if(settings.clouds!==false&&activeBody().clouds&&this.manifest?.world_bounds){this.drawClouds(cloudPass,this.cloudTime??time,daylight,near,highClouds);drawCurtain(this,cloudPass,this.lastCloudUniform);}
       drawFlash(this,cloudPass);
-      if(settings.farClouds!==false&&pf.globe>0)this.drawBodyClouds(cloudPass,this.cloudTime??time,daylight,near);
-      if(!(pf.space>.5))drawGodrays(this,cloudPass,settings.godrays);cloudPass.end();
+      if(settings.farClouds!==false&&pf.globe>0)this.drawBodyClouds(cloudPass,this.cloudTime??time,daylight,near);cloudPass.end();
     }
     if(!this.cameraBlocked&&propDraws.length) {
       const propPass=encoder.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),loadOp:'load',storeOp:'store'}],
