@@ -1,5 +1,6 @@
 import {SFX,HEAT,heatStage,POD_ENGINES,podEngineFor} from './swe1r/sfx.js';
 import {densityAt} from './planet-physics.js';
+import {CREATURE_SOUND,spatialGain} from './creature-sound.js';
 const unit=n=>Number.isFinite(n)?Math.max(0,Math.min(1,n)):0;
 const tone=(hz,t)=>Math.sin(2*Math.PI*hz*t);
 const engine=(hz,t)=>.56*tone(hz,t)+.17*tone(hz*2,t)+.06*tone(hz*3,t);
@@ -94,7 +95,7 @@ export class WorldAudio {
     this.enabled=false;
     if(!globalThis.AudioContext)throw new Error('Web Audio is unavailable in this browser.');
     if(!this.context || this.context.state==='closed') {
-      this.voices=[];
+      this.voices=[];this.spatialVoices=0;
       this.context=new AudioContext();
       this.master=this.context.createGain();this.master.gain.value=0;
       this.analyser=this.context.createAnalyser();this.master.connect(this.analyser);this.out=this.context.createGain();this.out.gain.value=masterGain(this.volume);this.context.masterOut=this.out;this.analyser.connect(this.out);this.out.connect(this.context.destination);
@@ -147,6 +148,43 @@ export class WorldAudio {
     for(let i=0;i<n;i++){s=(s*1664525+1013904223)>>>0;const t=i/n,w=s/2147483648-1;lp+=(w-lp)*.04;d[i]=lp*Math.exp(-t*4.5)*(1+3*Math.exp(-t*60));}
     const source=ctx.createBufferSource(),g=ctx.createGain();source.buffer=buffer;g.gain.value=gain*8;source.connect(g);g.connect(this.analyser);source.start();
     source.onended=()=>{source.disconnect();g.disconnect();};return true;
+  }
+  /**
+   * Positional one-shot at a render-space point (e.g. a creature's death cry), panned left/right but never attenuated by distance.
+   * `bytes` are decoded once per `key` (the decode promise is cached and dropped if it fails, so a bad or in-flight decode is retried).
+   * Returns whether a voice started; `lastSpatial.reason` says why not (disabled, suspended, no-eye, voices, no-bytes, decode-failed, blocked).
+   */
+  async spatial(key,bytes,pos,view) {
+    const ctx=this.context,fail=reason=>{this.lastSpatial={reason,key};return false;};
+    if(!this.enabled||!ctx)return fail('disabled');
+    if(ctx.state!=='running')return fail('suspended');
+    if(!view?.eye)return fail('no-eye');
+    if((this.spatialVoices||0)>=CREATURE_SOUND.maxVoices)return fail('voices');
+    const cache=this.spatialBuffers??=new Map();
+    let pending=cache.get(key);
+    if(!pending) {
+      if(!bytes)return fail('no-bytes');
+      pending=ctx.decodeAudioData(bytes.slice().buffer);cache.set(key,pending);
+      pending.catch(()=>{if(cache.get(key)===pending)cache.delete(key);});
+    }
+    let buffer;
+    try{buffer=await pending;}catch{return fail('decode-failed');}
+    if(!buffer||ctx.state!=='running'||this.context!==ctx)return fail('blocked');
+    if((this.spatialVoices||0)>=CREATURE_SOUND.maxVoices)return fail('voices');
+    const l=ctx.listener,[ex,ey,ez]=view.eye,[fx,fy,fz]=view.look,[ux,uy,uz]=view.up;
+    if(l.positionX){l.positionX.value=ex;l.positionY.value=ey;l.positionZ.value=ez;l.forwardX.value=fx;l.forwardY.value=fy;l.forwardZ.value=fz;l.upX.value=ux;l.upY.value=uy;l.upZ.value=uz;}
+    else{l.setPosition(ex,ey,ez);l.setOrientation(fx,fy,fz,ux,uy,uz);}
+    const panner=ctx.createPanner(),gain=ctx.createGain(),source=ctx.createBufferSource();
+    panner.panningModel='equalpower';panner.distanceModel='linear';panner.refDistance=1;panner.rolloffFactor=0;panner.maxDistance=1e9;
+    panner.positionX.value=pos[0];panner.positionY.value=pos[1];panner.positionZ.value=pos[2];gain.gain.value=spatialGain(view.eye,pos).gain;
+    source.buffer=buffer;source.connect(panner);panner.connect(gain);gain.connect(this.analyser);
+    // Cleanup is idempotent and also runs from a timer, so a source whose `ended` never fires (suspended or closed context) cannot leak a voice slot.
+    this.spatialVoices=(this.spatialVoices||0)+1;
+    let done=false,timer;
+    const release=()=>{if(done)return;done=true;clearTimeout(timer);this.spatialVoices=Math.max(0,this.spatialVoices-1);try{source.disconnect();panner.disconnect();gain.disconnect();}catch{/* already disconnected */}};
+    source.onended=release;timer=setTimeout(release,buffer.duration*1000+2000);
+    try{source.start();}catch{release();return fail('blocked');}
+    this.lastSpatial={reason:'played',key};return true;
   }
   // Dome ambience (nature rustle) belongs to the place, not the engine: like wind it joins at the analyser.
   setNature(level) {

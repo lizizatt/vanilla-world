@@ -62,6 +62,7 @@ export const beachShading=`
 struct Beach {a:vec4f,b:vec4f};
 @group(0) @binding(7) var<uniform> bc:Beach;
 @group(0) @binding(8) var shoreTex:texture_2d<f32>;
+@group(0) @binding(9) var shoreDepth:texture_2d<f32>;
 struct BF {d:f32,n:vec2f,w:f32};
 struct BS {h:f32,q:f32,slope:vec2f,n:vec2f,d:f32,w:f32,b:f32,c:f32,sheet:f32,sheetH:f32,wash:f32,crest:f32,geo:f32};
 // Swap point for the weather: 0..1 wind strength driving the beach swell (seaState().x today; a procedural wind function can replace this one line).
@@ -120,8 +121,13 @@ fn beachApply(P:vec2f,eyeXZ:vec2f,wave:ptr<function,WV>) {
   (*wave).xz=(*wave).xz-s.n*s.q*s.geo;
   (*wave).h=(*wave).h+(s.h+s.sheetH)*s.geo+${BEACH.LIFT}*clamp(s.w*4.0,0.0,1.0);
 }
-// Depth ramp for waterColor from the shore field, so the layer keeps the shallow turquoise the tile liquid would have given.
-fn beachRamp(s:BS)->f32 {return mix(1.0,clamp(s.d/70.0,0.0,1.0),clamp(s.w*3.0,0.0,1.0));}
+// Depth ramp for waterColor: the tile liquid's own ramp (real depth over 148 yd) baked into shoreDepth, so the layer tints exactly like the flat water it replaces; deep beyond the shore window.
+fn beachRamp(P:vec2f)->f32 {
+  if(bc.a.x<.5){return 1.0;}
+  let uv=(P-bc.a.yz)*bc.a.w;
+  if(any(uv<=vec2f(0.0))||any(uv>=vec2f(1.0))){return 1.0;}
+  return mix(1.0,textureSampleLevel(shoreDepth,waveSampler,uv,0.0).r,1.0-bSmooth(${BEACH.WINDOW_FADE[0]},${BEACH.WINDOW_FADE[1]},max(abs(uv.x-.5),abs(uv.y-.5))));
+}
 fn beachFoam(color:vec3f,s:BS,P:vec2f)->vec3f {
   if(s.w<=.001){return color;}
   let t=u.settings.y;let n1=bNoise(P*1.3+vec2f(t*.15,-t*.1));let n2=bNoise(P*4.1-vec2f(t*.3,t*.2));let hf=bHash(floor(P*7.0)+floor(t*9.0));

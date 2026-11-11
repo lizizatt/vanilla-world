@@ -2,7 +2,7 @@ import {depthState,bundleFormats} from './render-passes.js';
 import {modelPath} from './scene-stream.js';
 import {renderMatrix} from './renderer-helpers.js';
 export function scenePipeline(r,batch) {
-  const blend=batch.blend,key=`${blend}:${!!batch.doubleSided}:${!!batch.noDepthWrite}`;
+  const blend=batch.water?'alpha':batch.blend,key=`${blend}:${!!batch.doubleSided}:${!!batch.noDepthWrite}`;
   if(r.pipelines.has(key))return r.pipelines.get(key);
   let colorBlend;
   if(blend==='alpha')colorBlend={color:{srcFactor:'src-alpha',dstFactor:'one-minus-src-alpha'},alpha:{srcFactor:'one',dstFactor:'one-minus-src-alpha'}};
@@ -23,7 +23,7 @@ export function prepareBatches(r,batches) {
   return batches.map(batch=>{
     if(batch.water!==undefined&&typeof batch.water!=='boolean')throw Error('Invalid scene water flag');
     return {...batch,texture:batch.texture?modelPath(batch.texture):null,
-      transparent:['alpha','add','mod','mod2x'].includes(batch.blend),pipeline:r.scenePipeline(batch)};
+      transparent:batch.water||['alpha','add','mod','mod2x'].includes(batch.blend),pipeline:r.scenePipeline(batch)};
   });
 }
 export function sceneMatrix(r,instance,region,origin) {

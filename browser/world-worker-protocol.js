@@ -1,23 +1,25 @@
 import * as wasmTypes from './pkg/flats_racer_web.js';
-import {loadProp,loadPropTexture} from './craft-stream.js';
+import {loadProp,loadPropTexture,loadCraftModel} from './craft-stream.js';
 import {validateView} from './world-view.js';
 import {MusicService} from './music.js';
 import {SkyService} from './sky.js';
 import {WorldMapService} from './worldmap.js';
 import {HudArtService} from './hud-art.js';
+import {UiArtService} from './ui-art.js';
 import {ready,source,world,timings,postFrameVisuals,openWorld,runFrame,restoreWorld,resetWorld,retryWorld,
-  requireWorld,setPopulation,setActorsOn,setWavesOn,waveMask,shoreRows,setMemoryBudget,stopLoadingArt,farAck,farReject,snapshot,settleAfterAction,rebindRenderer,
+  requireWorld,setPopulation,setActorsOn,setCreatureCollisionOn,setWavesOn,waveMask,shoreRows,setMemoryBudget,stopLoadingArt,farAck,farReject,snapshot,settleAfterAction,rebindRenderer,
   finishFrame,scheduleTerrainMaterials,sceneFault} from './world-engine.js';
 import {formatError,validateHop,validateSampleTime,validateParkedPose,validateTuning} from './world-worker-logic.js';
 import {pod} from './world-engine.js';
 import {validatePodControl} from './pod-attitude.js';
 
-let music,sky,worldMap,hudArt;
+let music,sky,worldMap,hudArt,uiArt;
 
 // Messages that must never wait behind the serialized world queue; returns true when consumed.
 export function routeImmediate(data) {
   if(data.action==='stop-loading-art'){stopLoadingArt();return true;}
   if(data.action==='animate'){setActorsOn(data.on!==false);return true;}
+  if(data.action==='creature-collision'){setCreatureCollisionOn(data.on!==false);return true;}
   if(data.action==='waves'){setWavesOn(data.on!==false);return true;}
   if(data.action==='budget'){setMemoryBudget(data.bytes,data.gpu);return true;}
   if(data.action==='music'){
@@ -48,6 +50,13 @@ export function routeImmediate(data) {
     void hudArt.request(()=>source!==owner);
     return true;
   }
+  if(data.action==='ui-art'){
+    if(!source)return true;
+    const owner=source;
+    if(uiArt?.source!==owner)uiArt=new UiArtService(owner,(data,transfers)=>postMessage(data,transfers),wasmTypes);
+    void uiArt.request(()=>source!==owner);
+    return true;
+  }
   if(data.action==='far-ack'){farAck(data.token,data.producer);return true;}
   if(data.action==='far-reject'){farReject(data.token,data.producer);return true;}
   return false;
@@ -55,6 +64,7 @@ export function routeImmediate(data) {
 export async function handle(message) {
   await ready;
   if(message.action==='prop-texture')return loadPropTexture(source,wasmTypes,String(message.path));
+  if(message.action==='craft-model')return loadCraftModel(source,wasmTypes,message.display);
   if(message.action==='prop-model')return loadProp(source,wasmTypes,String(message.path));
   if(message.action==='open')return openWorld(message);
   requireWorld();

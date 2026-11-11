@@ -1,13 +1,18 @@
 import {sanitiseScale,TIME_SCALES} from './sim-clock.js';
+import {sharedKeymap} from './keymap.js';
+import {renderBindings} from './keys-ui.js';
+import {installOptions} from './options-ui.js';
 import {worldTuning} from './world-store.js';
 import {deriveBudget,BUDGET_SETTINGS} from './memory-budget.js';
 import {TUNING_FIELDS,validateTuningRecord} from './world-tuning.js';
 export function installSettings(app) {
 const {canvas,keys,input,audio,evidence,settings,gib,music,client}=app;
+const keymap=app.keymap??=sharedKeymap();
+const bindingsUi=renderBindings(document.getElementById('bindings'),keymap,{onChange(){settings.controls=keymap.profile;hint();keys.clear();input.keyboard();syncSettings();}});
 const $=id=>document.getElementById(id);
 Object.assign(app,{applyMemoryBudget,syncSettings,syncSound,pauseAudio,resumeAudio,zoom,cockpit,});
 try{gib.on=localStorage.getItem('racer.gib')!=='0';gib.overheat=localStorage.getItem('racer.overheat')!=='0';gib.durable=localStorage.getItem('racer.durability')!=='0';gib.speed=Math.max(20,Math.min(400,Number(localStorage.getItem('racer.gibSpeed'))||100));}catch{/* storage unavailable (private mode): setting is not persisted */}
-try{settings.timeScale=sanitiseScale(localStorage.getItem('racer.timeScale')??1);settings.music=localStorage.getItem('racer.music')!=='0';settings.animateNpcs=localStorage.getItem('racer.animateNpcs')!=='0';settings.waves=localStorage.getItem('racer.waves')!=='0';settings.planet=localStorage.getItem('racer.planet')!=='0';settings.globeMesh=localStorage.getItem('racer.globeMesh')!=='0';settings.globeRegistry=localStorage.getItem('racer.globeRegistry')!=='0';{const cq=localStorage.getItem('racer.cloudQuality');if(cq==='high'||cq==='standard')settings.cloudQuality=cq;}{const wq=localStorage.getItem('racer.weatherQuality');if(wq==='low'||wq==='standard'||wq==='high')settings.weatherQuality=wq;}settings.weather=localStorage.getItem('racer.weather')!=='0';{const gr=localStorage.getItem('racer.godrays');if(gr==='low'||gr==='high')settings.godrays=gr;}const mv=localStorage.getItem('racer.masterVolume');if(mv!==null&&mv!==''&&Number.isFinite(Number(mv)))audio.setVolume(Number(mv)/100);}catch{/* storage unavailable (private mode): setting is not persisted */}
+try{settings.timeScale=sanitiseScale(localStorage.getItem('racer.timeScale')??1);settings.music=localStorage.getItem('racer.music')!=='0';settings.animateNpcs=localStorage.getItem('racer.animateNpcs')!=='0';settings.creatureCollision=localStorage.getItem('racer.creatureCollision')!=='0';settings.waves=localStorage.getItem('racer.waves')!=='0';settings.planet=localStorage.getItem('racer.planet')!=='0';settings.globeMesh=localStorage.getItem('racer.globeMesh')!=='0';settings.globeRegistry=localStorage.getItem('racer.globeRegistry')!=='0';{const cq=localStorage.getItem('racer.cloudQuality');if(cq==='high'||cq==='standard')settings.cloudQuality=cq;}{const wq=localStorage.getItem('racer.weatherQuality');if(wq==='low'||wq==='standard'||wq==='high')settings.weatherQuality=wq;}settings.weather=localStorage.getItem('racer.weather')!=='0';{const gr=localStorage.getItem('racer.godrays');if(gr==='low'||gr==='high')settings.godrays=gr;}const mv=localStorage.getItem('racer.masterVolume');if(mv!==null&&mv!==''&&Number.isFinite(Number(mv)))audio.setVolume(Number(mv)/100);}catch{/* storage unavailable (private mode): setting is not persisted */}
 // Persisted outside settings so loading a world does not reset it.
 function applyMemoryBudget() {
   let setting='auto';try{const v=localStorage.getItem('racer.memoryBudget');if(BUDGET_SETTINGS.includes(v))setting=v;}catch{/* storage unavailable (private mode): setting is not persisted */}
@@ -18,13 +23,10 @@ function applyMemoryBudget() {
 $('memory-budget').addEventListener('change',()=>{try{localStorage.setItem('racer.memoryBudget',$('memory-budget').value);}catch{/* storage unavailable (private mode): setting is not persisted */}applyMemoryBudget();});
 function syncSettings() {
   for(const key of ['horizon','scenery','distant','sound','clouds','planet'])$(key).checked=settings[key];
-  $('particles').value=settings.particles;$('time-scale').value=String(TIME_SCALES.indexOf(sanitiseScale(settings.timeScale)));$('time-scale-label').textContent=sanitiseScale(settings.timeScale)?sanitiseScale(settings.timeScale)+'x':'Paused';$('cloud-quality').value=settings.cloudQuality;$('weather').checked=settings.weather!==false;$('weather-quality').value=settings.weatherQuality;$('godrays').value=settings.godrays||'off';$('animate-npcs').checked=settings.animateNpcs;$('ocean-waves').checked=settings.waves!==false;
-  music.setEnabled(settings.music);$('music-on').checked=settings.music;
-  $('control-profile').value=settings.controls;$('camera-distance').value=settings.cameraDistance;
-  $('keyboard-guide').textContent=settings.controls==='legacy'
-    ?'W/S thrust/reverse · A/D steer · Up/Down pod pitch · X/Space brake · J hop · Shift boost · C drift · U unstuck · F9 reset.'
-    :'W/S thrust/reverse · A/D steer · Up/Down pod pitch · X brake · J hop · Shift boost · Space/C drift · U unstuck · F9 reset.';
-  canvas.setAttribute('aria-label',`World. ${$('keyboard-guide').textContent} More controls in Controls and settings.`);
+  $('particles').value=settings.particles;$('time-scale').value=String(TIME_SCALES.indexOf(sanitiseScale(settings.timeScale)));$('time-scale-label').textContent=sanitiseScale(settings.timeScale)?sanitiseScale(settings.timeScale)+'x':'Paused';$('cloud-quality').value=settings.cloudQuality;$('weather').checked=settings.weather!==false;$('weather-quality').value=settings.weatherQuality;$('godrays').value=settings.godrays||'off';$('animate-npcs').checked=settings.animateNpcs;$('creature-collision').checked=settings.creatureCollision!==false;$('ocean-waves').checked=settings.waves!==false;
+  app.syncMusic?app.syncMusic():music.setEnabled(settings.music);$('music-on').checked=settings.music;
+  keymap.setProfile(settings.controls,{keep:true});bindingsUi?.redraw();$('camera-distance').value=settings.cameraDistance;
+  canvas.setAttribute('aria-label',`World. ${keymap.label('drive.throttle')}/${keymap.label('drive.reverse')} thrust and reverse, ${keymap.label('drive.left')}/${keymap.label('drive.right')} steer, Esc menu, ${keymap.label('ui.cheatsheet')} controls.`);
   syncSound();
 }
 function syncSound() {
@@ -66,7 +68,7 @@ async function applyTuning(record) {
   const values=await client.request('tuning',{values:record.values,validateOnly:true});
   const canonical={version:1,defaults:3,values:Array.from(values),cameraSeconds:Math.fround(record.cameraSeconds)};
   await worldTuning(client.info.id,canonical);
-  await client.request('tuning',{values:canonical.values});
+  await app.sendTuning(canonical.values);
   app.tuningValues=canonical.values;settings.cameraSeconds=canonical.cameraSeconds;
   app.running=true;$('error').hidden=true;
   fillTuning(app.tuningValues,settings.cameraSeconds);$('tuning-status').textContent='Saved.';
@@ -77,6 +79,7 @@ $('clouds').addEventListener('change',()=>{settings.clouds=$('clouds').checked;}
 $('planet').addEventListener('change',()=>{settings.planet=$('planet').checked;try{localStorage.setItem('racer.planet',settings.planet?'1':'0');}catch{/* storage unavailable (private mode): setting is not persisted */}});
 $('ocean-waves').addEventListener('change',()=>{settings.waves=$('ocean-waves').checked;client.waves(settings.waves);try{localStorage.setItem('racer.waves',settings.waves?'1':'0');}catch{/* storage unavailable (private mode): setting is not persisted */}});
 $('animate-npcs').addEventListener('change',()=>{settings.animateNpcs=$('animate-npcs').checked;client.animate(settings.animateNpcs);try{localStorage.setItem('racer.animateNpcs',settings.animateNpcs?'1':'0');}catch{/* storage unavailable (private mode): setting is not persisted */}});
+$('creature-collision').addEventListener('change',()=>{settings.creatureCollision=$('creature-collision').checked;client.creatureCollision(settings.creatureCollision);try{localStorage.setItem('racer.creatureCollision',settings.creatureCollision?'1':'0');}catch{/* storage unavailable (private mode): setting is not persisted */}});
 $('time-scale').addEventListener('change',()=>{settings.timeScale=TIME_SCALES[Number($('time-scale').value)]??1;syncSettings();try{localStorage.setItem('racer.timeScale',String(settings.timeScale));}catch{/* storage unavailable (private mode): setting is not persisted */}canvas.focus();});
 $('particles').addEventListener('change',()=>{settings.particles=$('particles').value;});
 $('weather').addEventListener('change',()=>{settings.weather=$('weather').checked;try{localStorage.setItem('racer.weather',settings.weather?'1':'0');}catch{/* storage unavailable: not persisted */}});
@@ -84,12 +87,11 @@ $('weather-quality').addEventListener('change',()=>{settings.weatherQuality=$('w
 $('godrays').addEventListener('change',()=>{settings.godrays=$('godrays').value;try{localStorage.setItem('racer.godrays',settings.godrays);}catch{/* storage unavailable: not persisted */}});
 $('cloud-quality').addEventListener('change',()=>{settings.cloudQuality=$('cloud-quality').value;try{localStorage.setItem('racer.cloudQuality',settings.cloudQuality);}catch{/* storage unavailable (private mode): setting is not persisted */}});
 $('distant').addEventListener('change',()=>{settings.distant=$('distant').checked;});
-$('control-profile').addEventListener('change',()=>{settings.controls=$('control-profile').value;keys.clear();input.keyboard();syncSettings();});
 $('camera-distance').addEventListener('input',()=>{
   settings.cameraDistance=Number($('camera-distance').value);
   if(settings.cockpit){settings.cockpit=false;app.renderer.camera=undefined;}
 });
-$('music-on').addEventListener('change',()=>{settings.music=$('music-on').checked;music.setEnabled(settings.music);try{localStorage.setItem('racer.music',settings.music?'1':'0');}catch{/* storage unavailable (private mode): setting is not persisted */}});
+$('music-on').addEventListener('change',()=>{settings.music=$('music-on').checked;app.syncMusic?app.syncMusic():music.setEnabled(settings.music);try{localStorage.setItem('racer.music',settings.music?'1':'0');}catch{/* storage unavailable (private mode): setting is not persisted */}});
 $('master-volume').value=String(Math.round(audio.volume*100));
 $('master-volume').addEventListener('input',()=>{audio.setVolume(Number($('master-volume').value)/100);try{localStorage.setItem('racer.masterVolume',$('master-volume').value);}catch{/* storage unavailable (private mode): setting is not persisted */}});
 $('music-volume').addEventListener('input',()=>music.setVolume(Number($('music-volume').value)/100));
@@ -111,7 +113,7 @@ for(const [i,field] of [...TUNING_FIELDS,['Chase damping (s)',.5]].entries()) {
   label.append(document.createTextNode(field[0]),box);$('tuning-fields').append(label);
 }
 $('tuning-panel').addEventListener('toggle',()=>{if($('tuning-panel').open)app.operation(async()=>{
-  app.syncDurability();app.tuningValues=Array.from(await client.request('tuning'));fillTuning(app.tuningValues,settings.cameraSeconds);
+  app.syncDurability();app.tuningValues=app.userTuning(await client.request('tuning'));fillTuning(app.tuningValues,settings.cameraSeconds);
   $('tuning-status').textContent='';
 });});
 $('tuning-fields').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();$('tuning-apply').click();}});
@@ -126,4 +128,6 @@ $('tuning-defaults').addEventListener('click',()=>{
   applyTuning({version:1,values:TUNING_FIELDS.map(f=>f[1]),cameraSeconds:.5})
     .catch(error=>{$('tuning-status').textContent=error.message;}).finally(()=>{app.busy=false;});
 });
+const hint=()=>{document.getElementById('menu-hint').textContent=`Esc \u00b7 Menu   ${keymap.label('ui.cheatsheet')} \u00b7 Controls`;};hint();
+installOptions(document.querySelector('[data-page=options]'));
 }

@@ -1144,7 +1144,7 @@ fn airborne_thrust_from_rest_crosses_known_holes_without_arresting_the_fall() {
         assert!(world.global()[0] > 205.0, "{kind}");
         assert!(world.state.velocity[0] > 20.0, "{kind}");
         assert!(world.state.position[1] < 98.0, "{kind}");
-        assert!((world.state.heat - 0.2 / 3.0).abs() < 0.00001, "{kind}");
+        assert!((world.state.heat - 0.4 / 3.0).abs() < 0.00001, "{kind}");
         if kind == "hole" {
             let before = world.state;
             assert!(world

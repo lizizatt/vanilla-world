@@ -1,0 +1,149 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Waypoint arrow – design mock</title>
+<style>
+body{margin:0;background:#12151b;color:#dde;font:13px system-ui,sans-serif;padding:12px}
+h1{font-size:16px;margin:0 0 8px}
+#bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:10px}
+button{background:#232a36;color:#dde;border:1px solid #3a4458;border-radius:4px;padding:4px 9px;cursor:pointer}
+button.on{background:#3b5d8f}
+#grid{display:grid;grid-template-columns:repeat(3,440px);gap:10px}
+figure{margin:0}figcaption{padding:3px 0;font-weight:600}
+canvas{display:block;border:1px solid #333;touch-action:none;cursor:crosshair}
+small{color:#99a}
+</style>
+<h1>Next-waypoint arrow – six concepts (mock only; fake view, no game code)</h1>
+<div id="bar"></div>
+<div id="grid"></div>
+<p><small>Drag inside any view to move the gate (left/right = bearing, up/down = elevation). Craft faces forward; camera FOV 70°. Final gate is drawn with a checkered mark in every concept.</small></p>
+<script>
+const W=440,H=270,FOV=Math.tan(35*Math.PI/180),CX=W/2,CY=H/2-10,F=CX/FOV;
+const S={az:0.5,el:0.05,dist:300,final:false,bright:true,auto:true,t:0,scen:'Left'};
+const SCEN={Left:{az:-.9,el:.03,dist:260},Right:{az:.75,el:0,dist:180},Behind:{az:2.9,el:0,dist:200},Above:{az:.15,el:.75,dist:140},Below:{az:-.2,el:-.5,dist:120},Far:{az:.1,el:.02,dist:4200},Near:{az:.05,el:0,dist:22},Final:{az:-.4,el:.05,dist:300,final:true}};
+const AMB='#ffb000',CY_='#35d0ff',WHITE='#fff';
+// direction (right,up,fwd) from az/el
+const dir=(az,el)=>[Math.sin(az)*Math.cos(el),Math.sin(el),Math.cos(az)*Math.cos(el)];
+const proj=p=>p[2]>0.05?[CX+p[0]/p[2]*F,CY-p[1]/p[2]*F]:null;
+const fmt=d=>d<1000?Math.round(d)+' yd':(d/1000).toFixed(d<10000?1:0)+'k yd';
+const gateP=()=>{const d=dir(S.az,S.el);return d.map(v=>v*S.dist)};
+function edge(az,el,m){ // clamp direction to an inset ellipse; returns [x,y,angle]
+  const sx=Math.sin(az)*Math.cos(el),sy=Math.sin(el);let a=Math.atan2(-sy,sx);
+  if(Math.cos(az)<0&&Math.abs(sx)<.05&&Math.abs(sy)<.05)a=Math.PI/2; // straight behind: bottom
+  const rx=CX-m,ry=CY-m;return [CX+Math.cos(a)*rx,CY+Math.sin(a)*ry,a];
+}
+function onscreen(){const p=proj(gateP());return p&&p[0]>20&&p[0]<W-20&&p[1]>20&&p[1]<H-20?p:null}
+function txt(c,s,x,y,col,al='center',sz=13){c.font=`bold ${sz}px system-ui`;c.textAlign=al;c.lineWidth=3;c.strokeStyle='#000c';c.strokeText(s,x,y);c.fillStyle=col;c.fillText(s,x,y)}
+function scene(c){
+  const g=c.createLinearGradient(0,0,0,CY);
+  if(S.bright){g.addColorStop(0,'#6fb4ff');g.addColorStop(1,'#eaf6ff')}else{g.addColorStop(0,'#02030a');g.addColorStop(1,'#1a2440')}
+  c.fillStyle=g;c.fillRect(0,0,W,CY);
+  c.fillStyle=S.bright?'#6d8a4a':'#0b0f0a';c.fillRect(0,CY,W,H-CY);
+  c.strokeStyle=S.bright?'#5a7640':'#1a2418';c.lineWidth=1;
+  for(let i=1;i<9;i++){const y=CY+Math.pow(i/9,2)*(H-CY);c.beginPath();c.moveTo(0,y);c.lineTo(W,y);c.stroke()}
+  for(let i=-6;i<=6;i++){c.beginPath();c.moveTo(CX,CY);c.lineTo(CX+i*90,H);c.stroke()}
+  // cockpit frame
+  c.fillStyle='#161a22';c.beginPath();c.moveTo(0,H);c.lineTo(0,H-34);c.lineTo(W*.3,H-52);c.lineTo(W*.7,H-52);c.lineTo(W,H-34);c.lineTo(W,H);c.fill();
+  c.fillRect(0,0,W,6);c.fillRect(0,0,6,H);c.fillRect(W-6,0,6,H);
+  c.strokeStyle='#ffffff55';c.beginPath();c.moveTo(CX-8,CY);c.lineTo(CX+8,CY);c.moveTo(CX,CY-8);c.lineTo(CX,CY+8);c.stroke();
+}
+function checker(c,x,y,r){c.save();c.beginPath();c.rect(x-r,y-r,2*r,2*r);c.clip();for(let i=0;i<4;i++)for(let j=0;j<4;j++){c.fillStyle=(i+j)%2?'#000':'#fff';c.fillRect(x-r+i*r/2,y-r+j*r/2,r/2,r/2)}c.restore();c.strokeStyle='#000';c.strokeRect(x-r,y-r,2*r,2*r)}
+function gateMark(c,x,y,r){ // shape-coded gate: ring (normal) / checkered square (final)
+  if(S.final){checker(c,x,y,r*.8);return}
+  c.lineWidth=3;c.strokeStyle='#000';c.beginPath();c.arc(x,y,r,0,7);c.stroke();c.lineWidth=2;c.strokeStyle=AMB;c.stroke();
+}
+const gr=()=>Math.max(5,Math.min(60,9000/S.dist/1.0*1.0));
+function chev(c,x,y,a,s,col,out=true){ // chevron pointing along angle a
+  c.save();c.translate(x,y);c.rotate(a);c.beginPath();c.moveTo(s,0);c.lineTo(-s*.6,-s*.8);c.lineTo(-s*.2,0);c.lineTo(-s*.6,s*.8);c.closePath();
+  if(out){c.lineWidth=2.5;c.strokeStyle='#000';c.stroke()}c.fillStyle=col;c.fill();c.restore();
+}
+const heading=()=>S.az;
+// ---- concept renderers
+const C=[
+{name:'A · 3D chevron + compass ring (in-world, ahead of craft)',draw(c){
+  const anchor=[0,-.35,2.6];const ap=proj(anchor);
+  // ring on a ground plane
+  c.lineWidth=2;c.strokeStyle='#fff9';c.beginPath();
+  for(let i=0;i<=40;i++){const a=i/40*6.283,p=proj([Math.sin(a)*.9,-.35,2.6+Math.cos(a)*.9]);i?c.lineTo(...p):c.moveTo(...p)}c.stroke();
+  // chevron lies in ring plane pointing toward gate's horizontal bearing, tilts up with elevation
+  const d=dir(S.az,S.el),L=.8,up=Math.max(-.6,Math.min(.6,d[1]*1.2));
+  const tip=[anchor[0]+d[0]*L*.9,anchor[1]+up*L+.0,anchor[2]+d[2]*L*.9],bl=(s)=>{const px=-d[2],pz=d[0],n=Math.hypot(px,pz)||1;return[anchor[0]-d[0]*L*.5+px/n*.35*s,anchor[1]-up*L*.5,anchor[2]-d[2]*L*.5+pz/n*.35*s]};
+  const P=[tip,bl(1),[anchor[0]-d[0]*L*.2,anchor[1]-up*L*.2,anchor[2]-d[2]*L*.2],bl(-1)].map(proj);
+  if(P.every(Boolean)){const behind=d[2]<0;c.beginPath();P.forEach((p,i)=>i?c.lineTo(...p):c.moveTo(...p));c.closePath();
+    c.lineWidth=3;c.strokeStyle='#000';c.stroke();c.fillStyle=behind?CY_:AMB;c.fill();
+    if(behind){txt(c,'TURN AROUND',CX,CY+90,CY_,'center',12)}}
+  txt(c,fmt(S.dist)+(S.el>.2?' ▲':S.el<-.2?' ▼':''),ap[0],ap[1]+36,WHITE);
+  const p=onscreen();if(p)gateMark(c,p[0],p[1],gr());
+}},
+{name:'B · Screen-edge indicator (clamped, with range)',draw(c){
+  const p=onscreen();
+  if(p){const r=gr()+6;c.strokeStyle='#000';c.lineWidth=4;const b=(sx,sy)=>{c.beginPath();c.moveTo(p[0]+sx*r,p[1]+sy*(r-8));c.lineTo(p[0]+sx*r,p[1]+sy*r);c.lineTo(p[0]+sx*(r-8),p[1]+sy*r);c.stroke()};
+    [[-1,-1],[1,-1],[-1,1],[1,1]].forEach(([x,y])=>{b(x,y);c.strokeStyle=AMB;c.lineWidth=2;b(x,y);c.strokeStyle='#000';c.lineWidth=4});
+    if(S.final)checker(c,p[0],p[1]-r-12,6);txt(c,fmt(S.dist),p[0],p[1]+r+16,WHITE)}
+  else{const [x,y,a]=edge(S.az,S.el,22),pulse=Math.cos(S.az)<0?1+.2*Math.sin(S.t*8):1;
+    chev(c,x,y,a,15*pulse,Math.cos(S.az)<0?CY_:AMB);
+    const tx=x-Math.cos(a)*34,ty=y-Math.sin(a)*30;txt(c,fmt(S.dist),tx,ty+4,WHITE,'center',12);
+    if(S.final)checker(c,tx,ty-16,6)}
+}},
+{name:'C · Ribbon / breadcrumb chevrons along the path',draw(c){
+  const g=gateP(),len=Math.min(S.dist,70),k=Math.max(5,Math.floor(len/6));
+  const d=dir(S.az,0),tx=d[0]*len,tz=d[2]*len;
+  // path: starts straight ahead, bends toward the gate (turn radius keeps it visible when behind)
+  const pts=[];for(let i=1;i<=k;i++){const t=i/k,s=t*t*(3-2*t);pts.push([-.0+tx*s*(Math.sin(S.az)<0?1:1)*Math.min(1,t*1.3),-.9+Math.max(-.4,Math.min(.9,g[1]/S.dist*len*.3))*t, (Math.cos(S.az)>0?tz*t:(14*Math.sin(t*Math.PI*.9)+4*t))+t*3])}
+  if(Math.cos(S.az)<=0){for(let i=0;i<pts.length;i++){const t=(i+1)/k;pts[i][0]=Math.sign(Math.sin(S.az)||1)*18*Math.sin(t*Math.PI/2);}}
+  const sc=proj(g);
+  pts.forEach((p,i)=>{const a=proj(p),b=proj(i?pts[i-1]:[0,-.9,1]);if(!a)return;const ang=b?Math.atan2(a[1]-b[1],a[0]-b[0]):-Math.PI/2;
+    const sz=Math.max(3,22/p[2]*5);c.globalAlpha=.35+.65*(1-i/k);chev(c,a[0],a[1],ang,Math.min(sz,16),i%2?AMB:'#ffe08a')});
+  c.globalAlpha=1;const p=onscreen();if(p){gateMark(c,p[0],p[1],gr())}
+  txt(c,fmt(S.dist),CX,H-62,WHITE);if(S.final)checker(c,CX+54,H-67,7);
+}},
+{name:'D · Holographic gate ghost + off-screen pointer',draw(c){
+  const g=gateP(),p=proj(g);
+  const ringAt=(pp,r)=>{c.save();c.globalAlpha=.9;c.lineWidth=2;c.strokeStyle=CY_;c.setLineDash([6,4]);c.lineDashOffset=-S.t*30;c.beginPath();c.ellipse(pp[0],pp[1],r*.8,r,0,0,7);c.stroke();c.setLineDash([]);c.fillStyle='#35d0ff33';c.fill();c.lineWidth=1;for(let y=-r;y<r;y+=5){c.beginPath();c.moveTo(pp[0]-r*.8,pp[1]+y);c.lineTo(pp[0]+r*.8,pp[1]+y);c.stroke()}c.restore()};
+  if(p&&p[0]>-40&&p[0]<W+40&&p[1]>-40&&p[1]<H+40){ringAt(p,Math.max(8,Math.min(70,16000/S.dist)));if(S.final)checker(c,p[0],p[1],7);txt(c,fmt(S.dist),p[0],p[1]+Math.min(70,16000/S.dist)+16,CY_)}
+  if(!onscreen()){const [x,y,a]=edge(S.az,S.el,34);ringAt([x,y],13);chev(c,x+Math.cos(a)*24,y+Math.sin(a)*24,a,9,AMB);txt(c,fmt(S.dist),x-Math.cos(a)*30,y-Math.sin(a)*26+4,WHITE,'center',11);if(S.final)checker(c,x,y,5)}
+}},
+{name:'E · Minimal HUD compass strip with gate tick',draw(c){
+  const sw=300,x0=CX-sw/2,y0=26,ppr=sw/(Math.PI*1.2); // strip spans ±108°
+  c.fillStyle='#000a';c.fillRect(x0,y0-14,sw,28);c.strokeStyle='#fff8';c.strokeRect(x0,y0-14,sw,28);
+  for(let d=-120;d<=120;d+=10){const x=CX+d*Math.PI/180*ppr;if(x<x0||x>x0+sw)continue;c.beginPath();c.moveTo(x,y0+14);c.lineTo(x,y0+(d%30?9:3));c.stroke()}
+  let a=((S.az+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI,lim=Math.PI*.6,clamped=Math.abs(a)>lim,ax=CX+Math.max(-lim,Math.min(lim,a))*ppr;
+  c.fillStyle=AMB;c.strokeStyle='#000';c.lineWidth=2;c.beginPath();
+  if(S.final){checker(c,ax,y0,8)}else{c.moveTo(ax,y0-10);c.lineTo(ax+8,y0);c.lineTo(ax,y0+10);c.lineTo(ax-8,y0);c.closePath();c.stroke();c.fill()}
+  if(clamped){txt(c,a<0?'◀◀':'▶▶',ax+(a<0?-18:18)*0,y0+30,CY_,'center',13);txt(c,'U-TURN',CX,y0+46,CY_,'center',11)}
+  txt(c,fmt(S.dist)+(S.el>.2?'  ▲ climb':S.el<-.2?'  ▼ dive':''),CX,y0+(clamped?62:34),WHITE,'center',12);
+}},
+{name:'F · Light-column beam at the gate + radar dial',draw(c){
+  const g=gateP();const p=proj(g),b=proj([g[0],g[1]-50,g[2]]),t=proj([g[0],g[1]+900,g[2]]);
+  if(p){c.save();const gg=c.createLinearGradient(0,0,0,p[1]);gg.addColorStop(0,'#ffb00000');gg.addColorStop(1,'#ffb000aa');c.fillStyle=gg;const w=Math.max(2,Math.min(26,2200/S.dist));c.fillRect(p[0]-w/2,0,w,Math.max(p[1],0));c.fillStyle='#fff';c.fillRect(p[0]-1,0,2,Math.max(p[1],0));c.restore();gateMark(c,p[0],p[1],gr())}
+  // radar dial
+  const rx=70,ry=H-72,R=50;c.fillStyle='#000a';c.beginPath();c.arc(rx,ry,R,0,7);c.fill();c.strokeStyle='#fff9';c.lineWidth=1;[.33,.66,1].forEach(k=>{c.beginPath();c.arc(rx,ry,R*k,0,7);c.stroke()});
+  c.beginPath();c.moveTo(rx,ry-R);c.lineTo(rx,ry+R);c.moveTo(rx-R,ry);c.lineTo(rx+R,ry);c.stroke();
+  c.fillStyle='#fff';c.beginPath();c.moveTo(rx,ry-6);c.lineTo(rx+4,ry+4);c.lineTo(rx-4,ry+4);c.fill();
+  const rr=Math.min(1,Math.log10(1+S.dist)/3.7)*R,bx=rx+Math.sin(S.az)*rr,by=ry-Math.cos(S.az)*rr;
+  if(S.final)checker(c,bx,by,6);else{c.fillStyle=AMB;c.strokeStyle='#000';c.lineWidth=2;c.beginPath();c.moveTo(bx,by-7);c.lineTo(bx+7,by);c.lineTo(bx,by+7);c.lineTo(bx-7,by);c.closePath();c.stroke();c.fill()}
+  c.fillStyle=S.el>.2?'#fff':'#fff';txt(c,(S.el>.2?'▲ ':S.el<-.2?'▼ ':'')+fmt(S.dist),rx,ry+R+14,WHITE,'center',11);
+  if(!p||p[1]<0){const [x,y,a]=edge(S.az,S.el,22);if(Math.cos(S.az)>0&&(!p||p[1]<0)){}}
+}},
+];
+// ---- UI
+const grid=document.getElementById('grid'),bar=document.getElementById('bar'),cv=[];
+C.forEach(k=>{const f=document.createElement('figure'),cap=document.createElement('figcaption'),cn=document.createElement('canvas');cap.textContent=k.name;cn.width=W;cn.height=H;f.append(cap,cn);grid.append(f);k.c=cn.getContext('2d');cv.push(cn);
+  const drag=e=>{const r=cn.getBoundingClientRect(),x=(e.clientX-r.left)/r.width*W,y=(e.clientY-r.top)/r.height*H;S.auto=false;sync();S.az=Math.atan(((x-CX)/F));S.el=Math.atan(-(y-CY)/F);if(S.dist<30)S.dist=30;S.scen='';mark()};
+  cn.onpointerdown=e=>{cn.setPointerCapture(e.pointerId);drag(e);cn.onpointermove=drag};cn.onpointerup=()=>cn.onpointermove=null});
+const btns={};
+function mk(label,fn){const b=document.createElement('button');b.textContent=label;b.onclick=fn;bar.append(b);return b}
+for(const n in SCEN)btns[n]=mk(n,()=>{S.auto=false;setScen(n);sync()});
+const bAuto=mk('Auto-cycle',()=>{S.auto=!S.auto;sync()}),bBg=mk('Sky: bright',()=>{S.bright=!S.bright;sync()});
+function sync(){bAuto.classList.toggle('on',S.auto);bBg.textContent='Sky: '+(S.bright?'bright / terrain light':'dark / terrain dark');mark()}
+function mark(){for(const n in btns)btns[n].classList.toggle('on',n===S.scen)}
+function setScen(n){const s=SCEN[n];S.scen=n;S.az=s.az;S.el=s.el;S.dist=s.dist;S.final=!!s.final;mark()}
+const names=Object.keys(SCEN);let idx=0,since=0,last=performance.now();
+function frame(now){const dt=(now-last)/1000;last=now;S.t+=dt;
+  if(S.auto){since+=dt;if(since>2.6){since=0;idx=(idx+1)%names.length;setScen(names[idx])}}
+  for(const k of C){scene(k.c);k.c.save();k.draw(k.c);k.c.restore()}
+  if(window.__still)return;requestAnimationFrame(frame)}
+// ?scen=Behind&bright=0 renders one still frame for screenshots
+const q=new URLSearchParams(location.search);
+if(q.get('scen')){window.__still=1;S.auto=false;setScen(q.get('scen'));S.bright=q.get('bright')!=='0'}
+sync();requestAnimationFrame(frame);
+</script>

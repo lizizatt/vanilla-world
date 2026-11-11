@@ -26,7 +26,7 @@ if (SWE1R_DATA) {
 await page.locator('#files').setInputFiles(WOW_DATA);
 await page.waitForFunction(() => worldEvidence.ready || worldEvidence.errors.length, null, { timeout: 180000 });
 await page.evaluate(() => worldTest.settings({ shadows: false, clouds: false, music: false }));
-await page.keyboard.press('Escape'); await page.locator('[data-tab=options]').click(); await page.locator('#gib').uncheck(); await page.keyboard.press('Escape');
+await page.keyboard.press('Escape'); await page.locator('[data-tab=options]').click(); await page.locator('#gib').uncheck(); await page.keyboard.press('Escape');await page.keyboard.press('Escape');
 await page.locator('#world').click();
 const shot = name => page.screenshot({ path: path.join(out, `${name}.png`) });
 const live = () => page.evaluate(() => worldTest.particles().count);

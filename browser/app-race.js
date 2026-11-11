@@ -7,8 +7,9 @@ import {clampTrack} from './track-edit.js';
 import {flagPosition} from './race-flags.js';
 import {gateScene,sceneKey,sceneProps,startLine} from './race-gates.js';
 import {tracksFor,vehicleOf} from './vehicles.js';
-import {gateReach} from './bodies.js';
-import {activeBody} from './body-shaders.js';
+import {gateReach,BODIES,regimeOf} from './bodies.js';
+import {activeBody,activeFramedBody} from './body-shaders.js';
+import {trailChevrons,trailWanted,stepFade} from './gate-trail.js';
 import {SFX,STINGER,wipeoutBlast,pickRaceMusic} from './swe1r/sfx.js';
 import {pickVoice,raceEndEvents} from './swe1r/voice-map.js';
 import {WRECK_CHUNK,WRECK_CHUNKS} from './wreck.js';
@@ -40,8 +41,22 @@ async function withOverrides(found) {
   } catch {/* no override index: keep the built-in tracks */}
   return list;
 }
+// Swaps to another body with the existing in-page well swap, waiting for its resident engine to finish warming (same wait as the map teleport).
+async function switchBody(id) {
+  if(activeBody().id===id)return;
+  const ready=()=>{const e=app.engines?.[id];return !app.busy&&e?.worker&&e.info&&app.renderer?.bodyPrepared?.(id);};
+  for(let i=0;i<240&&!ready()&&app.engines?.[id];i++){if(i===0)app.report(`Preparing ${id}...`,true);await new Promise(r=>setTimeout(r,250));}
+  if(!(await app.soiSwap(id)))throw new Error(`${id} is not ready yet (its world is still loading).`);
+}
+// Editor jump: swap bodies, put the pod on that body's spawn (the old pose is in another frame), and hand the editor a camera position.
+async function editorJump(id) {
+  await switchBody(id);
+  editorFlight=undefined;app.flight=undefined;
+  client.state=await client.request('reset');app.renderer.camera=undefined;app.gateKey=undefined;
+  return client.state.telemetry.slice(0,3);
+}
 app.editor=createTrackEditor({
-  view:()=>app.renderer?.view,tracks:()=>app.tracks.filter(t=>(t.body??'azeroth')===activeBody().id),body:()=>activeBody().id,shipped:()=>app.shipped.map(t=>t.id),probe:probeSurface,
+  view:()=>app.renderer?.view,tracks:()=>app.tracks,body:()=>activeBody().id,shipped:()=>app.shipped.map(t=>t.id),probe:probeSurface,jump:editorJump,
   save:async track=>{
     await trackOverride(track.id,track);
     const ids=new Set((await trackOverride('~index'))||[]);ids.add(track.id);await trackOverride('~index',[...ids]);
@@ -91,7 +106,7 @@ function syncGates(force) {
   app.gateKey=key;
   const racing=!app.editor.isOpen&&app.race;
   // The editor draws only the draft being edited; every other track shows as its flag.
-  const items=app.editor.isOpen?app.editor.draft.gates.map((gate,i)=>({gate,next:i===app.editor.selected})):
+  const items=app.editor.isOpen?app.editor.draft.gates.flatMap((gate,i)=>app.editor.draft.bodyAt(i)===activeBody().id?[{gate,next:i===app.editor.selected}]:[]):
     racing?[{gate:app.race.track.gates[app.race.gateIndex],next:true,finish:app.race.finishing}]:[];
   app.renderer.setGates(items);
   const own=app.editor.isOpen?app.editor.draft.id:racing?app.race.track.id:undefined;
@@ -101,6 +116,9 @@ function syncGates(force) {
 async function startRace(track) {
   if(app.race||app.busy||!app.running||!client.info)return;
   if(vehicleOf(track)!==app.choice.vehicle)app.selectVehicle({vehicle:vehicleOf(track)});
+  if(trackBody(track)!==activeBody().id){
+    try{await switchBody(trackBody(track));}catch(error){app.report(`Cannot start: ${error.message}`,true);return;}
+  }
   const ready=await app.operation(async()=>{
     app.flight=undefined;
     track=await groundTrack(track);
@@ -163,13 +181,19 @@ function raceHud(t) {
   else setText('race-delta','');
   setText('race-lap',lapCount(app.race.lap,app.race.track.laps));
   setText('race-laps',app.race.track.laps>1?lapTimesText(lapTimes(app.race.splits,app.race.track.gates.length),formatTime):'');
-  const gate=app.race.nextGate,p=client.state.telemetry,arrow=$('race-arrow');
-  const guide=gateGuide({pos:p,yaw:p[3],gate,body:activeBody().id,gateBody:gate&&gateBody(app.race.track,gate)});
+  const gate=app.race.nextGate,p=client.state.telemetry,body=activeBody(),target=gate&&gateBody(app.race.track,gate),t0=app.renderer?.timeOfDay;
+  const guide=gateGuide({pos:p,yaw:p[3],gate,body:body.id,gateBody:target,frame:target&&target!==body.id&&Number.isFinite(t0)?{active:activeFramedBody(),target:BODIES[target],t:t0}:undefined});
   setText('race-gate',`Gate ${Math.min(done+1,app.race.totalGates)}/${app.race.totalGates}${guide.label}`);
-  arrow.hidden=!guide.visible;
   setText('race-range',guide.visible?`${guide.range} ${guide.climb}`.trim():'');
-  if(guide.visible){arrow.style.transform=`rotate(${guide.angle}rad)`;arrow.dataset.behind=String(guide.behind);}
+  const now=performance.now(),quiet=!guide.visible||app.swapHold||app.busy,view=app.renderer?.view;
+  const eye=view?.eye,rel=guide.delta&&eye?[p[0]+guide.delta[0]-eye[0],p[1]+guide.delta[1]-eye[1],p[2]+guide.delta[2]-eye[2]]:undefined;
+  const want=!quiet&&trailWanted({rel,range:guide.rangeYd,cross:guide.cross,view:rel?view:undefined,was:trailFade.want});
+  trailFade.level=quiet?0:stepFade(trailFade.level,want,Math.min(.1,(now-trailFade.at)/1000));trailFade.want=want;trailFade.at=now;
+  app.renderer?.setCrumbs(trailFade.level>0?trailChevrons({delta:guide.delta,yaw:p[3],behind:guide.behind,straight:guide.cross||regimeOf(p[1],body)==='orbit',
+    final:done+1>=app.race.totalGates,time:now/1000,reduced:reducedMotion.matches,fade:trailFade.level}):undefined);
 }
+const trailFade={level:0,want:false,at:0};
+const reducedMotion=globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')??{matches:false};
 async function recordRun(track,run) {
   let record,rank;
   try {

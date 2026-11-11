@@ -37,7 +37,11 @@ fn geometry(meshes: &[LiquidMesh], x: u32, y: u32) -> Result<Vec<f32>, String> {
                 return Err("Authored liquid is outside its tile or has invalid heights".into());
             }
             out.extend(local);
-            out.extend([0.0, 1.0, 0.0, 2.0]);
+            // Ocean-kind liquid keeps the opaque ocean look (4); only inland liquid is a lake (2).
+            // Still liquid sitting exactly at sea level is an open-sea placeholder, not a lake.
+            let sea_flat = mesh.positions.iter().all(|p| p[2].abs() < 0.01);
+            let material = if mesh.kind == LiquidKind::Ocean || sea_flat { 4.0 } else { 2.0 };
+            out.extend([0.0, 1.0, 0.0, material]);
         }
     }
     Ok(out)

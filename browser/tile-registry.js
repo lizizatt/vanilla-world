@@ -32,8 +32,10 @@ export function createRegistry(chunks,radius=PLANET_RADIUS) {
     sample(lat,lon) {
       let land=0,h=OCEAN.h,rgb=OCEAN.rgb,water=OCEAN.water;
       for(const chunk of list) {
-        const weight=feather(chunk,lat,lon);if(weight<=0)continue;
-        const s=chunk.provider.sample(lat,lon);if(s.skip)continue;
+        // Seamless chunks (blend 0, no jitter) are cheapest to reject through their provider; the result is order-independent because both calls are pure.
+        let weight,s;
+        if(chunk.blend<=0&&!chunk.jitter){s=chunk.provider.sample(lat,lon);if(s.skip)continue;weight=feather(chunk,lat,lon);if(weight<=0)continue;}
+        else{weight=feather(chunk,lat,lon);if(weight<=0)continue;s=chunk.provider.sample(lat,lon);if(s.skip)continue;}
         land=Math.max(land,weight);h+=(s.h-h)*weight;rgb=[rgb[0]+(s.rgb[0]-rgb[0])*weight,rgb[1]+(s.rgb[1]-rgb[1])*weight,rgb[2]+(s.rgb[2]-rgb[2])*weight];if(weight>=.5)water=s.water;
       }
       return {land,h,rgb,water};
@@ -56,6 +58,10 @@ export function rectBounds([x0,z0,x1,z1],centre=WORLD_CENTRE,radius=PLANET_RADIU
 /** Hosted default: the two continents as procedural chunks; with WoW data the same entries get an 'adt' provider instead. */
 export function defaultManifest(makeProvider=()=>proceduralProvider(),rects=FALLBACK_RECTS) {
   return rects.map((r,i)=>({id:i?'eastern-kingdoms':'kalimdor',kind:'procedural',blend:2500,jitter:6000,bounds:rectBounds(r),provider:makeProvider(i)}));
+}
+/** Registry chunks for a globe bake. With real data the minimap colours own the land, so the procedural continents never contribute and are left out entirely (same texels, a third of the work). */
+export function surfaceChunks(rects,real,grid) {
+  return [...(real?[]:defaultManifest(undefined,rects)),adtChunk(grid)];
 }
 
 const TILE=1600/3;
@@ -102,7 +108,10 @@ export function surfaceTexel(registry,x,y,w,h,out=[0,0,0,0]) {
 
 /** Bake the registry into an equirect RGBA8 map (rgb colour, alpha = land weight) the globe shaders sample; row 0 is lat +90. */
 export function bakeSurface(registry,w=1024,h=512) {
-  const out=new Uint8Array(w*h*4),texel=[0,0,0,0];
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++)out.set(surfaceTexel(registry,x,y,w,h,texel),(y*w+x)*4);
-  return out;
+  const out=new Uint8Array(w*h*4);bakeRows(registry,out,0,h,w,h);return out;
+}
+/** Bakes rows [y0,y1) of the equirect map into `out`, so a bake can be spread over frames. */
+export function bakeRows(registry,out,y0,y1,w=1024,h=512) {
+  const texel=[0,0,0,0];
+  for(let y=y0;y<y1;y++)for(let x=0;x<w;x++)out.set(surfaceTexel(registry,x,y,w,h,texel),(y*w+x)*4);
 }

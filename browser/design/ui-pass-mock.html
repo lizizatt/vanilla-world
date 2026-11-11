@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Azeroth Racer UI pass: interactive mock</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<!--
+  Design mock only (see ui-pass.md). Not part of the shipped game.
+  WoW art is read from ./ui-assets/ (gitignored, extracted locally from your own 1.12.1 Data).
+  If that folder is absent every frame, button and font falls back to the CSS-only look below.
+-->
+<style>
+@font-face { font-family: "Friz"; src: url("./ui-assets/Fonts/FRIZQT__.TTF"); font-display: swap; }
+@font-face { font-family: "Morpheus"; src: url("./ui-assets/Fonts/MORPHEUS.TTF"); font-display: swap; }
+:root { --gold:#ffd100; --gold2:#c8a24a; --ink:#f5e6b8; --dim:#a8946a; --bad:#ff5a4a; --ok:#6fe07a;
+  --panel:#1a1209; --panel2:#2a1d0d; font: 14px/1.4 "Friz", Georgia, serif; color: var(--ink); background:#0a121b; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin:0; min-height:100vh; text-shadow: 1px 1px 0 #000; }
+button, input, select { font: inherit; color: inherit; }
+/* ---------- chrome of the mock itself ---------- */
+#bar { position: sticky; top:0; z-index:50; display:flex; flex-wrap:wrap; gap:6px 14px; align-items:center; padding:8px 12px; background:#0b0b0e; border-bottom:1px solid #333; font: 12px system-ui, sans-serif; }
+#bar b { color: var(--gold); }
+#bar button, #bar select { font: 12px system-ui, sans-serif; background:#1d1d24; border:1px solid #444; padding:3px 9px; border-radius:3px; cursor:pointer; }
+#bar button[aria-pressed=true] { background:#c8a24a; color:#111; text-shadow:none; }
+#bar .sep { width:1px; height:18px; background:#444; }
+#assetnote { color:#9aa; }
+/* ---------- fake game scene ---------- */
+#scene { position:relative; height: calc(100vh - 44px); min-height: 640px; overflow:hidden;
+  background: linear-gradient(#8fb4c8 0 34%, #c9b38a 34% 36%, #d8c49c 36%); }
+#scene::before { content:""; position:absolute; inset:34% 0 auto; height:18%; background: linear-gradient(#a8805a, #7a5a3c); opacity:.55; }
+#scene::after { content:""; position:absolute; left:40%; bottom:22%; width:20%; height:12%; background: radial-gradient(#3a2a1a, transparent 70%); }
+.view { position:absolute; inset:0; display:none; }
+.view.on { display:block; }
+.dim { position:absolute; inset:0; background: rgba(0,0,0,.55); }
+.center { position:absolute; inset:0; display:grid; place-items:center; padding:16px; }
+/* ---------- WoW-ish frame ---------- */
+.frame { position:relative; background: var(--panel); border: 3px double var(--gold2); border-radius: 6px; padding: 22px 26px; min-width: 300px; }
+html.has-art .frame { border: 16px solid transparent; border-image: var(--dlg-border) 32 / 16px stretch; border-radius:0; padding: 14px 18px;
+  background: var(--dlg-bg) padding-box, #120d06; background-size: 64px; }
+.frame h2 { margin:0 0 14px; text-align:center; color: var(--gold); font: 400 20px "Morpheus","Friz",Georgia,serif; letter-spacing:.04em; }
+.frame.wide { width: min(820px, 96%); }
+/* header plaque */
+.plaque { position:absolute; left:50%; top:-26px; transform:translateX(-50%); min-width:200px; text-align:center; padding: 12px 28px 16px; color: var(--gold); z-index:2;
+  font: 400 15px "Friz",Georgia,serif; background: var(--panel2); border:1px solid var(--gold2); border-radius:3px; }
+html.has-art .plaque { background: var(--dlg-header) center / 100% 100% no-repeat; border:0; padding: 16px 40px 22px; min-width:240px; }
+.frame.plaqued { padding-top: 34px; }
+.frame.plaqued h2 { display:none; }
+/* ---------- buttons ---------- */
+.btn { display:block; width:100%; margin:6px 0; padding: 7px 14px; text-align:center; cursor:pointer; color: var(--gold);
+  background: linear-gradient(#5a3d18, #3a2810); border:1px solid var(--gold2); border-radius:4px; }
+.btn:hover, .btn:focus-visible { background: linear-gradient(#7a5420, #4a3414); color:#fff; outline:none; }
+.btn:active { transform: translateY(1px); }
+.btn[disabled] { color:#777; cursor:default; }
+.btn kbd { float:right; margin-left:12px; opacity:.8; }
+.btn.inline { display:inline-block; width:auto; margin:2px 4px 2px 0; }
+html.has-art .btn { border:solid transparent; border-width:0 12px; border-image: var(--btn-up) 0 12 fill / 0 12px stretch; background:none; padding: 6px 4px; min-height: 30px; }
+html.has-art .btn:hover, html.has-art .btn:focus-visible { background: var(--btn-hi) center / 100% 100% no-repeat; color:#fff; }
+html.has-art .btn:active { border-image: var(--btn-down) 0 12 fill / 0 12px stretch; }
+html.has-art .btn.glue { padding: 8px 18px; }
+kbd { font: 12px "Friz", monospace; padding: 0 6px; border: 1px solid var(--gold2); border-radius: 3px; background:#1d140a; color: var(--ink); white-space:nowrap; }
+html.has-art kbd { background:#000a; border-color:#6b5a30; }
+/* tabs */
+.tabs { display:flex; gap:2px; margin: 0 0 12px; border-bottom: 1px solid #5a4620; flex-wrap:wrap; }
+.tab { padding: 5px 14px; background: #2a1d0d; border:1px solid #5a4620; border-bottom:0; border-radius: 4px 4px 0 0; color: var(--dim); cursor:pointer; }
+.tab[aria-selected=true] { background: #5a3d18; color: var(--gold); border-color: var(--gold2); }
+html.has-art .tab { background: rgba(0,0,0,.35); }
+html.has-art .tab[aria-selected=true] { background: linear-gradient(#6b4a1c, #2b1d0b); }
+/* settings */
+.set-layout { display:grid; grid-template-columns: 170px 1fr; gap: 14px; min-height: 380px; }
+.cats { display:flex; flex-direction:column; gap:2px; border-right:1px solid #5a4620; padding-right:8px; }
+.cat { text-align:left; padding:6px 10px; background:none; border:1px solid transparent; color: var(--ink); cursor:pointer; border-radius:3px; }
+.cat[aria-selected=true] { background: rgba(255,209,0,.12); border-color: var(--gold2); color: var(--gold); }
+.cat small { float:right; color: var(--dim); }
+.search { width:100%; padding:5px 8px; margin-bottom:8px; background:#0d0905; border:1px solid #7a622b; color: var(--ink); border-radius:3px; }
+html.has-art .search { border:0; border-image: var(--edit-bg) 8 / 8px stretch; background: rgba(0,0,0,.6); }
+.row { display:grid; grid-template-columns: 1fr 190px; align-items:center; gap:10px; padding:5px 4px; border-bottom:1px dotted #4a3a1c; }
+.row.hit { background: rgba(255,209,0,.1); }
+.row label { cursor:pointer; }
+.row small { display:block; color: var(--dim); font-size:11px; }
+.row .key { display:block; font: 10px monospace; color:#7c6a42; }
+.row .reset { margin-left:6px; cursor:pointer; color: var(--dim); background:none; border:0; }
+.row[data-dirty=false] .reset { visibility:hidden; }
+.sub { margin: 12px 0 2px; color: var(--gold); font-size: 13px; text-transform: uppercase; letter-spacing:.08em; }
+/* checkbox + slider */
+.chk { appearance:none; width:22px; height:22px; margin:0 6px 0 0; vertical-align:middle; cursor:pointer; background: #0d0905; border:1px solid var(--gold2); border-radius:3px; display:inline-grid; place-content:center; }
+.chk:checked::after { content:""; width:12px; height:12px; background: var(--gold); border-radius:2px; }
+html.has-art .chk { border:0; border-radius:0; background: var(--chk-up) center / 100% 100% no-repeat; }
+html.has-art .chk:checked::after { width:100%; height:100%; background: var(--chk-on) center / 100% 100% no-repeat; border-radius:0; }
+input[type=range] { width:170px; accent-color: var(--gold); }
+select.sel { width:190px; padding:3px 6px; background:#1d140a; border:1px solid var(--gold2); border-radius:3px; }
+/* keybindings */
+.kb-scroll { max-height: 380px; overflow:auto; padding-right:6px; border:1px solid #5a4620; background: rgba(0,0,0,.28); }
+.kb-head { position:sticky; top:0; z-index:1; padding: 5px 10px; color: var(--gold); background:#2a1d0d; border-bottom:1px solid var(--gold2); }
+.kb-row { display:grid; grid-template-columns: 1fr 120px 120px 120px; gap:8px; align-items:center; padding:3px 10px; }
+.kb-row:nth-child(even) { background: rgba(255,255,255,.03); }
+.kb-row .slot { padding: 3px 6px; text-align:center; cursor:pointer; background: #1d140a; border:1px solid #6b5a30; border-radius:3px; min-height:24px; color: var(--ink); }
+.kb-row .slot.pad { color:#8fd0ff; cursor:default; border-style:dashed; }
+.kb-row .slot:hover { border-color: var(--gold); }
+.kb-row .slot.listening { background: var(--gold); color:#000; text-shadow:none; animation: pulse .9s infinite; }
+.kb-row .slot.conflict { border-color: var(--bad); color: var(--bad); }
+.kb-row .slot:empty::after { content:"—"; color:#666; }
+.kb-cols { display:grid; grid-template-columns: 1fr 120px 120px 120px; gap:8px; padding: 4px 10px; color: var(--dim); font-size:11px; text-transform:uppercase; letter-spacing:.08em; }
+@keyframes pulse { 50% { opacity:.6; } }
+.toast { min-height: 20px; margin: 8px 0 0; color: var(--dim); font-size:12px; }
+.toast.bad { color: var(--bad); } .toast.ok { color: var(--ok); }
+.foot { display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
+.foot .btn { width:auto; min-width:120px; }
+/* cheatsheet */
+.sheet { display:grid; grid-template-columns: repeat(3, 1fr); gap: 10px 22px; }
+.sheet section h3 { margin:0 0 4px; color: var(--gold); font-size: 13px; border-bottom:1px solid #5a4620; text-transform:uppercase; letter-spacing:.08em; }
+.sheet dl { margin:0; display:grid; grid-template-columns: auto 1fr; gap: 3px 10px; align-items:center; }
+.sheet dt { text-align:right; } .sheet dd { margin:0; font-size:13px; }
+.sheet .ctx { color: var(--dim); font-size:11px; }
+.chips { display:flex; gap:6px; margin-bottom:10px; flex-wrap:wrap; }
+.chip { padding: 2px 10px; border:1px solid #6b5a30; border-radius: 12px; background:none; color: var(--ink); cursor:pointer; }
+.chip[aria-pressed=true] { background: var(--gold2); color:#000; text-shadow:none; }
+/* HUD sketch */
+.zone { position:absolute; border:1px dashed rgba(255,255,255,.7); background: rgba(10,10,16,.82); color:#fff; font-size:11px; padding:3px 6px; border-radius:4px; }
+.zone b { color: var(--gold); display:block; font-size:12px; }
+.zone .pill { display:inline-block; margin:2px 3px 0 0; padding:0 6px; background: rgba(255,209,0,.15); border:1px solid rgba(255,209,0,.4); border-radius:8px; }
+.zone.note { border-color: var(--gold); }
+#hud-legend { position:absolute; left:14px; top:130px; max-width:340px; padding:10px 12px; background: rgba(0,0,0,.8); border:1px solid var(--gold2); border-radius:4px; font-size:12px; }
+.hudbtn { position:absolute; top:130px; right:14px; }
+/* tooltip + action bar chip */
+.tt { position:absolute; padding: 6px 10px; background: rgba(8,8,16,.92); border:1px solid #6b5a30; border-radius:4px; font-size:12px; }
+html.has-art .tt { background: var(--tt-bg), #0b0b14; background-size: 64px; border-color:#8a8a8a; }
+/* fallback badge */
+.badge { position:absolute; right:10px; bottom:10px; font: 11px system-ui,sans-serif; padding:3px 8px; border-radius:10px; background:#000a; color:#9ab; z-index:5; }
+/* ---------- direction B: gilded modern (CSS only, WoW type + palette) ---------- */
+html[data-dir=B] .frame { border: 1px solid #8a6f33; border-image:none; border-radius: 10px; background: linear-gradient(#17120b f0, #0e0b07); background: linear-gradient(rgba(24,17,9,.94), rgba(10,8,5,.94)); box-shadow: 0 10px 40px #000a, inset 0 0 0 1px #3a2c14; padding: 22px 26px; }
+html[data-dir=B] .plaque { display:none; } html[data-dir=B] .frame.plaqued { padding-top:22px; } html[data-dir=B] .frame.plaqued h2 { display:block; }
+html[data-dir=B] .btn { border:1px solid #5a4620; border-image:none; background: rgba(255,255,255,.04); border-radius: 6px; color: var(--ink); text-align:left; padding: 8px 14px; }
+html[data-dir=B] .btn:hover, html[data-dir=B] .btn:focus-visible { background: rgba(255,209,0,.12); border-color: var(--gold); color: var(--gold); }
+html[data-dir=B] .tab { border-radius: 14px; border:1px solid transparent; background:none; margin-bottom:6px; }
+html[data-dir=B] .tab[aria-selected=true] { background: rgba(255,209,0,.14); border-color: var(--gold2); }
+html[data-dir=B] .tabs { border-bottom:0; }
+html[data-dir=B] .chk { border:1px solid var(--gold2); background:#0d0905; border-radius:4px; }
+html[data-dir=B] .chk:checked::after { width:12px; height:12px; background: var(--gold); border-radius:2px; }
+html[data-dir=B] .search { border:1px solid #5a4620; border-image:none; border-radius: 14px; padding: 6px 12px; }
+/* ---------- direction C: hybrid (WoW frame + plaque, modern flat controls) ---------- */
+html[data-dir=C] .btn { border:1px solid #5a4620; border-image:none; background: rgba(255,255,255,.05); border-radius:3px; color: var(--ink); padding:7px 14px; min-height:0; }
+html[data-dir=C] .btn:hover, html[data-dir=C] .btn:focus-visible { background: rgba(255,209,0,.14); border-color: var(--gold); color: var(--gold); border-image:none; }
+html[data-dir=C] .btn:active { border-image:none; }
+html[data-dir=C] .chk { border:1px solid var(--gold2); background:#0d0905 ; border-radius:3px; }
+html[data-dir=C] .chk:checked::after { width:12px; height:12px; background: var(--gold); border-radius:2px; }
+@media (prefers-reduced-motion: reduce) { .slot.listening { animation:none !important; } .btn:active { transform:none; } }
+</style>
+</head>
+<body>
+<div id="bar">
+  <b>Azeroth Racer · UI pass mock</b>
+  <span class="sep"></span>
+  Screen:
+  <button data-view="esc" aria-pressed="true">Esc menu</button>
+  <button data-view="settings" aria-pressed="false">Settings</button>
+  <button data-view="keys" aria-pressed="false">Key bindings</button>
+  <button data-view="sheet" aria-pressed="false">Cheatsheet</button>
+  <button data-view="hud" aria-pressed="false">HUD layout</button>
+  <span class="sep"></span>
+  Direction:
+  <button data-dir="A" aria-pressed="true" title="Faithful Classic frames">A · Classic frames</button>
+  <button data-dir="B" aria-pressed="false" title="Gilded modern, CSS only">B · Gilded modern</button>
+  <button data-dir="C" aria-pressed="false" title="Hybrid (recommended)">C · Hybrid ★</button>
+  <span class="sep"></span>
+  <button id="art" aria-pressed="true">WoW art: on</button>
+  <span id="assetnote"></span>
+</div>
+
+<div id="scene">
+  <!-- ======= ESC MENU ======= -->
+  <div class="view on" id="v-esc"><div class="dim"></div><div class="center">
+    <div class="frame plaqued" style="width:340px"><div class="plaque">Game Menu</div><h2>Game Menu</h2>
+      <button class="btn glue" data-go="settings">Options <kbd>O</kbd></button>
+      <button class="btn glue" data-go="keys">Key Bindings <kbd>K</kbd></button>
+      <button class="btn glue" data-go="sheet">Controls Cheatsheet <kbd>F1</kbd></button>
+      <div style="height:8px"></div>
+      <button class="btn glue" data-sfx>World Map <kbd>M</kbd></button>
+      <button class="btn glue" data-sfx>Garage <kbd>G</kbd></button>
+      <button class="btn glue" data-sfx>Track Editor <kbd>T</kbd></button>
+      <button class="btn glue" data-sfx>Fly / Drive <kbd>Tab</kbd></button>
+      <button class="btn glue" data-sfx>Unstuck <kbd>U</kbd></button>
+      <div style="height:8px"></div>
+      <button class="btn glue" data-sfx>Data &amp; Saves…</button>
+      <button class="btn glue" data-sfx>Diagnostics…</button>
+      <div style="height:8px"></div>
+      <button class="btn glue" data-go="hud">Return to Game <kbd>Esc</kbd></button>
+    </div>
+  </div></div>
+
+  <!-- ======= SETTINGS ======= -->
+  <div class="view" id="v-settings"><div class="dim"></div><div class="center">
+    <div class="frame plaqued wide"><div class="plaque">Options</div><h2>Options</h2>
+      <input class="search" id="q" type="search" placeholder="Search settings (try “cloud”, “volume”, “drift”)">
+      <div class="set-layout"><div class="cats" id="cats" role="tablist" aria-orientation="vertical"></div><div id="rows"></div></div>
+      <div class="foot"><button class="btn glue" id="s-defaults">Defaults</button><button class="btn glue" data-go="esc">Done</button></div>
+    </div>
+  </div></div>
+
+  <!-- ======= KEY BINDINGS ======= -->
+  <div class="view" id="v-keys"><div class="dim"></div><div class="center">
+    <div class="frame plaqued wide"><div class="plaque">Key Bindings</div><h2>Key Bindings</h2>
+      <div class="tabs" id="kb-profile" role="tablist">
+        <span class="tab" role="tab" aria-selected="true" data-p="native">Native (Space = drift)</span>
+        <span class="tab" role="tab" aria-selected="false" data-p="legacy">Legacy (Space = brake)</span>
+      </div>
+      <div class="kb-cols"><span>Action</span><span>Primary</span><span>Secondary</span><span>Gamepad</span></div>
+      <div class="kb-scroll" id="kb"></div>
+      <div class="toast" id="kb-toast">Click a slot, then press a key. Esc cancels, Backspace clears. Conflicts are flagged before they are saved.</div>
+      <div class="foot"><button class="btn glue" id="kb-reset">Reset to defaults</button><button class="btn glue" data-go="esc">Done</button></div>
+    </div>
+  </div></div>
+
+  <!-- ======= CHEATSHEET ======= -->
+  <div class="view" id="v-sheet"><div class="dim"></div><div class="center">
+    <div class="frame plaqued wide"><div class="plaque">Controls</div><h2>Controls</h2>
+      <div class="chips" id="chips" role="group" aria-label="Context"></div>
+      <div class="sheet" id="sheet"></div>
+      <div class="toast">Generated from the same registry as the rebinding screen: it always shows your current keys. Hold <kbd>F1</kbd> in game for this overlay.</div>
+      <div class="foot"><button class="btn glue" data-go="keys">Rebind…</button><button class="btn glue" data-go="esc">Done</button></div>
+    </div>
+  </div></div>
+
+  <!-- ======= HUD LAYOUT ======= -->
+  <div class="view" id="v-hud">
+    <div class="zone" style="left:50%;top:10px;transform:translateX(-50%);width:300px;text-align:center"><b>TOP-CENTRE · world &amp; race</b><span class="pill">12:20 IST</span><span class="pill">Race band (lap · time · pos)</span><span class="pill">Banner / countdown</span></div>
+    <div class="zone" style="left:10px;top:10px;width:230px"><b>TOP-LEFT · status</b><span class="pill">Loading / save status</span><span class="pill">Errors (toast)</span><span class="pill">Weather chip</span></div>
+    <div class="zone" style="right:10px;top:10px;width:210px;text-align:right"><b>TOP-RIGHT · system</b><span class="pill">Esc · Menu</span><span class="pill">F1 Controls</span><span class="pill">Mini-flight compass</span></div>
+    <div class="zone" style="left:10px;bottom:10px;width:220px"><b>BOTTOM-LEFT · vehicle health</b><span class="pill">Engine heat twin</span><span class="pill">Durability</span></div>
+    <div class="zone" style="right:10px;bottom:10px;width:250px;text-align:right"><b>BOTTOM-RIGHT · speed</b><span class="pill">Speed dial</span><span class="pill">Boost bar</span><span class="pill">Flight drum (alt)</span></div>
+    <div class="zone note" style="left:50%;bottom:18%;transform:translateX(-50%);width:320px;text-align:center"><b>CENTRE-LOW · prompts</b>“Press <kbd id="pf">F</kbd> to start race: Track To Sea” (key label read from the registry)</div>
+    <div class="zone note" style="left:50%;bottom:10px;transform:translateX(-50%);width:420px;text-align:center"><b>BOTTOM-CENTRE · action bar (optional)</b><span class="pill">[G] Garage</span><span class="pill">[M] Map</span><span class="pill">[T] Editor</span><span class="pill">[Tab] Fly</span><span class="pill">[F1] Help</span></div>
+    <div class="tt" style="left:calc(50% + 230px);bottom:70px">Garage <kbd>G</kbd><br><span style="color:#aaa">Switch vehicle or skin. Open world only.</span></div>
+    <div id="hud-legend"><b style="color:var(--gold)">One rule per zone.</b> Everything transient (toasts, prompts, banners) uses the same fade-in and the same WoW tooltip frame. Key names are never hard-coded in strings: HUD text asks the registry. <br><br>Press <kbd>Esc</kbd> to preview the menu.</div>
+    <button class="btn inline hudbtn" data-go="esc" style="width:auto">Open menu</button>
+  </div>
+
+  <div class="badge" id="badge"></div>
+</div>
+
+<script>
+// ================= registry (the proposal's data model) =================
+const ACTIONS = [
+  // id, label, category, native key(s), gamepad, context
+  ['drive.throttle','Throttle / forward','Driving',['KeyW'],[],'RT'],
+  ['drive.reverse','Reverse / brake','Driving',['KeyS'],[],'LT'],
+  ['drive.left','Steer left','Driving',['KeyA'],[],'L-stick ←'],
+  ['drive.right','Steer right','Driving',['KeyD'],[],'L-stick →'],
+  ['drive.boost','Boost','Driving',['ShiftLeft'],[],'A / ✕'],
+  ['drive.drift','Drift','Driving',['Space'],['KeyC'],'X / □'],
+  ['drive.brake','Hard brake','Driving',['KeyX'],[],'—'],
+  ['drive.hop','Hop','Driving',['KeyJ'],[],'RB'],
+  ['drive.pitchUp','Pod pitch up','Driving',['ArrowDown'],[],'L-stick ↓'],
+  ['drive.pitchDown','Pod pitch down','Driving',['ArrowUp'],[],'L-stick ↑'],
+  ['cam.lookLeft','Look left','Camera',['ArrowLeft'],[],'R-stick ←'],
+  ['cam.lookRight','Look right','Camera',['ArrowRight'],[],'R-stick →'],
+  ['cam.back','Look back','Camera',['KeyV'],[],'—'],
+  ['cam.cockpit','Toggle cockpit','Camera',['Ctrl+Alt+KeyV'],['KeyH'],'R3'],
+  ['cam.zoomIn','Zoom in','Camera',['Wheel↑'],[],'D-pad ↑'],
+  ['cam.zoomOut','Zoom out','Camera',['Wheel↓'],[],'D-pad ↓'],
+  ['fly.toggle','Fly / Drive','Flight',['Tab'],[],'Start'],
+  ['fly.up','Ascend','Flight',['KeyE'],[],'—'],
+  ['fly.down','Descend','Flight',['KeyQ'],[],'—'],
+  ['fly.nadir','Look straight down','Flight',['KeyX'],[],'—'],
+  ['race.start','Start race at flag','Race',['KeyR'],[],'Y'],
+  ['race.reset','Reset to raceway','Race',['F9'],[],'Y / △'],
+  ['race.unstuck','Unstuck','Race',['KeyU'],[],'—'],
+  ['ui.menu','Game menu','Interface',['Escape'],[],'Back'],
+  ['ui.map','World map','Interface',['KeyM'],[],'—'],
+  ['ui.garage','Garage','Interface',['KeyG'],[],'—'],
+  ['ui.editor','Track editor','Interface',['KeyT'],[],'—'],
+  ['ui.help','Controls cheatsheet','Interface',['F1'],[],'—'],
+  ['ui.pose','Export camera pose','Debug',['F8'],[],'—'],
+  ['ui.wind','Wind tuning panel','Debug',['Ctrl+Alt+KeyW'],[],'—'],
+];
+const DEFAULTS = {};
+for (const a of ACTIONS) DEFAULTS[a[0]] = [a[3][0]||'', a[4][0]||''];
+const LEGACY = { 'drive.drift':['KeyC',''], 'drive.brake':['Space','KeyX'] };
+let profile = 'native';
+let binds = structuredClone(DEFAULTS);
+const nice = c => !c ? '' : c.replace(/Key|Digit/,'').replace('Arrow','').replace('ShiftLeft','Shift').replace('Escape','Esc').replace('Ctrl+Alt+','Ctrl+Alt+');
+const $ = id => document.getElementById(id);
+const conflict = (id, code) => code && ACTIONS.find(a => a[0] !== id && sameCtx(a[0], id) && binds[a[0]].includes(code));
+const ctx = id => id.split('.')[0];
+const sameCtx = (a, b) => { const x = ctx(a), y = ctx(b); if (x === 'ui' || y === 'ui') return true; if (x === 'fly' && y === 'drive' || x === 'drive' && y === 'fly') return false; return true; };
+
+// ================= settings schema (data-driven, searchable) =================
+const SETTINGS = [
+  ['Graphics','Clouds','chk',true,'racer.clouds','clouds volumetric sky'],
+  ['Graphics','Cloud quality','sel',['Auto','Low','Medium','High'],'racer.cloudQuality','clouds quality'],
+  ['Graphics','Weather (rain, snow, lightning)','chk',true,'racer.weather','rain snow storm'],
+  ['Graphics','Weather quality','sel',['Auto','Low','High'],'racer.weatherQuality',''],
+  ['Graphics','Particles','sel',['Low','Medium','High'],'racer.particles','smoke dust'],
+  ['Graphics','Distant terrain','chk',true,'racer.distant','draw distance lod'],
+  ['Graphics','Scenery','chk',true,'racer.scenery','doodads props'],
+  ['Graphics','Ocean waves','chk',true,'racer.waves','water'],
+  ['Graphics','Animate NPCs','chk',true,'racer.animateNpcs',''],
+  ['Graphics','Memory budget','sel',['Auto','1 GB','2 GB','4 GB'],'racer.memoryBudget','vram gpu'],
+  ['Sound','Master volume','rng',80,'racer.masterVolume','audio loud'],
+  ['Sound','Music','chk',true,'racer.music',''],
+  ['Sound','Music volume','rng',50,'racer.musicVolume',''],
+  ['Sound','Racer sound effects','chk',true,'racer.sfx','engine'],
+  ['Controls','Control profile','sel',['Native (Space = drift)','Legacy (Space = brake)'],'racer.controls','space drift brake keyboard'],
+  ['Controls','Camera distance','rng',40,'racer.cameraDistance','zoom chase'],
+  ['Controls','Gamepad deadzone','rng',15,'racer.padDeadzone','controller stick'],
+  ['Controls','Invert pod pitch','chk',false,'racer.invertPitch','up down'],
+  ['Controls','Key bindings…','link','keys','','rebind keyboard keys'],
+  ['Interface','HUD dial (SWE1R art)','chk',true,'racer.hudDial','speedometer'],
+  ['Interface','HUD scale','rng',50,'racer.hudScale','size accessibility'],
+  ['Interface','Use WoW UI art','chk',true,'racer.uiArt','skin theme frames'],
+  ['Interface','Reduce motion','chk',false,'racer.reduceMotion','accessibility animation'],
+  ['Interface','Show key hints','chk',true,'racer.keyHints','prompts'],
+  ['Gameplay','Durability (heat and impact)','chk',true,'racer.durability','crash'],
+  ['Gameplay','Break apart on hard impact','chk',true,'racer.gib','wreck'],
+  ['Gameplay','Overheating blows the pod up','chk',true,'racer.overheat',''],
+  ['Gameplay','Impact speed (yd/s)','rng',50,'racer.gibSpeed',''],
+  ['Handling','Handling tuning…','link','','','advanced numbers'],
+  ['Data','Save / Load / Retry','link','','','save game'],
+  ['Data','Diagnostics','link','','','place coordinates fps'],
+];
+const catNames = [...new Set(SETTINGS.map(s => s[0]))];
+let cat = 'Graphics', query = '';
+const vals = new Map(SETTINGS.map(s => [s[4] || s[1], s[3]]));
+const orig = new Map(vals);
+function drawSettings() {
+  const q = query.trim().toLowerCase();
+  const hit = s => !q || (s[1] + ' ' + s[5] + ' ' + s[4]).toLowerCase().includes(q);
+  $('cats').replaceChildren(...catNames.map(c => {
+    const n = SETTINGS.filter(s => s[0] === c && hit(s)).length;
+    const b = document.createElement('button'); b.className = 'cat'; b.role = 'tab'; b.setAttribute('aria-selected', String(!q && c === cat));
+    b.innerHTML = `${c}<small>${n}</small>`; b.onclick = () => { cat = c; query = ''; $('q').value = ''; drawSettings(); sfx(); }; return b; }));
+  const list = SETTINGS.filter(s => (q ? hit(s) : s[0] === cat));
+  $('rows').replaceChildren(...list.map(s => {
+    const [c, label, kind, def, key, tags] = s, k = key || label, row = document.createElement('div');
+    row.className = 'row' + (q ? ' hit' : ''); row.dataset.dirty = String(vals.get(k) !== orig.get(k));
+    const left = document.createElement('div'); left.innerHTML = `<label>${label}</label>${q ? `<small>${c}</small>` : ''}<span class="key">${key}</span>`;
+    const right = document.createElement('div'); let el;
+    if (kind === 'chk') { el = Object.assign(document.createElement('input'), { type: 'checkbox', className: 'chk', checked: vals.get(k) }); el.onchange = () => { vals.set(k, el.checked); row.dataset.dirty = String(el.checked !== orig.get(k)); sfx(); }; }
+    else if (kind === 'rng') { el = Object.assign(document.createElement('input'), { type: 'range', value: vals.get(k) }); el.oninput = () => { vals.set(k, +el.value); row.dataset.dirty = String(+el.value !== orig.get(k)); }; }
+    else if (kind === 'sel') { el = document.createElement('select'); el.className = 'sel'; el.innerHTML = def.map(o => `<option>${o}</option>`).join(''); el.value = vals.get(k) === def ? def[0] : vals.get(k); el.onchange = () => { vals.set(k, el.value); row.dataset.dirty = 'true'; sfx(); }; }
+    else { el = Object.assign(document.createElement('button'), { className: 'btn inline', textContent: 'Open' }); el.onclick = () => { if (def === 'keys') show('keys'); }; }
+    const rs = Object.assign(document.createElement('button'), { className: 'reset', textContent: '↺', title: 'Reset to default' });
+    rs.onclick = () => { vals.set(k, orig.get(k)); drawSettings(); };
+    right.append(el, rs); row.append(left, right); return row; }));
+  if (!list.length) $('rows').textContent = 'No settings match.';
+}
+$('q').oninput = e => { query = e.target.value; drawSettings(); };
+$('s-defaults').onclick = () => { for (const [k, v] of orig) vals.set(k, v); drawSettings(); };
+
+// ================= key binding screen =================
+let listening = null;
+function drawKeys() {
+  const body = $('kb'); body.replaceChildren();
+  let last = '';
+  for (const a of ACTIONS) {
+    if (a[2] !== last) { last = a[2]; const h = document.createElement('div'); h.className = 'kb-head'; h.textContent = last; body.append(h); }
+    const row = document.createElement('div'); row.className = 'kb-row';
+    row.append(Object.assign(document.createElement('span'), { textContent: a[1] }));
+    for (const i of [0, 1]) {
+      const code = binds[a[0]][i], s = document.createElement('div'); s.className = 'slot'; s.tabIndex = 0; s.textContent = nice(code);
+      s.dataset.id = a[0]; s.dataset.i = i; if (conflict(a[0], code)) s.classList.add('conflict');
+      s.onclick = () => listen(s); s.onkeydown = e => { if (e.key === 'Enter' && !listening) { e.preventDefault(); listen(s); } };
+      row.append(s);
+    }
+    row.append(Object.assign(document.createElement('div'), { className: 'slot pad', textContent: a[5] === '—' ? '' : a[5], title: 'Gamepad mapping (standard layout)' }));
+    body.append(row);
+  }
+}
+function toast(msg, cls = '') { const t = $('kb-toast'); t.textContent = msg; t.className = 'toast ' + cls; }
+function listen(slot) { if (listening) listening.classList.remove('listening'); listening = slot; slot.classList.add('listening'); slot.textContent = 'Press a key…'; toast('Listening: Esc cancels · Backspace clears.'); }
+function chord(e) { return (e.ctrlKey ? 'Ctrl+' : '') + (e.altKey ? 'Alt+' : '') + (e.code.startsWith('Control') || e.code.startsWith('Alt') ? '' : e.code); }
+addEventListener('keydown', e => {
+  if (!listening) {
+    if (current === 'hud' && e.code === 'Escape') { show('esc'); return; }
+    if (current !== 'hud' && e.code === 'Escape') { show(current === 'esc' ? 'hud' : 'esc'); return; }
+    return;
+  }
+  e.preventDefault();
+  const id = listening.dataset.id, i = +listening.dataset.i;
+  if (e.code === 'Escape') { listening.classList.remove('listening'); listening = null; drawKeys(); toast('Cancelled.'); return; }
+  if (e.code === 'Backspace') { binds[id][i] = ''; listening = null; drawKeys(); toast('Cleared.', 'ok'); return; }
+  const code = chord(e); if (!code) return;
+  const other = conflict(id, code);
+  if (other) {
+    const prev = binds[id][i]; const j = binds[other[0]].indexOf(code);
+    binds[other[0]][j] = prev; binds[id][i] = code; toast(`“${nice(code)}” was bound to ${other[1]}. Swapped: ${other[1]} now uses “${nice(prev) || 'nothing'}”.`, 'bad');
+  } else { binds[id][i] = code; toast(`${ACTIONS.find(a => a[0] === id)[1]}: ${nice(code)}`, 'ok'); }
+  listening = null; drawKeys(); drawSheet(); sfx();
+});
+$('kb-reset').onclick = () => { binds = structuredClone(DEFAULTS); if (profile === 'legacy') Object.assign(binds, structuredClone(LEGACY)); drawKeys(); drawSheet(); toast('Defaults restored.', 'ok'); };
+$('kb-profile').onclick = e => {
+  const t = e.target.closest('[data-p]'); if (!t) return; profile = t.dataset.p;
+  for (const x of $('kb-profile').children) x.setAttribute('aria-selected', String(x === t));
+  binds = structuredClone(DEFAULTS); if (profile === 'legacy') { binds['drive.drift'] = ['KeyC', '']; binds['drive.brake'] = ['Space', 'KeyX']; }
+  drawKeys(); drawSheet(); toast(profile === 'legacy' ? 'Legacy preset: Space brakes, C drifts.' : 'Native preset: Space drifts, X brakes.');
+};
+
+// ================= cheatsheet (generated) =================
+let chip = 'All';
+function drawSheet() {
+  const chips = ['All', 'Driving', 'Flight', 'Race', 'Interface', 'Gamepad'];
+  $('chips').replaceChildren(...chips.map(c => { const b = document.createElement('button'); b.className = 'chip'; b.textContent = c; b.setAttribute('aria-pressed', String(c === chip)); b.onclick = () => { chip = c; drawSheet(); }; return b; }));
+  const groups = {}; for (const a of ACTIONS) (groups[a[2]] ||= []).push(a);
+  const sec = ([name, list]) => { const s = document.createElement('section'); s.innerHTML = `<h3>${name}</h3><dl></dl>`;
+    for (const a of list) { const keys = chip === 'Gamepad' ? (a[5] === '—' ? '' : `<kbd>${a[5]}</kbd>`) : binds[a[0]].filter(Boolean).map(k => `<kbd>${nice(k)}</kbd>`).join(' '); if (!keys) continue;
+      s.querySelector('dl').insertAdjacentHTML('beforeend', `<dt>${keys}</dt><dd>${a[1]}</dd>`); } return s; };
+  const pick = chip === 'All' || chip === 'Gamepad' ? Object.entries(groups) : Object.entries(groups).filter(([n]) => n === chip || (chip === 'Driving' && n === 'Camera'));
+  $('sheet').replaceChildren(...pick.map(sec).filter(s => s.querySelector('dt')));
+  const f = binds['race.start'][0]; if ($('pf')) $('pf').textContent = nice(f);
+}
+
+// ================= navigation =================
+let current = 'esc';
+function show(v) {
+  current = v; document.querySelectorAll('.view').forEach(x => x.classList.toggle('on', x.id === 'v-' + v));
+  document.querySelectorAll('[data-view]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.view === v)));
+  if (v === 'settings') drawSettings(); if (v === 'keys') drawKeys(); if (v === 'sheet') drawSheet();
+}
+document.addEventListener('click', e => { const g = e.target.closest('[data-go]'); if (g) { show(g.dataset.go); sfx(); } const v = e.target.closest('[data-view]'); if (v) show(v.dataset.view); if (e.target.closest('[data-sfx]')) sfx(); });
+document.querySelectorAll('[data-dir]').forEach(b => b.onclick = () => { document.documentElement.dataset.dir = b.dataset.dir; document.querySelectorAll('[data-dir]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); });
+
+// ================= runtime art (mirrors the proposed production loader) =================
+const ART = './ui-assets/Interface/';
+const load = src => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error(src)); i.src = src; });
+const cv = (w, h) => Object.assign(document.createElement('canvas'), { width: w, height: h });
+function crop(img, x, y, w, h) { const c = cv(w, h); c.getContext('2d').drawImage(img, x, y, w, h, 0, 0, w, h); return c.toDataURL(); }
+// DialogBox/Tooltip border strips are 8 cells of 32px: L R T B (stored rotated) then TL TR BL BR. Re-lay them out as a 3x3 border-image.
+function nineSlice(img) {
+  const c = cv(96, 96), g = c.getContext('2d'), cell = i => [i * 32, 0, 32, 32];
+  const rot = (i, dx, dy, a) => { g.save(); g.translate(dx + 16, dy + 16); g.rotate(a); g.drawImage(img, ...cell(i), -16, -16, 32, 32); g.restore(); };
+  g.drawImage(img, ...cell(0), 0, 32, 32, 32); g.drawImage(img, ...cell(1), 64, 32, 32, 32);
+  rot(2, 32, 0, -Math.PI / 2); rot(3, 32, 64, -Math.PI / 2);
+  g.drawImage(img, ...cell(4), 0, 0, 32, 32); g.drawImage(img, ...cell(5), 64, 0, 32, 32);
+  g.drawImage(img, ...cell(6), 0, 64, 32, 32); g.drawImage(img, ...cell(7), 64, 64, 32, 32);
+  return c.toDataURL();
+}
+const css = (k, v) => document.documentElement.style.setProperty(k, v);
+let artLoaded = false;
+async function loadArt() {
+  const names = { dlg: 'DialogFrame/UI-DialogBox-Border.png', dbg: 'DialogFrame/UI-DialogBox-Background.png', hdr: 'DialogFrame/UI-DialogBox-Header.png',
+    tb: 'Tooltips/UI-Tooltip-Border.png', tbg: 'Tooltips/UI-Tooltip-Background.png', up: 'Buttons/UI-Panel-Button-Up.png', dn: 'Buttons/UI-Panel-Button-Down.png', hi: 'Buttons/UI-Panel-Button-Highlight.png',
+    cu: 'Buttons/UI-CheckBox-Up.png', cc: 'Buttons/UI-CheckBox-Check.png', eb: 'Glues/Common/Glues-EditBox-Background.png' };
+  try {
+    const im = Object.fromEntries(await Promise.all(Object.entries(names).map(async ([k, p]) => [k, await load(ART + p)])));
+    css('--dlg-border', `url(${nineSlice(im.dlg)})`); css('--tt-border', `url(${nineSlice(im.tb)})`);
+    css('--dlg-bg', `url(${ART + names.dbg})`); css('--tt-bg', `url(${ART + names.tbg})`);
+    css('--dlg-header', `url(${crop(im.hdr, 0, 0, 256, 64)})`);
+    css('--btn-up', `url(${crop(im.up, 0, 0, 80, 22)})`); css('--btn-down', `url(${crop(im.dn, 0, 0, 80, 22)})`); css('--btn-hi', `url(${crop(im.hi, 0, 0, 80, 22)})`);
+    css('--chk-up', `url(${ART + names.cu})`); css('--chk-on', `url(${ART + names.cc})`); css('--edit-bg', `url(${ART + names.eb})`);
+    artLoaded = true; return true;
+  } catch (err) { console.info('WoW art not found, CSS fallback in use:', err.message); return false; }
+}
+function applyArt(on) {
+  document.documentElement.classList.toggle('has-art', on && artLoaded);
+  $('art').setAttribute('aria-pressed', String(on)); $('art').textContent = 'WoW art: ' + (on ? 'on' : 'off');
+  $('badge').textContent = artLoaded ? (on ? 'Rendering with local WoW art' : 'CSS-only fallback (art forced off)') : 'CSS-only fallback (no ./ui-assets folder found)';
+  $('assetnote').textContent = artLoaded ? '' : 'ui-assets/ missing: showing the graceful fallback';
+}
+$('art').onclick = () => applyArt($('art').getAttribute('aria-pressed') !== 'true');
+let audio; function sfx() { try { audio ||= new Audio('./ui-assets/Sound/interface/iUiInterfaceButtonA.wav'); audio.currentTime = 0; audio.volume = .4; audio.play().catch(() => {}); } catch {} }
+
+// ?dir=B&view=keys&art=0 for screenshots
+const qs = new URLSearchParams(location.search);
+loadArt().then(() => {
+  applyArt(qs.get('art') !== '0');
+  if (qs.get('dir')) document.querySelector(`[data-dir=${qs.get('dir')}]`)?.click();
+  if (qs.get('view')) show(qs.get('view'));
+  if (qs.get('cat')) { cat = qs.get('cat'); drawSettings(); }
+  if (qs.get('q')) { query = qs.get('q'); $('q').value = query; drawSettings(); }
+});
+drawSettings(); drawKeys(); drawSheet();
+</script>
+</body>
+</html>

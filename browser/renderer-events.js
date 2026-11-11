@@ -14,16 +14,16 @@ import {NIGHT_H} from './night-lights.js';
 import {AdmissionFade,terrainEdgeMask,readySceneInstances} from './renderer-helpers.js';
 // Ocean mesh padding: about half the planet circumference per side (3.04 R), so the fill never wraps over itself.
 const OCEAN_FILL=Math.round(PLANET_RADIUS*3.04);
-const PLANET_STATE=['heightGrid','colourGrid','colourDirty','horizonMini','surfaceRegistry','surfaceBytes','surfaceKey','nightBake','litCells','litQueue','lightsKey','landRects','farGrid','farMini','farVersion'];
+const PLANET_STATE=['heightGrid','colourGrid','colourDirty','horizonMini','surfaceRegistry','surfaceBytes','surfaceKey','nightBake','litCells','litQueue','lightsKey','landRects','farGrid','farMini','farVersion','farBytes','farBakedVersion','farBakedAt','farRegistry','farRegistryKey','farRegistryGrid','farDirty'];
 /** Parks the departing body's globe state (height/colour grids, baked surface and night lights) and restores the arriving body's, so a repeat swap re-bakes nothing; a first visit starts from empty grids. */
 export function swapPlanetState(r,from,to) {
   r.bodyStates??=new Map();(r.bodyManifests??={})[from]=r.manifest;
   r.bodyStates.set(from,Object.fromEntries(PLANET_STATE.map(k=>[k,r[k]])));
   Object.assign(r,r.bodyStates.get(to)??emptyPlanetState(r));
-  r.heightDirty=true;r.heightAt=0;r.surfaceDirty=!!r.surfaceBytes;if(r.nightBake)r.nightBake.rows=[0,NIGHT_H-1];
+  r.surfaceBake=undefined;r.heightDirty=true;r.heightAt=0;r.surfaceDirty=!!r.surfaceBytes;if(r.nightBake)r.nightBake.rows=[0,NIGHT_H-1];
 }
 const emptyPlanetState=r=>({heightGrid:new Float32Array(r.heightGrid.length).fill(-Infinity),colourGrid:createColourGrid(),colourDirty:new Set(),horizonMini:new Map(),
-  surfaceRegistry:undefined,surfaceBytes:undefined,surfaceKey:undefined,nightBake:undefined,litCells:undefined,litQueue:undefined,lightsKey:undefined,landRects:[],farGrid:createColourGrid(),farMini:new Map(),farVersion:0});
+  surfaceRegistry:undefined,surfaceBytes:undefined,surfaceKey:undefined,nightBake:undefined,litCells:undefined,litQueue:undefined,lightsKey:undefined,landRects:[],farGrid:createColourGrid(),farMini:new Map(),farVersion:0,farBytes:undefined,farBakedVersion:undefined,farBakedAt:undefined,farRegistry:undefined,farRegistryKey:undefined,farRegistryGrid:undefined,farDirty:undefined});
 /** Parked globe state of a body that is not the active chart, created on first use. */
 export function bodyState(r,id) {
   r.bodyStates??=new Map();
@@ -34,8 +34,9 @@ export function bodyState(r,id) {
 /** Minimap colour for a body's far globe, kept apart from the active globe's own colour grid so it never changes what the active far renderer draws. A tile needs both its WDL placement and its minimap, in either order. */
 export function farColour(s,body,key,part) {
   if(!s.farGrid)return;
+  s.farDirty??=new Set();
   const e={...s.farMini.get(key),...part};s.farMini.set(key,e);
-  if(e.placement&&e.rgba){splatMinimap(s.farGrid,e.rgba,MINIMAP_SIZE,e.placement,body.centre,body.radius,new Set(),s.heightGrid);s.farMini.delete(key);s.farVersion=(s.farVersion??0)+1;}
+  if(e.placement&&e.rgba){splatMinimap(s.farGrid,e.rgba,MINIMAP_SIZE,e.placement,body.centre,body.radius,s.farDirty??new Set(),s.heightGrid);s.farMini.delete(key);s.farVersion=(s.farVersion??0)+1;}
 }
 export function bodyEvent(r,body,data) {
   if(!r.heightGrid)return false;
@@ -49,6 +50,7 @@ export function bodyEvent(r,body,data) {
   return true;
 }
 export function reset(r,{keepPlanet=false}={}) {
+  cancelEvents(r);r.surfaceBake=undefined;
   // The globe height/colour grids are chart-lon/lat baked: a body switch must not inherit the previous body's relief (Azeroth peaks became spikes on Elune).
   if(r.heightGrid&&!keepPlanet){r.heightGrid.fill(-Infinity);r.heightDirty=true;r.heightAt=0;r.colourGrid=createColourGrid();r.colourDirty=new Set();r.horizonMini=new Map();r.farGrid=createColourGrid();r.farMini=new Map();r.farVersion=0;}
   r.terrainBundle=undefined;r.terrainBundleBuilds=0;
@@ -63,7 +65,7 @@ export function reset(r,{keepPlanet=false}={}) {
   for(const asset of r.assets.values()){asset.vertices.destroy();asset.indices.destroy();}r.assets.clear();
   for(const texture of r.textures.values())texture.destroy();r.textures.clear();
   r.items.clear();
-  for(const e of r.poses.values())e.buffer.destroy();r.poses.clear();r.moves?.clear();
+  for(const e of r.poses.values())e.buffer.destroy();r.poses.clear();r.moves?.clear();r.hiddenNpcs=undefined;r.deadNpcs=undefined;
   r.instances=[];r.nearInstances=[];r.farInstances=[];r.farRegion=undefined;
   r.camera=undefined;r.origin=[0,0];
   r.view=undefined;r.terrainView=undefined;
@@ -94,6 +96,8 @@ export function event(r,data) {
   }
   if(data.event==='pose'){r.pose(data);return;}
   if(data.event==='npc-moves'){r.npcMoves(data);return;}
+  if(data.event==='npc-fx'){r.npcFx(data);return;}
+  if(UPLOAD_STEPS[data.event]){runSteps(r,UPLOAD_STEPS[data.event](r,data),data);return;}
   if(data.event==='craft'){
     const craft=r.buildCraft(data,10318,'10318');
     r.releaseCraft();
@@ -119,11 +123,6 @@ export function event(r,data) {
     r.device.queue.writeTexture({texture:r.minimapAtlases[data.region],origin:[data.x*MINIMAP_SIZE,data.y*MINIMAP_SIZE]},
       data.rgba,{bytesPerRow:MINIMAP_SIZE*4},[MINIMAP_SIZE,MINIMAP_SIZE]);
   }
-  else if(data.event==='terrain-material'){
-    if(!r.tiles.has(data.index)||r.tiles.get(data.index).openSea)return;
-    r.releaseMaterial(r.materialPending.get(data.index)?.gpu);
-    r.materialPending.set(data.index,{data,cursor:0});
-  }
   else if(data.event==='exterior-water')r.water.push(r.drawable(data.vertices,data.placement));
   else if(data.event==='coast-water'){
     const entry=r.manifest.tiles[data.index],v=data.vertices;
@@ -139,98 +138,12 @@ export function event(r,data) {
     const item=r.drawable(v,[region.placement[0]+(entry.x-region.tile_origin[0])*1600/3,
       region.placement[1]+(entry.y-region.tile_origin[1])*1600/3]);
     let first=v.length/7;
-    while(first>0&&v[(first-1)*7+6]===4)first--;
+    while(first>0&&v[(first-1)*7+5]===.25)first--;
     if(first<v.length/7){
       item.backing={...item,first,count:v.length/7-first};
     }
     r.coast.set(data.index,item);
     r.coastBytes=bytes;
-  }
-  else if(data.event==='detail') {
-    for(const index of data.removed){
-      r.release(r.tiles.get(index));r.tiles.delete(index);
-      r.releaseMaterial(r.materialPending.get(index)?.gpu);r.materialPending.delete(index);
-    }
-    for(const t of data.tiles){
-      trimRimSpikes(t.vertices);const flat=t.vertices;t.vertices=dropOpenSeaWater(flat);const openSea=t.vertices!==flat;
-      r.release(r.tiles.get(t.index));
-      r.releaseMaterial(r.materialPending.get(t.index)?.gpu);r.materialPending.delete(t.index);
-      const entry=r.manifest.tiles[t.index];
-      let liquid=openSea?undefined:t.liquid;
-      if(liquid===undefined){
-        const values=[];
-        for(let i=0;i<t.vertices.length;i+=7)if(t.vertices[i+6]===2)values.push(...t.vertices.subarray(i,i+7));
-        liquid=new Float32Array(values);
-      }
-      if(!(liquid instanceof Float32Array)||liquid.length%21||liquid.byteLength>t.vertices.byteLength)
-        throw Error('Invalid prepared terrain liquid');
-      r.tiles.set(t.index,{...r.drawable(t.vertices,t.placement,r.minimapAtlases[entry.region]),liquid,openSea,
-        entry,cell:entry.x+64*entry.y});
-    }
-    const entries=[...r.tiles.values()].map(t=>t.entry);
-    for(const tile of r.tiles.values())tile.edgeMask=terrainEdgeMask(tile.entry,entries);
-    for(const item of r.seams.values())r.release(item);r.seams.clear();
-    for(const s of data.seams)if(s.vertices.length){
-      trimRimSpikes(s.vertices);
-      const entry=r.manifest.tiles[s.index];
-      r.seams.set(s.index,{...r.drawable(s.vertices,r.tiles.get(s.index).placement,r.minimapAtlases[entry.region]),
-        cell:entry.x+64*entry.y});
-    }
-  } else if(data.event==='scene'||data.event==='far-scene') {
-    const far=data.event==='far-scene',ownerRegion=far?r.farRegion:r.sceneRegion;
-    const previousInstances=far?(r.farInstances||[]):(r.nearInstances||r.instances);
-    let instances=data.instances;
-    if(data.instanceOrder!==undefined){
-      if(!Array.isArray(instances)||!Array.isArray(data.instanceOrder))throw Error('Invalid scene instance updates');
-      if(data.instanceOrder.some(id=>typeof id!=='string'||!id) ||
-        instances.some(i=>!i||typeof i.id!=='string'||!i.id))throw Error('Invalid scene instance IDs');
-      const order=new Set(data.instanceOrder),updates=new Map(instances.map(i=>[i.id,i]));
-      if(order.size!==data.instanceOrder.length || updates.size!==instances.length ||
-        instances.some(i=>!order.has(i.id)))throw Error('Invalid scene instance IDs');
-      const previous=new Map((data.region===ownerRegion?previousInstances:[]).map(i=>[i.id,i]));
-      instances=data.instanceOrder.map(id=>{
-        const instance=updates.get(id)||previous.get(id);
-        if(!instance)throw Error(`Missing scene instance ${id}`);
-        return instance;
-      });
-    } else if(instances===undefined){
-      if(data.region!==ownerRegion)throw Error('Scene region changed without instances');
-    } else if(!Array.isArray(instances))throw Error('Invalid scene instances');
-    if(far&&[...data.removedAssets,...data.removedTextures,...data.assets.map(a=>a.key),
-      ...data.textures.map(t=>t.key),...(instances||[]).map(i=>i.key)]
-      .some(key=>typeof key!=='string'||!key.startsWith('far:')))throw Error('Invalid distant resource ownership');
-    if(far&&data.reset)r.clearFar();
-    for(const key of data.removedAssets){const a=r.assets.get(key);a?.vertices.destroy();a?.indices.destroy();r.assets.delete(key);}
-    for(const key of data.removedTextures){r.textures.get(key)?.destroy();r.textures.delete(key);}
-    for(const a of data.assets){
-      const batches=r.prepareBatches(a.batches);
-      if(far)for(const batch of batches)if(batch.texture)batch.texture=`far:${batch.texture}`;
-      const vertices=r.buffer(a.vertices,GPUBufferUsage.VERTEX);
-      let indices;
-      try {indices=r.buffer(a.indices,GPUBufferUsage.INDEX);}
-      catch(error){vertices.destroy();throw error;}
-      const asset={vertices,indices,batches,bounds:a.bounds,bytes:a.vertices.byteLength+a.indices.byteLength};
-      const previous=r.assets.get(a.key);previous?.vertices.destroy();previous?.indices.destroy();
-      r.assets.set(a.key,asset);
-    }
-    for(const t of data.textures){
-      const texture=r.texture(t.width,t.height,t.rgba);
-      r.textures.get(t.key)?.destroy();r.textures.set(t.key,texture);
-    }
-    if(instances!==undefined){
-      if(far){r.farInstances=instances;r.farRegion=data.region;}
-      else {r.nearInstances=instances;r.sceneRegion=data.region;}
-    }
-    const merged=readySceneInstances(r.nearInstances||(far?r.instances:previousInstances),
-      r.farRegion===r.sceneRegion?r.farInstances||[]:[],r.assets,r.textures);
-    if(merged.length!==r.instances.length||merged.some((i,n)=>i!==r.instances[n]))r.instances=merged;
-    r.admissionFade??=new AdmissionFade();
-    r.admissionFade.update(r.instances.filter(i=>r.assets.has(i.key)&&
-      (!i.distant||sceneReady(i,r.assets,r.textures))).map(i=>i.id),performance.now()/1000);
-    const wanted=new Set(r.instances.map(i=>i.id));
-    for(const [key,item] of r.items)if((wanted&&!wanted.has(item.id)) || !r.assets.has(item.key)){
-      r.items.delete(key);
-    }
   }
 }
 export function clearFar(r) {
@@ -242,4 +155,152 @@ export function clearFar(r) {
   r.farInstances=[];r.farRegion=undefined;
   r.instances=r.nearInstances||r.instances.filter(i=>!i.distant);
   r.sceneBundle=undefined;
+}
+
+/** Upload events are generators that yield between GPU-heavy units; run to completion they behave exactly like the old synchronous handlers. */
+const UPLOAD_STEPS={detail:detailSteps,'terrain-material':materialSteps,scene:sceneSteps,'far-scene':sceneSteps};
+function runSteps(r,gen,data) {
+  if(!r.uploadBudget&&!r.eventQueue?.length){for(;!gen.next().done;);return;}
+  gen.data=data;(r.eventQueue??=[]).push(gen);scheduleDrain(r);
+}
+/** Runs queued upload steps until the time budget (ms) is spent; at least one step always runs so the queue cannot stall. */
+export function drainEvents(r,budget=r.uploadBudget||4) {
+  const queue=r.eventQueue;if(!queue?.length)return;
+  const t0=performance.now();
+  while(queue.length){
+    let result;
+    try {result=queue[0].next();}
+    catch(error){const gen=queue.shift();if(!r.onEventError)throw error;r.onEventError(error,gen.data);continue;}
+    if(result.done)queue.shift();
+    if(performance.now()-t0>=budget)break;
+  }
+}
+/** Frames normally drain the queue; the timer keeps it moving while none run (loading screen, hidden tab). */
+function scheduleDrain(r) {
+  if(r.drainTimer!==undefined||typeof setTimeout!=='function')return;
+  r.drainTimer=setTimeout(()=>{
+    r.drainTimer=undefined;
+    drainEvents(r,typeof document!=='undefined'&&document.hidden?Infinity:16);
+    if(r.eventQueue?.length)scheduleDrain(r);
+  },50);
+}
+export function cancelEvents(r) {
+  const queue=r.eventQueue;r.eventQueue=[];
+  if(r.drainTimer!==undefined){clearTimeout(r.drainTimer);r.drainTimer=undefined;}
+  for(const gen of queue??[])gen.return();
+}
+function* materialSteps(r,data) {
+  if(!r.tiles.has(data.index)||r.tiles.get(data.index).openSea)return;
+  r.releaseMaterial(r.materialPending.get(data.index)?.gpu);
+  r.materialPending.set(data.index,{data,cursor:0});
+}
+/** Tiles and seams are built off to the side and swapped in together, so a deferred update never shows half a streaming step. */
+function* detailSteps(r,data) {
+  const built=new Map(),seams=new Map();let committed=false;
+  try {
+    for(const t of data.tiles){
+      trimRimSpikes(t.vertices);const flat=t.vertices;t.vertices=dropOpenSeaWater(flat);const openSea=t.vertices!==flat;
+      const entry=r.manifest.tiles[t.index];
+      let liquid=openSea?undefined:t.liquid;
+      if(liquid===undefined){
+        const values=[];
+        for(let i=0;i<t.vertices.length;i+=7)if(t.vertices[i+6]===2||t.vertices[i+6]===4)values.push(...t.vertices.subarray(i,i+7));
+        liquid=new Float32Array(values);
+      }
+      if(!(liquid instanceof Float32Array)||liquid.length%21||liquid.byteLength>t.vertices.byteLength)
+        throw Error('Invalid prepared terrain liquid');
+      built.set(t.index,{...r.drawable(t.vertices,t.placement,r.minimapAtlases[entry.region]),liquid,openSea,
+        entry,cell:entry.x+64*entry.y});
+      yield;
+    }
+    for(const s of data.seams)if(s.vertices.length){
+      trimRimSpikes(s.vertices);
+      const entry=r.manifest.tiles[s.index],tile=built.get(s.index)??r.tiles.get(s.index);
+      seams.set(s.index,{...r.drawable(s.vertices,tile.placement,r.minimapAtlases[entry.region]),cell:entry.x+64*entry.y});
+      yield;
+    }
+    for(const index of data.removed){
+      r.release(r.tiles.get(index));r.tiles.delete(index);
+      r.releaseMaterial(r.materialPending.get(index)?.gpu);r.materialPending.delete(index);
+    }
+    for(const [index,tile] of built){
+      r.release(r.tiles.get(index));
+      r.releaseMaterial(r.materialPending.get(index)?.gpu);r.materialPending.delete(index);
+      r.tiles.set(index,tile);
+    }
+    const entries=[...r.tiles.values()].map(t=>t.entry);
+    for(const tile of r.tiles.values())tile.edgeMask=terrainEdgeMask(tile.entry,entries);
+    for(const item of r.seams.values())r.release(item);r.seams.clear();
+    for(const [index,seam] of seams)r.seams.set(index,seam);
+    committed=true;
+  } finally {
+    if(!committed)for(const item of [...built.values(),...seams.values()])r.release(item);
+  }
+}
+function* sceneSteps(r,data) {
+  const far=data.event==='far-scene',ownerRegion=far?r.farRegion:r.sceneRegion;
+  const previousInstances=far?(r.farInstances||[]):(r.nearInstances||r.instances);
+  let instances=data.instances;
+  if(data.instanceOrder!==undefined){
+    if(!Array.isArray(instances)||!Array.isArray(data.instanceOrder))throw Error('Invalid scene instance updates');
+    if(data.instanceOrder.some(id=>typeof id!=='string'||!id) ||
+      instances.some(i=>!i||typeof i.id!=='string'||!i.id))throw Error('Invalid scene instance IDs');
+    const order=new Set(data.instanceOrder),updates=new Map(instances.map(i=>[i.id,i]));
+    if(order.size!==data.instanceOrder.length || updates.size!==instances.length ||
+      instances.some(i=>!order.has(i.id)))throw Error('Invalid scene instance IDs');
+    const previous=new Map((data.region===ownerRegion?previousInstances:[]).map(i=>[i.id,i]));
+    instances=data.instanceOrder.map(id=>{
+      const instance=updates.get(id)||previous.get(id);
+      if(!instance)throw Error(`Missing scene instance ${id}`);
+      return instance;
+    });
+  } else if(instances===undefined){
+    if(data.region!==ownerRegion)throw Error('Scene region changed without instances');
+  } else if(!Array.isArray(instances))throw Error('Invalid scene instances');
+  if(far&&[...data.removedAssets,...data.removedTextures,...data.assets.map(a=>a.key),
+    ...data.textures.map(t=>t.key),...(instances||[]).map(i=>i.key)]
+    .some(key=>typeof key!=='string'||!key.startsWith('far:')))throw Error('Invalid distant resource ownership');
+  // Uploads land in local maps first (textures before assets) and are swapped in with the instances in one step.
+  const textures=new Map(),assets=new Map();let committed=false;
+  try {
+    for(const t of data.textures){textures.set(t.key,r.texture(t.width,t.height,t.rgba));yield;}
+    for(const a of data.assets){
+      const batches=r.prepareBatches(a.batches);
+      if(far)for(const batch of batches)if(batch.texture)batch.texture=`far:${batch.texture}`;
+      const vertices=r.buffer(a.vertices,GPUBufferUsage.VERTEX);
+      let indices;
+      try {indices=r.buffer(a.indices,GPUBufferUsage.INDEX);}
+      catch(error){vertices.destroy();throw error;}
+      assets.set(a.key,{vertices,indices,batches,bounds:a.bounds,bytes:a.vertices.byteLength+a.indices.byteLength});
+      yield;
+    }
+    if(far&&data.reset)r.clearFar();
+    for(const key of data.removedAssets){const a=r.assets.get(key);a?.vertices.destroy();a?.indices.destroy();r.assets.delete(key);}
+    for(const key of data.removedTextures){r.textures.get(key)?.destroy();r.textures.delete(key);}
+    for(const [key,asset] of assets){
+      const previous=r.assets.get(key);previous?.vertices.destroy();previous?.indices.destroy();
+      r.assets.set(key,asset);
+    }
+    for(const [key,texture] of textures){r.textures.get(key)?.destroy();r.textures.set(key,texture);}
+    committed=true;
+  } finally {
+    if(!committed){
+      for(const t of textures.values())t.destroy();
+      for(const a of assets.values()){a.vertices.destroy();a.indices.destroy();}
+    }
+  }
+  if(instances!==undefined){
+    if(far){r.farInstances=instances;r.farRegion=data.region;}
+    else {r.nearInstances=instances;r.sceneRegion=data.region;}
+  }
+  const merged=readySceneInstances(r.nearInstances||(far?r.instances:previousInstances),
+    r.farRegion===r.sceneRegion?r.farInstances||[]:[],r.assets,r.textures);
+  if(merged.length!==r.instances.length||merged.some((i,n)=>i!==r.instances[n]))r.instances=merged;
+  r.admissionFade??=new AdmissionFade();
+  r.admissionFade.update(r.instances.filter(i=>r.assets.has(i.key)&&
+    (!i.distant||sceneReady(i,r.assets,r.textures))).map(i=>i.id),performance.now()/1000);
+  const wanted=new Set(r.instances.map(i=>i.id));
+  for(const [key,item] of r.items)if((wanted&&!wanted.has(item.id)) || !r.assets.has(item.key)){
+    r.items.delete(key);
+  }
 }

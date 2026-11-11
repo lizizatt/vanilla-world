@@ -48,7 +48,7 @@ export function stepWind(r,dt) {
   const body=activeFramedBody(),lat=subPoint(eye[0],eye[2],body.centre,body.radius).lat;
   const shore=r.shoreField,cell=shore&&shore.cell,si=shore?Math.floor((eye[0]-shore.origin[0])/cell):-1,sj=shore?Math.floor((eye[2]-shore.origin[1])/cell):-1;
   // Open waves (mask) or any water the shore field knows about: in the beach zone the mask amplitude is 0 but it is still sea, not desert.
-  const sea=!!r.waveMask&&(maskAmp(r.waveMask,eye[0],eye[2])>.1||(shore&&si>=0&&sj>=0&&si<shore.n&&sj<shore.n&&shore.classes[sj*shore.n+si]!==0));
+  const sea=!!r.waveMask&&(maskAmp(r.waveMask,eye[0],eye[2])>.1||(shore&&si>=0&&sj>=0&&si<shore.n&&sj<shore.n&&(shore.classes[sj*shore.n+si]&3)!==0));
   const c=r.manifest?maelstromCentre(r.manifest):null,mael=c&&Math.abs(c[0])<1e8?c:null;
   w.step({dt,x:eye[0],z:eye[2],t:windTime(windTicks(r)),lat,character:zoneCharacter({area:r.weatherArea,climate:r.weather?.climate,sea}),
     storm:Math.max(r.weather?.on?r.weather.state.level:0,r.windStormHook??0),mael,enabled,sea});

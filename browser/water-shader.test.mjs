@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {WATER_NORMAL_SIZE,waterNormalMips,waterShading,WATER_LOOK,waterBody} from './water-shader.js';
+import {WATER_NORMAL_SIZE,waterNormalMips,waterShading,WATER_LOOK,waterBody,LAKE_LOOK,lakeAlpha} from './water-shader.js';
 import {WorldRenderer} from './world-renderer.js';
 import {patchShader} from './space.js';
 
@@ -33,7 +33,7 @@ test('original water normals are deterministic, bounded and fully mip-filtered',
 test('WMO water flags survive batch preparation without introducing texture dependencies',()=>{
   const renderer={scenePipeline:()=>({})};
   const [batch]=WorldRenderer.prototype.prepareBatches.call(renderer,[{water:true,blend:'opaque',texture:null}]);
-  assert.equal(batch.water,true);assert.equal(batch.transparent,false);assert.equal(batch.texture,null);
+  assert.equal(batch.water,true);assert.equal(batch.transparent,true);assert.equal(batch.texture,null);
   assert.throws(()=>WorldRenderer.prototype.prepareBatches.call(renderer,[{water:'yes'}]),/water flag/);
 });
 
@@ -69,4 +69,26 @@ test('far-field slope variance stays below what the normal map actually holds',(
   for(let i=0;i<mip.length;i+=4){const z=mip[i+2]/255,x=(1-2*mip[i]/255),y=(1-2*mip[i+1]/255);energy+=(x*x+y*y)/(z*z)/2;}
   energy/=mip.length/4;
   assert(WATER_LOOK.farVariance<energy&&WATER_LOOK.farVariance>energy/6,`${energy}`);
+});
+
+test('lake alpha is translucent in the shallows, deepens with depth and stays inside the lake bounds',()=>{
+  assert.equal(lakeAlpha(0),0);assert.equal(lakeAlpha(0,1),0);assert(lakeAlpha(LAKE_LOOK.edgeFade)>=LAKE_LOOK.minAlpha);
+  assert(lakeAlpha(1)<=LAKE_LOOK.maxAlpha&&lakeAlpha(1)<1);
+  let previous=0;
+  for(let d=0;d<=1;d+=.05){const a=lakeAlpha(d);assert(a>=previous);previous=a;}
+  assert.equal(lakeAlpha(-3),lakeAlpha(0));assert.equal(lakeAlpha(9),lakeAlpha(1));
+  assert(lakeAlpha(.5,1)>lakeAlpha(.5)&&lakeAlpha(.5,1)<=1);
+  assert(lakeAlpha(.1,.5)>lakeAlpha(.1));
+});
+
+test('lake variant shares the ocean shader: ocean path is lake=0, lakes calm waves and drop whitecaps',()=>{
+  assert(LAKE_LOOK.slope<1&&LAKE_LOOK.slope>0);
+  assert(waterShading.includes('fn waterShade(')&&waterShading.includes('lake:f32'));
+  assert(waterShading.includes('waterShade(p,ramp,rampWidth,dx,dy,0.0).rgb'));
+  assert(waterShading.includes('fn waterColorLake(')&&waterShading.includes('waterShade(p,ramp,rampWidth,dx,dy,1.0)'));
+  assert(waterShading.includes('*(1.0-lake)'));
+  assert(waterShading.includes(`mix(1.0,${LAKE_LOOK.slope.toFixed(2)},lake)`));
+  assert(waterShading.includes('mix(1.0,lakeAlpha*edgeFade,lake)'));
+  assert(waterShading.includes(`lake*${LAKE_LOOK.skyCalm.toFixed(2)}`));
+  assert(waterShading.includes(`mix(1.0,${LAKE_LOOK.foam.toFixed(2)},lake)`));
 });

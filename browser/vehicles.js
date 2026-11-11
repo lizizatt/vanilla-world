@@ -1,18 +1,29 @@
 // Vehicle registry. Pure data plus selection helpers, no DOM. A vehicle type decides which races are visible
-// (track.vehicle, default 'podracer'); free flight is just a type without races.
+// (track.vehicle, default 'podracer').
 // Skin `source`: 'data' = authored model read at runtime from the user's Data (never shipped), 'glb' = original
-// model shipped in browser/vehicles/ (`model`), 'procedural' = drawn in code, 'none' = no body.
+// model shipped in browser/vehicles/ (`model`), 'wow' = another creature model (`display` id) read from the user's Data at runtime
+// (never shipped; offered only while the Data is open), 'procedural' = drawn in code, 'none' = no body.
+// Creature display of the authored Data rocket.
+export const ROCKET_DISPLAY=10318;
 export const DEFAULT_CHOICE=Object.freeze({vehicle:'podracer',skin:'rocket'});
 const STORAGE_KEY='racer.vehicle';
 
 export const VEHICLES=Object.freeze({
-  'free-flight':{id:'free-flight',name:'Free flight',races:false,stats:{Speed:.6,Handling:.7,Boost:.5},
-    note:'No race class: explore freely with the free camera.',
-    skins:[{id:'camera',name:'Free camera',source:'none'}]},
   podracer:{id:'podracer',name:'Podracer',races:true,stats:{Speed:.9,Handling:.55,Boost:.8},
-    note:'Hovering racer on the ground and over water. Boost with Shift.',
-    skins:[{id:'rocket',name:'Rocket (current)',source:'data'}]},
+    skins:[{id:'rocket',name:'Rocket (current)',source:'data'},
+      {id:'gnome-rocket-car',name:'Gnome rocket car',source:'wow',display:2490,model:'Creature\\GnomeRocketCar\\GnomeRocketCar',hover:0}]},
 });
+
+// A skin's optional `hover` is its ride height in yards above the support surface (ground, or the ocean surface over water);
+// a skin without it keeps the tuned Hover height. The physics suspension needs a positive standing height, so the sim is
+// given RIDE_CLEARANCE extra and the craft is drawn lower by the same standing height, leaving `hover` yards visible.
+export const RIDE_CLEARANCE=.8,FLOOR_CLEARANCE=.25,TUNING_HOVER=11,TUNING_SPRING=12,TUNING_GRAVITY=14;
+export function ridePlan(hover,values) {
+  if(!Number.isFinite(hover)||hover<0)return {values,drop:0};
+  const spring=values[TUNING_SPRING],sag=spring>0?Math.min(RIDE_CLEARANCE,values[TUNING_GRAVITY]/spring):RIDE_CLEARANCE;
+  const sent=values.slice();sent[TUNING_HOVER]=hover+RIDE_CLEARANCE;
+  return {values:sent,drop:Math.max(0,Math.max(FLOOR_CLEARANCE,hover+RIDE_CLEARANCE-sag)-hover)};
+}
 
 export const vehicleOf=track=>track?.vehicle??'podracer';
 /** Tracks are authored in one body's chart; a track without `body` belongs to Azeroth. Only the active body's tracks are ever drawn, listed or offered. */
@@ -52,3 +63,5 @@ export const skinOf=choice=>VEHICLES[choice.vehicle].skins.find(s=>s.id===choice
 
 // Switching is open-world only: never while a race is lining up, counting down or running, nor while editing.
 export const canSwitch=({race,editing})=>!race&&!editing;
+/** The HUD garage icon: shown while driving in the world, under the same rule as the G key and the Esc menu. */
+export const garageIconVisible=({running,flying,race,editing})=>!!running&&!flying&&canSwitch({race,editing});

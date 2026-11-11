@@ -81,7 +81,7 @@ export function deepOceanBacking(bytes,exteriorEdges,sea=0) {
         for(let r=row;r<row+height;r++)fill.fill(0,r*8+col,r*8+col+width);
         const a=(x*8+col)*TILE/128,b=(y*8+row)*TILE/128;
         const c=(x*8+col+width)*TILE/128,d=(y*8+row+height)*TILE/128;
-        for(const [px,pz] of [[a,b],[c,b],[c,d],[a,b],[c,d],[a,d]])out.push(px,sea,pz,0,1,0,4);
+        for(const [px,pz] of [[a,b],[c,b],[c,d],[a,b],[c,d],[a,d]])out.push(px,sea,pz,0,1,.25,4);
       }
       break;
     }
@@ -92,7 +92,7 @@ export function deepOceanBacking(bytes,exteriorEdges,sea=0) {
 export function validLiquidGeometry(vertices) {
   return vertices instanceof Float32Array && vertices.length%21===0 && vertices.byteLength<=8*1024*1024
     && vertices.every((v,i)=>Number.isFinite(v)&&(i%7===0||i%7===2?v>=-.02&&v<=TILE+.02:
-      i%7===1?Math.abs(v)<1e9:i%7===6?v===2||v===4:v===[0,1,0][i%7-3]));
+      i%7===1?Math.abs(v)<1e9:i%7===6?v===2||v===4:(i%7===5?v===0||v===.25:v===[0,1,0][i%7-3])));
 }
 
 // One staged file and one post-physics parse at a time; no terrain/material construction.

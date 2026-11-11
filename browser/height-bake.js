@@ -14,6 +14,8 @@ export function splatHeights(grid,vertices,placement,[cx,cz],radius) {
 
 /** Height grid (yd, -Infinity = unset) -> r8unorm bytes; unset and sub-sea-level cells encode as sea level. */
 export function encodeHeights(grid,out=new Uint8Array(grid.length)) {
-  for(let i=0;i<grid.length;i++)out[i]=Math.round(Math.min(1,Math.max(0,(Math.max(0,grid[i])-HEIGHT_MIN)/HEIGHT_RANGE))*255);
+  // Unset (-Infinity) and sub-sea cells all clamp to height 0, so they share one precomputed byte.
+  const sea=Math.round(Math.min(1,Math.max(0,(0-HEIGHT_MIN)/HEIGHT_RANGE))*255);
+  for(let i=0;i<grid.length;i++){const g=grid[i];out[i]=g<=0?sea:Math.round(Math.min(1,Math.max(0,(Math.max(0,g)-HEIGHT_MIN)/HEIGHT_RANGE))*255);}
   return out;
 }

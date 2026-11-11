@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createRegistry,defaultManifest,proceduralProvider,rectBounds,OCEAN,createColourGrid,splatMinimap,adtProvider} from './tile-registry.js';
+import {createRegistry,defaultManifest,proceduralProvider,rectBounds,OCEAN,createColourGrid,splatMinimap,adtProvider,adtChunk,bakeSurface,surfaceChunks,surfaceTexel} from './tile-registry.js';
 import {FALLBACK_RECTS,globeToFlat,PLANET_RADIUS} from './space.js';
 
 test('uncovered bins are open ocean',() => {
@@ -42,4 +42,23 @@ test('adt provider uses minimap colour where a tile was splatted and the no cove
   assert.ok(p.sample(.5,2).skip);
   const reg=createRegistry([{id:'a',kind:'adt',bounds:[-1.5,1.5,-3,3],blend:0,provider:p}]);
   assert.equal(reg.sample(.5,2).land,0);assert.equal(reg.sample(.005,.005).land,1);
+});
+
+test('real-data surface bake is bit-identical without the skipped procedural chunks',() => {
+  const grid=createColourGrid(),rects=FALLBACK_RECTS;
+  for(let k=0;k<grid.n.length;k+=7){if((k*2654435761>>>0)%5<2)continue;grid.n[k]=2;grid.sum[k*3]=.3*2;grid.sum[k*3+1]=(k%11)/11*2;grid.sum[k*3+2]=.7*2;}
+  const legacy=createRegistry([...defaultManifest(undefined,rects).map(c=>({...c,provider:{sample:() => ({skip:true})}})),adtChunk(grid)]);
+  assert.deepEqual(bakeSurface(createRegistry(surfaceChunks(rects,true,grid))),bakeSurface(legacy));
+  const proc=createRegistry([...defaultManifest(undefined,rects),adtChunk(grid)]);
+  assert.deepEqual(bakeSurface(createRegistry(surfaceChunks(rects,false,grid))),bakeSurface(proc));
+});
+test('patching only the dirty colour-grid texels equals a full re-bake',() => {
+  const grid=createColourGrid(),rects=FALLBACK_RECTS,reg=createRegistry(surfaceChunks(rects,true,grid));
+  const rgba=new Uint8Array(64*64*4);for(let i=0;i<rgba.length;i+=4){rgba[i]=40+i%200;rgba[i+1]=90;rgba[i+2]=(i>>3)%255;rgba[i+3]=255;}
+  splatMinimap(grid,rgba,64,[-3000,2000],[0,0],PLANET_RADIUS,new Set());
+  const before=bakeSurface(reg),dirty=new Set();
+  splatMinimap(grid,rgba,64,[-2400,2200],[0,0],PLANET_RADIUS,dirty);
+  assert.ok(dirty.size>0);
+  const next=before.slice();for(const k of dirty)next.set(surfaceTexel(reg,k%1024,Math.floor(k/1024),1024,512),k*4);
+  assert.deepEqual(next,bakeSurface(reg));
 });

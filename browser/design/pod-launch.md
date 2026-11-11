@@ -86,7 +86,7 @@ Powered acceleration is **172 yd/s² total**, scaled by the analog trigger,
 This keeps the previous default powered launch acceleration (72 + 100) without
 stacking engines; custom ordinary thrust no longer increases the powered total.
 No gravity, ordinary thrust, ordinary boost duration or speed default was retuned.
-Heat always rises normally (cold to full in 7.5 s), and overheat damage is
+Heat always rises normally (cold to full in 3.75 s), and overheat damage is
 unchanged during powered use. Current damage is 0.15/s at full heat split 60/40:
 a cold 15 s burn is survivable, so no additional damage headroom is necessary.
 With default durability enabled, a cold 15 s burn leaves **29.0875% / 52.7232%**

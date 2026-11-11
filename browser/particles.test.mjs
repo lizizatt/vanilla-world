@@ -62,6 +62,7 @@ test('exhaust points sit at the rear of each engine; metadata overrides; no engi
   const { vertices, indices } = craft();
   assert.deepEqual(exhaustPoints(vertices, indices).map(p => p.map(Math.round)), [[6, 1.5 * 1, 0], [6, -1.5, 0]].map(p => p.map(Math.round)));
   assert.deepEqual(exhaustPoints(vertices, indices, { exhausts: [[1, 2, 3]] }), [[1, 2, 3]]);
+  assert.deepEqual(exhaustPoints(vertices, indices, undefined, { atHullRear: true }), [[0, 1.5, 0], [0, -1.5, 0]]);
   const body = craft(); body.indices = body.indices.slice(0, 6);
   assert.deepEqual(exhaustPoints(body.vertices, body.indices), [[0, 0, 0]]);
 });
@@ -138,4 +139,32 @@ test('idle grounded craft puffs a few small dust particles; none when airborne o
   const off = new ParticlePool(512, () => .5); off.quality = 0;
   emitGroundDust(off, { matrix: m, origin: [0, 0], scale: 1, length: 4, speed: 0, drift: false, grounded: true, dt: 1 });
   assert.equal(off.count, 0);
+});
+
+import {particleLight} from './particles.js';
+function litColour(kind, light) {
+  const p = new ParticlePool(4, () => .5); p.emit(kind, 0, 0, 0); p.data[6] = p.data[7] * .3;
+  const out = new Float32Array(8); p.fill(out, [0, 0, 0], undefined, light); return [...out.slice(4, 7)];
+}
+test('particleLight is exactly neutral at full daylight and dark at night', () => {
+  assert.deepEqual(particleLight(1), [1, 1, 1]);
+  assert.ok(particleLight(0).every(v => v < .15));
+  assert.ok(particleLight(.5)[0] > particleLight(0)[0] && particleLight(.5)[0] < 1);
+});
+test('night dust is dark, noon dust is unchanged', () => {
+  const noon = litColour('dust', particleLight(1)), unlit = litColour('dust');
+  assert.deepEqual(noon, unlit);
+  const night = litColour('dust', particleLight(0));
+  night.forEach((v, i) => assert.ok(v < noon[i] * .2));
+});
+test('lit kinds (smoke, spray) darken at night', () => {
+  for (const k of ['smoke', 'spray', 'wake']) {
+    const day = litColour(k, particleLight(1)), night = litColour(k, particleLight(0));
+    night.forEach((v, i) => assert.ok(v < day[i] * .2, k));
+  }
+});
+test('emissive particles stay bright at night', () => {
+  for (const k of ['plume', 'burst', 'lamp']) {
+    assert.deepEqual(litColour(k, particleLight(0)), litColour(k, particleLight(1)), k);
+  }
 });

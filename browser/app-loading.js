@@ -53,7 +53,7 @@ function dockFolderButtons(inMenu) {
   for(const id of ['different','fallback','forget','swe1r-row'])if($(id).parentNode!==host)host.append($(id));
 }
 function enabled(value) {
-  document.querySelector('.meters').hidden=!value;$('flight-hud').hidden=!value;$('menu-hint').hidden=!value;dockFolderButtons(value);
+  document.querySelector('.meters').hidden=!value;$('flight-hud').hidden=!value;$('menu-hint').hidden=!value;if(!value)$('hud-garage').hidden=$('hud-radio').hidden=true;dockFolderButtons(value);
   for(const id of ['save','load','reset','unstuck','retry','overview','fly','drive'])$(id).disabled=!value;
   $('tuning-panel').inert=!value || !Array.isArray(client.info?.tuning);
   $('cockpit').disabled=!value;
@@ -129,7 +129,7 @@ async function open(selection,remember=false) {
     app.renderer.reset();app.renderer.clipCamera=undefined;app.renderer.cameraFloor=undefined;cameraCollision.reset();app.flight=undefined;app.pauseAudio();music.stop();Object.assign(settings,defaults);app.syncSettings();
     app.applyMemoryBudget();
     const result=await client.open(selection,loadingMap,{loading:true,...(selection==='elune'&&new URLSearchParams(location.search).get('poleFrame')?{poleFrame:new URLSearchParams(location.search).get('poleFrame')}:{} )});client.bodyId=activeBody().id;
-    app.renderer.configure(result.info.manifest);client.sky();client.hudArt();client.animate(settings.animateNpcs);client.waves(settings.waves);mapPanel.configure(result.info.manifest,result.info.id);
+    app.renderer.configure(result.info.manifest);client.sky();client.hudArt();client.uiArt();client.animate(settings.animateNpcs);client.creatureCollision(settings.creatureCollision!==false);client.waves(settings.waves);mapPanel.configure(result.info.manifest,result.info.id);
     void loadTracks().then(async found=>{if(new URLSearchParams(location.search).get('poleFrame'))found=[];// pole frames carry no tracks or gates in v1 (design/poles.md)
       app.shipped=found;app.tracks=await app.withOverrides(found);app.gateKey=undefined;});
 app.gateKit=undefined;void loadGateKit((a,p)=>client.request(a,p),()=>getSwe1r()&&loadPartModel(getSwe1r(),309)).then(kit=>{app.gateKit=kit;app.gateKey=undefined;});
@@ -145,10 +145,11 @@ app.gateKit=undefined;void loadGateKit((a,p)=>client.request(a,p),()=>getSwe1r()
     const tune=migrateTuning(await worldTuning(result.info.id));
     if(tune) {
       validateTuningRecord(tune);
-      await client.request('tuning',{values:tune.values});
+      await app.sendTuning(tune.values);
       app.tuningValues=tune.values.slice();settings.cameraSeconds=tune.cameraSeconds;
     }
-    if(selection==='elune'){settings.clouds=false;app.syncSettings();const values=app.tuningValues.slice();values[14]=podGravityFor(values[14],'azeroth','elune');await client.request('tuning',{values});app.tuningValues=values;}
+    if(Number.isFinite(app.rideHover))await app.sendTuning(app.tuningValues);
+    if(selection==='elune'){settings.clouds=false;app.syncSettings();const values=app.tuningValues.slice();values[14]=podGravityFor(values[14],'azeroth','elune');await app.sendTuning(values);app.tuningValues=values;}
     const restored=await restore(save);
     if(tune&&!restored)client.state=await client.request('reset');
     await waitNearby();evidence.loading.active=false;
@@ -280,13 +281,13 @@ async function soiSwap(app,parentId) {
     app.renderer.swapPlanetState(prev.id,parentId);
     app.renderer.reset({keepPlanet:true});app.renderer.clipCamera=undefined;app.renderer.cameraFloor=undefined;cameraCollision.reset();
     const manifest=client.info.manifest;
-    app.renderer.configure(manifest);client.sky();client.hudArt();client.animate(settings.animateNpcs);client.waves(settings.waves);mapPanel.configure(manifest,client.info.id);    cameraCollision.configure(manifest);lap('configure');
+    app.renderer.configure(manifest);client.sky();client.hudArt();client.uiArt();client.animate(settings.animateNpcs);client.creatureCollision(settings.creatureCollision!==false);client.waves(settings.waves);mapPanel.configure(manifest,client.info.id);    cameraCollision.configure(manifest);lap('configure');
     void engine.request('rebind',{replay:false}).catch(e=>console.warn('demote rebind',e));// old near world sheds its near residency; its events are only counted now
     // The worker handles messages in order, so rebind then tuning are queued without blocking frames; the next frame lands after both.
     const rebound=client.request('rebind');lap('rebind');// new near world forgets what it "already sent" so streaming and the horizon reach the fresh renderer
     app.gateKey=undefined;
     const values=app.tuningValues.slice();values[14]=podGravityFor(values[14],prev.id,parentId);
-    const tuned=client.request('tuning',{values});lap('tuning');app.tuningValues=values;
+    const tuned=app.sendTuning(values);lap('tuning');app.tuningValues=values;
     evidence.swapSettled=Promise.all([rebound,tuned]).catch(e=>console.warn('swap settle',e));
     settings.clouds=app.bodyClouds[parentId]??(body.atmosphereEdge>0);app.syncSettings();
     evidence.info=client.info;evidence.bodySwaps=(evidence.bodySwaps||0)+1;
